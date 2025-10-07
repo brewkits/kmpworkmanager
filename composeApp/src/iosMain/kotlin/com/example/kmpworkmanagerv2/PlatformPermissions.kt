@@ -3,13 +3,7 @@ package com.example.kmpworkmanagerv2
 import androidx.compose.runtime.Composable
 import platform.UserNotifications.UNUserNotificationCenter
 
-@Composable
-actual fun RequestNotificationPermission(onPermissionResult: (Boolean) -> Unit) {
-    // Quyền đã được hỏi trong AppDelegate.swift, ở đây ta chỉ cần kiểm tra trạng thái
-    UNUserNotificationCenter.currentNotificationCenter().getNotificationSettingsWithCompletionHandler { settings ->
-        onPermissionResult(settings?.authorizationStatus == 1L) // 1L = authorized
-    }
-}
+
 
 @Composable
 actual fun rememberExactAlarmPermissionState(): ExactAlarmPermissionState {

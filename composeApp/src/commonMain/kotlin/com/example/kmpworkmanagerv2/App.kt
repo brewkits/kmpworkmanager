@@ -28,15 +28,16 @@ fun App() {
     var statusText by remember { mutableStateOf("Requesting permissions...") }
     val coroutineScope = rememberCoroutineScope()
 
-    // Sử dụng các hàm expect/actual đã định nghĩa
-    val exactAlarmPermissionState = rememberExactAlarmPermissionState()
-    RequestNotificationPermission { isGranted ->
+    val notificationPermissionState = rememberNotificationPermissionState { isGranted ->
         statusText = if (isGranted) "Notification permission granted." else "Notification permission denied."
     }
 
+    // Sử dụng các hàm expect/actual đã định nghĩa
+    val exactAlarmPermissionState = rememberExactAlarmPermissionState()
+
     MaterialTheme {
         Column(
-            Modifier.fillMaxSize().padding(16.dp),
+            Modifier.fillMaxSize().padding(WindowInsets.systemBars.asPaddingValues()).padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text("KMP Background Task Demo", style = MaterialTheme.typography.h6)
@@ -44,6 +45,16 @@ fun App() {
             Text(text = statusText, style = MaterialTheme.typography.subtitle1)
             Spacer(modifier = Modifier.height(16.dp))
             Divider()
+
+            if (notificationPermissionState.shouldShowRequest) {
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(onClick = notificationPermissionState.requestPermission) {
+                    Text("Grant Notification Permission")
+                }
+                Text("Notification permission is required to show notifications.", style = MaterialTheme.typography.caption, textAlign = TextAlign.Center)
+                Spacer(modifier = Modifier.height(16.dp))
+                Divider()
+            }
 
             if (exactAlarmPermissionState.shouldShowRequest) {
                 Spacer(modifier = Modifier.height(16.dp))

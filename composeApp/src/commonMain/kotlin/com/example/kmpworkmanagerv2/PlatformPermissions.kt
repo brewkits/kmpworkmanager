@@ -2,9 +2,7 @@ package com.example.kmpworkmanagerv2
 
 import androidx.compose.runtime.Composable
 
-// Lời hứa về Composable để xin quyền thông báo
-@Composable
-expect fun RequestNotificationPermission(onPermissionResult: (Boolean) -> Unit)
+
 
 // Lời hứa về một state manager để xử lý quyền Exact Alarm
 @Composable

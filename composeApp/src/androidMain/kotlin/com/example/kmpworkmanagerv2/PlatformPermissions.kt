@@ -15,21 +15,7 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 
-// Actual cho việc xin quyền thông báo
-@Composable
-actual fun RequestNotificationPermission(onPermissionResult: (Boolean) -> Unit) {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        val launcher = rememberLauncherForActivityResult(
-            contract = ActivityResultContracts.RequestPermission(),
-            onResult = { isGranted -> onPermissionResult(isGranted) }
-        )
-        LaunchedEffect(Unit) {
-            launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
-    } else {
-        onPermissionResult(true)
-    }
-}
+
 
 // Actual cho việc quản lý quyền Exact Alarm
 @Composable
