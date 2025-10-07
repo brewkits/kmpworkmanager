@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.example.kmpworkmanagerv2.background.workers.HeavyProcessingWorker</string>
+		<string>com.example.kmpworkmanagerv2.background.workers.SyncWorker</string>
+		<string>com.example.kmpworkmanagerv2.background.workers.UploadWorker</string>
+		<string>one-time-upload</string>
+		<string>heavy-task-1</string>
+		<string>periodic-sync-task</string>
+	</array>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+		<string>processing</string>
+		<string>remote-notification</string>
+	</array>
+</dict>
+</plist>
