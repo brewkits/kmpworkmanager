@@ -1,6 +1,8 @@
 package com.example.kmpworkmanagerv2
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.Button
 import androidx.compose.material.Divider
 import androidx.compose.material.MaterialTheme
@@ -15,6 +17,8 @@ import com.example.kmpworkmanagerv2.background.data.WorkerTypes
 import com.example.kmpworkmanagerv2.background.domain.BackgroundTaskScheduler
 import com.example.kmpworkmanagerv2.background.domain.Constraints
 import com.example.kmpworkmanagerv2.background.domain.TaskTrigger
+import com.example.kmpworkmanagerv2.push.FakePushNotificationHandler
+import com.example.kmpworkmanagerv2.push.PushNotificationHandler
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.ui.tooling.preview.Preview
 import org.koin.mp.KoinPlatform.getKoin
@@ -29,12 +33,14 @@ import kotlin.time.ExperimentalTime
  */
 @OptIn(ExperimentalTime::class)
 @Composable
-fun App() {
-    // Get the BackgroundTaskScheduler from Koin dependency injection.
-    val scheduler: BackgroundTaskScheduler = getKoin().get()
+fun App(
+    scheduler: BackgroundTaskScheduler = getKoin().get(),
+    pushHandler: PushNotificationHandler = getKoin().get()
+) {
     // State for holding the status text to be displayed on the UI.
     var statusText by remember { mutableStateOf("Requesting permissions...") }
-    // Coroutine scope for launching background tasks.
+
+    // Coroutine scope for launching asynchronous operations from UI events.
     val coroutineScope = rememberCoroutineScope()
 
     // State for managing notification permission.
@@ -42,12 +48,16 @@ fun App() {
         statusText = if (isGranted) "Notification permission granted." else "Notification permission denied."
     }
 
-    // State for managing exact alarm permission.
+    // State for managing exact alarm permission on Android.
     val exactAlarmPermissionState = rememberExactAlarmPermissionState()
 
     MaterialTheme {
+        // UPDATED: Re-added verticalScroll to the main Column to prevent overflow.
         Column(
-            Modifier.fillMaxSize().padding(WindowInsets.systemBars.asPaddingValues()).padding(16.dp),
+            Modifier.fillMaxSize()
+                .padding(WindowInsets.systemBars.asPaddingValues())
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text("KMP Background Task Demo", style = MaterialTheme.typography.h6)
@@ -77,6 +87,23 @@ fun App() {
                 Spacer(modifier = Modifier.height(16.dp))
                 Divider()
             }
+
+            // --- UPDATED: Re-added Push Notification Simulation Section ---
+            Spacer(modifier = Modifier.height(16.dp))
+            Button(onClick = {
+                val fakePayload = mapOf(
+                    "screen" to "details",
+                    "item_id" to "12345",
+                    "source" to "simulated_push"
+                )
+                pushHandler.handlePushPayload(fakePayload)
+                statusText = "Simulated Push Payload Handled. Check Logs!"
+            }) {
+                Text("Simulate Push Notification")
+            }
+            Text("📱 Simulate receiving a data payload from a push notification.", style = MaterialTheme.typography.body2, textAlign = TextAlign.Center)
+            Spacer(modifier = Modifier.height(16.dp))
+            Divider()
 
             // --- Periodic Task --- //
             Spacer(modifier = Modifier.height(16.dp))
@@ -176,5 +203,5 @@ fun App() {
 @Preview
 @Composable
 fun AppPreview() {
-    App()
+    App(scheduler = FakeBackgroundTaskScheduler(), pushHandler = FakePushNotificationHandler())
 }

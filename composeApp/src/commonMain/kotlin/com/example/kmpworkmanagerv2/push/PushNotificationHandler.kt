@@ -5,7 +5,7 @@ interface PushNotificationHandler {
      * Gửi device token lên server của bạn.
      * @param token Device token từ FCM hoặc APNs.
      */
-    suspend fun sendTokenToServer(token: String)
+    fun sendTokenToServer(token: String)
 
     /**
      * Xử lý dữ liệu (payload) nhận được từ push notification.

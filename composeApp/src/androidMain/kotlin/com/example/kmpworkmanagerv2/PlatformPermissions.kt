@@ -29,8 +29,8 @@ actual fun rememberExactAlarmPermissionState(): ExactAlarmPermissionState {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-                    val permissionState = alarmManager.canScheduleExactAlarms()
+                    val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+                    val permissionState = alarmManager?.canScheduleExactAlarms() ?: false
                     hasPermission = permissionState
                     shouldShowRequest = !permissionState
                 } else {
