@@ -21,6 +21,8 @@ kotlin {
         iosTarget.binaries.framework {
             baseName = "ComposeApp"
             isStatic = true
+            linkerOpts.add("-framework")
+            linkerOpts.add("UserNotifications")
         }
     }
     
@@ -91,4 +93,8 @@ android {
 
 dependencies {
     debugImplementation(compose.uiTooling)
+}
+
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    compilerOptions.freeCompilerArgs.add("-Xexpect-actual-classes")
 }

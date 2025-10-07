@@ -55,19 +55,19 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     }
 
     private func registerBackgroundTasks() {
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: "periodic-sync-task", using: nil) { task in
+        BGTaskScheduler.shared.register(forTaskWithIdentifier: TaskIds.shared.PERIODIC_SYNC_TASK, using: nil) { task in
             print("iOS BGTask: Handling periodic-sync-task task")
             self.showNotification(title: "Background Sync", body: "Periodic sync task completed.")
             task.setTaskCompleted(success: true)
         }
 
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: "one-time-upload", using: nil) { task in
+        BGTaskScheduler.shared.register(forTaskWithIdentifier: TaskIds.shared.ONE_TIME_UPLOAD, using: nil) { task in
             print("iOS BGTask: Handling one-time-upload task")
             self.showNotification(title: "Background Task", body: "One-time upload task finished.")
             task.setTaskCompleted(success: true)
         }
 
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: "heavy-task-1", using: nil) { task in
+        BGTaskScheduler.shared.register(forTaskWithIdentifier: TaskIds.shared.HEAVY_TASK_1, using: nil) { task in
             guard let processingTask = task as? BGProcessingTask else {
                 task.setTaskCompleted(success: false)
                 return
@@ -76,28 +76,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             self.showNotification(title: "Background Task", body: "Heavy task finished.")
             processingTask.setTaskCompleted(success: true)
         }
-
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: WorkerTypes.shared.SYNC_WORKER, using: nil) { task in
-            print("iOS BGTask: Handling SYNC_WORKER task")
-            self.scheduleAppRefresh()
-            task.setTaskCompleted(success: true)
-        }
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: WorkerTypes.shared.UPLOAD_WORKER, using: nil) { task in
-            print("iOS BGTask: Handling UPLOAD_WORKER task")
-            task.setTaskCompleted(success: true)
-        }
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: WorkerTypes.shared.HEAVY_PROCESSING_WORKER, using: nil) { task in
-            guard let processingTask = task as? BGProcessingTask else {
-                task.setTaskCompleted(success: false)
-                return
-            }
-            print("iOS BGTask: Handling HEAVY_PROCESSING_WORKER task")
-            processingTask.setTaskCompleted(success: true)
-        }
     }
 
     func scheduleAppRefresh() {
-        let request = BGAppRefreshTaskRequest(identifier: WorkerTypes.shared.SYNC_WORKER)
+        let request = BGAppRefreshTaskRequest(identifier: TaskIds.shared.PERIODIC_SYNC_TASK)
         request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
         do {
             try BGTaskScheduler.shared.submit(request)

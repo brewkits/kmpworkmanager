@@ -10,6 +10,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.example.kmpworkmanagerv2.background.data.TaskIds
 import com.example.kmpworkmanagerv2.background.data.WorkerTypes
 import com.example.kmpworkmanagerv2.background.domain.BackgroundTaskScheduler
 import com.example.kmpworkmanagerv2.background.domain.Constraints
@@ -17,22 +18,31 @@ import com.example.kmpworkmanagerv2.background.domain.TaskTrigger
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.ui.tooling.preview.Preview
 import org.koin.mp.KoinPlatform.getKoin
+import kotlin.time.Clock
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.ExperimentalTime
 
+/**
+ * The main entry point of the application.
+ * This composable function is responsible for rendering the entire UI.
+ */
 @OptIn(ExperimentalTime::class)
 @Composable
 fun App() {
+    // Get the BackgroundTaskScheduler from Koin dependency injection.
     val scheduler: BackgroundTaskScheduler = getKoin().get()
+    // State for holding the status text to be displayed on the UI.
     var statusText by remember { mutableStateOf("Requesting permissions...") }
+    // Coroutine scope for launching background tasks.
     val coroutineScope = rememberCoroutineScope()
 
+    // State for managing notification permission.
     val notificationPermissionState = rememberNotificationPermissionState { isGranted ->
         statusText = if (isGranted) "Notification permission granted." else "Notification permission denied."
     }
 
-    // Sử dụng các hàm expect/actual đã định nghĩa
+    // State for managing exact alarm permission.
     val exactAlarmPermissionState = rememberExactAlarmPermissionState()
 
     MaterialTheme {
@@ -46,6 +56,7 @@ fun App() {
             Spacer(modifier = Modifier.height(16.dp))
             Divider()
 
+            // Show the notification permission request button if needed.
             if (notificationPermissionState.shouldShowRequest) {
                 Spacer(modifier = Modifier.height(16.dp))
                 Button(onClick = notificationPermissionState.requestPermission) {
@@ -56,6 +67,7 @@ fun App() {
                 Divider()
             }
 
+            // Show the exact alarm permission request button if needed.
             if (exactAlarmPermissionState.shouldShowRequest) {
                 Spacer(modifier = Modifier.height(16.dp))
                 Button(onClick = exactAlarmPermissionState.requestPermission) {
@@ -66,12 +78,12 @@ fun App() {
                 Divider()
             }
 
-            // ... (Phần còn lại của UI không thay đổi)
+            // --- Periodic Task --- //
             Spacer(modifier = Modifier.height(16.dp))
             Button(onClick = {
                 coroutineScope.launch {
                     val result = scheduler.enqueue(
-                        id = "periodic-sync-task",
+                        id = TaskIds.PERIODIC_SYNC_TASK,
                         trigger = TaskTrigger.Periodic(intervalMs = 15.minutes.inWholeMilliseconds),
                         workerClassName = WorkerTypes.SYNC_WORKER
                     )
@@ -80,13 +92,19 @@ fun App() {
             }) {
                 Text("Schedule Periodic Sync (15 min)")
             }
-            Text("🔄 Lên lịch công việc lặp lại bằng BGTaskScheduler/WorkManager.", style = MaterialTheme.typography.caption, textAlign = TextAlign.Center)
+            Text("🔄 Schedule a recurring task using BGTaskScheduler/WorkManager.", style = MaterialTheme.typography.body2, textAlign = TextAlign.Center)
+            if (getPlatform().name.contains("Android")) {
+                Text("Note: Periodic tasks on Android are not exact and may be delayed by Doze mode. The minimum interval is 15 minutes.", style = MaterialTheme.typography.caption, textAlign = TextAlign.Center)
+            } else if (getPlatform().name.contains("iOS")) {
+                Text("Note: Periodic tasks on iOS are not guaranteed to run. The system decides when to run them based on app usage, battery, and network conditions. The minimum interval is not guaranteed.", style = MaterialTheme.typography.caption, textAlign = TextAlign.Center)
+            }
 
+            // --- One-Time Task --- //
             Spacer(modifier = Modifier.height(16.dp))
             Button(onClick = {
                 coroutineScope.launch {
                     val result = scheduler.enqueue(
-                        id = "one-time-upload",
+                        id = TaskIds.ONE_TIME_UPLOAD,
                         trigger = TaskTrigger.OneTime(initialDelayMs = 10.seconds.inWholeMilliseconds),
                         workerClassName = WorkerTypes.UPLOAD_WORKER
                     )
@@ -95,30 +113,35 @@ fun App() {
             }) {
                 Text("Run BG Task in 10s")
             }
-            Text("⚙️ Chạy tác vụ nền 1 lần sau 10 giây.", style = MaterialTheme.typography.caption, textAlign = TextAlign.Center)
+            Text("⚙️ Run a one-time background task after 10 seconds.", style = MaterialTheme.typography.body2, textAlign = TextAlign.Center)
 
+            // --- Heavy Task --- //
             Spacer(modifier = Modifier.height(16.dp))
             Button(onClick = {
                 coroutineScope.launch {
                     val result = scheduler.enqueue(
-                        id = "heavy-task-1",
+                        id = TaskIds.HEAVY_TASK_1,
                         trigger = TaskTrigger.OneTime(initialDelayMs = 5.seconds.inWholeMilliseconds),
                         workerClassName = WorkerTypes.HEAVY_PROCESSING_WORKER,
-                        constraints = Constraints(isHeavyTask = true) // <-- ĐÁNH DẤU LÀ TÁC VỤ NẶNG
+                        constraints = Constraints(isHeavyTask = true) // Mark as a heavy task
                     )
                     statusText = "Heavy Task Schedule Result: $result"
                 }
             }) {
                 Text("Schedule Heavy Task (30s)")
             }
-            Text("⚡ Chạy tác vụ nền nặng (Foreground Service / BGProcessingTask).", style = MaterialTheme.typography.caption, textAlign = TextAlign.Center)
+            Text("⚡ Run a heavy background task (Foreground Service / BGProcessingTask).", style = MaterialTheme.typography.body2, textAlign = TextAlign.Center)
+            if (getPlatform().name.contains("iOS")) {
+                Text("Note: Heavy tasks on iOS have a time limit (usually around 30 minutes) and require the device to be charging and connected to a network.", style = MaterialTheme.typography.caption, textAlign = TextAlign.Center)
+            }
 
+            // --- Exact Reminder --- //
             Spacer(modifier = Modifier.height(16.dp))
             Button(onClick = {
                 coroutineScope.launch {
-                    val reminderTime = kotlin.time.Clock.System.now().plus(10.seconds).toEpochMilliseconds()
+                    val reminderTime = Clock.System.now().plus(10.seconds).toEpochMilliseconds()
                     val result = scheduler.enqueue(
-                        id = "exact-reminder",
+                        id = TaskIds.EXACT_REMINDER,
                         trigger = TaskTrigger.Exact(atEpochMillis = reminderTime),
                         workerClassName = "Reminder"
                     )
@@ -127,10 +150,17 @@ fun App() {
             }, enabled = exactAlarmPermissionState.hasPermission) {
                 Text("Schedule Reminder in 10s")
             }
-            Text("⏰ Đặt báo thức/thông báo chính xác.", style = MaterialTheme.typography.caption, textAlign = TextAlign.Center)
+            Text("⏰ Set an exact alarm/notification.", style = MaterialTheme.typography.body2, textAlign = TextAlign.Center)
+            if (getPlatform().name.contains("Android")) {
+                Text("Note: On Android 14+, the USE_EXACT_ALARM permission is required. If not granted, the reminder will not be exact.", style = MaterialTheme.typography.caption, textAlign = TextAlign.Center)
+            } else if (getPlatform().name.contains("iOS")) {
+                Text("Note: Exact alarms on iOS are scheduled as local notifications. The app is not guaranteed to be woken up to run code at the exact time.", style = MaterialTheme.typography.caption, textAlign = TextAlign.Center)
+            }
 
             Spacer(modifier = Modifier.weight(1f))
             Divider()
+
+            // --- Cancel All Tasks --- //
             Spacer(modifier = Modifier.height(16.dp))
             Button(onClick = {
                 scheduler.cancelAll()
@@ -138,7 +168,7 @@ fun App() {
             }) {
                 Text("Cancel All Tasks")
             }
-            Text("🛑 Hủy tất cả các tác vụ và báo thức.", style = MaterialTheme.typography.caption, textAlign = TextAlign.Center)
+            Text("🛑 Cancel all tasks and alarms.", style = MaterialTheme.typography.body2, textAlign = TextAlign.Center)
         }
     }
 }
