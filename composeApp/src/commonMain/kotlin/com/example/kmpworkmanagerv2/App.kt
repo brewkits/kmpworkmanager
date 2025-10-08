@@ -19,6 +19,7 @@ import com.example.kmpworkmanagerv2.background.domain.Constraints
 import com.example.kmpworkmanagerv2.background.domain.TaskTrigger
 import com.example.kmpworkmanagerv2.push.FakePushNotificationHandler
 import com.example.kmpworkmanagerv2.push.PushNotificationHandler
+import com.example.kmpworkmanagerv2.showNotification
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.ui.tooling.preview.Preview
 import org.koin.mp.KoinPlatform.getKoin
@@ -102,6 +103,45 @@ fun App(
                 Text("Simulate Push Notification")
             }
             Text("📱 Simulate receiving a data payload from a push notification.", style = MaterialTheme.typography.body2, textAlign = TextAlign.Center)
+            Spacer(modifier = Modifier.height(16.dp))
+            Divider()
+
+            // --- Push Notification to Task --- //
+            Text("⬇️⬇️⬇️", style = MaterialTheme.typography.h6, textAlign = TextAlign.Center)
+            Text(
+                "The following button simulates a push notification. " +
+                "When a silent push is received, the app will schedule a background task to run after 5 seconds. " +
+                "When the task is completed, it will show a local notification.",
+                style = MaterialTheme.typography.body2,
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            if (getPlatform().name.contains("Android")) {
+                Text(
+                    "To test on Android, send a push notification to the app while it's in the background. " +
+                    "You can use the Firebase console or a tool like `adb`.",
+                    style = MaterialTheme.typography.caption,
+                    textAlign = TextAlign.Center
+                )
+            } else if (getPlatform().name.contains("iOS")) {
+                Text(
+                    "To test on iOS, send a silent push notification to the simulator using the `xcrun simctl push` command. " +
+                    "Make sure the `push.apns` file contains `\"content-available\": 1`.",
+                    style = MaterialTheme.typography.caption,
+                    textAlign = TextAlign.Center
+                )
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            Divider()
+
+            // --- Test Local Notification --- //
+            Button(onClick = {
+                showNotification("Test Notification", "This is a test notification from the app.")
+                statusText = "Test notification sent."
+            }) {
+                Text("Show Test Notification")
+            }
+            Text("🔔 Show a local notification for testing purposes.", style = MaterialTheme.typography.body2, textAlign = TextAlign.Center)
             Spacer(modifier = Modifier.height(16.dp))
             Divider()
 

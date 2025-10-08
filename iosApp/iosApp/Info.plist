@@ -4,9 +4,6 @@
 <dict>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
-		<string>com.example.kmpworkmanagerv2.background.workers.HeavyProcessingWorker</string>
-		<string>com.example.kmpworkmanagerv2.background.workers.SyncWorker</string>
-		<string>com.example.kmpworkmanagerv2.background.workers.UploadWorker</string>
 		<string>one-time-upload</string>
 		<string>heavy-task-1</string>
 		<string>periodic-sync-task</string>

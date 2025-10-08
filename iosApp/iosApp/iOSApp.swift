@@ -17,6 +17,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         KoinInitializerKt.doInitKoin(platformModule: IOSModuleKt.iosModule)
         koinIos = KoinIOS()
         super.init()
+        NotificationCenter.default.addObserver(self, selector: #selector(showNotificationFromKMP), name: NSNotification.Name("showNotification"), object: nil)
+    }
+
+    @objc func showNotificationFromKMP(notification: NSNotification) {
+        if let userInfo = notification.userInfo,
+           let title = userInfo["title"] as? String,
+           let body = userInfo["body"] as? String {
+            showNotification(title: title, body: body)
+        }
     }
 
     /**
@@ -142,6 +151,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
                      didReceiveRemoteNotification userInfo: [AnyHashable : Any],
                      fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
 
+        print(" KMP_PUSH_IOS: didReceiveRemoteNotification called.")
+
         print(" KMP_PUSH_IOS: Received push while in background: \(userInfo)")
 
         // Convert the payload and pass it to the KMP handler for processing.
@@ -151,7 +162,31 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             pushHandler.handlePushPayload(payload: stringPayload)
         }
 
-        completionHandler(.newData)
+        // Show a local notification to the user.
+        if let customData = userInfo["customData"] as? [String: Any],
+           let message = customData["message"] as? String {
+            self.showNotification(title: "Background Push", body: message)
+        }
+
+        let scheduler = koinIos.getScheduler()
+        let trigger = TaskTriggerHelperKt.createTaskTriggerOneTime(initialDelayMs: 5000)
+        let constraints = TaskTriggerHelperKt.createConstraints()
+        scheduler.enqueue(
+            id: "task-from-push-\(UUID().uuidString)",
+            trigger: trigger,
+            workerClassName: "one-time-upload",
+            constraints: constraints,
+            inputJson: nil,
+            policy: .replace
+        ) { result, error in
+            if let error = error {
+                print(" KMP_PUSH_IOS: Failed to schedule task from push. Error: \(error)")
+                completionHandler(.failed)
+            } else {
+                print(" KMP_PUSH_IOS: Successfully scheduled task from push. Result: \(result!)")
+                completionHandler(.newData)
+            }
+        }
     }
 
     /**
@@ -164,14 +199,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             print("iOS BGTask: Handling periodic-sync-task")
             // In a real app, you would perform the sync here.
             // We show a local notification for debugging purposes.
-            self.showNotification(title: "Background Sync", body: "Periodic sync task completed.")
+            self.showNotification(title: "Periodic Sync Task Completed", body: "A background task has been completed.")
             task.setTaskCompleted(success: true)
         }
 
         // Handler for a one-time background task.
         BGTaskScheduler.shared.register(forTaskWithIdentifier: "one-time-upload", using: nil) { task in
             print("iOS BGTask: Handling one-time-upload task")
-            self.showNotification(title: "Background Task", body: "One-time upload task finished.")
+            self.showNotification(title: "One-Time Upload Task Completed", body: "A background task has been completed.")
             task.setTaskCompleted(success: true)
         }
 

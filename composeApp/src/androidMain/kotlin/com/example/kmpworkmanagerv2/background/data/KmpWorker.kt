@@ -26,11 +26,11 @@ class KmpWorker(
         val notificationTitle = when (workerClassName) {
             WorkerTypes.SYNC_WORKER -> {
                 println("🤖 Android KmpWorker: Executing SYNC_WORKER...")
-                "Periodic Sync Task"
+                "Periodic Sync"
             }
             WorkerTypes.UPLOAD_WORKER -> {
                 println("🤖 Android KmpWorker: Executing UPLOAD_WORKER...")
-                "Upload Task"
+                "One-Time Upload"
             }
             else -> "Background Task"
         }
@@ -39,7 +39,7 @@ class KmpWorker(
         // Show a notification to visually confirm the worker has executed.
         showNotification(
             context = appContext,
-            title = notificationTitle,
+            title = "$notificationTitle Task Completed",
             message = "Task executed at ${kotlin.time.Clock.System.now()}"
         )
         // --- END: Added notification action ---

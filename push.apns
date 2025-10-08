@@ -1,0 +1,8 @@
+{
+  "aps": {
+    "content-available": 1
+  },
+  "customData": {
+    "message": "Trigger background work from server"
+  }
+}

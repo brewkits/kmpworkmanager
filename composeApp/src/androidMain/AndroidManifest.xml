@@ -25,6 +25,11 @@
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
     </activity>
+    <receiver android:name=".push.PushReceiver" android:exported="true">
+        <intent-filter>
+            <action android:name="com.google.android.c2dm.intent.RECEIVE" />
+        </intent-filter>
+    </receiver>
     <service
         android:name="androidx.work.impl.foreground.SystemForegroundService"
         android:foregroundServiceType="dataSync"
