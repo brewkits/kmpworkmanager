@@ -7,6 +7,7 @@
 		<string>one-time-upload</string>
 		<string>heavy-task-1</string>
 		<string>periodic-sync-task</string>
+		<string>network-task</string>
 	</array>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>

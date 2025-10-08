@@ -44,20 +44,19 @@ actual class NativeTaskScheduler : BackgroundTaskScheduler {
         println(" KMP_BG_TASK_iOS: Received enqueue request for id='$id', trigger=${trigger::class.simpleName}")
 
         return when (trigger) {
-            is TaskTrigger.Periodic -> scheduleBackgroundTask(id, trigger.intervalMs, constraints.isHeavyTask)
-            is TaskTrigger.OneTime -> scheduleBackgroundTask(id, trigger.initialDelayMs, constraints.isHeavyTask)
+            is TaskTrigger.Periodic -> scheduleBackgroundTask(id, trigger.intervalMs, constraints)
+            is TaskTrigger.OneTime -> scheduleBackgroundTask(id, trigger.initialDelayMs, constraints)
             is TaskTrigger.Exact -> scheduleExactNotification(id, trigger, workerClassName, inputJson)
             else -> ScheduleResult.REJECTED_OS_POLICY
         }
     }
 
-    private fun scheduleBackgroundTask(id: String, delayMs: Long, isHeavy: Boolean): ScheduleResult {
-        val request = if (isHeavy) {
+    private fun scheduleBackgroundTask(id: String, delayMs: Long, constraints: Constraints): ScheduleResult {
+        val request = if (constraints.isHeavyTask) {
             println(" KMP_BG_TASK_iOS: Scheduling as a HEAVY task (BGProcessingTaskRequest).")
             BGProcessingTaskRequest(identifier = id).apply {
-                // Tác vụ nặng thường yêu cầu sạc và mạng
-                requiresExternalPower = true
-                requiresNetworkConnectivity = true
+                requiresExternalPower = constraints.requiresCharging
+                requiresNetworkConnectivity = constraints.requiresNetwork
             }
         } else {
             println(" KMP_BG_TASK_iOS: Scheduling as a REGULAR task (BGAppRefreshTaskRequest).")

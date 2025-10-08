@@ -32,6 +32,10 @@ class KmpWorker(
                 println("🤖 Android KmpWorker: Executing UPLOAD_WORKER...")
                 "One-Time Upload"
             }
+            "Inexact-Alarm" -> {
+                println("🤖 Android KmpWorker: Executing Inexact-Alarm...")
+                "Inexact Alarm"
+            }
             else -> "Background Task"
         }
 

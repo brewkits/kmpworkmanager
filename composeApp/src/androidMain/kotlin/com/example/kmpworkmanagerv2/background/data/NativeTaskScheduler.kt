@@ -89,10 +89,14 @@ actual class NativeTaskScheduler(private val context: Context) : BackgroundTaskS
             .build()
 
         // Map our KMP Constraints to WorkManager's Constraints
+        val networkType = when {
+            constraints.requiresUnmeteredNetwork -> NetworkType.UNMETERED
+            constraints.requiresNetwork -> NetworkType.CONNECTED
+            else -> NetworkType.NOT_REQUIRED
+        }
+
         val wmConstraints = androidx.work.Constraints.Builder()
-            .setRequiredNetworkType(
-                if (constraints.requiresUnmeteredNetwork) NetworkType.UNMETERED else NetworkType.NOT_REQUIRED
-            )
+            .setRequiredNetworkType(networkType)
             .setRequiresCharging(constraints.requiresCharging)
             .build()
 
@@ -187,8 +191,14 @@ actual class NativeTaskScheduler(private val context: Context) : BackgroundTaskS
             .apply { inputJson?.let { putString("inputJson", it) } }
             .build()
 
+        val networkType = when {
+            constraints.requiresUnmeteredNetwork -> NetworkType.UNMETERED
+            constraints.requiresNetwork -> NetworkType.CONNECTED
+            else -> NetworkType.NOT_REQUIRED
+        }
+
         val wmConstraints = androidx.work.Constraints.Builder()
-            .setRequiredNetworkType(if (constraints.requiresUnmeteredNetwork) NetworkType.UNMETERED else NetworkType.NOT_REQUIRED)
+            .setRequiredNetworkType(networkType)
             .setRequiresCharging(constraints.requiresCharging)
             .build()
 

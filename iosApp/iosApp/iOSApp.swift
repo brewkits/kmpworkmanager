@@ -221,6 +221,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             self.showNotification(title: "Background Task", body: "Heavy task finished.")
             processingTask.setTaskCompleted(success: true)
         }
+
+        BGTaskScheduler.shared.register(forTaskWithIdentifier: "network-task", using: nil) { task in
+            print("iOS BGTask: Handling network-task")
+            self.showNotification(title: "Network Task", body: "Network task completed.")
+            task.setTaskCompleted(success: true)
+        }
     }
 
     /**

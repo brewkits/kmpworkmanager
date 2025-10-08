@@ -19,6 +19,7 @@ sealed interface TaskTrigger {
  * Defines the constraints under which a task can run.
  */
 data class Constraints(
+    val requiresNetwork: Boolean = false,
     val requiresUnmeteredNetwork: Boolean = false,
     val requiresCharging: Boolean = false,
     val allowWhileIdle: Boolean = false, // Hint for Android Doze mode
