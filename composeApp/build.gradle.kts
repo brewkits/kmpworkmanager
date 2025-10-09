@@ -46,7 +46,6 @@ kotlin {
             implementation(compose.components.uiToolingPreview)
             implementation(libs.androidx.lifecycle.viewmodelCompose)
             implementation(libs.androidx.lifecycle.runtimeCompose)
-            implementation(compose.material)
 
             // Koin for dependency injection
             implementation(libs.koin.core)
