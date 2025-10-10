@@ -3,6 +3,10 @@ package com.example.kmpworkmanagerv2.background.data
 import kotlin.experimental.ExperimentalObjCName
 import kotlin.native.ObjCName
 
+/**
+ * Object containing unique string identifiers for various background tasks.
+ * The @ObjCName annotation ensures the object is easily accessible from Swift/Objective-C code.
+ */
 @OptIn(ExperimentalObjCName::class)
 @ObjCName("TaskIds")
 object TaskIds {
