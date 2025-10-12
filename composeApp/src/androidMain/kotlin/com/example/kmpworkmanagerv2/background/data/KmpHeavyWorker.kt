@@ -1,6 +1,5 @@
 package com.example.kmpworkmanagerv2.background.data
 
-import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
@@ -11,7 +10,11 @@ import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import com.example.kmpworkmanagerv2.R
+import com.example.kmpworkmanagerv2.background.domain.TaskCompletionEvent
+import com.example.kmpworkmanagerv2.background.domain.TaskEventBus
 import kotlinx.coroutines.delay
+import kotlin.math.sqrt
+import kotlin.time.measureTime
 
 class KmpHeavyWorker(
     private val appContext: Context,
@@ -28,15 +31,70 @@ class KmpHeavyWorker(
         // BẮT BUỘC: Hiển thị notification và chuyển worker thành Foreground Service
         setForeground(createForegroundInfo(notificationTitle, initialMessage))
 
-        // Giả lập công việc nặng đang chạy
-        println("🤖 Android KmpHeavyWorker: Starting heavy work...")
-        delay(30_000) // Giả lập chạy trong 30 giây
-        println("🤖 Android KmpHeavyWorker: Heavy work finished.")
+        return try {
+            println("🤖 Android: Starting HeavyProcessingWorker...")
+            println("🤖 Android: 🔥 Starting heavy computation...")
 
-        // (Tùy chọn) Cập nhật notification khi hoàn thành
-        showCompletionNotification(notificationTitle, "Processing finished successfully.")
+            // Real heavy computation: Calculate prime numbers
+            var primes: List<Int> = emptyList()
+            val duration = measureTime {
+                primes = calculatePrimes(10000)
+            }
 
-        return Result.success()
+            println("🤖 Android: ✓ Calculated ${primes.size} prime numbers")
+            println("🤖 Android: ⚡ Computation took ${duration.inWholeMilliseconds}ms")
+            println("🤖 Android: 📊 First 10 primes: ${primes.take(10)}")
+            println("🤖 Android: 📊 Last 10 primes: ${primes.takeLast(10)}")
+
+            // Simulate some processing time
+            println("🤖 Android: 💾 Saving results...")
+            delay(2000)
+
+            println("🤖 Android: 🎉 HeavyProcessingWorker finished successfully")
+
+            // Emit completion event
+            TaskEventBus.emit(
+                TaskCompletionEvent(
+                    taskName = "Heavy Processing",
+                    success = true,
+                    message = "✅ Calculated ${primes.size} primes in ${duration.inWholeMilliseconds}ms"
+                )
+            )
+
+            Result.success()
+        } catch (e: Exception) {
+            println("🤖 Android: HeavyProcessingWorker failed: ${e.message}")
+            TaskEventBus.emit(
+                TaskCompletionEvent(
+                    taskName = "Heavy Processing",
+                    success = false,
+                    message = "❌ Task failed: ${e.message}"
+                )
+            )
+            Result.failure()
+        }
+    }
+
+    private fun calculatePrimes(limit: Int): List<Int> {
+        val primes = mutableListOf<Int>()
+        for (num in 2..limit) {
+            if (isPrime(num)) {
+                primes.add(num)
+            }
+        }
+        return primes
+    }
+
+    private fun isPrime(n: Int): Boolean {
+        if (n < 2) return false
+        if (n == 2) return true
+        if (n % 2 == 0) return false
+
+        val sqrtN = sqrt(n.toDouble()).toInt()
+        for (i in 3..sqrtN step 2) {
+            if (n % i == 0) return false
+        }
+        return true
     }
 
     private fun createForegroundInfo(title: String, message: String): ForegroundInfo {
@@ -59,17 +117,6 @@ class KmpHeavyWorker(
         }
     }
 
-    // Hàm hiển thị notification khi hoàn tất (không còn là foreground)
-    private fun showCompletionNotification(title: String, message: String) {
-        val channelId = "heavy_task_channel"
-        val notificationId = System.currentTimeMillis().toInt()
-        val notification = NotificationCompat.Builder(appContext, channelId)
-            .setContentTitle(title)
-            .setContentText(message)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .build()
-        notificationManager.notify(notificationId, notification)
-    }
 
     private fun createNotificationChannel(channelId: String, channelName: String) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

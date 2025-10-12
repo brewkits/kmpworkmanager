@@ -1,74 +1,111 @@
 package com.example.kmpworkmanagerv2.background.data
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.content.Context
-import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import com.example.kmpworkmanagerv2.R
-import kotlinx.datetime.Clock
-import kotlin.time.ExperimentalTime
+import com.example.kmpworkmanagerv2.background.domain.TaskCompletionEvent
+import com.example.kmpworkmanagerv2.background.domain.TaskEventBus
+import kotlinx.coroutines.delay
+import kotlin.time.measureTime
 
 /**
  * A generic CoroutineWorker that acts as the entry point for all deferrable tasks.
- * It now also shows a notification to provide visible feedback that the task has run.
+ * Emits events to TaskEventBus for UI updates.
  */
 class KmpWorker(
-    private val appContext: Context, // Changed to private val to be accessible in the class
+    appContext: Context,
     workerParams: WorkerParameters
 ) : CoroutineWorker(appContext, workerParams) {
-    @OptIn(ExperimentalTime::class)
     override suspend fun doWork(): Result {
-        val workerClassName = inputData.getString("workerClassName")?: return Result.failure()
+        val workerClassName = inputData.getString("workerClassName") ?: return Result.failure()
 
-        // Determine the title for the notification based on the worker type
-        val notificationTitle = when (workerClassName) {
-            WorkerTypes.SYNC_WORKER -> {
-                println("🤖 Android KmpWorker: Executing SYNC_WORKER...")
-                "Periodic Sync"
+        return try {
+            when (workerClassName) {
+                WorkerTypes.SYNC_WORKER -> executeSyncWorker()
+                WorkerTypes.UPLOAD_WORKER -> executeUploadWorker()
+                "Inexact-Alarm" -> executeInexactAlarm()
+                else -> {
+                    println("🤖 Android: Unknown worker type: $workerClassName")
+                    Result.failure()
+                }
             }
-            WorkerTypes.UPLOAD_WORKER -> {
-                println("🤖 Android KmpWorker: Executing UPLOAD_WORKER...")
-                "One-Time Upload"
-            }
-            "Inexact-Alarm" -> {
-                println("🤖 Android KmpWorker: Executing Inexact-Alarm...")
-                "Inexact Alarm"
-            }
-            else -> "Background Task"
+        } catch (e: Exception) {
+            println("🤖 Android: Worker failed: ${e.message}")
+            TaskEventBus.emit(
+                TaskCompletionEvent(
+                    taskName = "Task",
+                    success = false,
+                    message = "❌ Task failed: ${e.message}"
+                )
+            )
+            Result.failure()
+        }
+    }
+
+    private suspend fun executeSyncWorker(): Result {
+        println("🤖 Android: Starting SYNC_WORKER...")
+
+        val steps = listOf("Fetching data", "Processing", "Saving")
+        for ((index, step) in steps.withIndex()) {
+            println("🤖 Android: 📊 [$step] ${index + 1}/${steps.size}")
+            delay(800)
+            println("🤖 Android: ✓ [$step] completed")
         }
 
-        // --- START: Added notification action ---
-        // Show a notification to visually confirm the worker has executed.
-        showNotification(
-            context = appContext,
-            title = "$notificationTitle Task Completed",
-            message = "Task executed at ${kotlin.time.Clock.System.now()}"
+        println("🤖 Android: 🎉 SYNC_WORKER finished successfully")
+
+        TaskEventBus.emit(
+            TaskCompletionEvent(
+                taskName = "Sync",
+                success = true,
+                message = "🔄 Data synced successfully"
+            )
         )
-        // --- END: Added notification action ---
 
         return Result.success()
     }
 
-    /**
-     * Helper function to display a notification.
-     * This makes testing and debugging much easier as you get a visual confirmation.
-     */
-    private fun showNotification(context: Context, title: String, message: String) {
-        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val channelId = "workmanager_channel"
-        val channel = NotificationChannel(channelId, "WorkManager Tasks", NotificationManager.IMPORTANCE_DEFAULT)
-        notificationManager.createNotificationChannel(channel)
+    private suspend fun executeUploadWorker(): Result {
+        println("🤖 Android: Starting UPLOAD_WORKER...")
 
-        val notification = NotificationCompat.Builder(context, channelId)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle(title)
-            .setContentText(message)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .build()
+        val totalSize = 100
+        var uploaded = 0
 
-        // Use a unique ID for each notification to avoid overwriting
-        notificationManager.notify(System.currentTimeMillis().toInt(), notification)
+        println("🤖 Android: 📤 Starting upload of ${totalSize}MB...")
+
+        while (uploaded < totalSize) {
+            delay(300)
+            uploaded += 10
+            val progress = (uploaded * 100) / totalSize
+            println("🤖 Android: 📊 Upload progress: $uploaded/$totalSize MB ($progress%)")
+        }
+
+        println("🤖 Android: 🎉 UPLOAD_WORKER finished successfully")
+
+        TaskEventBus.emit(
+            TaskCompletionEvent(
+                taskName = "Upload",
+                success = true,
+                message = "📤 Uploaded ${totalSize}MB successfully"
+            )
+        )
+
+        return Result.success()
+    }
+
+    private suspend fun executeInexactAlarm(): Result {
+        println("🤖 Android: Starting Inexact-Alarm...")
+        delay(1000)
+        println("🤖 Android: 🎉 Inexact-Alarm completed")
+
+        TaskEventBus.emit(
+            TaskCompletionEvent(
+                taskName = "Alarm",
+                success = true,
+                message = "⏰ Alarm triggered successfully"
+            )
+        )
+
+        return Result.success()
     }
 }

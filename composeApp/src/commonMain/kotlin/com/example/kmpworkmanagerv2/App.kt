@@ -17,7 +17,10 @@ import com.example.kmpworkmanagerv2.background.data.TaskIds
 import com.example.kmpworkmanagerv2.background.data.WorkerTypes
 import com.example.kmpworkmanagerv2.background.domain.BackgroundTaskScheduler
 import com.example.kmpworkmanagerv2.background.domain.Constraints
+import com.example.kmpworkmanagerv2.background.domain.TaskRequest
 import com.example.kmpworkmanagerv2.background.domain.TaskTrigger
+import com.example.kmpworkmanagerv2.background.domain.TaskEventBus
+import com.example.kmpworkmanagerv2.background.domain.TaskCompletionEvent
 import com.example.kmpworkmanagerv2.push.FakePushNotificationHandler
 import com.example.kmpworkmanagerv2.push.PushNotificationHandler
 import kotlinx.coroutines.CoroutineScope
@@ -60,9 +63,42 @@ fun App(
     val exactAlarmPermissionState = rememberExactAlarmPermissionState()
 
     // State for managing the horizontal pager (tab view).
-    val pagerState = rememberPagerState(pageCount = { 3 })
+    val pagerState = rememberPagerState(pageCount = { 4 })
+
+    // Snackbar host state for showing toast messages
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // Listen for task completion events and show snackbar
+    LaunchedEffect(Unit) {
+        println("🎯 UI: Started listening to TaskEventBus")
+        TaskEventBus.events.collect { event ->
+            println("🎯 UI: Received event - ${event.taskName}: ${event.message}")
+            snackbarHostState.showSnackbar(
+                message = event.message,
+                duration = SnackbarDuration.Long
+            )
+            println("🎯 UI: Snackbar shown")
+        }
+    }
 
     MaterialTheme {
+        Scaffold(
+            snackbarHost = {
+                SnackbarHost(hostState = snackbarHostState) { data ->
+                    Snackbar(
+                        action = {
+                            TextButton(onClick = { data.dismiss() }) {
+                                Text("Close")
+                            }
+                        },
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    ) {
+                        Text(data.visuals.message)
+                    }
+                }
+            }
+        ) { paddingValues ->
         Column(
             Modifier.fillMaxSize()
                 // Apply padding for system bars (e.g., status bar, navigation bar)
@@ -71,18 +107,21 @@ fun App(
             // Tab bar for navigation
             TabRow(selectedTabIndex = pagerState.currentPage) {
                 Tab(selected = pagerState.currentPage == 0, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(0) } }) { Text("Tasks", modifier = Modifier.padding(16.dp)) }
-                Tab(selected = pagerState.currentPage == 1, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(1) } }) { Text("Alarms & Push", modifier = Modifier.padding(16.dp)) }
-                Tab(selected = pagerState.currentPage == 2, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(2) } }) { Text("Permissions & Info", modifier = Modifier.padding(16.dp)) }
+                Tab(selected = pagerState.currentPage == 1, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(1) } }) { Text("Task Chains", modifier = Modifier.padding(16.dp)) }
+                Tab(selected = pagerState.currentPage == 2, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(2) } }) { Text("Alarms & Push", modifier = Modifier.padding(16.dp)) }
+                Tab(selected = pagerState.currentPage == 3, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(3) } }) { Text("Permissions", modifier = Modifier.padding(16.dp)) }
             }
 
             // Horizontal pager to host the different tab screens
             HorizontalPager(state = pagerState) {
                 when (it) {
-                    0 -> TasksTab(scheduler, coroutineScope, statusText)
-                    1 -> AlarmsAndPushTab(scheduler, coroutineScope, statusText, exactAlarmPermissionState)
-                    2 -> PermissionsAndInfoTab(notificationPermissionState, exactAlarmPermissionState)
+                    0 -> TasksTab(scheduler, coroutineScope, statusText, snackbarHostState)
+                    1 -> TaskChainsTab(scheduler, coroutineScope, snackbarHostState)
+                    2 -> AlarmsAndPushTab(scheduler, coroutineScope, statusText, exactAlarmPermissionState, snackbarHostState)
+                    3 -> PermissionsAndInfoTab(notificationPermissionState, exactAlarmPermissionState)
                 }
             }
+        }
         }
     }
 }
@@ -91,12 +130,33 @@ fun App(
  * Composable for scheduling and managing background tasks (WorkManager/BGTaskScheduler).
  */
 @Composable
-fun TasksTab(scheduler: BackgroundTaskScheduler, coroutineScope: CoroutineScope, statusText: String) {
+fun TasksTab(scheduler: BackgroundTaskScheduler, coroutineScope: CoroutineScope, statusText: String, snackbarHostState: SnackbarHostState) {
     Column(
         Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text("WorkManager / BGTaskScheduler", style = MaterialTheme.typography.headlineSmall)
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // DEBUG: Test button to verify event bus works
+        Button(
+            onClick = {
+                coroutineScope.launch {
+                    println("🧪 TEST: Emitting test event")
+                    TaskEventBus.emit(
+                        TaskCompletionEvent(
+                            taskName = "Test",
+                            success = true,
+                            message = "🧪 Test event - Event Bus is working!"
+                        )
+                    )
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("🧪 Test Event Bus")
+        }
+
         Spacer(modifier = Modifier.height(16.dp))
 
         Card(modifier = Modifier.fillMaxWidth()) {
@@ -112,7 +172,10 @@ fun TasksTab(scheduler: BackgroundTaskScheduler, coroutineScope: CoroutineScope,
                             trigger = TaskTrigger.OneTime(initialDelayMs = 10.seconds.inWholeMilliseconds),
                             workerClassName = WorkerTypes.UPLOAD_WORKER
                         )
-                        //                statusText = "One-Time Task Schedule Result: $result" // Status update commented out
+                        snackbarHostState.showSnackbar(
+                            message = "✅ Background task scheduled! Will run in 10s",
+                            duration = SnackbarDuration.Short
+                        )
                     }
                 }) {
                     Text("Run BG Task in 10s")
@@ -129,7 +192,10 @@ fun TasksTab(scheduler: BackgroundTaskScheduler, coroutineScope: CoroutineScope,
                             workerClassName = WorkerTypes.HEAVY_PROCESSING_WORKER,
                             constraints = Constraints(isHeavyTask = true) // Mark as a heavy task for platform
                         )
-                        //                statusText = "Heavy Task Schedule Result: $result" // Status update commented out
+                        snackbarHostState.showSnackbar(
+                            message = "⚡ Heavy task scheduled! Will run in 5s",
+                            duration = SnackbarDuration.Short
+                        )
                     }
                 }) {
                     Text("Schedule Heavy Task (30s)")
@@ -147,7 +213,10 @@ fun TasksTab(scheduler: BackgroundTaskScheduler, coroutineScope: CoroutineScope,
                             workerClassName = WorkerTypes.UPLOAD_WORKER,
                             constraints = Constraints(requiresNetwork = true)
                         )
-                        //                statusText = "Network Task Schedule Result: $result" // Status update commented out
+                        snackbarHostState.showSnackbar(
+                            message = "🌐 Network task scheduled! Will run when connected",
+                            duration = SnackbarDuration.Short
+                        )
                     }
                 }) {
                     Text("Schedule Task with Network Constraint")
@@ -172,7 +241,10 @@ fun TasksTab(scheduler: BackgroundTaskScheduler, coroutineScope: CoroutineScope,
                             trigger = TaskTrigger.Periodic(intervalMs = 15.minutes.inWholeMilliseconds),
                             workerClassName = WorkerTypes.SYNC_WORKER
                         )
-                        //                statusText = "Periodic Sync Schedule Result: $result" // Status update commented out
+                        snackbarHostState.showSnackbar(
+                            message = "🔄 Periodic sync scheduled! Will run every 15 min",
+                            duration = SnackbarDuration.Short
+                        )
                     }
                 }) {
                     Text("Schedule Periodic Sync (15 min)")
@@ -185,11 +257,102 @@ fun TasksTab(scheduler: BackgroundTaskScheduler, coroutineScope: CoroutineScope,
 }
 
 /**
+ * Composable for demonstrating task chaining functionality.
+ */
+@Composable
+fun TaskChainsTab(scheduler: BackgroundTaskScheduler, coroutineScope: CoroutineScope, snackbarHostState: SnackbarHostState) {
+    Column(
+        Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text("Task Chains", style = MaterialTheme.typography.headlineSmall)
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("Sequential & Parallel Task Execution", style = MaterialTheme.typography.titleLarge)
+                InfoBox("Task chains allow you to execute multiple tasks in sequence or in parallel. This is useful for complex workflows that require multiple steps.")
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Example 1: Simple Sequential Chain
+                Button(onClick = {
+                    coroutineScope.launch {
+                        scheduler.beginWith(TaskRequest(workerClassName = WorkerTypes.SYNC_WORKER))
+                            .then(TaskRequest(workerClassName = WorkerTypes.UPLOAD_WORKER))
+                            .then(TaskRequest(workerClassName = WorkerTypes.SYNC_WORKER, inputJson = "{\"status\":\"complete\"}"))
+                            .enqueue()
+                        snackbarHostState.showSnackbar(
+                            message = "🔗 Sequential chain started!",
+                            duration = SnackbarDuration.Short
+                        )
+                    }
+                }) {
+                    Text("Run Sequential Chain")
+                }
+                Text("🔗 Execute: Sync → Upload → Sync", style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Example 2: Sequential + Parallel Chain
+                Button(onClick = {
+                    coroutineScope.launch {
+                        scheduler.beginWith(TaskRequest(workerClassName = WorkerTypes.SYNC_WORKER))
+                            .then(
+                                listOf(
+                                    TaskRequest(workerClassName = WorkerTypes.UPLOAD_WORKER),
+                                    TaskRequest(
+                                        workerClassName = WorkerTypes.HEAVY_PROCESSING_WORKER,
+                                        constraints = Constraints(isHeavyTask = true)
+                                    )
+                                )
+                            )
+                            .then(TaskRequest(workerClassName = WorkerTypes.SYNC_WORKER, inputJson = "{\"status\":\"complete\"}"))
+                            .enqueue()
+                        snackbarHostState.showSnackbar(
+                            message = "🔀 Mixed chain started! Running parallel tasks...",
+                            duration = SnackbarDuration.Short
+                        )
+                    }
+                }) {
+                    Text("Run Mixed Chain")
+                }
+                Text("🔀 Execute: Sync → (Upload ∥ Heavy Processing) → Sync", style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
+                InfoBox("This chain starts with a sync, then runs upload and heavy processing in parallel, and finishes with another sync.")
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Example 3: Parallel Start Chain
+                Button(onClick = {
+                    coroutineScope.launch {
+                        scheduler.beginWith(
+                            listOf(
+                                TaskRequest(workerClassName = WorkerTypes.SYNC_WORKER),
+                                TaskRequest(workerClassName = WorkerTypes.UPLOAD_WORKER)
+                            )
+                        )
+                            .then(TaskRequest(workerClassName = WorkerTypes.SYNC_WORKER, inputJson = "{\"status\":\"done\"}"))
+                            .enqueue()
+                        snackbarHostState.showSnackbar(
+                            message = "⚡ Parallel start chain launched!",
+                            duration = SnackbarDuration.Short
+                        )
+                    }
+                }) {
+                    Text("Run Parallel Start Chain")
+                }
+                Text("⚡ Execute: (Sync ∥ Upload) → Sync", style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
+                Spacer(modifier = Modifier.height(16.dp))
+
+                InfoBox("Note on Android: Task chains use WorkManager's continuation API. Tasks in parallel groups run concurrently.\n\nNote on iOS: Task chains are serialized and stored in UserDefaults. A special chain executor task processes them step by step. Parallel tasks within a step are executed using coroutines.")
+            }
+        }
+    }
+}
+
+/**
  * Composable for scheduling exact alarms/reminders (AlarmManager/UserNotifications) and Push Notifications info.
  */
 @OptIn(ExperimentalTime::class)
 @Composable
-fun AlarmsAndPushTab(scheduler: BackgroundTaskScheduler, coroutineScope: CoroutineScope, statusText: String, exactAlarmPermissionState: ExactAlarmPermissionState) {
+fun AlarmsAndPushTab(scheduler: BackgroundTaskScheduler, coroutineScope: CoroutineScope, statusText: String, exactAlarmPermissionState: ExactAlarmPermissionState, snackbarHostState: SnackbarHostState) {
     Column(
         Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -208,7 +371,10 @@ fun AlarmsAndPushTab(scheduler: BackgroundTaskScheduler, coroutineScope: Corouti
                             trigger = TaskTrigger.Exact(atEpochMillis = reminderTime),
                             workerClassName = "Reminder"
                         )
-                        //                statusText = "Exact Reminder Schedule Result: $result" // Status update commented out
+                        snackbarHostState.showSnackbar(
+                            message = "⏰ Reminder set! Will notify in 10s",
+                            duration = SnackbarDuration.Short
+                        )
                     }
                 }, enabled = exactAlarmPermissionState.hasPermission) {
                     Text("Schedule Reminder in 10s")

@@ -29,4 +29,24 @@ interface BackgroundTaskScheduler {
 
     /** Cancels all previously scheduled tasks currently managed by the scheduler. */
     fun cancelAll()
+
+    /**
+     * Begins a new task chain with a single initial task.
+     * @param task The first [TaskRequest] in the chain.
+     * @return A [TaskChain] builder instance to append more tasks.
+     */
+    fun beginWith(task: TaskRequest): TaskChain
+
+    /**
+     * Begins a new task chain with a group of tasks that will run in parallel.
+     * @param tasks A list of [TaskRequest]s to run in parallel as the first step.
+     * @return A [TaskChain] builder instance to append more tasks.
+     */
+    fun beginWith(tasks: List<TaskRequest>): TaskChain
+
+    /**
+     * Enqueues a constructed [TaskChain] for execution.
+     * This method is intended to be called from `TaskChain.enqueue()`.
+     */
+    fun enqueueChain(chain: TaskChain)
 }

@@ -37,4 +37,10 @@ expect class NativeTaskScheduler : BackgroundTaskScheduler {
 
     /** Expected function to cancel all scheduled tasks. */
     override fun cancelAll()
+
+    override fun beginWith(task: com.example.kmpworkmanagerv2.background.domain.TaskRequest): com.example.kmpworkmanagerv2.background.domain.TaskChain
+
+    override fun beginWith(tasks: List<com.example.kmpworkmanagerv2.background.domain.TaskRequest>): com.example.kmpworkmanagerv2.background.domain.TaskChain
+
+    override fun enqueueChain(chain: com.example.kmpworkmanagerv2.background.domain.TaskChain)
 }

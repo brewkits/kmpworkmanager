@@ -1,6 +1,9 @@
 package com.example.kmpworkmanagerv2.di
 
+import com.example.kmpworkmanagerv2.background.data.ChainExecutor
+import com.example.kmpworkmanagerv2.background.data.IosWorkerFactory
 import com.example.kmpworkmanagerv2.background.data.NativeTaskScheduler
+import com.example.kmpworkmanagerv2.background.data.SingleTaskExecutor
 import com.example.kmpworkmanagerv2.background.domain.BackgroundTaskScheduler
 import com.example.kmpworkmanagerv2.push.DefaultPushNotificationHandler
 import com.example.kmpworkmanagerv2.push.PushNotificationHandler
@@ -15,4 +18,13 @@ val iosModule = module {
     single<BackgroundTaskScheduler> { NativeTaskScheduler() }
     // Single instance of the PushNotificationHandler using the default implementation (if no specific iOS logic is needed here)
     single<PushNotificationHandler> { DefaultPushNotificationHandler() }
+
+    // Factory for creating iOS-specific workers
+    factory { IosWorkerFactory() }
+
+    // Single instance of the ChainExecutor for handling task chains on iOS
+    single { ChainExecutor(get()) }
+
+    // Single instance of the SingleTaskExecutor for handling individual tasks on iOS
+    single { SingleTaskExecutor(get()) }
 }

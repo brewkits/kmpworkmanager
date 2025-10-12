@@ -253,4 +253,73 @@ actual class NativeTaskScheduler(private val context: Context) : BackgroundTaskS
         // Note: Cancelling all alarms is complex and requires tracking all PendingIntents.
         // This is usually not needed. Cancelling WorkManager is often sufficient.
     }
+
+    actual override fun beginWith(task: com.example.kmpworkmanagerv2.background.domain.TaskRequest): com.example.kmpworkmanagerv2.background.domain.TaskChain {
+        return com.example.kmpworkmanagerv2.background.domain.TaskChain(this, listOf(task))
+    }
+
+    actual override fun beginWith(tasks: List<com.example.kmpworkmanagerv2.background.domain.TaskRequest>): com.example.kmpworkmanagerv2.background.domain.TaskChain {
+        return com.example.kmpworkmanagerv2.background.domain.TaskChain(this, tasks)
+    }
+
+    actual override fun enqueueChain(chain: com.example.kmpworkmanagerv2.background.domain.TaskChain) {
+        val steps = chain.getSteps()
+        if (steps.isEmpty()) return
+
+        // Create a list of WorkRequests for the first step
+        val firstStepWorkRequests = steps.first().map { taskRequest ->
+            createWorkRequest(taskRequest)
+        }
+
+        // Begin the chain
+        var workContinuation = workManager.beginWith(firstStepWorkRequests)
+
+        // Chain the subsequent steps
+        steps.drop(1).forEach { parallelTasks ->
+            val nextStepWorkRequests = parallelTasks.map { taskRequest ->
+                createWorkRequest(taskRequest)
+            }
+            workContinuation = workContinuation.then(nextStepWorkRequests)
+        }
+
+        // Enqueue the entire chain
+        workContinuation.enqueue()
+        println(" KMP_BG_TASK: Enqueued task chain.")
+    }
+
+    private fun createWorkRequest(task: com.example.kmpworkmanagerv2.background.domain.TaskRequest): OneTimeWorkRequest {
+        val workData = Data.Builder()
+            .putString("workerClassName", task.workerClassName)
+            .apply { task.inputJson?.let { putString("inputJson", it) } }
+            .build()
+
+        val constraints = task.constraints
+
+        val wmConstraints = if (constraints != null) {
+            val networkType = when {
+                constraints.requiresUnmeteredNetwork -> NetworkType.UNMETERED
+                constraints.requiresNetwork -> NetworkType.CONNECTED
+                else -> NetworkType.NOT_REQUIRED
+            }
+            androidx.work.Constraints.Builder()
+                .setRequiredNetworkType(networkType)
+                .setRequiresCharging(constraints.requiresCharging)
+                .build()
+        } else {
+            androidx.work.Constraints.NONE
+        }
+
+        val workRequestBuilder = if (constraints?.isHeavyTask == true) {
+            println(" KMP_BG_TASK: Scheduling as a HEAVY one-time task in a chain.")
+            OneTimeWorkRequestBuilder<KmpHeavyWorker>()
+        } else {
+            println(" KMP_BG_TASK: Scheduling as a REGULAR one-time task in a chain.")
+            OneTimeWorkRequestBuilder<KmpWorker>()
+        }
+
+        return workRequestBuilder
+            .setConstraints(wmConstraints)
+            .setInputData(workData)
+            .build()
+    }
 }

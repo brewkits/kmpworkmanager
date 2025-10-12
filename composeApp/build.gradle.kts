@@ -6,6 +6,7 @@ plugins {
     alias(libs.plugins.androidApplication)
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
+    alias(libs.plugins.kotlinx.serialization)
 }
 
 kotlin {
@@ -49,8 +50,11 @@ kotlin {
 
             // Koin for dependency injection
             implementation(libs.koin.core)
+            implementation(libs.koin.compose)
             // Kotlinx Datetime for handling dates and times
             implementation(libs.kotlinx.datetime)
+            // Kotlinx Serialization for JSON processing
+            implementation(libs.kotlinx.serialization.json)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

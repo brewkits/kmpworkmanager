@@ -4,6 +4,7 @@
 <dict>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
+		<string>kmp_chain_executor_task</string>
 		<string>one-time-upload</string>
 		<string>heavy-task-1</string>
 		<string>periodic-sync-task</string>

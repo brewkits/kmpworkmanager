@@ -80,7 +80,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         UNUserNotificationCenter.current().delegate = self
 
         UNUserNotificationCenter.current()
-            .requestAuthorization(options: [.alert, .sound, .badge]) { [weak self] granted, error in
+            .requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
                 print(" KMP_PUSH_IOS: Permission granted: \(granted)")
                 if let error = error {
                     print(" KMP_PUSH_IOS: Error requesting permission: \(error.localizedDescription)")
@@ -194,38 +194,125 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
      * This code runs when the app launches to tell the system what to do when a task is triggered.
      */
     private func registerBackgroundTasks() {
-        // Handler for a periodic background task (e.g., syncing data).
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: "periodic-sync-task", using: nil) { task in
-            print("iOS BGTask: Handling periodic-sync-task")
-            // In a real app, you would perform the sync here.
-            // We show a local notification for debugging purposes.
-            self.showNotification(title: "Periodic Sync Task Completed", body: "A background task has been completed.")
-            task.setTaskCompleted(success: true)
+        let taskIds = ["kmp_chain_executor_task", "periodic-sync-task", "one-time-upload", "heavy-task-1", "network-task"]
+
+        taskIds.forEach { taskId in
+            BGTaskScheduler.shared.register(forTaskWithIdentifier: taskId, using: nil) { task in
+                print("iOS BGTask: Generic handler received task: \(task.identifier)")
+                if (taskId == "kmp_chain_executor_task") {
+                    self.handleChainExecutorTask(task: task)
+                } else {
+                    self.handleSingleTask(task: task)
+                }
+            }
+        }
+    }
+
+    private func handleSingleTask(task: BGTask) {
+        let taskId = task.identifier
+        let userDefaults = UserDefaults.standard
+
+        // Define an expiration handler
+        task.expirationHandler = {
+            print("iOS BGTask: Task \(taskId) expired.")
+            task.setTaskCompleted(success: false)
         }
 
-        // Handler for a one-time background task.
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: "one-time-upload", using: nil) { task in
-            print("iOS BGTask: Handling one-time-upload task")
-            self.showNotification(title: "One-Time Upload Task Completed", body: "A background task has been completed.")
-            task.setTaskCompleted(success: true)
+        // Check if it's a periodic task
+        let periodicMeta = userDefaults.dictionary(forKey: "kmp_periodic_meta_" + taskId) as? [String: String]
+        let taskMeta = userDefaults.dictionary(forKey: "kmp_task_meta_" + taskId) as? [String: String]
+
+        let workerClassName: String?
+        let inputJson: String?
+
+        if let meta = periodicMeta, meta["isPeriodic"] == "true" {
+            workerClassName = meta["workerClassName"]
+            inputJson = meta["inputJson"]
+        } else if let meta = taskMeta {
+            workerClassName = meta["workerClassName"]
+            inputJson = meta["inputJson"]
+        } else {
+            print("iOS BGTask: No metadata found for task \(taskId). Cannot execute.")
+            task.setTaskCompleted(success: false)
+            return
         }
 
-        // Handler for a long-running, processing-intensive background task.
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: "heavy-task-1", using: nil) { task in
-            // Safely cast the task to a BGProcessingTask.
-            guard let processingTask = task as? BGProcessingTask else {
+        guard let workerName = workerClassName, !workerName.isEmpty else {
+            print("iOS BGTask: Worker class name is missing for task \(taskId).")
+            task.setTaskCompleted(success: false)
+            return
+        }
+
+        // Execute the task using the KMP SingleTaskExecutor
+        let executor = koinIos.getSingleTaskExecutor()
+        executor.executeTask(workerClassName: workerName, input: inputJson) { (success, error) in
+            if let error = error {
+                print("iOS BGTask: Task \(taskId) failed with error: \(error.localizedDescription)")
                 task.setTaskCompleted(success: false)
                 return
             }
-            print("iOS BGTask: Handling heavy-task-1")
-            self.showNotification(title: "Background Task", body: "Heavy task finished.")
-            processingTask.setTaskCompleted(success: true)
+
+            let result = success?.boolValue ?? false
+            print("iOS BGTask: Task \(taskId) finished with success: \(result)")
+
+            // If it was a periodic task, re-schedule it.
+            if let meta = periodicMeta, meta["isPeriodic"] == "true" {
+                print("iOS BGTask: Re-scheduling periodic task \(taskId).")
+                let scheduler = self.koinIos.getScheduler()
+                let intervalMs = Int64(meta["intervalMs"] ?? "0") ?? 0
+                let requiresNetwork = (meta["requiresNetwork"] ?? "false") == "true"
+                let requiresCharging = (meta["requiresCharging"] ?? "false") == "true"
+                let isHeavyTask = (meta["isHeavyTask"] ?? "false") == "true"
+
+                let constraints = Constraints(requiresNetwork: requiresNetwork, requiresUnmeteredNetwork: false, requiresCharging: requiresCharging, allowWhileIdle: false, qos: .background, isHeavyTask: isHeavyTask)
+                let trigger = TaskTriggerPeriodic(intervalMs: intervalMs, flexMs: nil)
+
+                scheduler.enqueue(id: taskId, trigger: trigger, workerClassName: workerName, constraints: constraints, inputJson: inputJson, policy: .replace) { _, _ in
+                    // The re-scheduling is best-effort.
+                }
+            }
+
+            task.setTaskCompleted(success: result)
+        }
+    }
+
+    // --- ADDED: Handler logic for the KMP Chain Executor Task ---
+    private func handleChainExecutorTask(task: BGTask) {
+        print("iOS BGTask: Handling KMP Chain Executor Task")
+
+        // Get the KMP ChainExecutor from Koin
+        let chainExecutor = koinIos.getChainExecutor()
+
+        // Define an expiration handler
+        task.expirationHandler = {
+            print("iOS BGTask: KMP Chain Executor Task expired.")
+            task.setTaskCompleted(success: false)
         }
 
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: "network-task", using: nil) { task in
-            print("iOS BGTask: Handling network-task")
-            self.showNotification(title: "Network Task", body: "Network task completed.")
-            task.setTaskCompleted(success: true)
+        // Schedule the next task if needed
+        let scheduleNext: () -> Void = {
+            if chainExecutor.getChainQueueSize() > 0 {
+                print("iOS BGTask: More chains in queue. Rescheduling executor task.")
+                let request = BGProcessingTaskRequest(identifier: "kmp_chain_executor_task")
+                request.earliestBeginDate = Date(timeIntervalSinceNow: 1)
+                request.requiresNetworkConnectivity = true
+                try? BGTaskScheduler.shared.submit(request)
+            }
+        }
+
+        // Execute the next chain from the KMP queue
+        chainExecutor.executeNextChainFromQueue { (success, error) in
+            if let error = error {
+                print("iOS BGTask: KMP Chain execution failed with error: \(error.localizedDescription)")
+                task.setTaskCompleted(success: false)
+                scheduleNext() // Schedule next even if this one failed
+                return
+            }
+
+            let result = success?.boolValue ?? false
+            print("iOS BGTask: KMP Chain execution finished with success: \(result)")
+            task.setTaskCompleted(success: result)
+            scheduleNext()
         }
     }
 

@@ -4,16 +4,11 @@ import com.example.kmpworkmanagerv2.background.domain.BackgroundTaskScheduler
 import com.example.kmpworkmanagerv2.background.domain.Constraints
 import com.example.kmpworkmanagerv2.background.domain.ExistingPolicy
 import com.example.kmpworkmanagerv2.background.domain.ScheduleResult
+import com.example.kmpworkmanagerv2.background.domain.TaskChain
+import com.example.kmpworkmanagerv2.background.domain.TaskRequest
 import com.example.kmpworkmanagerv2.background.domain.TaskTrigger
 
-/**
- * A fake implementation of BackgroundTaskScheduler for use in previews, tests, or where
- * no actual background scheduling is required.
- */
 class FakeBackgroundTaskScheduler : BackgroundTaskScheduler {
-    /**
-     * Always returns ScheduleResult.ACCEPTED immediately without actually scheduling a task.
-     */
     override suspend fun enqueue(
         id: String,
         trigger: TaskTrigger,
@@ -22,16 +17,29 @@ class FakeBackgroundTaskScheduler : BackgroundTaskScheduler {
         inputJson: String?,
         policy: ExistingPolicy
     ): ScheduleResult {
+        println("FakeBackgroundTaskScheduler: Enqueue called for $id")
         return ScheduleResult.ACCEPTED
     }
 
-    /**
-     * No operation (No-op) for cancellation.
-     */
-    override fun cancel(id: String) {}
+    override fun cancel(id: String) {
+        println("FakeBackgroundTaskScheduler: Cancel called for $id")
+    }
 
-    /**
-     * No operation (No-op) for cancelling all tasks.
-     */
-    override fun cancelAll() {}
+    override fun cancelAll() {
+        println("FakeBackgroundTaskScheduler: CancelAll called")
+    }
+
+    override fun beginWith(task: TaskRequest): TaskChain {
+        println("FakeBackgroundTaskScheduler: beginWith(task) called")
+        return TaskChain(this, listOf(task))
+    }
+
+    override fun beginWith(tasks: List<TaskRequest>): TaskChain {
+        println("FakeBackgroundTaskScheduler: beginWith(tasks) called")
+        return TaskChain(this, tasks)
+    }
+
+    override fun enqueueChain(chain: TaskChain) {
+        println("FakeBackgroundTaskScheduler: enqueueChain called")
+    }
 }

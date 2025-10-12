@@ -13,6 +13,6 @@ import com.example.kmpworkmanagerv2.push.PushNotificationHandler
  * @return A ComposeUIViewController instance to be used as the root view controller.
  */
 fun MainViewController(scheduler: BackgroundTaskScheduler, pushHandler: PushNotificationHandler) = ComposeUIViewController {
-    // Call the common module's App composable, passing the platform-specific dependencies
-    App(scheduler, pushHandler)
+    // Call the common module's App composable. Dependencies are injected via Koin.
+    App()
 }

@@ -1,5 +1,7 @@
 package com.example.kmpworkmanagerv2.background.domain
 
+import kotlinx.serialization.Serializable
+
 /**
  * Defines the trigger condition for a background task.
  * This sealed interface allows for different types of scheduling requests.
@@ -21,6 +23,7 @@ sealed interface TaskTrigger {
 /**
  * Defines the constraints under which a task can run.
  */
+@Serializable
 data class Constraints(
     val requiresNetwork: Boolean = false,
     val requiresUnmeteredNetwork: Boolean = false, // Requires unmetered network (e.g., Wi-Fi) on Android

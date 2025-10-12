@@ -1,16 +1,19 @@
+
 package com.example.kmpworkmanagerv2.background.data
 
-import com.example.kmpworkmanagerv2.background.domain.BackgroundTaskScheduler
-import com.example.kmpworkmanagerv2.background.domain.Constraints
-import com.example.kmpworkmanagerv2.background.domain.ExistingPolicy
-import com.example.kmpworkmanagerv2.background.domain.ScheduleResult
-import com.example.kmpworkmanagerv2.background.domain.TaskTrigger
+import com.example.kmpworkmanagerv2.background.domain.*
 import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import platform.BackgroundTasks.BGAppRefreshTaskRequest
-import platform.BackgroundTasks.BGTaskScheduler
-import platform.Foundation.*
-import platform.UserNotifications.*
 import platform.BackgroundTasks.BGProcessingTaskRequest
+import platform.BackgroundTasks.BGTaskScheduler
+import platform.Foundation.* // For NSUserDefaults, NSDate, etc.
+import platform.UserNotifications.UNCalendarNotificationTrigger
+import platform.UserNotifications.UNMutableNotificationContent
+import platform.UserNotifications.UNNotificationRequest
+import platform.UserNotifications.UNNotificationSound
+import platform.UserNotifications.UNUserNotificationCenter
 
 /**
  * The `actual` implementation for the iOS platform, using `BGTaskScheduler` for background
@@ -19,12 +22,16 @@ import platform.BackgroundTasks.BGProcessingTaskRequest
 @OptIn(ExperimentalForeignApi::class)
 actual class NativeTaskScheduler : BackgroundTaskScheduler {
 
+    private val userDefaults = NSUserDefaults.standardUserDefaults
+    private val CHAIN_DEFINITION_PREFIX = "kmp_chain_definition_"
+    private val TASK_META_PREFIX = "kmp_task_meta_"
+    private val PERIODIC_META_PREFIX = "kmp_periodic_meta_"
+    private val CHAIN_QUEUE_KEY = "kmp_chain_queue"
+    private val CHAIN_EXECUTOR_IDENTIFIER = "kmp_chain_executor_task"
+
     // Constant for the time difference in seconds between Unix epoch (1970) and Apple epoch (2001)
     private val APPLE_TO_UNIX_EPOCH_OFFSET_SECONDS = 978307200.0
 
-    /**
-     * Enqueues a new background task based on the specified trigger type.
-     */
     actual override suspend fun enqueue(
         id: String,
         trigger: TaskTrigger,
@@ -35,92 +42,141 @@ actual class NativeTaskScheduler : BackgroundTaskScheduler {
     ): ScheduleResult {
         println(" KMP_BG_TASK_iOS: Received enqueue request for id='$id', trigger=${trigger::class.simpleName}")
 
+        // TODO: Handle policy
+
         return when (trigger) {
-            // Periodic and OneTime tasks are mapped to iOS BackgroundTasks (AppRefresh or Processing)
-            is TaskTrigger.Periodic -> scheduleBackgroundTask(id, trigger.intervalMs, constraints)
-            is TaskTrigger.OneTime -> scheduleBackgroundTask(id, trigger.initialDelayMs, constraints)
-            // Exact tasks are mapped to a scheduled Local Notification (UNCalendarNotificationTrigger)
+            is TaskTrigger.Periodic -> {
+                println(" KMP_BG_TASK_iOS: Saving metadata for periodic task '$id'.")
+                val periodicMetadata = mapOf(
+                    "isPeriodic" to "true",
+                    "intervalMs" to "${trigger.intervalMs}",
+                    "workerClassName" to workerClassName,
+                    "inputJson" to (inputJson ?: ""),
+                    "requiresNetwork" to "${constraints.requiresNetwork}",
+                    "requiresCharging" to "${constraints.requiresCharging}",
+                    "isHeavyTask" to "${constraints.isHeavyTask}"
+                )
+                userDefaults.setObject(periodicMetadata, forKey = "$PERIODIC_META_PREFIX$id")
+
+                val request = if (constraints.isHeavyTask) {
+                    BGProcessingTaskRequest(identifier = id).apply {
+                        requiresExternalPower = constraints.requiresCharging
+                        requiresNetworkConnectivity = constraints.requiresNetwork
+                    }
+                } else {
+                    BGAppRefreshTaskRequest(identifier = id)
+                }
+                request.earliestBeginDate = NSDate().dateByAddingTimeInterval(trigger.intervalMs / 1000.0)
+
+                try {
+                    BGTaskScheduler.sharedScheduler.submitTaskRequest(request, error = null)
+                    println(" KMP_BG_TASK_iOS: Submitted initial periodic task '$id' successfully.")
+                    ScheduleResult.ACCEPTED
+                } catch (e: Exception) {
+                    println(" KMP_BG_TASK_iOS: Failed to submit initial periodic task '$id'. Error: ${e.message}")
+                    ScheduleResult.REJECTED_OS_POLICY
+                }
+            }
+            is TaskTrigger.OneTime -> {
+                val taskMetadata = mapOf(
+                    "workerClassName" to (workerClassName ?: ""),
+                    "inputJson" to (inputJson ?: "")
+                )
+                userDefaults.setObject(taskMetadata, forKey = "$TASK_META_PREFIX$id")
+
+                val request = if (constraints.isHeavyTask) {
+                    BGProcessingTaskRequest(identifier = id).apply {
+                        requiresExternalPower = constraints.requiresCharging
+                        requiresNetworkConnectivity = constraints.requiresNetwork
+                    }
+                } else {
+                    BGAppRefreshTaskRequest(identifier = id)
+                }
+
+                request.earliestBeginDate = NSDate().dateByAddingTimeInterval(trigger.initialDelayMs / 1000.0)
+
+                try {
+                    BGTaskScheduler.sharedScheduler.submitTaskRequest(request, error = null)
+                    println(" KMP_BG_TASK_iOS: Submitted background task '$id' successfully.")
+                    ScheduleResult.ACCEPTED
+                } catch (e: Exception) {
+                    println(" KMP_BG_TASK_iOS: Failed to submit background task '$id'. Error: ${e.message}")
+                    ScheduleResult.REJECTED_OS_POLICY
+                }
+            }
             is TaskTrigger.Exact -> scheduleExactNotification(id, trigger, workerClassName, inputJson)
-            // Handle other potential triggers or unsupported types
             else -> ScheduleResult.REJECTED_OS_POLICY
         }
     }
 
-    /**
-     * Schedules a task using iOS's BGTaskScheduler (Background App Refresh or Processing).
-     */
-    private fun scheduleBackgroundTask(id: String, delayMs: Long, constraints: Constraints): ScheduleResult {
-        val request = if (constraints.isHeavyTask) {
-            println(" KMP_BG_TASK_iOS: Scheduling as a HEAVY task (BGProcessingTaskRequest).")
-            // BGProcessingTaskRequest is for long-running, resource-intensive tasks
-            BGProcessingTaskRequest(identifier = id).apply {
-                requiresExternalPower = constraints.requiresCharging
-                requiresNetworkConnectivity = constraints.requiresNetwork
-            }
+    actual override fun beginWith(task: TaskRequest): TaskChain {
+        return TaskChain(this, listOf(task))
+    }
+
+    actual override fun beginWith(tasks: List<TaskRequest>): TaskChain {
+        return TaskChain(this, tasks)
+    }
+
+    actual override fun enqueueChain(chain: TaskChain) {
+        val steps = chain.getSteps()
+        if (steps.isEmpty()) return
+
+        val chainId = NSUUID.UUID().UUIDString()
+        println("KMP_BG_TASK_iOS: Enqueuing chain with ID: $chainId")
+
+        // 1. Serialize and save the chain definition.
+        val chainJson = Json.encodeToString(steps)
+        userDefaults.setObject(chainJson, forKey = "$CHAIN_DEFINITION_PREFIX$chainId")
+
+        // 2. Add the chainId to the execution queue.
+        val stringArray: List<String>? = userDefaults.stringArrayForKey(CHAIN_QUEUE_KEY) as? List<String>
+        val queue: MutableList<String> = if (stringArray != null) {
+            stringArray.toMutableList()
         } else {
-            println(" KMP_BG_TASK_iOS: Scheduling as a REGULAR task (BGAppRefreshTaskRequest).")
-            // BGAppRefreshTaskRequest is for quick, lightweight content updates
-            BGAppRefreshTaskRequest(identifier = id)
+            mutableListOf<String>()
         }
+        queue.add(chainId)
+        userDefaults.setObject(queue, forKey = CHAIN_QUEUE_KEY)
+        println("KMP_BG_TASK_iOS: Added $chainId to execution queue. Queue size: ${queue.size}")
 
-        // Set the earliest time the system should begin the task
-        request.earliestBeginDate = NSDate().dateByAddingTimeInterval(delayMs / 1000.0)
+        // 3. Schedule the generic chain executor task.
+        // The native handler will process one ID from the queue at a time.
+        val request = BGProcessingTaskRequest(identifier = CHAIN_EXECUTOR_IDENTIFIER)
+        request.earliestBeginDate = NSDate().dateByAddingTimeInterval(1.0) // Start soon
+        request.requiresNetworkConnectivity = true // Assume chains might need network.
 
-        return try {
-            // Submit the request to the system scheduler
+        try {
             BGTaskScheduler.sharedScheduler.submitTaskRequest(request, error = null)
-            println(" KMP_BG_TASK_iOS: Submitted background task '$id' successfully.")
-            ScheduleResult.ACCEPTED
+            println(" KMP_BG_TASK_iOS: Submitted generic chain executor task successfully.")
         } catch (e: Exception) {
-            // Submission can fail if task ID is not registered in Info.plist or other OS policies
-            println(" KMP_BG_TASK_iOS: Failed to submit background task '$id'. Error: ${e.message}")
-            ScheduleResult.REJECTED_OS_POLICY
+            println(" KMP_BG_TASK_iOS: Failed to submit generic chain executor task. Error: ${e.message}")
         }
     }
 
-    /**
-     * Schedules an exact time task using a `UNCalendarNotificationTrigger`.
-     * This relies on the system delivering the local notification at the exact time.
-     * The notification handler will then execute the worker logic.
-     */
     private fun scheduleExactNotification(
         id: String,
         trigger: TaskTrigger.Exact,
-        // The worker class name is passed as title/message to be used by the notification handler
-        title: String, // Worker Class Name
-        message: String? // Input JSON
+        title: String,
+        message: String?
     ): ScheduleResult {
-        // Create the notification content
-        val content = platform.UserNotifications.UNMutableNotificationContent().apply {
+        val content = UNMutableNotificationContent().apply {
             setTitle(title)
             setBody(message ?: "Scheduled event")
             setSound(UNNotificationSound.defaultSound)
         }
 
-        println("KMP_BG_TASK_iOS: Scheduling notification with title: '$title', body: '${message ?: "Scheduled event"}'")
-
-        // FIX 2: Convert Unix epoch (1970) timestamp to Apple's reference epoch (2001) timestamp
         val unixTimestampInSeconds = trigger.atEpochMillis / 1000.0
         val appleTimestamp = unixTimestampInSeconds - APPLE_TO_UNIX_EPOCH_OFFSET_SECONDS
         val date = NSDate(timeIntervalSinceReferenceDate = appleTimestamp)
 
-        // Extract date components (Year, Month, Day, Hour, Minute, Second) from the target NSDate
         val dateComponents = NSCalendar.currentCalendar.components(
-            (NSCalendarUnitYear or
-                    NSCalendarUnitMonth or
-                    NSCalendarUnitDay or
-                    NSCalendarUnitHour or
-                    NSCalendarUnitMinute or
-                    NSCalendarUnitSecond),
+            (NSCalendarUnitYear or NSCalendarUnitMonth or NSCalendarUnitDay or NSCalendarUnitHour or NSCalendarUnitMinute or NSCalendarUnitSecond),
             fromDate = date
         )
 
-        // Create a trigger that fires when the system time matches the components
         val notifTrigger = UNCalendarNotificationTrigger.triggerWithDateMatchingComponents(dateComponents, repeats = false)
-        // Create the request with a unique ID, content, and the calendar trigger
         val request = UNNotificationRequest.requestWithIdentifier(id, content, notifTrigger)
 
-        // Add the notification request to the system
         UNUserNotificationCenter.currentNotificationCenter().addNotificationRequest(request) { error ->
             if (error != null) {
                 println(" KMP_BG_TASK_iOS: Error scheduling notification: ${error.localizedDescription}")
@@ -131,25 +187,17 @@ actual class NativeTaskScheduler : BackgroundTaskScheduler {
         return ScheduleResult.ACCEPTED
     }
 
-    /**
-     * Cancels a specific pending background task and pending exact notification.
-     */
     actual override fun cancel(id: String) {
         println(" KMP_BG_TASK_iOS: Cancelling task/notification with ID '$id'.")
-        // Cancel BGTaskScheduler request
         BGTaskScheduler.sharedScheduler.cancelTaskRequestWithIdentifier(id)
-        // Cancel UNNotification request
         UNUserNotificationCenter.currentNotificationCenter().removePendingNotificationRequestsWithIdentifiers(listOf(id))
+        userDefaults.removeObjectForKey("$TASK_META_PREFIX$id")
+        userDefaults.removeObjectForKey("$PERIODIC_META_PREFIX$id") // Also remove periodic metadata
     }
 
-    /**
-     * Cancels all pending background tasks and exact notifications.
-     */
     actual override fun cancelAll() {
         println(" KMP_BG_TASK_iOS: Cancelling ALL tasks and notifications.")
-        // Cancel all BGTaskScheduler requests
         BGTaskScheduler.sharedScheduler.cancelAllTaskRequests()
-        // Cancel all UNNotification requests
         UNUserNotificationCenter.currentNotificationCenter().removeAllPendingNotificationRequests()
     }
 }
