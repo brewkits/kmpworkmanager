@@ -17,6 +17,7 @@ koin = "4.1.1"
 kotlinx-datetime = "0.7.1"
 androidx-work = "2.10.5"
 kotlinx-serialization = "1.7.1"
+kotlinx-coroutines = "1.8.0"
 
 [libraries]
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
@@ -36,6 +37,7 @@ koin-compose = { module = "io.insert-koin:koin-compose", version.ref = "koin" }
 kotlinx-datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "kotlinx-datetime" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
 androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "androidx-work" }
+kotlinx-coroutines-guava = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-guava", version.ref = "kotlinx-coroutines" }
 compose-bom = { module = "org.jetbrains.compose:compose-bom", version.ref = "composeMultiplatform" }
 
 [plugins]

@@ -5,6 +5,8 @@ import com.example.kmpworkmanagerv2.background.data.IosWorkerFactory
 import com.example.kmpworkmanagerv2.background.data.NativeTaskScheduler
 import com.example.kmpworkmanagerv2.background.data.SingleTaskExecutor
 import com.example.kmpworkmanagerv2.background.domain.BackgroundTaskScheduler
+import com.example.kmpworkmanagerv2.debug.DebugSource
+import com.example.kmpworkmanagerv2.debug.IosDebugSource
 import com.example.kmpworkmanagerv2.push.DefaultPushNotificationHandler
 import com.example.kmpworkmanagerv2.push.PushNotificationHandler
 import org.koin.dsl.module
@@ -16,6 +18,7 @@ import org.koin.dsl.module
 val iosModule = module {
     // Single instance of the BackgroundTaskScheduler using the iOS-specific implementation
     single<BackgroundTaskScheduler> { NativeTaskScheduler() }
+    single<DebugSource> { IosDebugSource() }
     // Single instance of the PushNotificationHandler using the default implementation (if no specific iOS logic is needed here)
     single<PushNotificationHandler> { DefaultPushNotificationHandler() }
 

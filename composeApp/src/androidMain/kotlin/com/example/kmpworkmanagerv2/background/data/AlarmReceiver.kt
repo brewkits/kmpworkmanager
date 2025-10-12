@@ -7,6 +7,11 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationCompat
 import com.example.kmpworkmanagerv2.R
+import com.example.kmpworkmanagerv2.background.domain.TaskCompletionEvent
+import com.example.kmpworkmanagerv2.background.domain.TaskEventBus
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 /**
  * A BroadcastReceiver to handle exact alarms triggered by AlarmManager.
@@ -17,6 +22,8 @@ class AlarmReceiver : BroadcastReceiver() {
         val title = intent.getStringExtra("title")?: "Reminder"
         val message = intent.getStringExtra("message")?: "Scheduled event"
         val notificationId = intent.getIntExtra("notificationId", 0)
+
+        println("🔔 Android AlarmReceiver: Alarm triggered for '$title'")
 
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val channelId = "alarm_channel"
@@ -31,6 +38,18 @@ class AlarmReceiver : BroadcastReceiver() {
             .build()
 
         notificationManager.notify(notificationId, notification)
-        println("🔔 Android AlarmReceiver: Fired for '$title'")
+        println("🔔 Android AlarmReceiver: Notification shown for '$title'")
+
+        // Emit completion event to show toast in UI
+        CoroutineScope(Dispatchers.Main).launch {
+            TaskEventBus.emit(
+                TaskCompletionEvent(
+                    taskName = title,
+                    success = true,
+                    message = "⏰ Alarm triggered: $message"
+                )
+            )
+            println("🔔 Android AlarmReceiver: Event emitted for '$title'")
+        }
     }
 }

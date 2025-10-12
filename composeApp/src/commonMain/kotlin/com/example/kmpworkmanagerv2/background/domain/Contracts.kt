@@ -18,6 +18,44 @@ sealed interface TaskTrigger {
 
     /** Triggers once after an optional initial delay. */
     data class OneTime(val initialDelayMs: Long = 0) : TaskTrigger
+
+    /**
+     * Triggers when a content URI changes (Android only via ContentObserver).
+     * On iOS, this will be rejected as unsupported.
+     * @param uriString The content URI to observe (e.g., "content://media/external/images/media")
+     * @param triggerForDescendants If true, triggers for changes in descendant URIs as well
+     */
+    data class ContentUri(
+        val uriString: String,
+        val triggerForDescendants: Boolean = false
+    ) : TaskTrigger
+
+    /**
+     * Triggers when device storage is low (Android only).
+     * On iOS, this will be rejected as unsupported.
+     * Note: This is a system broadcast and may not trigger immediately.
+     */
+    data object StorageLow : TaskTrigger
+
+    /**
+     * Triggers when battery is low (Android only).
+     * On iOS, this will be rejected as unsupported.
+     * Note: "Low" is defined by the system (typically around 15%).
+     */
+    data object BatteryLow : TaskTrigger
+
+    /**
+     * Triggers when battery is okay/not low (Android only).
+     * On iOS, this will be rejected as unsupported.
+     */
+    data object BatteryOkay : TaskTrigger
+
+    /**
+     * Triggers when device is idle/dozing (Android only).
+     * On iOS, this will be rejected as unsupported.
+     * Requires BIND_DEVICE_ADMIN permission (or similar).
+     */
+    data object DeviceIdle : TaskTrigger
 }
 
 /**

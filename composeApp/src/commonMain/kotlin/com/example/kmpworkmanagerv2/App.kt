@@ -21,6 +21,8 @@ import com.example.kmpworkmanagerv2.background.domain.TaskRequest
 import com.example.kmpworkmanagerv2.background.domain.TaskTrigger
 import com.example.kmpworkmanagerv2.background.domain.TaskEventBus
 import com.example.kmpworkmanagerv2.background.domain.TaskCompletionEvent
+import com.example.kmpworkmanagerv2.background.domain.ScheduleResult
+import com.example.kmpworkmanagerv2.debug.DebugScreen
 import com.example.kmpworkmanagerv2.push.FakePushNotificationHandler
 import com.example.kmpworkmanagerv2.push.PushNotificationHandler
 import kotlinx.coroutines.CoroutineScope
@@ -63,7 +65,7 @@ fun App(
     val exactAlarmPermissionState = rememberExactAlarmPermissionState()
 
     // State for managing the horizontal pager (tab view).
-    val pagerState = rememberPagerState(pageCount = { 4 })
+    val pagerState = rememberPagerState(pageCount = { 5 })
 
     // Snackbar host state for showing toast messages
     val snackbarHostState = remember { SnackbarHostState() }
@@ -110,6 +112,7 @@ fun App(
                 Tab(selected = pagerState.currentPage == 1, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(1) } }) { Text("Task Chains", modifier = Modifier.padding(16.dp)) }
                 Tab(selected = pagerState.currentPage == 2, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(2) } }) { Text("Alarms & Push", modifier = Modifier.padding(16.dp)) }
                 Tab(selected = pagerState.currentPage == 3, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(3) } }) { Text("Permissions", modifier = Modifier.padding(16.dp)) }
+                Tab(selected = pagerState.currentPage == 4, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(4) } }) { Text("Debug", modifier = Modifier.padding(16.dp)) }
             }
 
             // Horizontal pager to host the different tab screens
@@ -119,6 +122,7 @@ fun App(
                     1 -> TaskChainsTab(scheduler, coroutineScope, snackbarHostState)
                     2 -> AlarmsAndPushTab(scheduler, coroutineScope, statusText, exactAlarmPermissionState, snackbarHostState)
                     3 -> PermissionsAndInfoTab(notificationPermissionState, exactAlarmPermissionState)
+                    4 -> DebugScreen()
                 }
             }
         }
@@ -192,8 +196,13 @@ fun TasksTab(scheduler: BackgroundTaskScheduler, coroutineScope: CoroutineScope,
                             workerClassName = WorkerTypes.HEAVY_PROCESSING_WORKER,
                             constraints = Constraints(isHeavyTask = true) // Mark as a heavy task for platform
                         )
+                        val message = when (result) {
+                            ScheduleResult.ACCEPTED -> "⚡ Heavy task scheduled! Will run in 5s"
+                            ScheduleResult.REJECTED_OS_POLICY -> "❌ Task rejected by OS policy"
+                            ScheduleResult.THROTTLED -> "⏳ Task throttled, will retry later"
+                        }
                         snackbarHostState.showSnackbar(
-                            message = "⚡ Heavy task scheduled! Will run in 5s",
+                            message = message,
                             duration = SnackbarDuration.Short
                         )
                     }
@@ -251,6 +260,155 @@ fun TasksTab(scheduler: BackgroundTaskScheduler, coroutineScope: CoroutineScope,
                 }
                 Text("🔄 Schedule a recurring task using BGTaskScheduler/WorkManager.", style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
                 InfoBox("Note: Periodic tasks on Android are not exact and may be delayed by Doze mode. The minimum interval is 15 minutes.\n\nNote: Periodic tasks on iOS are not guaranteed to run. The system decides when to run them based on app usage, battery, and network conditions. The minimum interval is not guaranteed.")
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("Advanced Triggers (Android Only)", style = MaterialTheme.typography.titleLarge)
+                InfoBox("These triggers use Android-specific features and will be rejected on iOS.")
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // ContentUri trigger
+                Button(onClick = {
+                    coroutineScope.launch {
+                        val result = scheduler.enqueue(
+                            id = "content-uri-task",
+                            trigger = TaskTrigger.ContentUri(
+                                uriString = "content://media/external/images/media",
+                                triggerForDescendants = true
+                            ),
+                            workerClassName = WorkerTypes.SYNC_WORKER
+                        )
+                        val message = when (result) {
+                            ScheduleResult.ACCEPTED -> "📸 ContentUri trigger scheduled! Will run when images change"
+                            ScheduleResult.REJECTED_OS_POLICY -> "❌ ContentUri not supported on this platform (Android only)"
+                            ScheduleResult.THROTTLED -> "⏳ Task throttled, will retry later"
+                        }
+                        snackbarHostState.showSnackbar(
+                            message = message,
+                            duration = SnackbarDuration.Short
+                        )
+                    }
+                }) {
+                    Text("Monitor Image Content Changes")
+                }
+                Text("📸 Triggers when MediaStore images change.", style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // BatteryOkay trigger
+                Button(onClick = {
+                    coroutineScope.launch {
+                        val result = scheduler.enqueue(
+                            id = "battery-okay-task",
+                            trigger = TaskTrigger.BatteryOkay,
+                            workerClassName = WorkerTypes.SYNC_WORKER
+                        )
+                        snackbarHostState.showSnackbar(
+                            message = "🔋 BatteryOkay trigger scheduled! Will run when battery is not low",
+                            duration = SnackbarDuration.Short
+                        )
+                    }
+                }) {
+                    Text("Run When Battery Is Okay")
+                }
+                Text("🔋 Only runs when battery is not low.", style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // DeviceIdle trigger
+                Button(onClick = {
+                    coroutineScope.launch {
+                        val result = scheduler.enqueue(
+                            id = "device-idle-task",
+                            trigger = TaskTrigger.DeviceIdle,
+                            workerClassName = WorkerTypes.HEAVY_PROCESSING_WORKER,
+                            constraints = Constraints(isHeavyTask = true)
+                        )
+                        snackbarHostState.showSnackbar(
+                            message = "💤 DeviceIdle trigger scheduled! Will run when device is idle",
+                            duration = SnackbarDuration.Short
+                        )
+                    }
+                }) {
+                    Text("Run When Device Is Idle")
+                }
+                Text("💤 Only runs when device is idle (screen off, not moving).", style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
+                Spacer(modifier = Modifier.height(8.dp))
+
+                InfoBox("Note: These triggers are Android-only and use WorkManager's advanced constraints. ContentUri triggers fire when content changes, while BatteryOkay and DeviceIdle are constraint-based triggers.\n\nOn iOS, these triggers will be rejected with REJECTED_OS_POLICY status.")
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("Task Management", style = MaterialTheme.typography.titleLarge)
+                InfoBox("Cancel scheduled tasks or clear all pending work.")
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Cancel specific task
+                    Button(
+                        onClick = {
+                            coroutineScope.launch {
+                                scheduler.cancel(TaskIds.ONE_TIME_UPLOAD)
+                                snackbarHostState.showSnackbar(
+                                    message = "🚫 Cancelled ONE_TIME_UPLOAD task",
+                                    duration = SnackbarDuration.Short
+                                )
+                            }
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Cancel Upload Task", style = MaterialTheme.typography.bodySmall)
+                    }
+
+                    // Cancel periodic task
+                    Button(
+                        onClick = {
+                            coroutineScope.launch {
+                                scheduler.cancel(TaskIds.PERIODIC_SYNC_TASK)
+                                snackbarHostState.showSnackbar(
+                                    message = "🚫 Cancelled PERIODIC_SYNC task",
+                                    duration = SnackbarDuration.Short
+                                )
+                            }
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Cancel Periodic", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Cancel all tasks
+                Button(
+                    onClick = {
+                        coroutineScope.launch {
+                            scheduler.cancelAll()
+                            snackbarHostState.showSnackbar(
+                                message = "🚫 All tasks cancelled!",
+                                duration = SnackbarDuration.Short
+                            )
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("Cancel All Tasks")
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("⚠️ Cancel specific tasks by ID or clear all pending work.", style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
             }
         }
     }

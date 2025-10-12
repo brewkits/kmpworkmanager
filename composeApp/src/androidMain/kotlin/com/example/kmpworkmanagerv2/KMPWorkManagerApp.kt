@@ -3,6 +3,8 @@ package com.example.kmpworkmanagerv2
 import android.app.Application
 import com.example.kmpworkmanagerv2.background.data.NativeTaskScheduler
 import com.example.kmpworkmanagerv2.background.domain.BackgroundTaskScheduler
+import com.example.kmpworkmanagerv2.debug.AndroidDebugSource
+import com.example.kmpworkmanagerv2.debug.DebugSource
 import com.example.kmpworkmanagerv2.di.initKoin
 import org.koin.android.ext.koin.androidContext
 import org.koin.android.ext.koin.androidLogger
@@ -19,6 +21,7 @@ class KMPWorkManagerApp : Application() {
 
         val androidModule = module {
             single<BackgroundTaskScheduler> { NativeTaskScheduler(androidContext()) }
+            single<DebugSource> { AndroidDebugSource(androidContext()) }
         }
 
         initKoin {

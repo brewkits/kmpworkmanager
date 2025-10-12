@@ -105,7 +105,36 @@ actual class NativeTaskScheduler : BackgroundTaskScheduler {
                 }
             }
             is TaskTrigger.Exact -> scheduleExactNotification(id, trigger, workerClassName, inputJson)
-            else -> ScheduleResult.REJECTED_OS_POLICY
+
+            is TaskTrigger.Windowed -> {
+                println(" KMP_BG_TASK_iOS: Windowed tasks not supported on iOS.")
+                ScheduleResult.REJECTED_OS_POLICY
+            }
+
+            is TaskTrigger.ContentUri -> {
+                println(" KMP_BG_TASK_iOS: ContentUri triggers not supported on iOS (Android only).")
+                ScheduleResult.REJECTED_OS_POLICY
+            }
+
+            TaskTrigger.StorageLow -> {
+                println(" KMP_BG_TASK_iOS: StorageLow trigger not supported on iOS (Android only).")
+                ScheduleResult.REJECTED_OS_POLICY
+            }
+
+            TaskTrigger.BatteryLow -> {
+                println(" KMP_BG_TASK_iOS: BatteryLow trigger not supported on iOS (Android only).")
+                ScheduleResult.REJECTED_OS_POLICY
+            }
+
+            TaskTrigger.BatteryOkay -> {
+                println(" KMP_BG_TASK_iOS: BatteryOkay trigger not supported on iOS (Android only).")
+                ScheduleResult.REJECTED_OS_POLICY
+            }
+
+            TaskTrigger.DeviceIdle -> {
+                println(" KMP_BG_TASK_iOS: DeviceIdle trigger not supported on iOS (Android only).")
+                ScheduleResult.REJECTED_OS_POLICY
+            }
         }
     }
 

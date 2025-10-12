@@ -37,6 +37,8 @@ kotlin {
             implementation(libs.koin.android)
             // AndroidX WorkManager for native background tasks
             implementation(libs.androidx.work.runtime.ktx)
+            // Coroutines support for Guava ListenableFuture
+            implementation(libs.kotlinx.coroutines.guava)
         }
         commonMain.dependencies {
             implementation(compose.runtime)
