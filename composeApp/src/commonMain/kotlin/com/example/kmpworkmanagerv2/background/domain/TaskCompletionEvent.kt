@@ -18,12 +18,10 @@ data class TaskCompletionEvent(
  * Workers can emit events here, and the UI can listen to them.
  */
 object TaskEventBus {
-    private val _events = MutableSharedFlow<TaskCompletionEvent>(replay = 1, extraBufferCapacity = 10)
+    private val _events = MutableSharedFlow<TaskCompletionEvent>(replay = 0, extraBufferCapacity = 64)
     val events: SharedFlow<TaskCompletionEvent> = _events.asSharedFlow()
 
     suspend fun emit(event: TaskCompletionEvent) {
-        println("🔔 TaskEventBus: Emitting event - ${event.taskName}: ${event.message}")
-        val result = _events.tryEmit(event)
-        println("🔔 TaskEventBus: Emit result = $result")
+        _events.tryEmit(event)
     }
 }

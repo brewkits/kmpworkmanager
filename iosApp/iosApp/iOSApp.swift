@@ -11,12 +11,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     var window: UIWindow?
 
     // --- Koin & KMP Integration ---
-    let koinIos: KoinIOS
+    var koinIos: KoinIOS!
 
     override init() {
+        super.init()
+
+        // Initialize Koin AFTER super.init()
         KoinInitializerKt.doInitKoin(platformModule: IOSModuleKt.iosModule)
         koinIos = KoinIOS()
-        super.init()
+
         NotificationCenter.default.addObserver(self, selector: #selector(showNotificationFromKMP), name: NSNotification.Name("showNotification"), object: nil)
     }
 
@@ -42,22 +45,19 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         // Start the registration process for remote push notifications.
         registerForPushNotifications(application: application)
 
-        // --- Standard SwiftUI & Compose UI Setup ---
+        // --- Traditional UIKit Window Setup (NO Scene Delegate) ---
 
-        // Create the main application window.
+        // Create the main application window
         window = UIWindow(frame: UIScreen.main.bounds)
+        window?.backgroundColor = .systemBackground
 
-        // Create the root view for the SwiftUI part of the app.
-        // MainView is a struct that wraps the Compose UIViewController.
-        let mainView = MainView()
+        // Create Compose UIViewController
+        let scheduler = koinIos.getScheduler()
+        let pushHandler = koinIos.getPushHandler()
+        let composeViewController = MainViewControllerKt.MainViewController(scheduler: scheduler, pushHandler: pushHandler)
 
-        // UIHostingController allows SwiftUI views to be used in a UIKit hierarchy.
-        let hostingController = UIHostingController(rootView: mainView)
-
-        // Set the hosting controller as the root view controller of the window.
-        window?.rootViewController = hostingController
-
-        // Make the window visible on the screen.
+        // Set as root view controller and make window visible
+        window?.rootViewController = composeViewController
         window?.makeKeyAndVisible()
 
         // Return true to indicate that the app has launched successfully.
@@ -340,14 +340,30 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
  * This acts as a bridge between the SwiftUI and Compose worlds.
  */
 struct MainView: UIViewControllerRepresentable {
+    let koinIos: KoinIOS
+
     /**
      * Creates the UIViewController instance to be managed by SwiftUI.
      */
     func makeUIViewController(context: Context) -> UIViewController {
-        let appDelegate = UIApplication.shared.delegate as! AppDelegate
-        let scheduler = appDelegate.koinIos.getScheduler()
-        let pushHandler = appDelegate.koinIos.getPushHandler()
-        return MainViewControllerKt.MainViewController(scheduler: scheduler, pushHandler: pushHandler)
+        print("📱 MainView: makeUIViewController called")
+        print("📱 MainView: koinIos = \(koinIos)")
+
+        let scheduler = koinIos.getScheduler()
+        print("📱 MainView: scheduler = \(scheduler)")
+
+        let pushHandler = koinIos.getPushHandler()
+        print("📱 MainView: pushHandler = \(pushHandler)")
+
+        print("📱 MainView: About to call MainViewController from Kotlin")
+        let viewController = MainViewControllerKt.MainViewController(scheduler: scheduler, pushHandler: pushHandler)
+        print("📱 MainView: MainViewController created: \(viewController)")
+
+        // Debug: Set background color to verify view controller is displayed
+        viewController.view.backgroundColor = .red
+        print("📱 MainView: View background set to RED for debugging")
+
+        return viewController
     }
 
     /**

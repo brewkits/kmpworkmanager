@@ -22,6 +22,10 @@ kotlin {
         iosTarget.binaries.framework {
             baseName = "ComposeApp"
             isStatic = true
+
+            // Add bundle ID to fix compilation error
+            binaryOption("bundleId", "com.example.kmpworkmanagerv2.ComposeApp")
+
             linkerOpts.add("-framework")
             linkerOpts.add("UserNotifications")
         }

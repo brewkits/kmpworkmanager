@@ -39,8 +39,9 @@ KMP TaskManager is more than just a demo application. It's a foundational framew
 * **Graceful Degradation**: Android-only triggers properly rejected with clear messages
 
 ### 🎨 User Interface
-* **5 Organized Tabs**: Tasks, Task Chains, Alarms & Push, Permissions, Debug
-* **18 Interactive Buttons**: Comprehensive examples for all features
+* **6 Organized Tabs**: Test & Demo, Tasks, Task Chains, Alarms & Push, Permissions, Debug
+* **Test & Demo Tab**: Instant testing without waiting for background execution
+* **20+ Interactive Buttons**: Comprehensive examples for all features
 * **Real-time Feedback**: Toast notifications on schedule and completion
 * **Debug Screen**: Live task monitoring with color-coded status
 * **Error Handling**: Clear messages for rejected or throttled tasks
