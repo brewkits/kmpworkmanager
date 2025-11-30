@@ -1,6 +1,33 @@
 # KMP TaskManager 🚀
 
-A robust, cross-platform framework for scheduling, managing, and executing background tasks consistently on Android and iOS, built entirely with Kotlin Multiplatform.
+[![Maven Central](https://img.shields.io/badge/Maven-2.1.0-blue)](https://github.com/vietnguyentuan2019/KMPTaskManager/packages)
+[![Build](https://github.com/vietnguyentuan2019/KMPTaskManager/actions/workflows/build.yml/badge.svg)](https://github.com/vietnguyentuan2019/KMPTaskManager/actions)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![Kotlin](https://img.shields.io/badge/kotlin-2.2.20-blue.svg?logo=kotlin)](http://kotlinlang.org)
+
+A robust, production-ready Kotlin Multiplatform library for scheduling and managing background tasks on Android and iOS.
+
+## 📦 Library Module
+
+The core library is available as a standalone package:
+
+```kotlin
+// Add to your commonMain dependencies
+implementation("io.kmp.taskmanager:kmptaskmanager:2.1.0")
+```
+
+See [kmptaskmanager/README.md](kmptaskmanager/README.md) for complete library documentation.
+
+---
+
+## 🎯 Repository Structure
+
+This repository contains:
+
+- **`kmptaskmanager/`** - Production-ready library module (publish to Maven)
+- **`composeApp/`** - Demo application showing library usage
+
+---
 
 > **Note:** This project serves as a canonical example of how to build a sophisticated abstraction layer to solve the fundamental differences in background task handling between Android and iOS.
 
