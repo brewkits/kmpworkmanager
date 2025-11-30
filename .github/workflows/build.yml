@@ -1,0 +1,41 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
+
+    - name: Build library
+      run: ./gradlew :kmptaskmanager:build
+
+    - name: Build demo app (Android)
+      run: ./gradlew :composeApp:assembleDebug
+
+    - name: Run tests
+      run: ./gradlew :kmptaskmanager:test
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-artifacts
+        path: |
+          kmptaskmanager/build/libs/
+          kmptaskmanager/build/outputs/aar/
