@@ -1,13 +1,15 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Base64
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidLibrary)
     alias(libs.plugins.kotlinx.serialization)
     id("maven-publish")
+    id("signing")
 }
 
-group = "com.github.vietnguyentuan2019"
+group = "io.github.vietnguyentuan2019"
 version = "2.1.0"
 
 kotlin {
@@ -59,6 +61,7 @@ kotlin {
 
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.0")
         }
     }
 }
@@ -81,7 +84,7 @@ publishing {
     publications {
         // Configure all publications with common POM information
         withType<MavenPublication> {
-            groupId = "com.github.vietnguyentuan2019"
+            groupId = "io.github.vietnguyentuan2019"
             version = "2.1.0"
 
             pom {
@@ -122,5 +125,24 @@ publishing {
                 password = project.findProperty("gpr.token") as String? ?: System.getenv("GITHUB_TOKEN")
             }
         }
+
+        maven {
+            name = "MavenCentralLocal"
+            url = uri(layout.buildDirectory.dir("maven-central-staging"))
+        }
     }
+}
+
+signing {
+    val signingKeyBase64 = project.findProperty("signing.key") as String?
+    val signingPassword = project.findProperty("signing.password") as String? ?: ""
+
+    if (signingKeyBase64 != null) {
+        val signingKey = String(Base64.getDecoder().decode(signingKeyBase64))
+        useInMemoryPgpKeys(
+            signingKey,
+            signingPassword
+        )
+    }
+    sign(publishing.publications)
 }
