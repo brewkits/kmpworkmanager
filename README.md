@@ -774,7 +774,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## 📄 License
 
-Copyright © 2025 TechX. All Rights Reserved.
+Copyright © 2025 Nguyễn Tuấn Việt. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.

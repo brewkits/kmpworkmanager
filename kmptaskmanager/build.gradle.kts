@@ -99,8 +99,8 @@ publishing {
                 developers {
                     developer {
                         id.set("vietnguyentuan2019")
-                        name.set("Viet Nguyen")
-                        email.set("vietnguyentuan2019@gmail.com")
+                        name.set("Nguyễn Tuấn Việt")
+                        email.set("vietnguyentuan@gmail.com")
                     }
                 }
 

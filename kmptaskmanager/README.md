@@ -261,7 +261,7 @@ class MyScheduler(context: Context) : NativeTaskScheduler(context) {
 ## License
 
 ```
-Copyright 2025 Viet Nguyen
+Copyright 2025 Nguyễn Tuấn Việt
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
