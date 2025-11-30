@@ -276,42 +276,54 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         }
     }
 
-    // --- ADDED: Handler logic for the KMP Chain Executor Task ---
+    // --- OPTIMIZED: Handler logic for the KMP Chain Executor Task with Batch Processing ---
     private func handleChainExecutorTask(task: BGTask) {
-        print("iOS BGTask: Handling KMP Chain Executor Task")
+        print("📦 iOS BGTask: Handling KMP Chain Executor Task (Batch Mode)")
 
         // Get the KMP ChainExecutor from Koin
         let chainExecutor = koinIos.getChainExecutor()
 
+        // Check queue size before starting
+        let initialQueueSize = chainExecutor.getChainQueueSize()
+        print("📦 iOS BGTask: Chain queue size: \(initialQueueSize)")
+
         // Define an expiration handler
         task.expirationHandler = {
-            print("iOS BGTask: KMP Chain Executor Task expired.")
+            print("⏰ iOS BGTask: KMP Chain Executor Task expired - stopping batch processing")
             task.setTaskCompleted(success: false)
         }
 
-        // Schedule the next task if needed
+        // Schedule the next task if queue still has items
         let scheduleNext: () -> Void = {
-            if chainExecutor.getChainQueueSize() > 0 {
-                print("iOS BGTask: More chains in queue. Rescheduling executor task.")
+            let remainingChains = chainExecutor.getChainQueueSize()
+            if remainingChains > 0 {
+                print("📦 iOS BGTask: \(remainingChains) chain(s) remaining. Rescheduling executor task.")
                 let request = BGProcessingTaskRequest(identifier: "kmp_chain_executor_task")
                 request.earliestBeginDate = Date(timeIntervalSinceNow: 1)
                 request.requiresNetworkConnectivity = true
                 try? BGTaskScheduler.shared.submit(request)
+            } else {
+                print("✅ iOS BGTask: All chains processed. Queue is empty.")
             }
         }
 
-        // Execute the next chain from the KMP queue
-        chainExecutor.executeNextChainFromQueue { (success, error) in
+        // BATCH PROCESSING: Execute multiple chains in one BGTask invocation
+        // This optimizes iOS BGTask usage and reduces latency
+        chainExecutor.executeChainsInBatch(maxChains: 3, totalTimeoutMs: 50_000) { (executedCount, error) in
             if let error = error {
-                print("iOS BGTask: KMP Chain execution failed with error: \(error.localizedDescription)")
+                print("❌ iOS BGTask: Batch execution failed with error: \(error.localizedDescription)")
                 task.setTaskCompleted(success: false)
-                scheduleNext() // Schedule next even if this one failed
+                scheduleNext() // Schedule next even if batch failed
                 return
             }
 
-            let result = success?.boolValue ?? false
-            print("iOS BGTask: KMP Chain execution finished with success: \(result)")
-            task.setTaskCompleted(success: result)
+            let count = executedCount?.int32Value ?? 0
+            print("✅ iOS BGTask: Batch execution completed - \(count) chain(s) executed out of \(initialQueueSize)")
+
+            // Mark task as completed successfully
+            task.setTaskCompleted(success: true)
+
+            // Schedule next executor task if queue not empty
             scheduleNext()
         }
     }

@@ -1,4 +1,4 @@
-package com.example.kmpworkmanagerv2.background.domain
+package io.kmp.taskmanager.background.domain
 
 import kotlinx.serialization.Serializable
 

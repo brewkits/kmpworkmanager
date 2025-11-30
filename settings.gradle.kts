@@ -1,5 +1,6 @@
-rootProject.name = "KMPWorkManagerV2"
-enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
+rootProject.name = "KMPTaskManager"
+// Temporarily disabled to avoid accessor generation issues
+// enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 
 pluginManagement {
     repositories {
@@ -28,4 +29,5 @@ dependencyResolutionManagement {
     }
 }
 
+include(":kmptaskmanager")
 include(":composeApp")

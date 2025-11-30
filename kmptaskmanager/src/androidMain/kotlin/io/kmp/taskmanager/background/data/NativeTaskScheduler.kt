@@ -1,18 +1,14 @@
-package com.example.kmpworkmanagerv2.background.data
+package io.kmp.taskmanager.background.data
 
-import android.os.Build
-import android.app.AlarmManager
-import android.app.PendingIntent
 import android.content.Context
-import android.content.Intent
 import androidx.work.*
-import com.example.kmpworkmanagerv2.background.domain.BackgroundTaskScheduler
-import com.example.kmpworkmanagerv2.background.domain.Constraints
-import com.example.kmpworkmanagerv2.background.domain.ExistingPolicy
-import com.example.kmpworkmanagerv2.background.domain.ScheduleResult
-import com.example.kmpworkmanagerv2.background.domain.TaskTrigger
-import com.example.kmpworkmanagerv2.utils.Logger
-import com.example.kmpworkmanagerv2.utils.LogTags
+import io.kmp.taskmanager.background.domain.BackgroundTaskScheduler
+import io.kmp.taskmanager.background.domain.Constraints
+import io.kmp.taskmanager.background.domain.ExistingPolicy
+import io.kmp.taskmanager.background.domain.ScheduleResult
+import io.kmp.taskmanager.background.domain.TaskTrigger
+import io.kmp.taskmanager.utils.Logger
+import io.kmp.taskmanager.utils.LogTags
 import java.util.concurrent.TimeUnit
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -21,12 +17,14 @@ import androidx.work.OneTimeWorkRequestBuilder
 /**
  * The `actual` implementation for the Android platform.
  * This class acts as a bridge between the shared KMP domain logic and the
- * native Android scheduling APIs (WorkManager and AlarmManager).
+ * native Android WorkManager API.
+ *
+ * **Extensibility**: For exact alarms or custom scheduling needs, extend this class
+ * and override the relevant methods.
  */
-actual class NativeTaskScheduler(private val context: Context) : BackgroundTaskScheduler {
+open actual class NativeTaskScheduler(private val context: Context) : BackgroundTaskScheduler {
 
     private val workManager = WorkManager.getInstance(context)
-    private val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
     companion object {
         const val TAG_KMP_TASK = "KMP_TASK"
@@ -142,55 +140,25 @@ actual class NativeTaskScheduler(private val context: Context) : BackgroundTaskS
     }
 
     /**
-     * Schedules an exact alarm using Android's AlarmManager.
-     * This is for tasks that must fire at a specific time.
+     * Exact alarms require app-specific BroadcastReceiver implementation.
+     * Override this method to implement exact alarm scheduling using AlarmManager.
+     *
+     * See documentation: https://github.com/vietnguyentuan2019/KMPTaskManager#exact-alarms
      */
-    private fun scheduleExactAlarm(
+    protected open fun scheduleExactAlarm(
         id: String,
         trigger: TaskTrigger.Exact,
-        workerClassName: String, // In this case, it's just for logging/data
+        workerClassName: String,
         inputJson: String?
     ): ScheduleResult {
-        Logger.i(LogTags.ALARM, "Scheduling exact alarm - ID: '$id', Time: ${trigger.atEpochMillis}")
+        Logger.w(LogTags.ALARM, """
+            Exact alarms require custom BroadcastReceiver implementation.
+            Please extend NativeTaskScheduler and override scheduleExactAlarm()
+            or use WorkManager for deferred tasks instead.
+            See: https://github.com/vietnguyentuan2019/KMPTaskManager#exact-alarms
+        """.trimIndent())
 
-        val intent = Intent(context, AlarmReceiver::class.java).apply {
-            putExtra("title", workerClassName) // Use workerClassName as title
-            putExtra("message", inputJson)
-            putExtra("notificationId", id.hashCode()) // Use hash of ID for notification ID
-        }
-
-        val pendingIntent = PendingIntent.getBroadcast(
-            context,
-            id.hashCode(), // Use the unique ID hash as the request code
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        // A Helper function to actually set the alarm
-        fun setAlarm() {
-            alarmManager.setExactAndAllowWhileIdle(
-                AlarmManager.RTC_WAKEUP,
-                trigger.atEpochMillis,
-                pendingIntent
-            )
-            Logger.i(LogTags.ALARM, "Successfully scheduled exact alarm '$id'")
-        }
-
-        // Check if the device is Android 12 (API 31) or higher
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            // On newer devices, we must check if we have the permission
-            if (alarmManager.canScheduleExactAlarms()) {
-                setAlarm()
-                return ScheduleResult.ACCEPTED
-            } else {
-                Logger.e(LogTags.ALARM, "Cannot schedule exact alarm '$id' - SCHEDULE_EXACT_ALARM permission missing (Android 12+)")
-                return ScheduleResult.REJECTED_OS_POLICY
-            }
-        } else {
-            // On older devices, the permission is granted by default at install time
-            setAlarm()
-            return ScheduleResult.ACCEPTED
-        }
+        return ScheduleResult.REJECTED_OS_POLICY
     }
 
     private fun scheduleOneTimeWork(
@@ -226,7 +194,7 @@ actual class NativeTaskScheduler(private val context: Context) : BackgroundTaskS
 
         val workRequest = if (constraints.isHeavyTask) {
             Logger.d(LogTags.SCHEDULER, "Creating HEAVY one-time task")
-            OneTimeWorkRequestBuilder<KmpHeavyWorker>()
+            OneTimeWorkRequestBuilder<KmpWorker>()
         } else {
             Logger.d(LogTags.SCHEDULER, "Creating REGULAR one-time task")
             OneTimeWorkRequestBuilder<KmpWorker>()
@@ -287,7 +255,7 @@ actual class NativeTaskScheduler(private val context: Context) : BackgroundTaskS
 
         val workRequest = if (constraints.isHeavyTask) {
             Logger.d(LogTags.SCHEDULER, "Creating HEAVY ContentUri task")
-            OneTimeWorkRequestBuilder<KmpHeavyWorker>()
+            OneTimeWorkRequestBuilder<KmpWorker>()
         } else {
             Logger.d(LogTags.SCHEDULER, "Creating REGULAR ContentUri task")
             OneTimeWorkRequestBuilder<KmpWorker>()
@@ -344,7 +312,7 @@ actual class NativeTaskScheduler(private val context: Context) : BackgroundTaskS
             .build()
 
         val workRequest = if (constraints.isHeavyTask) {
-            OneTimeWorkRequestBuilder<KmpHeavyWorker>()
+            OneTimeWorkRequestBuilder<KmpWorker>()
         } else {
             OneTimeWorkRequestBuilder<KmpWorker>()
         }
@@ -401,7 +369,7 @@ actual class NativeTaskScheduler(private val context: Context) : BackgroundTaskS
             .build()
 
         val workRequest = if (constraints.isHeavyTask) {
-            OneTimeWorkRequestBuilder<KmpHeavyWorker>()
+            OneTimeWorkRequestBuilder<KmpWorker>()
         } else {
             OneTimeWorkRequestBuilder<KmpWorker>()
         }
@@ -455,7 +423,7 @@ actual class NativeTaskScheduler(private val context: Context) : BackgroundTaskS
             .build()
 
         val workRequest = if (constraints.isHeavyTask) {
-            OneTimeWorkRequestBuilder<KmpHeavyWorker>()
+            OneTimeWorkRequestBuilder<KmpWorker>()
         } else {
             OneTimeWorkRequestBuilder<KmpWorker>()
         }
@@ -508,7 +476,7 @@ actual class NativeTaskScheduler(private val context: Context) : BackgroundTaskS
             .build()
 
         val workRequest = if (constraints.isHeavyTask) {
-            OneTimeWorkRequestBuilder<KmpHeavyWorker>()
+            OneTimeWorkRequestBuilder<KmpWorker>()
         } else {
             OneTimeWorkRequestBuilder<KmpWorker>()
         }
@@ -527,25 +495,13 @@ actual class NativeTaskScheduler(private val context: Context) : BackgroundTaskS
 
     /**
      * Cancels a task by its unique ID.
-     * Note: This implementation currently only cancels WorkManager tasks.
-     * A full implementation would need to also cancel PendingIntents for AlarmManager.
+     * Note: This implementation only cancels WorkManager tasks.
+     * If you use exact alarms, override this method to cancel PendingIntents.
      */
     actual override fun cancel(id: String) {
         Logger.i(LogTags.SCHEDULER, "Cancelling task with ID '$id'")
         workManager.cancelUniqueWork(id)
-
-        // To cancel an alarm, you need to recreate the exact same PendingIntent
-        val intent = Intent(context, AlarmReceiver::class.java)
-        val pendingIntent = PendingIntent.getBroadcast(
-            context,
-            id.hashCode(),
-            intent,
-            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
-        )
-        if (pendingIntent != null) {
-            alarmManager.cancel(pendingIntent)
-            Logger.d(LogTags.ALARM, "Cancelled alarm with ID '$id'")
-        }
+        Logger.d(LogTags.SCHEDULER, "Cancelled WorkManager task '$id'")
     }
 
     /**
@@ -557,15 +513,15 @@ actual class NativeTaskScheduler(private val context: Context) : BackgroundTaskS
         Logger.d(LogTags.SCHEDULER, "Cancelled all WorkManager tasks (alarms require individual cancellation)")
     }
 
-    actual override fun beginWith(task: com.example.kmpworkmanagerv2.background.domain.TaskRequest): com.example.kmpworkmanagerv2.background.domain.TaskChain {
-        return com.example.kmpworkmanagerv2.background.domain.TaskChain(this, listOf(task))
+    actual override fun beginWith(task: io.kmp.taskmanager.background.domain.TaskRequest): io.kmp.taskmanager.background.domain.TaskChain {
+        return io.kmp.taskmanager.background.domain.TaskChain(this, listOf(task))
     }
 
-    actual override fun beginWith(tasks: List<com.example.kmpworkmanagerv2.background.domain.TaskRequest>): com.example.kmpworkmanagerv2.background.domain.TaskChain {
-        return com.example.kmpworkmanagerv2.background.domain.TaskChain(this, tasks)
+    actual override fun beginWith(tasks: List<io.kmp.taskmanager.background.domain.TaskRequest>): io.kmp.taskmanager.background.domain.TaskChain {
+        return io.kmp.taskmanager.background.domain.TaskChain(this, tasks)
     }
 
-    actual override fun enqueueChain(chain: com.example.kmpworkmanagerv2.background.domain.TaskChain) {
+    actual override fun enqueueChain(chain: io.kmp.taskmanager.background.domain.TaskChain) {
         val steps = chain.getSteps()
         if (steps.isEmpty()) return
 
@@ -590,7 +546,7 @@ actual class NativeTaskScheduler(private val context: Context) : BackgroundTaskS
         Logger.i(LogTags.CHAIN, "Successfully enqueued task chain with ${steps.size} steps")
     }
 
-    private fun createWorkRequest(task: com.example.kmpworkmanagerv2.background.domain.TaskRequest): OneTimeWorkRequest {
+    private fun createWorkRequest(task: io.kmp.taskmanager.background.domain.TaskRequest): OneTimeWorkRequest {
         val workData = Data.Builder()
             .putString("workerClassName", task.workerClassName)
             .apply { task.inputJson?.let { putString("inputJson", it) } }
@@ -614,7 +570,7 @@ actual class NativeTaskScheduler(private val context: Context) : BackgroundTaskS
 
         val workRequestBuilder = if (constraints?.isHeavyTask == true) {
             Logger.d(LogTags.CHAIN, "Creating HEAVY task in chain: ${task.workerClassName}")
-            OneTimeWorkRequestBuilder<KmpHeavyWorker>()
+            OneTimeWorkRequestBuilder<KmpWorker>()
         } else {
             Logger.d(LogTags.CHAIN, "Creating REGULAR task in chain: ${task.workerClassName}")
             OneTimeWorkRequestBuilder<KmpWorker>()

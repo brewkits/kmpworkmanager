@@ -1,9 +1,9 @@
 
-package com.example.kmpworkmanagerv2.background.data
+package io.kmp.taskmanager.background.data
 
-import com.example.kmpworkmanagerv2.background.domain.*
-import com.example.kmpworkmanagerv2.utils.Logger
-import com.example.kmpworkmanagerv2.utils.LogTags
+import io.kmp.taskmanager.background.domain.*
+import io.kmp.taskmanager.utils.Logger
+import io.kmp.taskmanager.utils.LogTags
 import kotlinx.cinterop.*
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json

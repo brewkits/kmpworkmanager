@@ -1,9 +1,9 @@
-package com.example.kmpworkmanagerv2.background.data
+package io.kmp.taskmanager.background.data
 
-import com.example.kmpworkmanagerv2.background.domain.TaskCompletionEvent
-import com.example.kmpworkmanagerv2.background.domain.TaskEventBus
-import com.example.kmpworkmanagerv2.utils.Logger
-import com.example.kmpworkmanagerv2.utils.LogTags
+import io.kmp.taskmanager.background.domain.TaskCompletionEvent
+import io.kmp.taskmanager.background.domain.TaskEventBus
+import io.kmp.taskmanager.utils.Logger
+import io.kmp.taskmanager.utils.LogTags
 import kotlinx.coroutines.*
 import platform.Foundation.NSDate
 import platform.Foundation.timeIntervalSince1970

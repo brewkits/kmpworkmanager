@@ -6,9 +6,39 @@ A robust, cross-platform framework for scheduling, managing, and executing backg
 
 ![Build Status](https://img.shields.io/badge/build-passing-brightgreen)
 ![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)
-![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)
+![Version](https://img.shields.io/badge/version-2.1.0-blue.svg)
 
 KMP TaskManager is more than just a demo application. It's a foundational framework designed to provide a single, unified API that allows developers to define and manage complex background jobs without writing platform-specific logic. It solves the "Control vs. Opportunism" problem by leveraging the power of native APIs on each operating system.
+
+---
+
+## 🎉 What's New in v2.1.0
+
+### Professional Logging System
+- **Structured Logger**: 4-level logging system (DEBUG, INFO, WARN, ERROR) with emoji indicators
+- **Platform-Agnostic**: Unified logging API across iOS and Android
+- **Organized Tags**: Dedicated tags for Scheduler, Worker, Chain, Alarm, Permission, and Push operations
+- **Production-Ready**: Clean, searchable logs for debugging and monitoring
+
+### iOS Enhancements
+- **Proper NSError Handling**: Fixed critical error handling with `memScoped` and `NSErrorPointer`
+- **Timeout Protection**: Automatic 25s timeout for single tasks, 50s for chains (prevents iOS throttling)
+- **Task ID Validation**: Validates task IDs against `Info.plist` with clear error messages
+- **ExistingPolicy Support**: Full KEEP/REPLACE policy implementation with metadata tracking
+- **Batch Chain Processing**: Execute up to 3 chains per BGTask invocation (3x efficiency boost)
+- **Memory Leak Prevention**: Proper cleanup with `SupervisorJob` cancellation
+
+### Android Enhancements
+- **Notification Channel Auto-Creation**: Automatic channel creation for Android 8.0+ with existence checks
+- **POST_NOTIFICATIONS Permission**: Lifecycle-aware permission handling for Android 13+
+- **Professional Logging**: Replaced all `println()` with structured Logger calls
+- **Enhanced Error Messages**: Clear, actionable error messages for permission failures
+
+### Documentation Improvements
+- **Comprehensive KDoc**: 470+ lines of detailed documentation in `Contracts.kt`
+- **Platform Support Matrix**: Clear tables showing iOS vs Android feature support
+- **Migration Guide**: Step-by-step upgrade instructions
+- **Best Practices**: Documented constraints, timeouts, and platform limitations
 
 ---
 
@@ -261,7 +291,44 @@ scheduler.enqueue(
 )
 ```
 
-#### 8️⃣ **Event System**
+#### 8️⃣ **Professional Logging**
+
+Use the built-in Logger for consistent, searchable logs:
+
+```kotlin
+import com.example.kmpworkmanagerv2.utils.Logger
+import com.example.kmpworkmanagerv2.utils.LogTags
+
+// Debug-level logging
+Logger.d(LogTags.SCHEDULER, "Preparing to schedule task")
+
+// Info-level logging
+Logger.i(LogTags.WORKER, "Task completed successfully")
+
+// Warning-level logging
+Logger.w(LogTags.PERMISSION, "Permission not granted")
+
+// Error-level logging with exception
+try {
+    // Some operation
+} catch (e: Exception) {
+    Logger.e(LogTags.SCHEDULER, "Failed to schedule task", e)
+}
+```
+
+**Available Log Tags**:
+- `LogTags.SCHEDULER` - Task scheduling operations
+- `LogTags.WORKER` - Worker execution
+- `LogTags.CHAIN` - Task chain operations
+- `LogTags.ALARM` - Exact alarm/notification
+- `LogTags.PERMISSION` - Permission requests
+- `LogTags.PUSH` - Push notifications
+
+**Platform Output**:
+- **Android**: Uses `android.util.Log` with tag `KMP_TaskManager`
+- **iOS**: Uses `NSLog` for unified console output
+
+#### 9️⃣ **Event System**
 
 Listen to task completion events:
 
@@ -427,13 +494,13 @@ class AlarmReceiver : BroadcastReceiver() {
 ```kotlin
 class SyncWorker : IosWorker {
     override suspend fun doWork(input: String?): Boolean {
-        println("KMP_BG_TASK_iOS: Starting SyncWorker...")
+        Logger.i(LogTags.WORKER, "Starting SyncWorker execution")
 
         try {
-            // Your sync logic
+            // Your sync logic (must complete within 25s timeout)
             val steps = listOf("Fetching", "Processing", "Saving")
             for ((index, step) in steps.withIndex()) {
-                println("KMP_BG_TASK_iOS: [$step] ${index + 1}/${steps.size}")
+                Logger.d(LogTags.WORKER, "[$step] ${index + 1}/${steps.size}")
                 delay(800)
             }
 
@@ -445,8 +512,10 @@ class SyncWorker : IosWorker {
                 )
             )
 
+            Logger.i(LogTags.WORKER, "SyncWorker completed successfully")
             return true
         } catch (e: Exception) {
+            Logger.e(LogTags.WORKER, "SyncWorker failed", e)
             TaskEventBus.emit(
                 TaskCompletionEvent(
                     taskName = "Sync",
@@ -459,6 +528,12 @@ class SyncWorker : IosWorker {
     }
 }
 ```
+
+**Important iOS Notes**:
+- **Timeout Protection**: Tasks have a 25-second timeout on iOS to prevent system throttling
+- **Heavy Tasks**: For longer operations, set `constraints.isHeavyTask = true` (extends to 55s)
+- **Chain Tasks**: Individual tasks in chains have 20s timeout, total chain has 50s limit
+- **Task ID Validation**: All task IDs must be listed in `Info.plist > BGTaskSchedulerPermittedIdentifiers`
 
 #### 2. **App Delegate Registration (Swift)**
 
@@ -521,10 +596,42 @@ Add task identifiers to `Info.plist`:
 ```xml
 <key>BGTaskSchedulerPermittedIdentifiers</key>
 <array>
-    <string>your.app.refresh</string>
-    <string>your.app.processing</string>
+    <!-- Chain executor for sequential/parallel task execution -->
     <string>kmp_chain_executor_task</string>
+
+    <!-- Your custom task identifiers -->
+    <string>one-time-upload</string>
+    <string>heavy-task-1</string>
+    <string>periodic-sync-task</string>
+    <string>network-task</string>
 </array>
+```
+
+**Critical**: All task IDs passed to `scheduler.enqueue()` must be listed here. iOS will silently reject unlisted task IDs. The framework validates IDs and logs clear error messages when validation fails.
+
+#### 4. **Batch Chain Processing (New in v2.1.0)**
+
+The chain executor now processes multiple chains in a single BGTask invocation for 3x efficiency:
+
+```swift
+private func handleChainExecutorTask(task: BGTask) {
+    Logger.i(LogTags.CHAIN, "Handling KMP Chain Executor Task (Batch Mode)")
+
+    let chainExecutor = koinIos.getChainExecutor()
+
+    // Execute up to 3 chains in one BGTask invocation
+    chainExecutor.executeChainsInBatch(maxChains: 3, totalTimeoutMs: 50_000) { (executedCount, error) in
+        let count = executedCount?.int32Value ?? 0
+        Logger.i(LogTags.CHAIN, "Batch execution completed - \(count) chain(s) executed")
+
+        task.setTaskCompleted(success: true)
+
+        // Re-schedule if more chains are pending
+        if chainExecutor.getChainQueueSize() > 0 {
+            scheduleNextChainExecution()
+        }
+    }
+}
 ```
 
 ---
