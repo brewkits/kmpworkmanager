@@ -7,12 +7,12 @@ plugins {
     id("maven-publish")
 }
 
-group = "io.kmp.taskmanager"
+group = "com.github.vietnguyentuan2019"
 version = "2.1.0"
 
 kotlin {
     androidTarget {
-        publishLibraryVariants("release", "debug")
+        publishLibraryVariants("release")
 
         compilations.all {
             compileTaskProvider.configure {
@@ -79,9 +79,9 @@ android {
 
 publishing {
     publications {
-        create<MavenPublication>("release") {
-            groupId = "io.kmp.taskmanager"
-            artifactId = "kmptaskmanager"
+        // Configure all publications with common POM information
+        withType<MavenPublication> {
+            groupId = "com.github.vietnguyentuan2019"
             version = "2.1.0"
 
             pom {
@@ -118,8 +118,8 @@ publishing {
             name = "GitHubPackages"
             url = uri("https://maven.pkg.github.com/vietnguyentuan2019/KMPTaskManager")
             credentials {
-                username = System.getenv("GITHUB_ACTOR") ?: project.findProperty("gpr.user") as String?
-                password = System.getenv("GITHUB_TOKEN") ?: project.findProperty("gpr.token") as String?
+                username = project.findProperty("gpr.user") as String? ?: System.getenv("GITHUB_ACTOR")
+                password = project.findProperty("gpr.token") as String? ?: System.getenv("GITHUB_TOKEN")
             }
         }
     }
