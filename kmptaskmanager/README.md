@@ -1,6 +1,6 @@
 # KMP TaskManager
 
-[![Maven Central](https://img.shields.io/maven-central/v/io.kmp.taskmanager/kmptaskmanager)](https://central.sonatype.com/artifact/io.kmp.taskmanager/kmptaskmanager)
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.vietnguyentuan2019/kmptaskmanager?label=Maven%20Central)](https://central.sonatype.com/artifact/io.github.vietnguyentuan2019/kmptaskmanager)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Kotlin](https://img.shields.io/badge/kotlin-2.2.20-blue.svg?logo=kotlin)](http://kotlinlang.org)
 [![Platform](https://img.shields.io/badge/platform-android%20|%20ios-lightgrey)](https://kotlinlang.org/docs/multiplatform.html)
@@ -24,7 +24,7 @@ A robust, production-ready Kotlin Multiplatform library for scheduling and manag
 
 ```kotlin
 commonMain.dependencies {
-    implementation("io.kmp.taskmanager:kmptaskmanager:2.1.0")
+    implementation("io.github.vietnguyentuan2019:kmptaskmanager:2.1.0")
 }
 ```
 
@@ -35,7 +35,7 @@ commonMain.dependencies {
 kmptaskmanager = "2.1.0"
 
 [libraries]
-kmptaskmanager = { module = "io.kmp.taskmanager:kmptaskmanager", version.ref = "kmptaskmanager" }
+kmptaskmanager = { module = "io.github.vietnguyentuan2019:kmptaskmanager", version.ref = "kmptaskmanager" }
 ```
 
 ## Quick Start

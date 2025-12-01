@@ -1,6 +1,6 @@
 # KMP TaskManager 🚀
 
-[![Maven Central](https://img.shields.io/badge/Maven-2.1.0-blue)](https://github.com/vietnguyentuan2019/KMPTaskManager/packages)
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.vietnguyentuan2019/kmptaskmanager?label=Maven%20Central)](https://central.sonatype.com/artifact/io.github.vietnguyentuan2019/kmptaskmanager)
 [![Build](https://github.com/vietnguyentuan2019/KMPTaskManager/actions/workflows/build.yml/badge.svg)](https://github.com/vietnguyentuan2019/KMPTaskManager/actions)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Kotlin](https://img.shields.io/badge/kotlin-2.2.20-blue.svg?logo=kotlin)](http://kotlinlang.org)
@@ -9,11 +9,11 @@ A robust, production-ready Kotlin Multiplatform library for scheduling and manag
 
 ## 📦 Library Module
 
-The core library is available as a standalone package:
+The core library is available on Maven Central:
 
 ```kotlin
 // Add to your commonMain dependencies
-implementation("io.kmp.taskmanager:kmptaskmanager:2.1.0")
+implementation("io.github.vietnguyentuan2019:kmptaskmanager:2.1.0")
 ```
 
 See [kmptaskmanager/README.md](kmptaskmanager/README.md) for complete library documentation.
