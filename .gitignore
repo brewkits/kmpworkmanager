@@ -17,3 +17,39 @@ captures
 !*.xcworkspace/contents.xcworkspacedata
 **/xcshareddata/WorkspaceSettings.xcsettings
 node_modules/
+
+# ===================================
+# Security - Sensitive Files
+# ===================================
+
+# Credentials and secrets
+CREDENTIALS.md
+signing-key-base64.txt
+gradle.properties
+*.pgp
+*.gpg
+gpg-revocation-cert.asc
+
+# Deployment bundles
+*-bundle.zip
+*.bundle.zip
+
+# Temporary files
+*.log
+*.tmp
+*.swp
+*~
+
+# IDE specific
+.vscode/
+*.code-workspace
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Backup files
+*.bak
+*.backup
+*~
