@@ -48,6 +48,7 @@ DEPLOYMENT_GUIDE.md
 # IDE specific
 .vscode/
 *.code-workspace
+.claude/
 
 # macOS
 .DS_Store
