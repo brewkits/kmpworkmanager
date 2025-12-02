@@ -24,11 +24,16 @@ node_modules/
 
 # Credentials and secrets
 CREDENTIALS.md
+CREDENTIALS.md.template
 signing-key-base64.txt
 gradle.properties
 *.pgp
 *.gpg
 gpg-revocation-cert.asc
+
+# Deployment and documentation with personal info
+DEPLOYMENT.md
+DEPLOYMENT_GUIDE.md
 
 # Deployment bundles
 *-bundle.zip
