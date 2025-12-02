@@ -30,7 +30,20 @@ import platform.UserNotifications.UNUserNotificationCenter
  * - Proper error handling with NSError
  */
 @OptIn(ExperimentalForeignApi::class)
-actual class NativeTaskScheduler : BackgroundTaskScheduler {
+actual class NativeTaskScheduler(
+    /**
+     * Additional permitted task IDs beyond the default ones.
+     * These must match entries in your Info.plist BGTaskSchedulerPermittedIdentifiers array.
+     *
+     * Example:
+     * ```kotlin
+     * val scheduler = NativeTaskScheduler(
+     *     additionalPermittedTaskIds = setOf("my-sync-task", "my-upload-task")
+     * )
+     * ```
+     */
+    additionalPermittedTaskIds: Set<String> = emptySet()
+) : BackgroundTaskScheduler {
 
     private val userDefaults = NSUserDefaults.standardUserDefaults
 
@@ -43,10 +56,9 @@ actual class NativeTaskScheduler : BackgroundTaskScheduler {
         const val APPLE_TO_UNIX_EPOCH_OFFSET_SECONDS = 978307200.0
 
         /**
-         * Permitted task identifiers that must match Info.plist BGTaskSchedulerPermittedIdentifiers
-         * IMPORTANT: Tasks with IDs not in this list will be silently rejected by iOS
+         * Default permitted task identifiers that are always allowed
          */
-        val PERMITTED_TASK_IDS = setOf(
+        val DEFAULT_PERMITTED_TASK_IDS = setOf(
             CHAIN_EXECUTOR_IDENTIFIER,
             "one-time-upload",
             "heavy-task-1",
@@ -54,6 +66,12 @@ actual class NativeTaskScheduler : BackgroundTaskScheduler {
             "network-task"
         )
     }
+
+    /**
+     * Combined set of permitted task IDs (default + user-provided)
+     * IMPORTANT: Tasks with IDs not in this list will be silently rejected by iOS
+     */
+    private val permittedTaskIds: Set<String> = DEFAULT_PERMITTED_TASK_IDS + additionalPermittedTaskIds
 
     actual override suspend fun enqueue(
         id: String,
@@ -88,11 +106,12 @@ actual class NativeTaskScheduler : BackgroundTaskScheduler {
      * Validate task ID against permitted identifiers in Info.plist
      */
     private fun validateTaskId(id: String): Boolean {
-        if (id !in PERMITTED_TASK_IDS) {
+        if (id !in permittedTaskIds) {
             Logger.w(LogTags.SCHEDULER, """
                 Task ID '$id' validation failed.
-                Permitted IDs: ${PERMITTED_TASK_IDS.joinToString()}
+                Permitted IDs: ${permittedTaskIds.joinToString()}
                 Please add '$id' to Info.plist > BGTaskSchedulerPermittedIdentifiers
+                AND pass it to NativeTaskScheduler constructor via additionalPermittedTaskIds parameter
             """.trimIndent())
             return false
         }
@@ -196,8 +215,15 @@ actual class NativeTaskScheduler : BackgroundTaskScheduler {
 
     /**
      * Create appropriate background task request based on constraints
+     * Note: iOS BGTaskScheduler does not have a direct QoS API. QoS is managed by iOS based on:
+     * - Task type (BGAppRefreshTask vs BGProcessingTask)
+     * - System conditions (battery, network, etc.)
+     * - App priority and background refresh settings
      */
     private fun createBackgroundTaskRequest(id: String, constraints: Constraints): BGTaskRequest {
+        // Log QoS level for developer awareness (iOS manages actual priority automatically)
+        Logger.d(LogTags.SCHEDULER, "Task QoS level: ${constraints.qos} (iOS manages priority automatically)")
+
         return if (constraints.isHeavyTask) {
             Logger.d(LogTags.SCHEDULER, "Creating BGProcessingTaskRequest for heavy task")
             BGProcessingTaskRequest(identifier = id).apply {

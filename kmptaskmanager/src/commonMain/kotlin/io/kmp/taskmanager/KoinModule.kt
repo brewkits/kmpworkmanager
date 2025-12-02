@@ -18,9 +18,11 @@ import org.koin.dsl.module
 
 /**
  * Creates a Koin module for KMP TaskManager with platform-specific scheduler.
- * Call this function with platform-specific parameters to get the configured module.
+ *
+ * @param iosTaskIds (iOS only) Additional task IDs for iOS BGTaskScheduler. Must match Info.plist.
+ *                    Ignored on Android.
  */
-expect fun kmpTaskManagerModule(): org.koin.core.module.Module
+expect fun kmpTaskManagerModule(iosTaskIds: Set<String> = emptySet()): org.koin.core.module.Module
 
 /**
  * Common module definition that can be used directly if you have the scheduler instance.

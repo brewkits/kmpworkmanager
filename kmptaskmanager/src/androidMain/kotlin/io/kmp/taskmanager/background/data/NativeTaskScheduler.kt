@@ -2,6 +2,7 @@ package io.kmp.taskmanager.background.data
 
 import android.content.Context
 import androidx.work.*
+import androidx.work.OutOfQuotaPolicy
 import io.kmp.taskmanager.background.domain.BackgroundTaskScheduler
 import io.kmp.taskmanager.background.domain.Constraints
 import io.kmp.taskmanager.background.domain.ExistingPolicy
@@ -127,6 +128,14 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
         )
             .setConstraints(wmConstraints)
             .setInputData(workData)
+            .setBackoffCriteria(
+                if (constraints.backoffPolicy == io.kmp.taskmanager.background.domain.BackoffPolicy.EXPONENTIAL)
+                    BackoffPolicy.EXPONENTIAL
+                else
+                    BackoffPolicy.LINEAR,
+                constraints.backoffDelayMs,
+                TimeUnit.MILLISECONDS
+            )
             .addTag(TAG_KMP_TASK)
             .addTag("type-periodic")
             .addTag("id-$id")
@@ -176,37 +185,11 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
             ExistingPolicy.REPLACE -> ExistingWorkPolicy.REPLACE
         }
 
-        val workData = Data.Builder()
-            .putString("workerClassName", workerClassName)
-            .apply { inputJson?.let { putString("inputJson", it) } }
-            .build()
-
-        val networkType = when {
-            constraints.requiresUnmeteredNetwork -> NetworkType.UNMETERED
-            constraints.requiresNetwork -> NetworkType.CONNECTED
-            else -> NetworkType.NOT_REQUIRED
-        }
-
-        val wmConstraints = androidx.work.Constraints.Builder()
-            .setRequiredNetworkType(networkType)
-            .setRequiresCharging(constraints.requiresCharging)
-            .build()
-
-        val workRequest = if (constraints.isHeavyTask) {
-            Logger.d(LogTags.SCHEDULER, "Creating HEAVY one-time task")
-            OneTimeWorkRequestBuilder<KmpWorker>()
-        } else {
-            Logger.d(LogTags.SCHEDULER, "Creating REGULAR one-time task")
-            OneTimeWorkRequestBuilder<KmpWorker>()
-        }
-            .setInitialDelay(trigger.initialDelayMs, TimeUnit.MILLISECONDS)
-            .setConstraints(wmConstraints)
-            .setInputData(workData)
-            .addTag(TAG_KMP_TASK)
-            .addTag("type-one-time")
-            .addTag("id-$id")
-            .addTag("worker-$workerClassName")
-            .build()
+        val wmConstraints = buildWorkManagerConstraints(constraints)
+        val workRequest = buildOneTimeWorkRequest(
+            id, workerClassName, constraints, inputJson,
+            "one-time", trigger.initialDelayMs, wmConstraints
+        )
 
         workManager.enqueueUniqueWork(id, workManagerPolicy, workRequest)
         Logger.i(LogTags.SCHEDULER, "Successfully enqueued one-time task '$id' to WorkManager")
@@ -232,41 +215,18 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
             ExistingPolicy.REPLACE -> ExistingWorkPolicy.REPLACE
         }
 
-        val workData = Data.Builder()
-            .putString("workerClassName", workerClassName)
-            .apply { inputJson?.let { putString("inputJson", it) } }
-            .build()
-
-        val networkType = when {
-            constraints.requiresUnmeteredNetwork -> NetworkType.UNMETERED
-            constraints.requiresNetwork -> NetworkType.CONNECTED
-            else -> NetworkType.NOT_REQUIRED
-        }
-
-        // Build WorkManager constraints with ContentUriTrigger
-        val wmConstraints = androidx.work.Constraints.Builder()
-            .setRequiredNetworkType(networkType)
-            .setRequiresCharging(constraints.requiresCharging)
-            .addContentUriTrigger(
+        // Build constraints with ContentUriTrigger
+        val wmConstraints = buildWorkManagerConstraints(constraints) { builder ->
+            builder.addContentUriTrigger(
                 android.net.Uri.parse(trigger.uriString),
                 trigger.triggerForDescendants
             )
-            .build()
-
-        val workRequest = if (constraints.isHeavyTask) {
-            Logger.d(LogTags.SCHEDULER, "Creating HEAVY ContentUri task")
-            OneTimeWorkRequestBuilder<KmpWorker>()
-        } else {
-            Logger.d(LogTags.SCHEDULER, "Creating REGULAR ContentUri task")
-            OneTimeWorkRequestBuilder<KmpWorker>()
         }
-            .setConstraints(wmConstraints)
-            .setInputData(workData)
-            .addTag(TAG_KMP_TASK)
-            .addTag("type-content-uri")
-            .addTag("id-$id")
-            .addTag("worker-$workerClassName")
-            .build()
+
+        val workRequest = buildOneTimeWorkRequest(
+            id, workerClassName, constraints, inputJson,
+            "content-uri", 0L, wmConstraints
+        )
 
         workManager.enqueueUniqueWork(id, workManagerPolicy, workRequest)
         Logger.i(LogTags.SCHEDULER, "Successfully enqueued ContentUri task '$id'")
@@ -291,38 +251,15 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
             ExistingPolicy.REPLACE -> ExistingWorkPolicy.REPLACE
         }
 
-        val workData = Data.Builder()
-            .putString("workerClassName", workerClassName)
-            .apply { inputJson?.let { putString("inputJson", it) } }
-            .build()
-
-        val networkType = when {
-            constraints.requiresUnmeteredNetwork -> NetworkType.UNMETERED
-            constraints.requiresNetwork -> NetworkType.CONNECTED
-            else -> NetworkType.NOT_REQUIRED
-        }
-
         // Note: WorkManager has setRequiresStorageNotLow, but we want to trigger ON low storage
-        // For true "on storage low" trigger, we'd need a BroadcastReceiver for ACTION_DEVICE_STORAGE_LOW
-        // Here we use WorkManager with requiresStorageNotLow = false (default)
-        val wmConstraints = androidx.work.Constraints.Builder()
-            .setRequiredNetworkType(networkType)
-            .setRequiresCharging(constraints.requiresCharging)
-            .setRequiresStorageNotLow(false) // Allow running when storage is low
-            .build()
-
-        val workRequest = if (constraints.isHeavyTask) {
-            OneTimeWorkRequestBuilder<KmpWorker>()
-        } else {
-            OneTimeWorkRequestBuilder<KmpWorker>()
+        val wmConstraints = buildWorkManagerConstraints(constraints) { builder ->
+            builder.setRequiresStorageNotLow(false) // Allow running when storage is low
         }
-            .setConstraints(wmConstraints)
-            .setInputData(workData)
-            .addTag(TAG_KMP_TASK)
-            .addTag("type-storage-low")
-            .addTag("id-$id")
-            .addTag("worker-$workerClassName")
-            .build()
+
+        val workRequest = buildOneTimeWorkRequest(
+            id, workerClassName, constraints, inputJson,
+            "storage-low", 0L, wmConstraints
+        )
 
         workManager.enqueueUniqueWork(id, workManagerPolicy, workRequest)
         Logger.i(LogTags.SCHEDULER, "Successfully enqueued StorageLow task '$id'")
@@ -348,38 +285,15 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
             ExistingPolicy.REPLACE -> ExistingWorkPolicy.REPLACE
         }
 
-        val workData = Data.Builder()
-            .putString("workerClassName", workerClassName)
-            .apply { inputJson?.let { putString("inputJson", it) } }
-            .build()
-
-        val networkType = when {
-            constraints.requiresUnmeteredNetwork -> NetworkType.UNMETERED
-            constraints.requiresNetwork -> NetworkType.CONNECTED
-            else -> NetworkType.NOT_REQUIRED
-        }
-
         // Note: WorkManager has setRequiresBatteryNotLow, but we want to trigger ON low battery
-        // For true "on battery low" trigger, we'd need a BroadcastReceiver for ACTION_BATTERY_LOW
-        // Here we use WorkManager with requiresBatteryNotLow = false (default)
-        val wmConstraints = androidx.work.Constraints.Builder()
-            .setRequiredNetworkType(networkType)
-            .setRequiresCharging(constraints.requiresCharging)
-            .setRequiresBatteryNotLow(false) // Allow running when battery is low
-            .build()
-
-        val workRequest = if (constraints.isHeavyTask) {
-            OneTimeWorkRequestBuilder<KmpWorker>()
-        } else {
-            OneTimeWorkRequestBuilder<KmpWorker>()
+        val wmConstraints = buildWorkManagerConstraints(constraints) { builder ->
+            builder.setRequiresBatteryNotLow(false) // Allow running when battery is low
         }
-            .setConstraints(wmConstraints)
-            .setInputData(workData)
-            .addTag(TAG_KMP_TASK)
-            .addTag("type-battery-low")
-            .addTag("id-$id")
-            .addTag("worker-$workerClassName")
-            .build()
+
+        val workRequest = buildOneTimeWorkRequest(
+            id, workerClassName, constraints, inputJson,
+            "battery-low", 0L, wmConstraints
+        )
 
         workManager.enqueueUniqueWork(id, workManagerPolicy, workRequest)
         Logger.i(LogTags.SCHEDULER, "Successfully enqueued BatteryLow task '$id'")
@@ -405,35 +319,14 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
             ExistingPolicy.REPLACE -> ExistingWorkPolicy.REPLACE
         }
 
-        val workData = Data.Builder()
-            .putString("workerClassName", workerClassName)
-            .apply { inputJson?.let { putString("inputJson", it) } }
-            .build()
-
-        val networkType = when {
-            constraints.requiresUnmeteredNetwork -> NetworkType.UNMETERED
-            constraints.requiresNetwork -> NetworkType.CONNECTED
-            else -> NetworkType.NOT_REQUIRED
+        val wmConstraints = buildWorkManagerConstraints(constraints) { builder ->
+            builder.setRequiresBatteryNotLow(true) // Only run when battery is NOT low
         }
 
-        val wmConstraints = androidx.work.Constraints.Builder()
-            .setRequiredNetworkType(networkType)
-            .setRequiresCharging(constraints.requiresCharging)
-            .setRequiresBatteryNotLow(true) // Only run when battery is NOT low
-            .build()
-
-        val workRequest = if (constraints.isHeavyTask) {
-            OneTimeWorkRequestBuilder<KmpWorker>()
-        } else {
-            OneTimeWorkRequestBuilder<KmpWorker>()
-        }
-            .setConstraints(wmConstraints)
-            .setInputData(workData)
-            .addTag(TAG_KMP_TASK)
-            .addTag("type-battery-okay")
-            .addTag("id-$id")
-            .addTag("worker-$workerClassName")
-            .build()
+        val workRequest = buildOneTimeWorkRequest(
+            id, workerClassName, constraints, inputJson,
+            "battery-okay", 0L, wmConstraints
+        )
 
         workManager.enqueueUniqueWork(id, workManagerPolicy, workRequest)
         Logger.i(LogTags.SCHEDULER, "Successfully enqueued BatteryOkay task '$id'")
@@ -458,39 +351,82 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
             ExistingPolicy.REPLACE -> ExistingWorkPolicy.REPLACE
         }
 
-        val workData = Data.Builder()
-            .putString("workerClassName", workerClassName)
-            .apply { inputJson?.let { putString("inputJson", it) } }
-            .build()
+        val wmConstraints = buildWorkManagerConstraints(constraints) { builder ->
+            builder.setRequiresDeviceIdle(true) // Only run when device is idle
+        }
 
+        val workRequest = buildOneTimeWorkRequest(
+            id, workerClassName, constraints, inputJson,
+            "device-idle", 0L, wmConstraints
+        )
+
+        workManager.enqueueUniqueWork(id, workManagerPolicy, workRequest)
+        Logger.i(LogTags.SCHEDULER, "Successfully enqueued DeviceIdle task '$id'")
+        return ScheduleResult.ACCEPTED
+    }
+
+    /**
+     * Helper: Build common Constraints for WorkManager from KMP Constraints
+     */
+    private fun buildWorkManagerConstraints(
+        constraints: Constraints,
+        extraConfig: (androidx.work.Constraints.Builder) -> Unit = {}
+    ): androidx.work.Constraints {
         val networkType = when {
             constraints.requiresUnmeteredNetwork -> NetworkType.UNMETERED
             constraints.requiresNetwork -> NetworkType.CONNECTED
             else -> NetworkType.NOT_REQUIRED
         }
 
-        val wmConstraints = androidx.work.Constraints.Builder()
+        return androidx.work.Constraints.Builder()
             .setRequiredNetworkType(networkType)
             .setRequiresCharging(constraints.requiresCharging)
-            .setRequiresDeviceIdle(true) // Only run when device is idle
+            .apply { extraConfig(this) }
+            .build()
+    }
+
+    /**
+     * Helper: Build common OneTimeWorkRequest with standard configuration
+     */
+    private fun buildOneTimeWorkRequest(
+        id: String,
+        workerClassName: String,
+        constraints: Constraints,
+        inputJson: String?,
+        taskType: String,
+        initialDelayMs: Long = 0L,
+        wmConstraints: androidx.work.Constraints
+    ): OneTimeWorkRequest {
+        val workData = Data.Builder()
+            .putString("workerClassName", workerClassName)
+            .apply { inputJson?.let { putString("inputJson", it) } }
             .build()
 
-        val workRequest = if (constraints.isHeavyTask) {
-            OneTimeWorkRequestBuilder<KmpWorker>()
-        } else {
-            OneTimeWorkRequestBuilder<KmpWorker>()
-        }
+        val workRequestBuilder = OneTimeWorkRequestBuilder<KmpWorker>()
+            .setInitialDelay(initialDelayMs, TimeUnit.MILLISECONDS)
             .setConstraints(wmConstraints)
             .setInputData(workData)
+            .setBackoffCriteria(
+                if (constraints.backoffPolicy == io.kmp.taskmanager.background.domain.BackoffPolicy.EXPONENTIAL)
+                    BackoffPolicy.EXPONENTIAL
+                else
+                    BackoffPolicy.LINEAR,
+                constraints.backoffDelayMs,
+                TimeUnit.MILLISECONDS
+            )
             .addTag(TAG_KMP_TASK)
-            .addTag("type-device-idle")
+            .addTag("type-$taskType")
             .addTag("id-$id")
             .addTag("worker-$workerClassName")
-            .build()
 
-        workManager.enqueueUniqueWork(id, workManagerPolicy, workRequest)
-        Logger.i(LogTags.SCHEDULER, "Successfully enqueued DeviceIdle task '$id'")
-        return ScheduleResult.ACCEPTED
+        // Apply expedited if NOT a heavy task (for faster execution of light tasks)
+        return if (!constraints.isHeavyTask) {
+            Logger.d(LogTags.SCHEDULER, "Creating EXPEDITED task for faster execution")
+            workRequestBuilder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST).build()
+        } else {
+            Logger.d(LogTags.SCHEDULER, "Creating REGULAR task for heavy processing")
+            workRequestBuilder.build()
+        }
     }
 
     /**

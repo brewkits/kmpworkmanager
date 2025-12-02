@@ -15,8 +15,10 @@ import org.koin.dsl.module
  *     modules(kmpTaskManagerModule())
  * }
  * ```
+ *
+ * @param iosTaskIds Ignored on Android (iOS-only parameter)
  */
-actual fun kmpTaskManagerModule() = module {
+actual fun kmpTaskManagerModule(iosTaskIds: Set<String>) = module {
     single<BackgroundTaskScheduler> {
         val context = get<Context>()
         NativeTaskScheduler(context)
