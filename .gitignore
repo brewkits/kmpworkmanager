@@ -35,6 +35,10 @@ gpg-revocation-cert.asc
 DEPLOYMENT.md
 DEPLOYMENT_GUIDE.md
 
+# Internal documentation (notes for development only)
+FIXES_SUMMARY.md
+RESEARCH.md
+
 # Deployment bundles
 *-bundle.zip
 *.bundle.zip
