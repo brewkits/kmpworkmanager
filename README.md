@@ -14,7 +14,7 @@
 [![GitHub Stars](https://img.shields.io/github/stars/vietnguyentuan2019/KMPTaskManager?style=flat-square)](https://github.com/vietnguyentuan2019/KMPTaskManager/stargazers)
 [![Build](https://img.shields.io/github/actions/workflow/status/vietnguyentuan2019/KMPTaskManager/build.yml?style=flat-square)](https://github.com/vietnguyentuan2019/KMPTaskManager/actions)
 
-[📖 Documentation](#-documentation) • [🚀 Quick Start](#-quick-start) • [💡 Examples](#-real-world-examples) • [⭐ Star Us](#)
+[📖 Documentation](docs/quickstart.md) • [🚀 Quick Start](#-get-started-in-60-seconds) • [💡 Examples](#-real-world-examples) • [⭐ Star Us](https://github.com/vietnguyentuan2019/KMPTaskManager/stargazers)
 
 </div>
 
@@ -459,7 +459,7 @@ class SyncWorker : IosWorker {
 We love contributions! Here's how you can help:
 
 - 🐛 **Report bugs** via [GitHub Issues](https://github.com/vietnguyentuan2019/KMPTaskManager/issues)
-- 💡 **Suggest features** in [Discussions](https://github.com/vietnguyentuan2019/KMPTaskManager/discussions)
+- 💡 **Suggest features** in [GitHub Issues](https://github.com/vietnguyentuan2019/KMPTaskManager/issues)
 - 📖 **Improve docs** - Submit a PR
 - ⭐ **Star the repo** - Show your support!
 
@@ -522,13 +522,13 @@ Special thanks to the amazing Kotlin Multiplatform community! 💜
 
 It helps other developers discover this project. 🚀
 
-[⬆️ Back to Top](#-kmp-taskmanager)
+[⬆️ Back to Top](#kmp-taskmanager)
 
 ---
 
 Made with ❤️ by [Nguyễn Tuấn Việt](https://github.com/vietnguyentuan2019)
 
 **📧 Support**: [vietnguyentuan@gmail.com](mailto:vietnguyentuan@gmail.com) •
-**💬 Discuss**: [GitHub Discussions](https://github.com/vietnguyentuan2019/KMPTaskManager/discussions)
+**💬 Community**: [GitHub Issues](https://github.com/vietnguyentuan2019/KMPTaskManager/issues)
 
 </div>
