@@ -38,7 +38,6 @@ DEPLOYMENT_GUIDE.md
 # Internal documentation (notes for development only)
 FIXES_SUMMARY.md
 RESEARCH.md
-ROADMAP.md
 COMPARISON.md
 
 # Deployment bundles
@@ -55,6 +54,7 @@ COMPARISON.md
 .vscode/
 *.code-workspace
 .claude/
+.claude/settings.local.json
 
 # macOS
 .DS_Store
