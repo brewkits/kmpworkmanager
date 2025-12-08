@@ -5,8 +5,9 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import io.kmp.taskmanager.background.domain.TaskCompletionEvent
 import io.kmp.taskmanager.background.domain.TaskEventBus
+import io.kmp.taskmanager.utils.LogTags
+import io.kmp.taskmanager.utils.Logger
 import kotlinx.coroutines.delay
-import kotlin.time.measureTime
 
 /**
  * A generic CoroutineWorker that acts as the entry point for all deferrable tasks.
@@ -25,12 +26,12 @@ class KmpWorker(
                 WorkerTypes.UPLOAD_WORKER -> executeUploadWorker()
                 "Inexact-Alarm" -> executeInexactAlarm()
                 else -> {
-                    println("🤖 Android: Unknown worker type: $workerClassName")
+                    Logger.e(LogTags.WORKER, "Unknown worker type: $workerClassName")
                     Result.failure()
                 }
             }
         } catch (e: Exception) {
-            println("🤖 Android: Worker failed: ${e.message}")
+            Logger.e(LogTags.WORKER, "Worker execution failed: ${e.message}")
             TaskEventBus.emit(
                 TaskCompletionEvent(
                     taskName = "Task",
@@ -43,16 +44,16 @@ class KmpWorker(
     }
 
     private suspend fun executeSyncWorker(): Result {
-        println("🤖 Android: Starting SYNC_WORKER...")
+        Logger.i(LogTags.WORKER, "Starting SYNC_WORKER")
 
         val steps = listOf("Fetching data", "Processing", "Saving")
         for ((index, step) in steps.withIndex()) {
-            println("🤖 Android: 📊 [$step] ${index + 1}/${steps.size}")
+            Logger.d(LogTags.WORKER, "[$step] ${index + 1}/${steps.size}")
             delay(800)
-            println("🤖 Android: ✓ [$step] completed")
+            Logger.d(LogTags.WORKER, "[$step] completed")
         }
 
-        println("🤖 Android: 🎉 SYNC_WORKER finished successfully")
+        Logger.i(LogTags.WORKER, "SYNC_WORKER finished successfully")
 
         TaskEventBus.emit(
             TaskCompletionEvent(
@@ -66,21 +67,21 @@ class KmpWorker(
     }
 
     private suspend fun executeUploadWorker(): Result {
-        println("🤖 Android: Starting UPLOAD_WORKER...")
+        Logger.i(LogTags.WORKER, "Starting UPLOAD_WORKER")
 
         val totalSize = 100
         var uploaded = 0
 
-        println("🤖 Android: 📤 Starting upload of ${totalSize}MB...")
+        Logger.i(LogTags.WORKER, "Starting upload of ${totalSize}MB")
 
         while (uploaded < totalSize) {
             delay(300)
             uploaded += 10
             val progress = (uploaded * 100) / totalSize
-            println("🤖 Android: 📊 Upload progress: $uploaded/$totalSize MB ($progress%)")
+            Logger.d(LogTags.WORKER, "Upload progress: $uploaded/$totalSize MB ($progress%)")
         }
 
-        println("🤖 Android: 🎉 UPLOAD_WORKER finished successfully")
+        Logger.i(LogTags.WORKER, "UPLOAD_WORKER finished successfully")
 
         TaskEventBus.emit(
             TaskCompletionEvent(
@@ -94,9 +95,9 @@ class KmpWorker(
     }
 
     private suspend fun executeInexactAlarm(): Result {
-        println("🤖 Android: Starting Inexact-Alarm...")
+        Logger.i(LogTags.WORKER, "Starting Inexact-Alarm")
         delay(1000)
-        println("🤖 Android: 🎉 Inexact-Alarm completed")
+        Logger.i(LogTags.WORKER, "Inexact-Alarm completed")
 
         TaskEventBus.emit(
             TaskCompletionEvent(
