@@ -424,12 +424,22 @@ class SyncWorker : IosWorker {
 
 ## 📚 Documentation
 
+### 📖 Getting Started
 - 📘 **[Quick Start Guide](docs/quickstart.md)** - Get up and running in 5 minutes
-- 📗 **[API Reference](docs/api-reference.md)** - Complete API documentation
 - 📙 **[Platform Setup](docs/platform-setup.md)** - Android & iOS configuration
-- 📕 **[Task Chains Guide](docs/task-chains.md)** - Advanced workflows
+- 🎯 **[Demo App Guide](DEMO_GUIDE.md)** - Comprehensive demo app usage guide
+
+### 🔧 Advanced Topics
+- 📗 **[API Reference](docs/api-reference.md)** - Complete API documentation
+- 📕 **[Task Chains Guide](docs/task-chains.md)** - Sequential & parallel workflows
 - 📓 **[Constraints & Triggers](docs/constraints-triggers.md)** - All trigger types
+- 🏗️ **[Architecture Guide](ARCHITECTURE.md)** - Design & implementation details
+
+### 🤝 Contributing
+- 📋 **[Contributing Guide](CONTRIBUTING.md)** - How to contribute to the project
+- 🧪 **[Testing Guide](TEST_GUIDE.md)** - Testing best practices & guidelines
 - 📔 **[Migration Guide](docs/migration.md)** - Upgrade guide
+- 🗺️ **[Roadmap](ROADMAP.md)** - Future plans & completed features
 
 ---
 
