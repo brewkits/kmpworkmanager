@@ -75,8 +75,8 @@ scheduler.enqueue(
 | **Task Chains (Sequential & Parallel)** | ✅ | ❌ |
 | **Smart Retry with Backoff** | ✅ | ❌ |
 | **Real-time Event System** | ✅ | ❌ |
-| **Production Ready** | ✅ v2.2.0 | ⚠️ Beta |
-| **Battle-Tested** | 85%+ Test Coverage | ❓ |
+| **Production Ready** | ✅ v2.2.1 | ⚠️ Beta |
+| **Battle-Tested** | 100+ Test Cases | ❓ |
 
 </div>
 
@@ -92,7 +92,7 @@ scheduler.enqueue(
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("io.github.vietnguyentuan2019:kmptaskmanager:2.2.0")
+            implementation("io.github.vietnguyentuan2019:kmptaskmanager:2.2.1")
         }
     }
 }
@@ -367,14 +367,14 @@ Logger.e(LogTags.WORKER, "Task failed", exception)
 ### Trusted by Developers Worldwide
 
 ![Lines of Code](https://img.shields.io/badge/Lines%20of%20Code-3500+-blue?style=for-the-badge)
-![Test Coverage](https://img.shields.io/badge/Test%20Coverage-85%25+-green?style=for-the-badge)
-![Version](https://img.shields.io/badge/Version-2.2.0-purple?style=for-the-badge)
+![Test Coverage](https://img.shields.io/badge/Test%20Cases-100+-green?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-2.2.1-purple?style=for-the-badge)
 
 </div>
 
-- ✅ **Fully Tested** - 85%+ test coverage
+- ✅ **Fully Tested** - 100+ test cases covering edge cases
 - ✅ **Type-Safe** - 100% Kotlin with strong typing
-- ✅ **Well Documented** - Comprehensive KDoc comments
+- ✅ **Well Documented** - Comprehensive guides & API docs
 - ✅ **Actively Maintained** - Regular updates and bug fixes
 - ✅ **Production Proven** - Used in real-world apps
 
@@ -439,7 +439,6 @@ class SyncWorker : IosWorker {
 - 📋 **[Contributing Guide](CONTRIBUTING.md)** - How to contribute to the project
 - 🧪 **[Testing Guide](TEST_GUIDE.md)** - Testing best practices & guidelines
 - 📔 **[Migration Guide](docs/migration.md)** - Upgrade guide
-- 🗺️ **[Roadmap](ROADMAP.md)** - Future plans & completed features
 
 ---
 
@@ -453,7 +452,7 @@ class SyncWorker : IosWorker {
 ### vs. Other KMP Libraries
 
 ❌ **Others**: Limited features (1-2 triggers), no chains, pre-release
-✅ **KMP TaskManager**: 9 triggers, task chains, production-ready v2.2.0
+✅ **KMP TaskManager**: 9 triggers, task chains, production-ready v2.2.1
 
 ### vs. Notification Libraries (Alarmee, KMPNotifier)
 

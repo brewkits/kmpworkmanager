@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.1] - 2025-12-09
+
 ### Added
 - Comprehensive test suite with 41 new test cases
 - `TaskTriggerHelperTest`: Helper function validation (6 tests)
@@ -27,15 +29,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - androidx-work: 2.10.5 → 2.11.0
   - kotlinx-serialization: 1.7.1 → 1.8.1
   - kotlinx-coroutines: 1.8.0 → 1.10.2
-- **README.md**: Reorganized documentation section with links to new guides
-- **ROADMAP.md**: Updated with test coverage progress and documentation improvements
+- **README.md**: Reorganized documentation section, updated to v2.2.1
 - **KmpWorker** (library): Replaced `println()` statements with structured `Logger` calls for production readiness
 
 ### Fixed
 - **AndroidManifest.xml**: Fixed namespace prefix error (`android.label` → `android:label`)
 
 ### Removed
-- `.gitignore`: Removed ROADMAP.md from ignored files to allow version control
+- **ROADMAP.md**: Removed from git tracking and documentation links
 - Cleaned up unnecessary `.DS_Store` files
 
 ## [2.2.0] - 2024-12-XX
