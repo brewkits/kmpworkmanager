@@ -4,7 +4,7 @@
 
 ### The Most Powerful Background Task Scheduler for Kotlin Multiplatform
 
-**Write once, schedule anywhere.** The only library you need for background tasks on Android & iOS.
+**Write once, schedule anywhere.** Unified API for background tasks on Android & iOS.
 
 [![Maven Central](https://img.shields.io/maven-central/v/io.github.vietnguyentuan2019/kmptaskmanager?style=for-the-badge&label=Maven%20Central&color=4c1)](https://central.sonatype.com/artifact/io.github.vietnguyentuan2019/kmptaskmanager)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.2.20-7F52FF?style=for-the-badge&logo=kotlin)](http://kotlinlang.org)
@@ -14,13 +14,13 @@
 [![GitHub Stars](https://img.shields.io/github/stars/vietnguyentuan2019/KMPTaskManager?style=flat-square)](https://github.com/vietnguyentuan2019/KMPTaskManager/stargazers)
 [![Build](https://img.shields.io/github/actions/workflow/status/vietnguyentuan2019/KMPTaskManager/build.yml?style=flat-square)](https://github.com/vietnguyentuan2019/KMPTaskManager/actions)
 
-[📖 Documentation](docs/quickstart.md) • [🚀 Quick Start](#-get-started-in-60-seconds) • [💡 Examples](#-real-world-examples) • [⭐ Star Us](https://github.com/vietnguyentuan2019/KMPTaskManager/stargazers)
+[📖 Documentation](docs/quickstart.md) • [🚀 Quick Start](#-get-started-in-5-minutes) • [💡 Examples](#-real-world-examples) • [⭐ Star Us](https://github.com/vietnguyentuan2019/KMPTaskManager/stargazers)
 
 </div>
 
 ---
 
-## 🔥 Why Developers Love KMP TaskManager
+## 🔥 Why KMP TaskManager?
 
 <table>
 <tr>
@@ -84,9 +84,9 @@ scheduler.enqueue(
 
 ---
 
-## 🚀 Get Started in 60 Seconds
+## 🚀 Get Started in 5 Minutes
 
-### Step 1: Add Dependency
+### 1. Add Dependency
 
 ```kotlin
 kotlin {
@@ -98,7 +98,7 @@ kotlin {
 }
 ```
 
-### Step 2: Initialize (One Time)
+### 2. Initialize (One Time)
 
 <table>
 <tr>
@@ -127,7 +127,7 @@ registerBackgroundTasks()
 </tr>
 </table>
 
-### Step 3: Schedule Your First Task
+### 3. Schedule Your First Task
 
 ```kotlin
 class MyViewModel(private val scheduler: BackgroundTaskScheduler) {
@@ -143,13 +143,13 @@ class MyViewModel(private val scheduler: BackgroundTaskScheduler) {
 }
 ```
 
-**That's it! 🎉 Your task now runs on both Android and iOS!**
+**That's it! 🎉 Your task runs on both Android and iOS!**
 
 ---
 
 ## 💡 Real-World Examples
 
-### 📊 Periodic Data Sync (Every 15 minutes)
+### 📊 Periodic Data Sync
 
 ```kotlin
 scheduler.enqueue(
@@ -167,7 +167,7 @@ scheduler.enqueue(
 
 ---
 
-### 📤 Smart File Upload (with automatic retry)
+### 📤 Smart File Upload with Retry
 
 ```kotlin
 scheduler.enqueue(
@@ -176,7 +176,7 @@ scheduler.enqueue(
     workerClassName = "UploadWorker",
     constraints = Constraints(
         requiresNetwork = true,
-        networkType = NetworkType.UNMETERED, // WiFi only
+        requiresUnmeteredNetwork = true, // WiFi only
         backoffPolicy = BackoffPolicy.EXPONENTIAL,
         backoffDelayMs = 10_000
     )
@@ -187,35 +187,17 @@ scheduler.enqueue(
 
 ---
 
-### ⏰ Exact Time Notifications
+### ⛓️ Task Chains (Sequential & Parallel)
 
 ```kotlin
-val targetTime = Clock.System.now()
-    .plus(1.hours)
-    .toEpochMilliseconds()
-
-scheduler.enqueue(
-    id = "reminder",
-    trigger = TaskTrigger.Exact(atEpochMillis = targetTime),
-    workerClassName = "ReminderWorker"
-)
-```
-
-**Use Cases:** Medication reminders, meeting alerts, scheduled posts
-
----
-
-### ⛓️ Task Chains (Download → Process → Upload)
-
-```kotlin
-// Execute tasks in sequence
+// Execute tasks in sequence: Download → Process → Upload
 scheduler
     .beginWith(TaskRequest(workerClassName = "DownloadWorker"))
     .then(TaskRequest(workerClassName = "ProcessWorker"))
     .then(TaskRequest(workerClassName = "UploadWorker"))
     .enqueue()
 
-// Or run tasks in parallel, then finalize
+// Run tasks in parallel, then finalize
 scheduler
     .beginWith(listOf(
         TaskRequest(workerClassName = "SyncWorker"),
@@ -247,85 +229,37 @@ scheduler.enqueue(
 
 **Use Cases:** ML model training, video transcoding, database migration
 
----
-
-### 📸 Monitor MediaStore Changes (Android)
-
-```kotlin
-scheduler.enqueue(
-    id = "media-observer",
-    trigger = TaskTrigger.ContentUri(
-        uriString = "content://media/external/images/media",
-        triggerForDescendants = true
-    ),
-    workerClassName = "MediaSyncWorker"
-)
-```
-
-**Use Cases:** Auto-backup photos, image processing, gallery sync
+[📖 See 10+ more examples in docs/examples.md](docs/examples.md)
 
 ---
 
-## ✨ Complete Feature Set
+## 🎨 Core Features
 
-### 🎯 9 Powerful Trigger Types
+**9 Trigger Types** → [Full List](docs/constraints-triggers.md)
+- Periodic, OneTime, Exact, ContentUri, BatteryLow, BatteryOkay, StorageLow, DeviceIdle, and more
 
-| Trigger | Description | Platform Support |
-|---------|-------------|------------------|
-| **OneTime** | Execute once with optional delay | Android & iOS |
-| **Periodic** | Repeat every N minutes (min 15) | Android & iOS |
-| **Exact** | Precise time execution | Android & iOS |
-| **Windowed** | Execute within time window | Android only |
-| **ContentUri** | Trigger on MediaStore changes | Android only |
-| **BatteryLow** | Execute when battery is low | Android & iOS |
-| **BatteryOkay** | Execute when battery is good | Android & iOS |
-| **StorageLow** | Execute when storage is low | Android only |
-| **DeviceIdle** | Execute when device is idle | Android only |
+**Task Chains** → [Guide](docs/task-chains.md)
+- Sequential: A → B → C
+- Parallel: [A, B, C] → D
+- Smart dependency resolution
 
-### ⛓️ Advanced Task Management
+**Smart Retry** → [API Reference](docs/api-reference.md)
+- Exponential/Linear backoff
+- Constraint-based retry
+- Automatic failure handling
 
-- ✅ **Sequential Chains** - Execute tasks one after another
-- ✅ **Parallel Execution** - Run multiple tasks simultaneously
-- ✅ **Smart Dependencies** - Automatic dependency resolution
-- ✅ **Error Handling** - Retry failed tasks with backoff
-- ✅ **Task Cancellation** - Cancel individual or all tasks
+**Real-time Events** → [Examples](docs/examples.md)
+- TaskCompletionEvent for UI updates
+- Event-driven architecture
 
-### 🎛️ Rich Constraints & Policies
-
-- ✅ **Network** - Required, Unmetered, Not Roaming
-- ✅ **Battery** - Charging, Not Low, Level Thresholds
-- ✅ **Storage** - Available Space Requirements
-- ✅ **Device State** - Idle, Active
-- ✅ **Backoff Policy** - Exponential or Linear retry
-- ✅ **Existing Policy** - Keep or Replace existing tasks
-- ✅ **QoS Priority** - HIGH, DEFAULT, LOW
-
-### 🎪 Real-Time Event System
-
-```kotlin
-@Composable
-fun TaskMonitor() {
-    LaunchedEffect(Unit) {
-        TaskEventBus.events.collect { event ->
-            when {
-                event.success -> showSuccess(event.message)
-                else -> showError(event.message)
-            }
-        }
-    }
-}
-```
-
-### 📊 Professional Logging
-
-```kotlin
-Logger.i(LogTags.SCHEDULER, "Task scheduled successfully")
-Logger.e(LogTags.WORKER, "Task failed", exception)
-```
+**Rich Constraints**
+- Network, Battery, Storage, Device State
+- Platform-specific optimization
+- QoS Priority control
 
 ---
 
-## 🏗️ Platform-Specific Features
+## 📱 Platform Support
 
 <table>
 <tr>
@@ -339,7 +273,6 @@ Logger.e(LogTags.WORKER, "Task failed", exception)
 ✅ **Foreground services** for long tasks
 ✅ **ContentUri triggers** (MediaStore)
 ✅ **Auto notification** management
-✅ **Android 13+** permission handling
 
 </td>
 <td width="50%">
@@ -352,7 +285,6 @@ Logger.e(LogTags.WORKER, "Task failed", exception)
 ✅ **Batch execution** (3x faster)
 ✅ **Timeout protection**
 ✅ **Configurable task IDs**
-✅ **Silent APNs** support
 
 </td>
 </tr>
@@ -360,11 +292,39 @@ Logger.e(LogTags.WORKER, "Task failed", exception)
 
 ---
 
+## 📚 Documentation
+
+- 📘 **[Quick Start Guide](docs/quickstart.md)** - Get up and running in 5 minutes
+- 📙 **[Platform Setup](docs/platform-setup.md)** - Android & iOS configuration
+- 📗 **[API Reference](docs/api-reference.md)** - Complete API documentation
+- 📕 **[Task Chains Guide](docs/task-chains.md)** - Sequential & parallel workflows
+- 📓 **[Constraints & Triggers](docs/constraints-triggers.md)** - All trigger types explained
+- 🏗️ **[Architecture Guide](ARCHITECTURE.md)** - Design & implementation details
+- 🎯 **[Demo App Guide](DEMO_GUIDE.md)** - Comprehensive demo walkthrough
+- 🧪 **[Testing Guide](TEST_GUIDE.md)** - Testing best practices
+- 📋 **[Contributing Guide](CONTRIBUTING.md)** - How to contribute
+
+---
+
+## 🆚 Comparison
+
+### vs. Native APIs (WorkManager / BGTaskScheduler)
+
+❌ **Native APIs**: Different code for each platform, hard to maintain
+✅ **KMP TaskManager**: Single API, shared code, maintainable
+
+### vs. Other KMP Libraries
+
+❌ **Others**: Limited features (1-2 triggers), no chains, pre-release
+✅ **KMP TaskManager**: 9 triggers, task chains, production-ready v2.2.1
+
+[📊 Detailed Comparison](docs/comparison.md)
+
+---
+
 ## 📦 Production-Ready
 
 <div align="center">
-
-### Trusted by Developers Worldwide
 
 ![Lines of Code](https://img.shields.io/badge/Lines%20of%20Code-3500+-blue?style=for-the-badge)
 ![Test Coverage](https://img.shields.io/badge/Test%20Cases-100+-green?style=for-the-badge)
@@ -377,89 +337,6 @@ Logger.e(LogTags.WORKER, "Task failed", exception)
 - ✅ **Well Documented** - Comprehensive guides & API docs
 - ✅ **Actively Maintained** - Regular updates and bug fixes
 - ✅ **Production Proven** - Used in real-world apps
-
----
-
-## 🎓 Implementation Guide
-
-### Android Worker Implementation
-
-```kotlin
-class KmpWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
-    override suspend fun doWork(): Result {
-        val workerClassName = inputData.getString("workerClassName")
-
-        return when (workerClassName) {
-            "SyncWorker" -> {
-                // Your business logic here
-                syncDataFromServer()
-                TaskEventBus.emit(TaskCompletionEvent("Sync", true, "✅ Synced"))
-                Result.success()
-            }
-            else -> Result.failure()
-        }
-    }
-}
-```
-
-### iOS Worker Implementation
-
-```kotlin
-class SyncWorker : IosWorker {
-    override suspend fun doWork(input: String?): Boolean {
-        return try {
-            // Your business logic here (must complete within 25s)
-            syncDataFromServer()
-            TaskEventBus.emit(TaskCompletionEvent("Sync", true, "✅ Synced"))
-            true
-        } catch (e: Exception) {
-            Logger.e(LogTags.WORKER, "Sync failed", e)
-            false
-        }
-    }
-}
-```
-
----
-
-## 📚 Documentation
-
-### 📖 Getting Started
-- 📘 **[Quick Start Guide](docs/quickstart.md)** - Get up and running in 5 minutes
-- 📙 **[Platform Setup](docs/platform-setup.md)** - Android & iOS configuration
-- 🎯 **[Demo App Guide](DEMO_GUIDE.md)** - Comprehensive demo app usage guide
-
-### 🔧 Advanced Topics
-- 📗 **[API Reference](docs/api-reference.md)** - Complete API documentation
-- 📕 **[Task Chains Guide](docs/task-chains.md)** - Sequential & parallel workflows
-- 📓 **[Constraints & Triggers](docs/constraints-triggers.md)** - All trigger types
-- 🏗️ **[Architecture Guide](ARCHITECTURE.md)** - Design & implementation details
-
-### 🤝 Contributing
-- 📋 **[Contributing Guide](CONTRIBUTING.md)** - How to contribute to the project
-- 🧪 **[Testing Guide](TEST_GUIDE.md)** - Testing best practices & guidelines
-- 📔 **[Migration Guide](docs/migration.md)** - Upgrade guide
-
----
-
-## 🆚 Why Not Just Use...?
-
-### vs. Native APIs (WorkManager / BGTaskScheduler)
-
-❌ **Native APIs**: Different code for each platform, hard to maintain
-✅ **KMP TaskManager**: Single API, shared code, maintainable
-
-### vs. Other KMP Libraries
-
-❌ **Others**: Limited features (1-2 triggers), no chains, pre-release
-✅ **KMP TaskManager**: 9 triggers, task chains, production-ready v2.2.1
-
-### vs. Notification Libraries (Alarmee, KMPNotifier)
-
-❌ **Notification libs**: Focus on user-facing notifications
-✅ **KMP TaskManager**: Background execution engine
-
-> 💡 **Pro Tip**: Use KMP TaskManager with [KMPNotifier](https://github.com/mirzemehdi/KMPNotifier) for the complete solution!
 
 ---
 
@@ -511,10 +388,10 @@ limitations under the License.
 
 ---
 
-## 🙏 Built With
+## 🙏 Acknowledgments
 
+Built with:
 - [Kotlin Multiplatform](https://kotlinlang.org/docs/multiplatform.html) - Cross-platform framework
-- [Compose Multiplatform](https://www.jetbrains.com/lp/compose-multiplatform/) - UI framework
 - [WorkManager](https://developer.android.com/topic/libraries/architecture/workmanager) - Android background tasks
 - [BackgroundTasks](https://developer.apple.com/documentation/backgroundtasks) - iOS background tasks
 - [Koin](https://insert-koin.io/) - Dependency injection
@@ -531,7 +408,7 @@ Special thanks to the amazing Kotlin Multiplatform community! 💜
 
 It helps other developers discover this project. 🚀
 
-[⬆️ Back to Top](#kmp-taskmanager)
+[⬆️ Back to Top](#-kmp-taskmanager)
 
 ---
 
