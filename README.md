@@ -75,7 +75,7 @@ scheduler.enqueue(
 | **Task Chains (Sequential & Parallel)** | ✅ | ❌ |
 | **Smart Retry with Backoff** | ✅ | ❌ |
 | **Real-time Event System** | ✅ | ❌ |
-| **Production Ready** | ✅ v2.2.1 | ⚠️ Beta |
+| **Production Ready** | ✅ v2.2.2 | ⚠️ Beta |
 | **Battle-Tested** | 100+ Test Cases | ❓ |
 
 </div>
@@ -92,7 +92,7 @@ scheduler.enqueue(
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("io.github.vietnguyentuan2019:kmptaskmanager:2.2.1")
+            implementation("io.github.vietnguyentuan2019:kmptaskmanager:2.2.2")
         }
     }
 }
@@ -328,7 +328,7 @@ scheduler.enqueue(
 
 ![Lines of Code](https://img.shields.io/badge/Lines%20of%20Code-3500+-blue?style=for-the-badge)
 ![Test Coverage](https://img.shields.io/badge/Test%20Cases-100+-green?style=for-the-badge)
-![Version](https://img.shields.io/badge/Version-2.2.1-purple?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-2.2.2-purple?style=for-the-badge)
 
 </div>
 
