@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.2] - 2025-12-11
+
+### Changed
+- **README.md**: Optimized structure from 543 to 420 lines (-23%)
+  - Removed duplicate content across sections
+  - Kept 4 essential real-world examples
+  - Improved content organization and readability
+  - Added clear links to detailed documentation
+  - Removed implementation guide (moved to docs)
+
+### Documentation
+- Enhanced documentation structure for better discoverability
+- Improved cross-referencing between documentation files
+
 ## [2.2.1] - 2025-12-09
 
 ### Added
