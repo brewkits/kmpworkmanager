@@ -6,9 +6,8 @@ import io.kmp.taskmanager.background.domain.TaskRequest
 import io.kmp.taskmanager.utils.Logger
 import io.kmp.taskmanager.utils.LogTags
 import kotlinx.coroutines.*
-import kotlinx.serialization.json.Json
 import platform.Foundation.NSDate
-import platform.Foundation.NSUserDefaults
+import platform.Foundation.NSMutableSet
 import platform.Foundation.timeIntervalSince1970
 
 /**
@@ -16,6 +15,7 @@ import platform.Foundation.timeIntervalSince1970
  *
  * Features:
  * - Batch processing: Execute multiple chains in one BGTask invocation
+ * - File-based storage for improved performance and thread safety
  * - Timeout protection per task
  * - Comprehensive error handling and logging
  * - Task completion event emission
@@ -23,9 +23,12 @@ import platform.Foundation.timeIntervalSince1970
  */
 class ChainExecutor(private val workerFactory: IosWorkerFactory) {
 
-    private val userDefaults = NSUserDefaults.standardUserDefaults
+    private val fileStorage = IosFileStorage()
     private val job = SupervisorJob()
     private val coroutineScope = CoroutineScope(Dispatchers.Default + job)
+
+    // Thread-safe set to track active chains (prevents duplicate execution)
+    private val activeChains = NSMutableSet()
 
     companion object {
         /**
@@ -39,20 +42,13 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
          * Provides 10s safety margin for BGProcessingTask (60s limit)
          */
         const val CHAIN_TIMEOUT_MS = 50_000L
-
-        /**
-         * UserDefaults keys for chain persistence
-         */
-        private const val CHAIN_DEFINITION_PREFIX = "kmp_chain_definition_"
-        private const val CHAIN_QUEUE_KEY = "kmp_chain_queue"
     }
 
     /**
      * Returns the current number of chains waiting in the execution queue.
      */
     fun getChainQueueSize(): Int {
-        val queue = userDefaults.stringArrayForKey(CHAIN_QUEUE_KEY) as? List<String>
-        return queue?.size ?: 0
+        return fileStorage.getQueueSize()
     }
 
     /**
@@ -108,17 +104,13 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
      * @return `true` if the chain was executed successfully or if the queue was empty, `false` otherwise.
      */
     suspend fun executeNextChainFromQueue(): Boolean {
-        // 1. Retrieve and remove the next chain ID from the queue
-        val stringArray: List<String>? = userDefaults.stringArrayForKey(CHAIN_QUEUE_KEY) as? List<String>
-        val queue: MutableList<String> = stringArray?.toMutableList() ?: mutableListOf()
-
-        val chainId = queue.removeFirstOrNull() ?: run {
+        // 1. Retrieve and remove the next chain ID from the queue (atomic operation)
+        val chainId = fileStorage.dequeueChain() ?: run {
             Logger.d(LogTags.CHAIN, "Chain queue is empty, nothing to execute")
             return true // Considered success as there's no work to do
         }
-        userDefaults.setObject(queue, forKey = CHAIN_QUEUE_KEY)
 
-        Logger.i(LogTags.CHAIN, "Dequeued chain $chainId for execution (Queue size: ${queue.size})")
+        Logger.i(LogTags.CHAIN, "Dequeued chain $chainId for execution (Remaining: ${fileStorage.getQueueSize()})")
 
         // 2. Execute the chain and return the result
         val success = executeChain(chainId)
@@ -135,49 +127,56 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
      * Execute a single chain by ID
      */
     private suspend fun executeChain(chainId: String): Boolean {
-        // 1. Get the chain definition from UserDefaults
-        val chainDefinitionKey = "$CHAIN_DEFINITION_PREFIX$chainId"
-        val jsonString = userDefaults.stringForKey(chainDefinitionKey)
-        if (jsonString == null) {
-            Logger.e(LogTags.CHAIN, "No chain definition found for ID: $chainId")
+        // 1. Check for duplicate execution (race condition protection)
+        if (activeChains.member(chainId) != null) {
+            Logger.w(LogTags.CHAIN, "⚠️ Chain $chainId is already executing, skipping duplicate")
             return false
         }
 
-        // 2. Deserialize the chain steps
-        val steps = try {
-            Json.decodeFromString<List<List<TaskRequest>>>(jsonString)
-        } catch (e: Exception) {
-            Logger.e(LogTags.CHAIN, "Failed to deserialize chain $chainId", e)
-            userDefaults.removeObjectForKey(chainDefinitionKey) // Clean up invalid definition
-            return false
-        }
+        // 2. Mark chain as active
+        activeChains.addObject(chainId)
+        Logger.d(LogTags.CHAIN, "Marked chain $chainId as active (Total active: ${activeChains.count})")
 
-        Logger.d(LogTags.CHAIN, "Executing chain $chainId with ${steps.size} steps")
-
-        // 3. Execute steps sequentially with timeout protection
         try {
-            withTimeout(CHAIN_TIMEOUT_MS) {
-                for ((index, step) in steps.withIndex()) {
-                    Logger.i(LogTags.CHAIN, "Executing step ${index + 1}/${steps.size} for chain $chainId (${step.size} tasks)")
+            // 3. Load the chain definition from file storage
+            val steps = fileStorage.loadChainDefinition(chainId)
+            if (steps == null) {
+                Logger.e(LogTags.CHAIN, "No chain definition found for ID: $chainId")
+                return false
+            }
 
-                    val stepSuccess = executeStep(step)
-                    if (!stepSuccess) {
-                        Logger.e(LogTags.CHAIN, "Step ${index + 1} failed. Aborting chain $chainId")
-                        userDefaults.removeObjectForKey(chainDefinitionKey) // Clean up on failure
-                        return@withTimeout false
+            Logger.d(LogTags.CHAIN, "Executing chain $chainId with ${steps.size} steps")
+
+            // 4. Execute steps sequentially with timeout protection
+            try {
+                withTimeout(CHAIN_TIMEOUT_MS) {
+                    for ((index, step) in steps.withIndex()) {
+                        Logger.i(LogTags.CHAIN, "Executing step ${index + 1}/${steps.size} for chain $chainId (${step.size} tasks)")
+
+                        val stepSuccess = executeStep(step)
+                        if (!stepSuccess) {
+                            Logger.e(LogTags.CHAIN, "Step ${index + 1} failed. Aborting chain $chainId")
+                            fileStorage.deleteChainDefinition(chainId) // Clean up on failure
+                            return@withTimeout false
+                        }
                     }
                 }
+            } catch (e: TimeoutCancellationException) {
+                Logger.e(LogTags.CHAIN, "Chain $chainId timed out after ${CHAIN_TIMEOUT_MS}ms")
+                fileStorage.deleteChainDefinition(chainId)
+                return false
             }
-        } catch (e: TimeoutCancellationException) {
-            Logger.e(LogTags.CHAIN, "Chain $chainId timed out after ${CHAIN_TIMEOUT_MS}ms")
-            userDefaults.removeObjectForKey(chainDefinitionKey)
-            return false
-        }
 
-        // 4. Clean up the chain definition upon successful completion
-        userDefaults.removeObjectForKey(chainDefinitionKey)
-        Logger.i(LogTags.CHAIN, "Chain $chainId completed all steps successfully")
-        return true
+            // 5. Clean up the chain definition upon successful completion
+            fileStorage.deleteChainDefinition(chainId)
+            Logger.i(LogTags.CHAIN, "Chain $chainId completed all steps successfully")
+            return true
+
+        } finally {
+            // 6. Always remove from active set (even on failure/timeout)
+            activeChains.removeObject(chainId)
+            Logger.d(LogTags.CHAIN, "Removed chain $chainId from active set (Remaining active: ${activeChains.count})")
+        }
     }
 
     /**
@@ -204,35 +203,62 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
     }
 
     /**
-     * Execute a single task with timeout protection
+     * Execute a single task with timeout protection and detailed logging
      */
     private suspend fun executeTask(task: TaskRequest): Boolean {
-        Logger.d(LogTags.CHAIN, "Executing task: ${task.workerClassName}")
+        Logger.d(LogTags.CHAIN, "▶️ Starting task: ${task.workerClassName}")
 
         val worker = workerFactory.createWorker(task.workerClassName)
         if (worker == null) {
-            Logger.e(LogTags.CHAIN, "Could not create worker for ${task.workerClassName}")
+            Logger.e(LogTags.CHAIN, "❌ Could not create worker for ${task.workerClassName}")
             return false
         }
 
+        val startTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
+
         return try {
             withTimeout(TASK_TIMEOUT_MS) {
-                val startTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
                 val result = worker.doWork(task.inputJson)
                 val duration = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime
+                val percentage = (duration * 100 / TASK_TIMEOUT_MS).toInt()
+
+                // Warn if task used > 80% of timeout
+                if (duration > TASK_TIMEOUT_MS * 0.8) {
+                    Logger.w(LogTags.CHAIN, "⚠️ Task ${task.workerClassName} used ${duration}ms / ${TASK_TIMEOUT_MS}ms (${percentage}%) - approaching timeout!")
+                }
 
                 if (result) {
-                    Logger.d(LogTags.CHAIN, "Task ${task.workerClassName} completed (${duration}ms)")
+                    Logger.d(LogTags.CHAIN, "✅ Task ${task.workerClassName} succeeded in ${duration}ms (${percentage}%)")
                 } else {
-                    Logger.w(LogTags.CHAIN, "Task ${task.workerClassName} returned failure (${duration}ms)")
+                    Logger.w(LogTags.CHAIN, "❌ Task ${task.workerClassName} failed after ${duration}ms")
                 }
                 result
             }
         } catch (e: TimeoutCancellationException) {
-            Logger.e(LogTags.CHAIN, "Task ${task.workerClassName} timed out after ${TASK_TIMEOUT_MS}ms")
+            val duration = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime
+            Logger.e(LogTags.CHAIN, "⏱️ Task ${task.workerClassName} timed out after ${duration}ms (limit: ${TASK_TIMEOUT_MS}ms)")
+
+            // Emit failure event with timeout details
+            TaskEventBus.emit(
+                TaskCompletionEvent(
+                    taskName = task.workerClassName,
+                    success = false,
+                    message = "⏱️ Timeout after ${duration}ms"
+                )
+            )
             false
         } catch (e: Exception) {
-            Logger.e(LogTags.CHAIN, "Task ${task.workerClassName} threw exception", e)
+            val duration = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime
+            Logger.e(LogTags.CHAIN, "💥 Task ${task.workerClassName} threw exception after ${duration}ms", e)
+
+            // Emit failure event with exception details
+            TaskEventBus.emit(
+                TaskCompletionEvent(
+                    taskName = task.workerClassName,
+                    success = false,
+                    message = "💥 Exception: ${e.message}"
+                )
+            )
             false
         }
     }

@@ -1,6 +1,10 @@
 package io.kmp.taskmanager.background.data
 
+import android.app.AlarmManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
+import android.os.Build
 import androidx.work.*
 import androidx.work.OutOfQuotaPolicy
 import io.kmp.taskmanager.background.domain.BackgroundTaskScheduler
@@ -35,6 +39,7 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
      * Enqueues a task based on its trigger type.
      * - `Periodic` triggers use WorkManager for efficient, deferrable background work.
      * - `Exact` triggers use AlarmManager for time-critical, user-facing events like reminders.
+     * - **v3.0.0+**: Deprecated triggers (BatteryLow, StorageLow, etc.) are auto-converted to SystemConstraints
      */
     actual override suspend fun enqueue(
         id: String,
@@ -46,13 +51,16 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
     ): ScheduleResult {
         Logger.i(LogTags.SCHEDULER, "Enqueue request - ID: '$id', Trigger: ${trigger::class.simpleName}, Policy: $policy")
 
-        return when (trigger) {
+        // Handle deprecated triggers with auto-conversion
+        val (actualTrigger, updatedConstraints) = mapLegacyTrigger(trigger, constraints)
+
+        return when (actualTrigger) {
             is TaskTrigger.Periodic -> {
-                schedulePeriodicWork(id, trigger, workerClassName, constraints, inputJson, policy)
+                schedulePeriodicWork(id, actualTrigger, workerClassName, updatedConstraints, inputJson, policy)
             }
 
             is TaskTrigger.Exact -> {
-                scheduleExactAlarm(id, trigger, workerClassName, inputJson)
+                scheduleExactAlarm(id, actualTrigger, workerClassName, inputJson)
             }
 
             is TaskTrigger.Windowed -> {
@@ -61,29 +69,99 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
             }
 
             is TaskTrigger.OneTime -> {
-                scheduleOneTimeWork(id, trigger, workerClassName, constraints, inputJson, policy)
+                scheduleOneTimeWork(id, actualTrigger, workerClassName, updatedConstraints, inputJson, policy)
             }
 
             is TaskTrigger.ContentUri -> {
-                scheduleContentUriWork(id, trigger, workerClassName, constraints, inputJson, policy)
+                scheduleContentUriWork(id, actualTrigger, workerClassName, updatedConstraints, inputJson, policy)
             }
 
+            // Deprecated triggers should have been converted by mapLegacyTrigger
+            TaskTrigger.StorageLow,
+            TaskTrigger.BatteryLow,
+            TaskTrigger.BatteryOkay,
+            TaskTrigger.DeviceIdle -> {
+                Logger.e(LogTags.SCHEDULER, "Deprecated trigger ${trigger::class.simpleName} reached unreachable code - this is a bug")
+                ScheduleResult.REJECTED_OS_POLICY
+            }
+        }
+    }
+
+    /**
+     * Maps legacy deprecated triggers to SystemConstraints (v3.0.0+ backward compatibility)
+     * @return Pair of (converted trigger, updated constraints)
+     */
+    private fun mapLegacyTrigger(
+        trigger: TaskTrigger,
+        constraints: Constraints
+    ): Pair<TaskTrigger, Constraints> {
+        return when (trigger) {
             TaskTrigger.StorageLow -> {
-                scheduleStorageLowWork(id, workerClassName, constraints, inputJson, policy)
+                Logger.w(LogTags.SCHEDULER, "⚠️ DEPRECATED: TaskTrigger.StorageLow. Use Constraints(systemConstraints = setOf(SystemConstraint.ALLOW_LOW_STORAGE))")
+                TaskTrigger.OneTime() to constraints.copy(
+                    systemConstraints = constraints.systemConstraints + io.kmp.taskmanager.background.domain.SystemConstraint.ALLOW_LOW_STORAGE
+                )
             }
 
             TaskTrigger.BatteryLow -> {
-                scheduleBatteryLowWork(id, workerClassName, constraints, inputJson, policy)
+                Logger.w(LogTags.SCHEDULER, "⚠️ DEPRECATED: TaskTrigger.BatteryLow. Use Constraints(systemConstraints = setOf(SystemConstraint.ALLOW_LOW_BATTERY))")
+                TaskTrigger.OneTime() to constraints.copy(
+                    systemConstraints = constraints.systemConstraints + io.kmp.taskmanager.background.domain.SystemConstraint.ALLOW_LOW_BATTERY
+                )
             }
 
             TaskTrigger.BatteryOkay -> {
-                scheduleBatteryOkayWork(id, workerClassName, constraints, inputJson, policy)
+                Logger.w(LogTags.SCHEDULER, "⚠️ DEPRECATED: TaskTrigger.BatteryOkay. Use Constraints(systemConstraints = setOf(SystemConstraint.REQUIRE_BATTERY_NOT_LOW))")
+                TaskTrigger.OneTime() to constraints.copy(
+                    systemConstraints = constraints.systemConstraints + io.kmp.taskmanager.background.domain.SystemConstraint.REQUIRE_BATTERY_NOT_LOW
+                )
             }
 
             TaskTrigger.DeviceIdle -> {
-                scheduleDeviceIdleWork(id, workerClassName, constraints, inputJson, policy)
+                Logger.w(LogTags.SCHEDULER, "⚠️ DEPRECATED: TaskTrigger.DeviceIdle. Use Constraints(systemConstraints = setOf(SystemConstraint.DEVICE_IDLE))")
+                TaskTrigger.OneTime() to constraints.copy(
+                    systemConstraints = constraints.systemConstraints + io.kmp.taskmanager.background.domain.SystemConstraint.DEVICE_IDLE
+                )
+            }
+
+            // Not a legacy trigger, return as-is
+            else -> trigger to constraints
+        }
+    }
+
+    /**
+     * Builds WorkManager Constraints from KMP Constraints (v3.0.0+ with SystemConstraints support)
+     */
+    private fun buildWorkManagerConstraints(constraints: Constraints): androidx.work.Constraints {
+        val networkType = when {
+            constraints.requiresUnmeteredNetwork -> NetworkType.UNMETERED
+            constraints.requiresNetwork -> NetworkType.CONNECTED
+            else -> NetworkType.NOT_REQUIRED
+        }
+
+        val builder = androidx.work.Constraints.Builder()
+            .setRequiredNetworkType(networkType)
+            .setRequiresCharging(constraints.requiresCharging)
+
+        // Apply systemConstraints (v3.0.0+)
+        constraints.systemConstraints.forEach { systemConstraint ->
+            when (systemConstraint) {
+                io.kmp.taskmanager.background.domain.SystemConstraint.ALLOW_LOW_STORAGE -> {
+                    builder.setRequiresStorageNotLow(false) // Allow when storage IS low
+                }
+                io.kmp.taskmanager.background.domain.SystemConstraint.ALLOW_LOW_BATTERY -> {
+                    builder.setRequiresBatteryNotLow(false) // Allow when battery IS low
+                }
+                io.kmp.taskmanager.background.domain.SystemConstraint.REQUIRE_BATTERY_NOT_LOW -> {
+                    builder.setRequiresBatteryNotLow(true) // Require battery NOT low
+                }
+                io.kmp.taskmanager.background.domain.SystemConstraint.DEVICE_IDLE -> {
+                    builder.setRequiresDeviceIdle(true) // Require device idle/dozing
+                }
             }
         }
+
+        return builder.build()
     }
 
     /**
@@ -110,17 +188,8 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
             .apply { inputJson?.let { putString("inputJson", it) } }
             .build()
 
-        // Map our KMP Constraints to WorkManager's Constraints
-        val networkType = when {
-            constraints.requiresUnmeteredNetwork -> NetworkType.UNMETERED
-            constraints.requiresNetwork -> NetworkType.CONNECTED
-            else -> NetworkType.NOT_REQUIRED
-        }
-
-        val wmConstraints = androidx.work.Constraints.Builder()
-            .setRequiredNetworkType(networkType)
-            .setRequiresCharging(constraints.requiresCharging)
-            .build()
+        // Build WorkManager constraints (v3.0.0+ with SystemConstraints support)
+        val wmConstraints = buildWorkManagerConstraints(constraints)
 
         val workRequest = PeriodicWorkRequestBuilder<KmpWorker>(
             trigger.intervalMs,
@@ -149,10 +218,22 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
     }
 
     /**
-     * Exact alarms require app-specific BroadcastReceiver implementation.
-     * Override this method to implement exact alarm scheduling using AlarmManager.
+     * Schedules an exact alarm with automatic fallback to WorkManager.
      *
-     * See documentation: https://github.com/vietnguyentuan2019/KMPTaskManager#exact-alarms
+     * **v3.0.0+ Behavior:**
+     * - Android 12+ (API 31+): Checks `SCHEDULE_EXACT_ALARM` permission
+     * - If permission granted: Uses AlarmManager for exact scheduling
+     * - If permission denied: Falls back to WorkManager OneTime task with delay
+     *
+     * **For custom AlarmReceiver:**
+     * Override `getAlarmReceiverClass()` to return your BroadcastReceiver class.
+     *
+     * **Example:**
+     * ```kotlin
+     * class MyScheduler(context: Context) : NativeTaskScheduler(context) {
+     *     override fun getAlarmReceiverClass(): Class<out AlarmReceiver> = MyAlarmReceiver::class.java
+     * }
+     * ```
      */
     protected open fun scheduleExactAlarm(
         id: String,
@@ -160,14 +241,124 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
         workerClassName: String,
         inputJson: String?
     ): ScheduleResult {
-        Logger.w(LogTags.ALARM, """
-            Exact alarms require custom BroadcastReceiver implementation.
-            Please extend NativeTaskScheduler and override scheduleExactAlarm()
-            or use WorkManager for deferred tasks instead.
-            See: https://github.com/vietnguyentuan2019/KMPTaskManager#exact-alarms
-        """.trimIndent())
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
-        return ScheduleResult.REJECTED_OS_POLICY
+        // Check permission for Android 12+ (API 31+)
+        val canScheduleExactAlarms = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            alarmManager.canScheduleExactAlarms()
+        } else {
+            true // Pre-Android 12 doesn't require permission
+        }
+
+        if (!canScheduleExactAlarms) {
+            Logger.w(LogTags.ALARM, """
+                ⚠️ SCHEDULE_EXACT_ALARM permission denied (Android 12+)
+                Falling back to WorkManager OneTime task with ${trigger.atEpochMillis}ms delay.
+
+                To use exact alarms, add to AndroidManifest.xml:
+                <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+
+                And request permission:
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
+                    startActivity(intent)
+                }
+            """.trimIndent())
+
+            // Fallback: Use WorkManager with delay
+            return scheduleOneTimeWork(
+                id = id,
+                trigger = TaskTrigger.OneTime(initialDelayMs = trigger.atEpochMillis),
+                workerClassName = workerClassName,
+                constraints = Constraints(), // No constraints for fallback
+                inputJson = inputJson,
+                policy = ExistingPolicy.REPLACE
+            )
+        }
+
+        // Get AlarmReceiver class from user implementation
+        val receiverClass = getAlarmReceiverClass()
+        if (receiverClass == null) {
+            Logger.e(LogTags.ALARM, """
+                ❌ No AlarmReceiver class provided!
+                Override getAlarmReceiverClass() to return your BroadcastReceiver.
+
+                Example:
+                class MyScheduler(context: Context) : NativeTaskScheduler(context) {
+                    override fun getAlarmReceiverClass() = MyAlarmReceiver::class.java
+                }
+
+                Falling back to WorkManager...
+            """.trimIndent())
+
+            // Fallback to WorkManager
+            return scheduleOneTimeWork(
+                id = id,
+                trigger = TaskTrigger.OneTime(initialDelayMs = trigger.atEpochMillis),
+                workerClassName = workerClassName,
+                constraints = Constraints(),
+                inputJson = inputJson,
+                policy = ExistingPolicy.REPLACE
+            )
+        }
+
+        // Create PendingIntent for AlarmReceiver
+        val intent = Intent(context, receiverClass).apply {
+            putExtra(AlarmReceiver.EXTRA_TASK_ID, id)
+            putExtra(AlarmReceiver.EXTRA_WORKER_CLASS, workerClassName)
+            inputJson?.let { putExtra(AlarmReceiver.EXTRA_INPUT_JSON, it) }
+        }
+
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            id.hashCode(), // Use ID hash as request code
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // Schedule exact alarm
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    trigger.atEpochMillis,
+                    pendingIntent
+                )
+            } else {
+                alarmManager.setExact(
+                    AlarmManager.RTC_WAKEUP,
+                    trigger.atEpochMillis,
+                    pendingIntent
+                )
+            }
+
+            Logger.i(LogTags.ALARM, "✅ Scheduled exact alarm - ID: '$id', Time: ${trigger.atEpochMillis}ms, Receiver: ${receiverClass.simpleName}")
+            return ScheduleResult.ACCEPTED
+
+        } catch (e: SecurityException) {
+            Logger.e(LogTags.ALARM, "❌ SecurityException scheduling exact alarm", e)
+
+            // Final fallback to WorkManager
+            return scheduleOneTimeWork(
+                id = id,
+                trigger = TaskTrigger.OneTime(initialDelayMs = trigger.atEpochMillis),
+                workerClassName = workerClassName,
+                constraints = Constraints(),
+                inputJson = inputJson,
+                policy = ExistingPolicy.REPLACE
+            )
+        }
+    }
+
+    /**
+     * Override this method to provide your custom AlarmReceiver class.
+     *
+     * **v3.0.0+**: Return your BroadcastReceiver that extends AlarmReceiver.
+     *
+     * @return Your AlarmReceiver class, or null to use WorkManager fallback
+     */
+    protected open fun getAlarmReceiverClass(): Class<out AlarmReceiver>? {
+        return null
     }
 
     private fun scheduleOneTimeWork(
@@ -431,13 +622,35 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
 
     /**
      * Cancels a task by its unique ID.
-     * Note: This implementation only cancels WorkManager tasks.
-     * If you use exact alarms, override this method to cancel PendingIntents.
+     *
+     * **v3.0.0+**: Cancels both WorkManager tasks and exact alarms.
      */
     actual override fun cancel(id: String) {
         Logger.i(LogTags.SCHEDULER, "Cancelling task with ID '$id'")
+
+        // Cancel WorkManager task
         workManager.cancelUniqueWork(id)
         Logger.d(LogTags.SCHEDULER, "Cancelled WorkManager task '$id'")
+
+        // Also cancel exact alarm if one exists
+        val receiverClass = getAlarmReceiverClass()
+        if (receiverClass != null) {
+            try {
+                val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+                val intent = Intent(context, receiverClass)
+                val pendingIntent = PendingIntent.getBroadcast(
+                    context,
+                    id.hashCode(),
+                    intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+                alarmManager.cancel(pendingIntent)
+                pendingIntent.cancel()
+                Logger.d(LogTags.ALARM, "Cancelled exact alarm for task '$id'")
+            } catch (e: Exception) {
+                Logger.w(LogTags.ALARM, "Error cancelling exact alarm for task '$id'", e)
+            }
+        }
     }
 
     /**

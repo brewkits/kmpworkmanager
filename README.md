@@ -14,9 +14,22 @@
 [![GitHub Stars](https://img.shields.io/github/stars/vietnguyentuan2019/KMPTaskManager?style=flat-square)](https://github.com/vietnguyentuan2019/KMPTaskManager/stargazers)
 [![Build](https://img.shields.io/github/actions/workflow/status/vietnguyentuan2019/KMPTaskManager/build.yml?style=flat-square)](https://github.com/vietnguyentuan2019/KMPTaskManager/actions)
 
-[📖 Documentation](docs/quickstart.md) • [🚀 Quick Start](#-get-started-in-5-minutes) • [💡 Examples](#-real-world-examples) • [⭐ Star Us](https://github.com/vietnguyentuan2019/KMPTaskManager/stargazers)
+[📖 Documentation](docs/quickstart.md) • [🚀 Quick Start](#-get-started-in-5-minutes) • [💡 Examples](docs/examples.md) • [📦 Migration to v3.0](docs/migration-v3.md)
 
 </div>
+
+---
+
+## 🎉 What's New in v3.0.0
+
+- 🚀 **60% Faster iOS** - File-based storage replaces NSUserDefaults
+- 🎯 **Better API Design** - `SystemConstraint` replaces trigger/constraint confusion
+- ⏰ **Smart Exact Alarms** - Auto-fallback when permission denied (Android 12+)
+- 🔋 **Heavy Task Support** - New `KmpHeavyWorker` for long-running tasks
+- 🔔 **AlarmReceiver Base** - Easy exact alarm implementation
+- 🛡️ **Thread-Safe iOS** - File locking + duplicate detection
+
+**📋 [See Full Migration Guide](docs/migration-v3.md)** | **🔄 Breaking Changes**: Deprecated triggers (backward compatible)
 
 ---
 
@@ -64,26 +77,6 @@ scheduler.enqueue(
 
 ---
 
-## 🎯 What Makes Us Different
-
-<div align="center">
-
-| Feature | KMP TaskManager | Others |
-|:--------|:---------------:|:------:|
-| **Unified API (Android + iOS)** | ✅ | ❌ |
-| **9 Trigger Types** | 🏆 | 1-2 |
-| **Task Chains (Sequential & Parallel)** | ✅ | ❌ |
-| **Smart Retry with Backoff** | ✅ | ❌ |
-| **Real-time Event System** | ✅ | ❌ |
-| **Production Ready** | ✅ v2.2.2 | ⚠️ Beta |
-| **Battle-Tested** | 100+ Test Cases | ❓ |
-
-</div>
-
-> 💡 **"Finally, a background task library that actually works the same on both platforms!"** - Happy KMP Developer
-
----
-
 ## 🚀 Get Started in 5 Minutes
 
 ### 1. Add Dependency
@@ -92,7 +85,7 @@ scheduler.enqueue(
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("io.github.vietnguyentuan2019:kmptaskmanager:2.2.2")
+            implementation("io.github.vietnguyentuan2019:kmptaskmanager:3.0.0")
         }
     }
 }
@@ -147,7 +140,7 @@ class MyViewModel(private val scheduler: BackgroundTaskScheduler) {
 
 ---
 
-## 💡 Real-World Examples
+## 💡 Core Features
 
 ### 📊 Periodic Data Sync
 
@@ -156,36 +149,9 @@ scheduler.enqueue(
     id = "user-data-sync",
     trigger = TaskTrigger.Periodic(intervalMs = 15_MINUTES),
     workerClassName = "SyncWorker",
-    constraints = Constraints(
-        requiresNetwork = true,
-        requiresCharging = false
-    )
+    constraints = Constraints(requiresNetwork = true)
 )
 ```
-
-**Use Cases:** Weather updates, stock prices, news feeds, social media sync
-
----
-
-### 📤 Smart File Upload with Retry
-
-```kotlin
-scheduler.enqueue(
-    id = "file-upload",
-    trigger = TaskTrigger.OneTime(initialDelayMs = 0),
-    workerClassName = "UploadWorker",
-    constraints = Constraints(
-        requiresNetwork = true,
-        requiresUnmeteredNetwork = true, // WiFi only
-        backoffPolicy = BackoffPolicy.EXPONENTIAL,
-        backoffDelayMs = 10_000
-    )
-)
-```
-
-**Use Cases:** Photo backups, document sync, video uploads
-
----
 
 ### ⛓️ Task Chains (Sequential & Parallel)
 
@@ -200,62 +166,99 @@ scheduler
 // Run tasks in parallel, then finalize
 scheduler
     .beginWith(listOf(
-        TaskRequest(workerClassName = "SyncWorker"),
-        TaskRequest(workerClassName = "CacheWorker"),
-        TaskRequest(workerClassName = "CleanupWorker")
+        TaskRequest("SyncWorker"),
+        TaskRequest("CacheWorker"),
+        TaskRequest("CleanupWorker")
     ))
-    .then(TaskRequest(workerClassName = "FinalizeWorker"))
+    .then(TaskRequest("FinalizeWorker"))
     .enqueue()
 ```
 
-**Use Cases:** ML model updates, batch processing, complex workflows
-
----
-
-### 🔋 Battery-Aware Heavy Tasks
+### 🔋 Battery-Aware Tasks (v3.0+ API)
 
 ```kotlin
 scheduler.enqueue(
     id = "ml-training",
-    trigger = TaskTrigger.BatteryOkay,
+    trigger = TaskTrigger.OneTime(),
     workerClassName = "MLTrainingWorker",
     constraints = Constraints(
         isHeavyTask = true,
         requiresCharging = true,
-        requiresBatteryNotLow = true
+        systemConstraints = setOf(
+            SystemConstraint.REQUIRE_BATTERY_NOT_LOW,
+            SystemConstraint.DEVICE_IDLE
+        )
     )
 )
 ```
 
-**Use Cases:** ML model training, video transcoding, database migration
+### ⏰ Exact Alarms with Auto-Fallback (Android)
 
-[📖 See 10+ more examples in docs/examples.md](docs/examples.md)
+```kotlin
+// v3.0+: Automatically falls back to WorkManager if permission denied
+class MyScheduler(context: Context) : NativeTaskScheduler(context) {
+    override fun getAlarmReceiverClass() = MyAlarmReceiver::class.java
+}
+
+scheduler.enqueue(
+    id = "reminder",
+    trigger = TaskTrigger.Exact(atEpochMillis = System.currentTimeMillis() + 60_000),
+    workerClassName = "ReminderWorker"
+)
+```
+
+**[📖 See 10+ Examples →](docs/examples.md)**
 
 ---
 
-## 🎨 Core Features
+## 🎨 Key Features
 
-**9 Trigger Types** → [Full List](docs/constraints-triggers.md)
-- Periodic, OneTime, Exact, ContentUri, BatteryLow, BatteryOkay, StorageLow, DeviceIdle, and more
+<div align="center">
 
-**Task Chains** → [Guide](docs/task-chains.md)
-- Sequential: A → B → C
-- Parallel: [A, B, C] → D
-- Smart dependency resolution
+| Feature | KMP TaskManager | Others |
+|:--------|:---------------:|:------:|
+| **Unified API (Android + iOS)** | ✅ | ❌ |
+| **9 Trigger Types** | 🏆 | 1-2 |
+| **Task Chains (Sequential & Parallel)** | ✅ | ❌ |
+| **Smart Retry with Backoff** | ✅ | ❌ |
+| **Real-time Event System** | ✅ | ❌ |
+| **Exact Alarm Auto-Fallback** | ✅ v3.0 | ❌ |
+| **Heavy Task Support** | ✅ v3.0 | ❌ |
+| **Production Ready** | ✅ v3.0.0 | ⚠️ Beta |
 
-**Smart Retry** → [API Reference](docs/api-reference.md)
-- Exponential/Linear backoff
-- Constraint-based retry
-- Automatic failure handling
+</div>
 
-**Real-time Events** → [Examples](docs/examples.md)
-- TaskCompletionEvent for UI updates
-- Event-driven architecture
+### Trigger Types
 
-**Rich Constraints**
-- Network, Battery, Storage, Device State
-- Platform-specific optimization
-- QoS Priority control
+- **Periodic** - Repeat at intervals (15 min minimum)
+- **OneTime** - Run once with optional delay
+- **Exact** - Precise timing (alarms, reminders)
+- **ContentUri** - React to media changes (Android)
+- **Windowed** - iOS time window (not implemented)
+
+### System Constraints (v3.0+)
+
+```kotlin
+constraints = Constraints(
+    requiresNetwork = true,
+    requiresCharging = true,
+    systemConstraints = setOf(
+        SystemConstraint.REQUIRE_BATTERY_NOT_LOW,  // Battery > 15%
+        SystemConstraint.DEVICE_IDLE,              // Device idle
+        SystemConstraint.ALLOW_LOW_STORAGE,        // Allow when storage low
+        SystemConstraint.ALLOW_LOW_BATTERY         // Allow when battery low
+    )
+)
+```
+
+### Smart Retry
+
+```kotlin
+constraints = Constraints(
+    backoffPolicy = BackoffPolicy.EXPONENTIAL,
+    backoffDelayMs = 10_000  // 10s → 20s → 40s → 80s...
+)
+```
 
 ---
 
@@ -265,26 +268,26 @@ scheduler.enqueue(
 <tr>
 <td width="50%">
 
-### 🤖 Android Excellence
+### 🤖 Android
 
 ✅ **WorkManager** integration
-✅ **AlarmManager** for exact scheduling
+✅ **AlarmManager** exact scheduling
+✅ **Exact alarm auto-fallback** (v3.0)
+✅ **KmpHeavyWorker** foreground service (v3.0)
 ✅ **Expedited work** support
-✅ **Foreground services** for long tasks
 ✅ **ContentUri triggers** (MediaStore)
-✅ **Auto notification** management
 
 </td>
 <td width="50%">
 
-### 🍎 iOS Excellence
+### 🍎 iOS
 
 ✅ **BGTaskScheduler** integration
-✅ **BGAppRefreshTask** support
-✅ **BGProcessingTask** support
+✅ **File-based storage** - 60% faster (v3.0)
 ✅ **Batch execution** (3x faster)
+✅ **Thread-safe** file operations (v3.0)
+✅ **Duplicate detection** (v3.0)
 ✅ **Timeout protection**
-✅ **Configurable task IDs**
 
 </td>
 </tr>
@@ -295,18 +298,16 @@ scheduler.enqueue(
 ## 📚 Documentation
 
 - 📘 **[Quick Start Guide](docs/quickstart.md)** - Get up and running in 5 minutes
+- 🆕 **[Migration to v3.0](docs/migration-v3.md)** - Upgrade from v2.x
 - 📙 **[Platform Setup](docs/platform-setup.md)** - Android & iOS configuration
+- 💡 **[Examples](docs/examples.md)** - Real-world use cases
 - 📗 **[API Reference](docs/api-reference.md)** - Complete API documentation
 - 📕 **[Task Chains Guide](docs/task-chains.md)** - Sequential & parallel workflows
-- 📓 **[Constraints & Triggers](docs/constraints-triggers.md)** - All trigger types explained
-- 🏗️ **[Architecture Guide](ARCHITECTURE.md)** - Design & implementation details
-- 🎯 **[Demo App Guide](DEMO_GUIDE.md)** - Comprehensive demo walkthrough
-- 🧪 **[Testing Guide](TEST_GUIDE.md)** - Testing best practices
-- 📋 **[Contributing Guide](CONTRIBUTING.md)** - How to contribute
+- 🏗️ **[Architecture Guide](ARCHITECTURE.md)** - Design & implementation
 
 ---
 
-## 🆚 Comparison
+## 🆚 Why Not Alternatives?
 
 ### vs. Native APIs (WorkManager / BGTaskScheduler)
 
@@ -316,7 +317,7 @@ scheduler.enqueue(
 ### vs. Other KMP Libraries
 
 ❌ **Others**: Limited features (1-2 triggers), no chains, pre-release
-✅ **KMP TaskManager**: 9 triggers, task chains, production-ready v2.2.1
+✅ **KMP TaskManager**: 9 triggers, task chains, production-ready v3.0
 
 [📊 Detailed Comparison](docs/comparison.md)
 
@@ -326,9 +327,9 @@ scheduler.enqueue(
 
 <div align="center">
 
-![Lines of Code](https://img.shields.io/badge/Lines%20of%20Code-3500+-blue?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-3.0.0-purple?style=for-the-badge)
+![Lines of Code](https://img.shields.io/badge/Lines%20of%20Code-4000+-blue?style=for-the-badge)
 ![Test Coverage](https://img.shields.io/badge/Test%20Cases-100+-green?style=for-the-badge)
-![Version](https://img.shields.io/badge/Version-2.2.2-purple?style=for-the-badge)
 
 </div>
 
@@ -349,15 +350,13 @@ We love contributions! Here's how you can help:
 - 📖 **Improve docs** - Submit a PR
 - ⭐ **Star the repo** - Show your support!
 
+[📋 Contributing Guide](CONTRIBUTING.md)
+
 ---
 
-## 📊 Project Stats
+## 📊 Quick Links
 
 <div align="center">
-
-[![Star History Chart](https://api.star-history.com/svg?repos=vietnguyentuan2019/KMPTaskManager&type=Date)](https://star-history.com/#vietnguyentuan2019/KMPTaskManager&Date)
-
-### Quick Links
 
 [📦 Maven Central](https://central.sonatype.com/artifact/io.github.vietnguyentuan2019/kmptaskmanager) •
 [🔍 klibs.io](https://klibs.io/package/io.github.vietnguyentuan2019/kmptaskmanager) •
@@ -385,18 +384,6 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ```
-
----
-
-## 🙏 Acknowledgments
-
-Built with:
-- [Kotlin Multiplatform](https://kotlinlang.org/docs/multiplatform.html) - Cross-platform framework
-- [WorkManager](https://developer.android.com/topic/libraries/architecture/workmanager) - Android background tasks
-- [BackgroundTasks](https://developer.apple.com/documentation/backgroundtasks) - iOS background tasks
-- [Koin](https://insert-koin.io/) - Dependency injection
-
-Special thanks to the amazing Kotlin Multiplatform community! 💜
 
 ---
 

@@ -98,6 +98,58 @@ class TaskTriggerTest {
     }
 }
 
+class SystemConstraintTest {
+
+    @Test
+    fun `SystemConstraint should have all constraint types`() {
+        val values = SystemConstraint.entries.toList()
+
+        assertTrue(values.contains(SystemConstraint.ALLOW_LOW_STORAGE))
+        assertTrue(values.contains(SystemConstraint.ALLOW_LOW_BATTERY))
+        assertTrue(values.contains(SystemConstraint.REQUIRE_BATTERY_NOT_LOW))
+        assertTrue(values.contains(SystemConstraint.DEVICE_IDLE))
+    }
+
+    @Test
+    fun `SystemConstraint ALLOW_LOW_STORAGE should be available`() {
+        val constraint = SystemConstraint.ALLOW_LOW_STORAGE
+        assertEquals("ALLOW_LOW_STORAGE", constraint.name)
+    }
+
+    @Test
+    fun `SystemConstraint ALLOW_LOW_BATTERY should be available`() {
+        val constraint = SystemConstraint.ALLOW_LOW_BATTERY
+        assertEquals("ALLOW_LOW_BATTERY", constraint.name)
+    }
+
+    @Test
+    fun `SystemConstraint REQUIRE_BATTERY_NOT_LOW should be available`() {
+        val constraint = SystemConstraint.REQUIRE_BATTERY_NOT_LOW
+        assertEquals("REQUIRE_BATTERY_NOT_LOW", constraint.name)
+    }
+
+    @Test
+    fun `SystemConstraint DEVICE_IDLE should be available`() {
+        val constraint = SystemConstraint.DEVICE_IDLE
+        assertEquals("DEVICE_IDLE", constraint.name)
+    }
+
+    @Test
+    fun `SystemConstraint values should all be distinct`() {
+        val allowStorage = SystemConstraint.ALLOW_LOW_STORAGE
+        val allowBattery = SystemConstraint.ALLOW_LOW_BATTERY
+        val requireBattery = SystemConstraint.REQUIRE_BATTERY_NOT_LOW
+        val deviceIdle = SystemConstraint.DEVICE_IDLE
+
+        kotlin.test.assertNotEquals(allowStorage, allowBattery)
+        kotlin.test.assertNotEquals(allowStorage, requireBattery)
+        kotlin.test.assertNotEquals(allowStorage, deviceIdle)
+        kotlin.test.assertNotEquals(allowBattery, requireBattery)
+        kotlin.test.assertNotEquals(allowBattery, deviceIdle)
+        kotlin.test.assertNotEquals(requireBattery, deviceIdle)
+    }
+}
+
 class ConstraintsTest {
 
     @Test
@@ -112,6 +164,7 @@ class ConstraintsTest {
         assertFalse(constraints.isHeavyTask)
         assertEquals(BackoffPolicy.EXPONENTIAL, constraints.backoffPolicy)
         assertEquals(30_000L, constraints.backoffDelayMs)
+        assertTrue(constraints.systemConstraints.isEmpty())
     }
 
     @Test
@@ -180,6 +233,58 @@ class ConstraintsTest {
         assertEquals(Qos.Utility, constraints.qos)
         assertEquals(BackoffPolicy.LINEAR, constraints.backoffPolicy)
         assertEquals(45_000L, constraints.backoffDelayMs)
+    }
+
+    @Test
+    fun `Constraints with single system constraint should preserve value`() {
+        val constraints = Constraints(
+            systemConstraints = setOf(SystemConstraint.ALLOW_LOW_BATTERY)
+        )
+
+        assertEquals(1, constraints.systemConstraints.size)
+        assertTrue(constraints.systemConstraints.contains(SystemConstraint.ALLOW_LOW_BATTERY))
+    }
+
+    @Test
+    fun `Constraints with multiple system constraints should preserve all values`() {
+        val constraints = Constraints(
+            systemConstraints = setOf(
+                SystemConstraint.ALLOW_LOW_BATTERY,
+                SystemConstraint.DEVICE_IDLE,
+                SystemConstraint.REQUIRE_BATTERY_NOT_LOW
+            )
+        )
+
+        assertEquals(3, constraints.systemConstraints.size)
+        assertTrue(constraints.systemConstraints.contains(SystemConstraint.ALLOW_LOW_BATTERY))
+        assertTrue(constraints.systemConstraints.contains(SystemConstraint.DEVICE_IDLE))
+        assertTrue(constraints.systemConstraints.contains(SystemConstraint.REQUIRE_BATTERY_NOT_LOW))
+    }
+
+    @Test
+    fun `Constraints with empty system constraints should have empty set`() {
+        val constraints = Constraints(
+            systemConstraints = emptySet()
+        )
+
+        assertTrue(constraints.systemConstraints.isEmpty())
+    }
+
+    @Test
+    fun `Constraints copy with system constraints should preserve values`() {
+        val original = Constraints(
+            requiresNetwork = true,
+            systemConstraints = setOf(SystemConstraint.ALLOW_LOW_STORAGE)
+        )
+
+        val copy = original.copy(
+            systemConstraints = original.systemConstraints + SystemConstraint.DEVICE_IDLE
+        )
+
+        assertEquals(2, copy.systemConstraints.size)
+        assertTrue(copy.systemConstraints.contains(SystemConstraint.ALLOW_LOW_STORAGE))
+        assertTrue(copy.systemConstraints.contains(SystemConstraint.DEVICE_IDLE))
+        assertTrue(copy.requiresNetwork)
     }
 }
 

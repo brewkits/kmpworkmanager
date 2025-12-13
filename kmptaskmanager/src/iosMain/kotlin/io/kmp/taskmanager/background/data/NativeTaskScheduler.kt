@@ -5,6 +5,8 @@ import io.kmp.taskmanager.background.domain.*
 import io.kmp.taskmanager.utils.Logger
 import io.kmp.taskmanager.utils.LogTags
 import kotlinx.cinterop.*
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import platform.BackgroundTasks.BGAppRefreshTaskRequest
@@ -25,6 +27,8 @@ import platform.UserNotifications.UNUserNotificationCenter
  * Key Features:
  * - BGAppRefreshTask for light tasks (≤30s)
  * - BGProcessingTask for heavy tasks (≤60s)
+ * - File-based storage for improved performance and thread safety (v3.0.0+)
+ * - Automatic migration from NSUserDefaults (v2.x)
  * - ExistingPolicy support (KEEP/REPLACE)
  * - Task ID validation against Info.plist
  * - Proper error handling with NSError
@@ -45,13 +49,26 @@ actual class NativeTaskScheduler(
     additionalPermittedTaskIds: Set<String> = emptySet()
 ) : BackgroundTaskScheduler {
 
-    private val userDefaults = NSUserDefaults.standardUserDefaults
+    private val fileStorage = IosFileStorage()
+    private val migration = StorageMigration(fileStorage = fileStorage)
+
+    init {
+        // Perform one-time migration from NSUserDefaults to file storage
+        kotlinx.coroutines.MainScope().launch {
+            try {
+                val result = migration.migrate()
+                if (result.success) {
+                    Logger.i(LogTags.SCHEDULER, "Storage migration: ${result.message}")
+                } else {
+                    Logger.e(LogTags.SCHEDULER, "Storage migration failed: ${result.message}")
+                }
+            } catch (e: Exception) {
+                Logger.e(LogTags.SCHEDULER, "Storage migration error", e)
+            }
+        }
+    }
 
     private companion object {
-        const val CHAIN_DEFINITION_PREFIX = "kmp_chain_definition_"
-        const val TASK_META_PREFIX = "kmp_task_meta_"
-        const val PERIODIC_META_PREFIX = "kmp_periodic_meta_"
-        const val CHAIN_QUEUE_KEY = "kmp_chain_queue"
         const val CHAIN_EXECUTOR_IDENTIFIER = "kmp_chain_executor_task"
         const val APPLE_TO_UNIX_EPOCH_OFFSET_SECONDS = 978307200.0
 
@@ -147,7 +164,7 @@ actual class NativeTaskScheduler(
             "requiresCharging" to "${constraints.requiresCharging}",
             "isHeavyTask" to "${constraints.isHeavyTask}"
         )
-        userDefaults.setObject(periodicMetadata, forKey = "$PERIODIC_META_PREFIX$id")
+        fileStorage.saveTaskMetadata(id, periodicMetadata, periodic = true)
 
         val request = createBackgroundTaskRequest(id, constraints)
         request.earliestBeginDate = NSDate().dateByAddingTimeInterval(trigger.intervalMs / 1000.0)
@@ -178,7 +195,7 @@ actual class NativeTaskScheduler(
             "workerClassName" to (workerClassName ?: ""),
             "inputJson" to (inputJson ?: "")
         )
-        userDefaults.setObject(taskMetadata, forKey = "$TASK_META_PREFIX$id")
+        fileStorage.saveTaskMetadata(id, taskMetadata, periodic = false)
 
         val request = createBackgroundTaskRequest(id, constraints)
         request.earliestBeginDate = NSDate().dateByAddingTimeInterval(trigger.initialDelayMs / 1000.0)
@@ -190,8 +207,7 @@ actual class NativeTaskScheduler(
      * Handle ExistingPolicy - returns true if should proceed with scheduling, false if should skip
      */
     private fun handleExistingPolicy(id: String, policy: ExistingPolicy, isPeriodicMetadata: Boolean): Boolean {
-        val metadataKey = if (isPeriodicMetadata) "$PERIODIC_META_PREFIX$id" else "$TASK_META_PREFIX$id"
-        val existingMetadata = userDefaults.dictionaryForKey(metadataKey)
+        val existingMetadata = fileStorage.loadTaskMetadata(id, periodic = isPeriodicMetadata)
 
         if (existingMetadata != null) {
             Logger.d(LogTags.SCHEDULER, "Task '$id' metadata exists, policy: $policy")
@@ -325,17 +341,19 @@ actual class NativeTaskScheduler(
         val chainId = NSUUID.UUID().UUIDString()
         Logger.i(LogTags.CHAIN, "Enqueuing chain - ID: $chainId, Steps: ${steps.size}")
 
-        // 1. Serialize and save the chain definition
-        val chainJson = Json.encodeToString(steps)
-        userDefaults.setObject(chainJson, forKey = "$CHAIN_DEFINITION_PREFIX$chainId")
+        // 1. Save the chain definition
+        fileStorage.saveChainDefinition(chainId, steps)
 
-        // 2. Add the chainId to the execution queue
-        val stringArray: List<String>? = userDefaults.stringArrayForKey(CHAIN_QUEUE_KEY) as? List<String>
-        val queue: MutableList<String> = stringArray?.toMutableList() ?: mutableListOf()
-        queue.add(chainId)
-        userDefaults.setObject(queue, forKey = CHAIN_QUEUE_KEY)
-
-        Logger.d(LogTags.CHAIN, "Added chain $chainId to execution queue. Queue size: ${queue.size}")
+        // 2. Add the chainId to the execution queue (atomic operation)
+        kotlinx.coroutines.MainScope().launch {
+            try {
+                fileStorage.enqueueChain(chainId)
+                Logger.d(LogTags.CHAIN, "Added chain $chainId to execution queue. Queue size: ${fileStorage.getQueueSize()}")
+            } catch (e: Exception) {
+                Logger.e(LogTags.CHAIN, "Failed to enqueue chain $chainId", e)
+                return@launch
+            }
+        }
 
         // 3. Schedule the generic chain executor task
         val request = BGProcessingTaskRequest(identifier = CHAIN_EXECUTOR_IDENTIFIER).apply {
@@ -361,8 +379,10 @@ actual class NativeTaskScheduler(
 
         BGTaskScheduler.sharedScheduler.cancelTaskRequestWithIdentifier(id)
         UNUserNotificationCenter.currentNotificationCenter().removePendingNotificationRequestsWithIdentifiers(listOf(id))
-        userDefaults.removeObjectForKey("$TASK_META_PREFIX$id")
-        userDefaults.removeObjectForKey("$PERIODIC_META_PREFIX$id")
+
+        // Clean up metadata from file storage
+        fileStorage.deleteTaskMetadata(id, periodic = false)
+        fileStorage.deleteTaskMetadata(id, periodic = true)
 
         Logger.d(LogTags.SCHEDULER, "Cancelled task '$id' and cleaned up metadata")
     }
@@ -373,8 +393,9 @@ actual class NativeTaskScheduler(
         BGTaskScheduler.sharedScheduler.cancelAllTaskRequests()
         UNUserNotificationCenter.currentNotificationCenter().removeAllPendingNotificationRequests()
 
-        // Note: Metadata cleanup would require iterating all keys, which is expensive
-        // Metadata will be cleaned up when individual tasks complete or are cancelled
-        Logger.d(LogTags.SCHEDULER, "Cancelled all tasks (metadata remains until individual task completion)")
+        // Cleanup file storage (garbage collection)
+        fileStorage.cleanupStaleMetadata(olderThanDays = 0) // Clean all metadata immediately
+
+        Logger.d(LogTags.SCHEDULER, "Cancelled all tasks and cleaned up metadata")
     }
 }
