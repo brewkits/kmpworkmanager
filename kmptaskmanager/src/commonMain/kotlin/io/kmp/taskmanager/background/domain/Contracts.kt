@@ -146,66 +146,141 @@ sealed interface TaskTrigger {
     /**
      * Triggers when device storage is low - **ANDROID ONLY**.
      *
-     * **⚠️ IMPORTANT**: This is a CONSTRAINT, not an active trigger!
-     * - Does NOT automatically trigger when storage becomes low
-     * - Only allows task to run when storage IS low
-     * - To actively monitor storage, use BroadcastReceiver for `ACTION_DEVICE_STORAGE_LOW`
+     * **⚠️ DEPRECATED**: Use `Constraints(systemConstraints = setOf(SystemConstraint.ALLOW_LOW_STORAGE))` instead.
      *
-     * **Android Implementation**:
-     * - Sets `setRequiresStorageNotLow(false)` on WorkManager constraints
-     * - Task will run if storage is low (opposite of default behavior)
+     * This incorrectly represented a constraint as a trigger. The new API correctly models this
+     * as a constraint that allows tasks to run when storage is low.
      *
-     * **iOS**: Returns `ScheduleResult.REJECTED_OS_POLICY`
+     * **Migration**:
+     * ```kotlin
+     * // Old (v2.x):
+     * scheduler.enqueue(id, trigger = TaskTrigger.StorageLow, ...)
      *
-     * **Use Cases**: Cleanup tasks that should run when storage is limited
+     * // New (v3.0.0+):
+     * scheduler.enqueue(
+     *     id,
+     *     trigger = TaskTrigger.OneTime(),
+     *     constraints = Constraints(systemConstraints = setOf(SystemConstraint.ALLOW_LOW_STORAGE))
+     * )
+     * ```
      */
+    @Deprecated(
+        message = "StorageLow is a constraint, not a trigger. Use Constraints(systemConstraints = setOf(SystemConstraint.ALLOW_LOW_STORAGE))",
+        replaceWith = ReplaceWith("Constraints(systemConstraints = setOf(SystemConstraint.ALLOW_LOW_STORAGE))"),
+        level = DeprecationLevel.WARNING
+    )
     data object StorageLow : TaskTrigger
 
     /**
      * Triggers when battery is low - **ANDROID ONLY**.
      *
-     * **⚠️ IMPORTANT**: This is a CONSTRAINT, not an active trigger!
-     * - Does NOT automatically trigger when battery becomes low
-     * - Only allows task to run when battery IS low
-     * - To actively monitor battery, use BroadcastReceiver for `ACTION_BATTERY_LOW`
+     * **⚠️ DEPRECATED**: Use `Constraints(systemConstraints = setOf(SystemConstraint.ALLOW_LOW_BATTERY))` instead.
      *
-     * **Android Implementation**:
-     * - Sets `setRequiresBatteryNotLow(false)` on WorkManager constraints
-     * - "Low" is defined by system (typically around 15%)
+     * **Migration**:
+     * ```kotlin
+     * // Old (v2.x):
+     * scheduler.enqueue(id, trigger = TaskTrigger.BatteryLow, ...)
      *
-     * **iOS**: Returns `ScheduleResult.REJECTED_OS_POLICY`
-     *
-     * **Use Cases**: Tasks that should run regardless of battery level
+     * // New (v3.0.0+):
+     * scheduler.enqueue(
+     *     id,
+     *     trigger = TaskTrigger.OneTime(),
+     *     constraints = Constraints(systemConstraints = setOf(SystemConstraint.ALLOW_LOW_BATTERY))
+     * )
+     * ```
      */
+    @Deprecated(
+        message = "BatteryLow is a constraint. Use Constraints(systemConstraints = setOf(SystemConstraint.ALLOW_LOW_BATTERY))",
+        replaceWith = ReplaceWith("Constraints(systemConstraints = setOf(SystemConstraint.ALLOW_LOW_BATTERY))"),
+        level = DeprecationLevel.WARNING
+    )
     data object BatteryLow : TaskTrigger
 
     /**
      * Triggers when battery is okay/not low - **ANDROID ONLY**.
      *
-     * **Android Implementation**:
-     * - Sets `setRequiresBatteryNotLow(true)` on WorkManager constraints
-     * - Task will only run when battery is NOT low
-     * - Helps preserve battery for user-critical operations
+     * **⚠️ DEPRECATED**: Use `Constraints(systemConstraints = setOf(SystemConstraint.REQUIRE_BATTERY_NOT_LOW))` instead.
      *
-     * **iOS**: Returns `ScheduleResult.REJECTED_OS_POLICY`
+     * **Migration**:
+     * ```kotlin
+     * // Old (v2.x):
+     * scheduler.enqueue(id, trigger = TaskTrigger.BatteryOkay, ...)
      *
-     * **Use Cases**: Heavy processing that should respect battery level
+     * // New (v3.0.0+):
+     * scheduler.enqueue(
+     *     id,
+     *     trigger = TaskTrigger.OneTime(),
+     *     constraints = Constraints(systemConstraints = setOf(SystemConstraint.REQUIRE_BATTERY_NOT_LOW))
+     * )
+     * ```
      */
+    @Deprecated(
+        message = "BatteryOkay is a constraint. Use Constraints(systemConstraints = setOf(SystemConstraint.REQUIRE_BATTERY_NOT_LOW))",
+        replaceWith = ReplaceWith("Constraints(systemConstraints = setOf(SystemConstraint.REQUIRE_BATTERY_NOT_LOW))"),
+        level = DeprecationLevel.WARNING
+    )
     data object BatteryOkay : TaskTrigger
 
     /**
      * Triggers when device is idle/dozing - **ANDROID ONLY**.
      *
-     * **Android Implementation**:
-     * - Sets `setRequiresDeviceIdle(true)` on WorkManager constraints
-     * - Only runs when device is in idle state (screen off, not moving)
-     * - Ideal for maintenance tasks that shouldn't impact active usage
+     * **⚠️ DEPRECATED**: Use `Constraints(systemConstraints = setOf(SystemConstraint.DEVICE_IDLE))` instead.
      *
-     * **iOS**: Returns `ScheduleResult.REJECTED_OS_POLICY`
+     * **Migration**:
+     * ```kotlin
+     * // Old (v2.x):
+     * scheduler.enqueue(id, trigger = TaskTrigger.DeviceIdle, ...)
      *
-     * **Use Cases**: Database optimization, cache cleanup, analytics upload
+     * // New (v3.0.0+):
+     * scheduler.enqueue(
+     *     id,
+     *     trigger = TaskTrigger.OneTime(),
+     *     constraints = Constraints(systemConstraints = setOf(SystemConstraint.DEVICE_IDLE))
+     * )
+     * ```
      */
+    @Deprecated(
+        message = "DeviceIdle is a constraint. Use Constraints(systemConstraints = setOf(SystemConstraint.DEVICE_IDLE))",
+        replaceWith = ReplaceWith("Constraints(systemConstraints = setOf(SystemConstraint.DEVICE_IDLE))"),
+        level = DeprecationLevel.WARNING
+    )
     data object DeviceIdle : TaskTrigger
+}
+
+/**
+ * System-level constraints for task execution.
+ * These are conditions that must be met for a task to run.
+ *
+ * **Platform Support**: Android only (iOS ignores these)
+ *
+ * **v3.0.0+**: Replaces deprecated TaskTrigger variants (BatteryLow, StorageLow, etc.)
+ * which incorrectly represented constraints as triggers.
+ */
+@Serializable
+enum class SystemConstraint {
+    /**
+     * Allow task to run even when storage is low.
+     * Android: `setRequiresStorageNotLow(false)`
+     */
+    ALLOW_LOW_STORAGE,
+
+    /**
+     * Allow task to run even when battery is low.
+     * Android: `setRequiresBatteryNotLow(false)`
+     */
+    ALLOW_LOW_BATTERY,
+
+    /**
+     * Require battery to be NOT low.
+     * Android: `setRequiresBatteryNotLow(true)`
+     */
+    REQUIRE_BATTERY_NOT_LOW,
+
+    /**
+     * Require device to be idle/dozing.
+     * Android: `setRequiresDeviceIdle(true)`
+     */
+    DEVICE_IDLE
 }
 
 /**
@@ -335,7 +410,34 @@ data class Constraints(
      *
      * Default: 30,000ms (30 seconds)
      */
-    val backoffDelayMs: Long = 30_000
+    val backoffDelayMs: Long = 30_000,
+
+    /**
+     * System-level constraints for task execution - **ANDROID ONLY**.
+     *
+     * **v3.0.0+**: Replaces deprecated TaskTrigger variants (BatteryLow, StorageLow, etc.)
+     *
+     * **Android**: Maps to WorkManager constraint methods:
+     * - `ALLOW_LOW_STORAGE` → `setRequiresStorageNotLow(false)`
+     * - `ALLOW_LOW_BATTERY` → `setRequiresBatteryNotLow(false)`
+     * - `REQUIRE_BATTERY_NOT_LOW` → `setRequiresBatteryNotLow(true)`
+     * - `DEVICE_IDLE` → `setRequiresDeviceIdle(true)`
+     *
+     * **iOS**: Ignored (no equivalent constraints)
+     *
+     * **Example**:
+     * ```kotlin
+     * Constraints(
+     *     systemConstraints = setOf(
+     *         SystemConstraint.DEVICE_IDLE,
+     *         SystemConstraint.REQUIRE_BATTERY_NOT_LOW
+     *     )
+     * )
+     * ```
+     *
+     * Default: emptySet()
+     */
+    val systemConstraints: Set<SystemConstraint> = emptySet()
 )
 
 /**
