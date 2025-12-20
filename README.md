@@ -29,17 +29,17 @@
 - 🔔 **AlarmReceiver Base** - Easy exact alarm implementation
 - 🛡️ **Thread-Safe iOS** - File locking + duplicate detection
 
-**📋 [See Full Migration Guide](docs/migration-v3.md)** | **🔄 Breaking Changes**: Deprecated triggers (backward compatible)
+**[See Full Migration Guide](docs/migration-v3.md)** | **Breaking Changes**: Deprecated triggers (backward compatible)
 
 ---
 
-## 🔥 Why KMP TaskManager?
+## Why KMP TaskManager?
 
 <table>
 <tr>
 <td width="50%">
 
-### ❌ Before: The Problem
+### Before: The Problem
 
 ```kotlin
 // Android - WorkManager
@@ -57,10 +57,10 @@ BGTaskScheduler.shared.submit(BGAppRefreshTaskRequest(/* ... */))
 </td>
 <td width="50%">
 
-### ✅ After: KMP TaskManager
+### After: KMP TaskManager
 
 ```kotlin
-// One API for both platforms! 🎯
+// One API for both platforms!
 scheduler.enqueue(
     id = "data-sync",
     trigger = TaskTrigger.Periodic(15_MINUTES),
@@ -136,13 +136,13 @@ class MyViewModel(private val scheduler: BackgroundTaskScheduler) {
 }
 ```
 
-**That's it! 🎉 Your task runs on both Android and iOS!**
+**That's it! Your task runs on both Android and iOS!**
 
 ---
 
-## 💡 Core Features
+## Core Features
 
-### 📊 Periodic Data Sync
+### Periodic Data Sync
 
 ```kotlin
 scheduler.enqueue(
@@ -153,7 +153,7 @@ scheduler.enqueue(
 )
 ```
 
-### ⛓️ Task Chains (Sequential & Parallel)
+### Task Chains (Sequential & Parallel)
 
 ```kotlin
 // Execute tasks in sequence: Download → Process → Upload
@@ -174,7 +174,7 @@ scheduler
     .enqueue()
 ```
 
-### 🔋 Battery-Aware Tasks (v3.0+ API)
+### Battery-Aware Tasks (v3.0+ API)
 
 ```kotlin
 scheduler.enqueue(
@@ -192,7 +192,7 @@ scheduler.enqueue(
 )
 ```
 
-### ⏰ Exact Alarms with Auto-Fallback (Android)
+### Exact Alarms with Auto-Fallback (Android)
 
 ```kotlin
 // v3.0+: Automatically falls back to WorkManager if permission denied
@@ -207,18 +207,18 @@ scheduler.enqueue(
 )
 ```
 
-**[📖 See 10+ Examples →](docs/examples.md)**
+**[See 10+ Examples →](docs/examples.md)**
 
 ---
 
-## 🎨 Key Features
+## Key Features
 
 <div align="center">
 
 | Feature | KMP TaskManager | Others |
 |:--------|:---------------:|:------:|
 | **Unified API (Android + iOS)** | ✅ | ❌ |
-| **9 Trigger Types** | 🏆 | 1-2 |
+| **9 Trigger Types** | ✅ | 1-2 |
 | **Task Chains (Sequential & Parallel)** | ✅ | ❌ |
 | **Smart Retry with Backoff** | ✅ | ❌ |
 | **Real-time Event System** | ✅ | ❌ |
@@ -262,32 +262,32 @@ constraints = Constraints(
 
 ---
 
-## 📱 Platform Support
+## Platform Support
 
 <table>
 <tr>
 <td width="50%">
 
-### 🤖 Android
+### Android
 
-✅ **WorkManager** integration
-✅ **AlarmManager** exact scheduling
-✅ **Exact alarm auto-fallback** (v3.0)
-✅ **KmpHeavyWorker** foreground service (v3.0)
-✅ **Expedited work** support
-✅ **ContentUri triggers** (MediaStore)
+- **WorkManager** integration
+- **AlarmManager** exact scheduling
+- **Exact alarm auto-fallback** (v3.0)
+- **KmpHeavyWorker** foreground service (v3.0)
+- **Expedited work** support
+- **ContentUri triggers** (MediaStore)
 
 </td>
 <td width="50%">
 
-### 🍎 iOS
+### iOS
 
-✅ **BGTaskScheduler** integration
-✅ **File-based storage** - 60% faster (v3.0)
-✅ **Batch execution** (3x faster)
-✅ **Thread-safe** file operations (v3.0)
-✅ **Duplicate detection** (v3.0)
-✅ **Timeout protection**
+- **BGTaskScheduler** integration
+- **File-based storage** - 60% faster (v3.0)
+- **Batch execution** (3x faster)
+- **Thread-safe** file operations (v3.0)
+- **Duplicate detection** (v3.0)
+- **Timeout protection**
 
 </td>
 </tr>
@@ -295,35 +295,35 @@ constraints = Constraints(
 
 ---
 
-## 📚 Documentation
+## Documentation
 
-- 📘 **[Quick Start Guide](docs/quickstart.md)** - Get up and running in 5 minutes
-- 🆕 **[Migration to v3.0](docs/migration-v3.md)** - Upgrade from v2.x
-- 📙 **[Platform Setup](docs/platform-setup.md)** - Android & iOS configuration
-- 💡 **[Examples](docs/examples.md)** - Real-world use cases
-- 📗 **[API Reference](docs/api-reference.md)** - Complete API documentation
-- 📕 **[Task Chains Guide](docs/task-chains.md)** - Sequential & parallel workflows
-- 🏗️ **[Architecture Guide](ARCHITECTURE.md)** - Design & implementation
+- **[Quick Start Guide](docs/quickstart.md)** - Get up and running in 5 minutes
+- **[Migration to v3.0](docs/migration-v3.md)** - Upgrade from v2.x
+- **[Platform Setup](docs/platform-setup.md)** - Android & iOS configuration
+- **[Examples](docs/examples.md)** - Real-world use cases
+- **[API Reference](docs/api-reference.md)** - Complete API documentation
+- **[Task Chains Guide](docs/task-chains.md)** - Sequential & parallel workflows
+- **[Architecture Guide](ARCHITECTURE.md)** - Design & implementation
 
 ---
 
-## 🆚 Why Not Alternatives?
+## Why Not Alternatives?
 
 ### vs. Native APIs (WorkManager / BGTaskScheduler)
 
-❌ **Native APIs**: Different code for each platform, hard to maintain
-✅ **KMP TaskManager**: Single API, shared code, maintainable
+- **Native APIs**: Different code for each platform, hard to maintain
+- **KMP TaskManager**: Single API, shared code, maintainable
 
 ### vs. Other KMP Libraries
 
-❌ **Others**: Limited features (1-2 triggers), no chains, pre-release
-✅ **KMP TaskManager**: 9 triggers, task chains, production-ready v3.0
+- **Others**: Limited features (1-2 triggers), no chains, pre-release
+- **KMP TaskManager**: 9 triggers, task chains, production-ready v3.0
 
-[📊 Detailed Comparison](docs/comparison.md)
+[Detailed Comparison](docs/comparison.md)
 
 ---
 
-## 📦 Production-Ready
+## Production-Ready
 
 <div align="center">
 
@@ -333,41 +333,41 @@ constraints = Constraints(
 
 </div>
 
-- ✅ **Fully Tested** - 100+ test cases covering edge cases
-- ✅ **Type-Safe** - 100% Kotlin with strong typing
-- ✅ **Well Documented** - Comprehensive guides & API docs
-- ✅ **Actively Maintained** - Regular updates and bug fixes
-- ✅ **Production Proven** - Used in real-world apps
+- **Fully Tested** - 100+ test cases covering edge cases
+- **Type-Safe** - 100% Kotlin with strong typing
+- **Well Documented** - Comprehensive guides & API docs
+- **Actively Maintained** - Regular updates and bug fixes
+- **Production Proven** - Used in real-world apps
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 We love contributions! Here's how you can help:
 
-- 🐛 **Report bugs** via [GitHub Issues](https://github.com/vietnguyentuan2019/KMPTaskManager/issues)
-- 💡 **Suggest features** in [GitHub Issues](https://github.com/vietnguyentuan2019/KMPTaskManager/issues)
-- 📖 **Improve docs** - Submit a PR
-- ⭐ **Star the repo** - Show your support!
+- **Report bugs** via [GitHub Issues](https://github.com/vietnguyentuan2019/KMPTaskManager/issues)
+- **Suggest features** in [GitHub Issues](https://github.com/vietnguyentuan2019/KMPTaskManager/issues)
+- **Improve docs** - Submit a PR
+- **Star the repo** - Show your support!
 
-[📋 Contributing Guide](CONTRIBUTING.md)
+[Contributing Guide](CONTRIBUTING.md)
 
 ---
 
-## 📊 Quick Links
+## Quick Links
 
 <div align="center">
 
-[📦 Maven Central](https://central.sonatype.com/artifact/io.github.vietnguyentuan2019/kmptaskmanager) •
-[🔍 klibs.io](https://klibs.io/package/io.github.vietnguyentuan2019/kmptaskmanager) •
-[📝 Changelog](CHANGELOG.md) •
-[🎨 Demo App](composeApp/)
+[Maven Central](https://central.sonatype.com/artifact/io.github.vietnguyentuan2019/kmptaskmanager) •
+[klibs.io](https://klibs.io/package/io.github.vietnguyentuan2019/kmptaskmanager) •
+[Changelog](CHANGELOG.md) •
+[Demo App](composeApp/)
 
 </div>
 
 ---
 
-## 📄 License
+## License
 
 ```
 Copyright © 2025 Nguyễn Tuấn Việt
@@ -393,7 +393,7 @@ limitations under the License.
 
 **If KMP TaskManager saves you time, please give us a star!**
 
-It helps other developers discover this project. 🚀
+It helps other developers discover this project.
 
 [⬆️ Back to Top](#-kmp-taskmanager)
 
@@ -401,7 +401,7 @@ It helps other developers discover this project. 🚀
 
 Made with ❤️ by [Nguyễn Tuấn Việt](https://github.com/vietnguyentuan2019)
 
-**📧 Support**: [vietnguyentuan@gmail.com](mailto:vietnguyentuan@gmail.com) •
-**💬 Community**: [GitHub Issues](https://github.com/vietnguyentuan2019/KMPTaskManager/issues)
+**Support**: [vietnguyentuan@gmail.com](mailto:vietnguyentuan@gmail.com) •
+**Community**: [GitHub Issues](https://github.com/vietnguyentuan2019/KMPTaskManager/issues)
 
 </div>
