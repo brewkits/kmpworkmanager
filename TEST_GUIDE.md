@@ -16,10 +16,10 @@ Comprehensive guide for testing KMP Worker - from unit tests to integration test
 ## 📁 Test Structure
 
 ```
-kmpworker/
+kmpworkmanager/
 ├── src/
 │   ├── commonTest/               # Shared unit tests
-│   │   └── io/kmp/worker/
+│   │   └── io/brewkits/kmpworkmanager/
 │   │       ├── ContractsTest.kt          # TaskTrigger, Constraints, enums
 │   │       ├── TaskChainTest.kt          # TaskChain, TaskRequest
 │   │       ├── TaskEventTest.kt          # EventBus, events
@@ -50,7 +50,7 @@ kmpworker/
 ./gradlew test --info
 
 # Run specific module
-./gradlew :kmpworker:test
+./gradlew :kmpworkmanager:test
 ./gradlew :composeApp:test
 ```
 
@@ -58,26 +58,26 @@ kmpworker/
 
 ```bash
 # Run single test file
-./gradlew test --tests "io.kmp.worker.ContractsTest"
+./gradlew test --tests "io.brewkits.kmpworkmanager.ContractsTest"
 
 # Run specific test method
-./gradlew test --tests "io.kmp.worker.ContractsTest.TaskTrigger*"
+./gradlew test --tests "io.brewkits.kmpworkmanager.ContractsTest.TaskTrigger*"
 
 # Run multiple test files
-./gradlew test --tests "io.kmp.worker.*Test"
+./gradlew test --tests "io.brewkits.kmpworkmanager.*Test"
 ```
 
 ### Platform-Specific Tests
 
 ```bash
 # Android unit tests
-./gradlew :kmpworker:testDebugUnitTest
-./gradlew :kmpworker:testReleaseUnitTest
+./gradlew :kmpworkmanager:testDebugUnitTest
+./gradlew :kmpworkmanager:testReleaseUnitTest
 
 # iOS tests (requires macOS)
-./gradlew :kmpworker:iosX64Test
-./gradlew :kmpworker:iosSimulatorArm64Test
-./gradlew :kmpworker:iosArm64Test
+./gradlew :kmpworkmanager:iosX64Test
+./gradlew :kmpworkmanager:iosSimulatorArm64Test
+./gradlew :kmpworkmanager:iosArm64Test
 ```
 
 ### Continuous Testing
@@ -296,10 +296,10 @@ class NativeTaskSchedulerAndroidTest {
 
 ```bash
 # Install and run tests on connected device
-./gradlew :kmpworker:connectedAndroidTest
+./gradlew :kmpworkmanager:connectedAndroidTest
 
 # Run on specific device
-./gradlew :kmpworker:connectedAndroidTest -Pandroid.testInstrumentationRunnerArguments.device=emulator-5554
+./gradlew :kmpworkmanager:connectedAndroidTest -Pandroid.testInstrumentationRunnerArguments.device=emulator-5554
 ```
 
 ### iOS Integration Tests
@@ -441,15 +441,15 @@ fun `ViewModel should schedule task on button click`() = runTest {
 ./gradlew test jacocoTestReport
 
 # View HTML report
-open kmpworker/build/reports/jacoco/test/html/index.html
+open kmpworkmanager/build/reports/jacoco/test/html/index.html
 ```
 
 ### Current Coverage Statistics
 
-**Version 2.2.0:**
-- **Total test cases**: 101
+**Version 1.0.0:**
+- **Total test cases**: 101+
 - **Common code coverage**: 85%+
-- **Test files**: 7
+- **Test files**: 8+
 - **Test lines**: ~2000+
 
 **Coverage breakdown:**
@@ -614,7 +614,7 @@ assertTrue(result == ScheduleResult.ACCEPTED)
 
 2. **Skip unrelated tests**:
    ```bash
-   ./gradlew :kmpworker:test  # Only library tests
+   ./gradlew :kmpworkmanager:test  # Only library tests
    ```
 
 ### Memory Issues

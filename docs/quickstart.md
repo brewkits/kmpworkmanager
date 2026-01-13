@@ -1,6 +1,6 @@
 # Quick Start Guide
 
-Get KMP Worker running in your project in just 5 minutes!
+Get KMP WorkManager running in your project in just 5 minutes!
 
 ## Table of Contents
 
@@ -15,13 +15,13 @@ Get KMP Worker running in your project in just 5 minutes!
 
 ## Installation
 
-Add KMP Worker to your `build.gradle.kts` (module level):
+Add KMP WorkManager to your `build.gradle.kts` (module level):
 
 ```kotlin
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("io.brewkits:kmpworker:2.2.0")
+            implementation("io.brewkits:kmpworkmanager:1.0.0")
         }
     }
 }
@@ -84,7 +84,7 @@ Update your `AndroidManifest.xml` to reference the Application class:
 
 ### Step 3: Add WorkManager Dependency (Optional)
 
-KMP Worker uses WorkManager internally, but you may want to add it explicitly:
+KMP WorkManager uses WorkManager internally, but you may want to add it explicitly:
 
 ```kotlin
 androidMain.dependencies {
@@ -370,7 +370,7 @@ object IosWorkerFactory {
 
 ## Next Steps
 
-Congratulations! You've successfully integrated KMP Worker. Now you can:
+Congratulations! You've successfully integrated KMP WorkManager. Now you can:
 
 1. **[Explore all triggers](constraints-triggers.md)** - Learn about 9 different trigger types
 2. **[Build task chains](task-chains.md)** - Execute sequential and parallel workflows
@@ -418,7 +418,7 @@ fun MyScreen() {
 
 - Read the [API Reference](api-reference.md)
 - Check the [Platform Setup Guide](platform-setup.md)
-- Browse [GitHub Issues](https://github.com/brewkits/kmp_worker/issues)
-- Ask in [GitHub Discussions](https://github.com/brewkits/kmp_worker/discussions)
+- Browse [GitHub Issues](https://github.com/brewkits/kmpworkmanager/issues)
+- Ask in [GitHub Discussions](https://github.com/brewkits/kmpworkmanager/discussions)
 
 Happy scheduling! 🚀

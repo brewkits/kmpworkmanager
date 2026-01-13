@@ -57,14 +57,11 @@ CLAUDE.md
 .vscode/
 *.code-workspace
 .claude/
-.claude/settings.local.json
 
 # macOS
-.DS_Store
 .AppleDouble
 .LSOverride
 
 # Backup files
 *.bak
 *.backup
-*~

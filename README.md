@@ -2,7 +2,7 @@
 
 A Kotlin Multiplatform library for scheduling and managing background tasks on Android and iOS with a unified API.
 
-[![Maven Central](https://img.shields.io/maven-central/v/io.brewkits/kmpworker)](https://central.sonatype.com/artifact/io.brewkits/kmpworker)
+[![Maven Central](https://img.shields.io/maven-central/v/io.brewkits/kmpworkmanager)](https://central.sonatype.com/artifact/io.brewkits/kmpworkmanager)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 ## Overview
@@ -50,7 +50,7 @@ Add to your `build.gradle.kts`:
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("io.brewkits:kmpworker:4.0.0")
+            implementation("io.brewkits:kmpworkmanager:1.0.0")
         }
     }
 }
@@ -60,10 +60,10 @@ Or using version catalog:
 
 ```toml
 [versions]
-kmpworker = "4.0.0"
+kmpworkmanager = "1.0.0"
 
 [libraries]
-kmpworker = { module = "io.brewkits:kmpworker", version.ref = "kmpworker" }
+kmpworkmanager = { module = "io.brewkits:kmpworkmanager", version.ref = "kmpworkmanager" }
 ```
 
 ## Quick Start
@@ -291,7 +291,6 @@ scheduler.enqueue(
 ## Documentation
 
 - [Quick Start Guide](docs/quickstart.md)
-- [Migration Guide v3 to v4](docs/MIGRATION_V4.md)
 - [Platform Setup](docs/platform-setup.md)
 - [API Reference](docs/api-reference.md)
 - [Task Chains](docs/task-chains.md)
@@ -299,17 +298,14 @@ scheduler.enqueue(
 
 ## Version History
 
-**v4.0.0** (Latest)
+**v1.0.0** (Latest)
 - Worker factory pattern for better extensibility
 - Automatic iOS task ID validation from Info.plist
 - Type-safe serialization extensions
-- Breaking changes from v3.x - see [migration guide](docs/MIGRATION_V4.md)
-
-**v3.0.0**
-- File-based storage on iOS (60% faster)
+- Initial stable release with unified API for Android and iOS
+- File-based storage on iOS for better performance
 - Smart exact alarm fallback on Android
 - Heavy task support with foreground services
-- Improved API with SystemConstraint
 
 ## Requirements
 
@@ -349,7 +345,7 @@ limitations under the License.
 
 ## Links
 
-- [Maven Central](https://central.sonatype.com/artifact/io.brewkits/kmpworker)
+- [Maven Central](https://central.sonatype.com/artifact/io.brewkits/kmpworkmanager)
 - [GitHub Issues](https://github.com/brewkits/kmp_worker/issues)
 - [Changelog](CHANGELOG.md)
 

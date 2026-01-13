@@ -1,8 +1,8 @@
-# 💡 KMP Worker Examples
+# 💡 KMP WorkManager Examples
 
-Comprehensive examples for common use cases with v3.0.0 API.
+Comprehensive examples for common use cases with v1.0.0 API.
 
-[📘 Back to README](../README.md) • [📦 Migration Guide](migration-v3.md)
+[📘 Back to README](../README.md)
 
 ---
 

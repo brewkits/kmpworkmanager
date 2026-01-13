@@ -1,4 +1,4 @@
-rootProject.name = "KMPWorker"
+rootProject.name = "KMPWorkManager"
 // Temporarily disabled to avoid accessor generation issues
 // enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 

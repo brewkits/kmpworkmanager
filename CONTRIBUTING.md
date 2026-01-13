@@ -61,7 +61,7 @@ cd KMPWorker
 
 ```
 KMPWorker/
-├── kmpworker/          # Library module
+├── kmpworkmanager/     # Library module
 │   ├── src/
 │   │   ├── commonMain/      # Shared Kotlin code
 │   │   ├── commonTest/      # Shared tests
@@ -88,7 +88,7 @@ KMPWorker/
 ./gradlew build
 
 # Build only library
-./gradlew :kmpworker:build
+./gradlew :kmpworkmanager:build
 
 # Build demo app
 ./gradlew :composeApp:assembleDebug  # Android
@@ -101,7 +101,7 @@ KMPWorker/
 ./gradlew test
 
 # Run specific test file
-./gradlew :kmpworker:testDebugUnitTest --tests "io.kmp.worker.ContractsTest"
+./gradlew :kmpworkmanager:testDebugUnitTest --tests "io.brewkits.kmpworkmanager.ContractsTest"
 
 # Run with coverage
 ./gradlew test jacocoTestReport
@@ -112,7 +112,7 @@ KMPWorker/
 **Android:**
 ```bash
 ./gradlew :composeApp:installDebug
-adb shell am start -n io.kmp.worker.sample/.MainActivity
+adb shell am start -n io.brewkits.kmpworkmanager.sample/.MainActivity
 ```
 
 **iOS:**
@@ -563,8 +563,8 @@ We follow [Semantic Versioning](https://semver.org/):
 3. Update `ROADMAP.md` to reflect completed items
 4. Run full test suite
 5. Build release artifacts
-6. Create Git tag: `git tag v2.2.0`
-7. Push to GitHub: `git push origin v2.2.0`
+6. Create Git tag: `git tag v1.x.x`
+7. Push to GitHub: `git push origin v1.x.x`
 8. Publish to Maven Central (maintainers only)
 9. Create GitHub Release with notes
 10. Announce on social media/forums
@@ -609,7 +609,7 @@ What actually happened.
 **Environment:**
 - Platform: [Android/iOS]
 - OS Version: [e.g., Android 14, iOS 17]
-- Library Version: [e.g., 2.2.0]
+- Library Version: [e.g., 1.0.0]
 - Device: [e.g., Pixel 7, iPhone 15]
 
 **Logs**
