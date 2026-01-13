@@ -7,6 +7,52 @@
 
 A robust, production-ready Kotlin Multiplatform library for scheduling and managing background tasks on **Android** and **iOS**.
 
+---
+
+## ⚠️ Version 4.0.0 Breaking Changes
+
+**v4.0.0** introduces a cleaner, more extensible worker registration system via factory pattern.
+
+### Key Changes
+- ✅ **Worker factory pattern** replaces hardcoded workers
+- ✅ **iOS Info.plist auto-reading** for task ID validation
+- ❌ **`WorkerTypes` object removed** (define your own)
+- ❌ **Koin initialization** now requires `workerFactory` parameter
+
+### Migration Time
+~30 minutes - [See Migration Guide](../docs/MIGRATION_V4.md)
+
+### Quick Migration Example
+
+**Before (v3.x)**:
+```kotlin
+startKoin {
+    modules(kmpTaskManagerModule())  // ❌ No longer works
+}
+```
+
+**After (v4.0.0)**:
+```kotlin
+// 1. Create worker factory
+class MyWorkerFactory : AndroidWorkerFactory {
+    override fun createWorker(workerClassName: String) = when (workerClassName) {
+        "SyncWorker" -> SyncWorker()
+        else -> null
+    }
+}
+
+// 2. Pass factory to Koin
+startKoin {
+    modules(kmpTaskManagerModule(
+        workerFactory = MyWorkerFactory()  // ✅ Required
+    ))
+}
+```
+
+**Full migration guide**: [MIGRATION_V4.md](../docs/MIGRATION_V4.md)
+
+---
+
 ## Features
 
 ✅ **Unified API** - Single interface for both platforms
@@ -24,7 +70,7 @@ A robust, production-ready Kotlin Multiplatform library for scheduling and manag
 
 ```kotlin
 commonMain.dependencies {
-    implementation("io.github.vietnguyentuan2019:kmptaskmanager:2.1.0")
+    implementation("io.github.vietnguyentuan2019:kmptaskmanager:4.0.0")
 }
 ```
 
@@ -32,7 +78,7 @@ commonMain.dependencies {
 
 ```toml
 [versions]
-kmptaskmanager = "2.1.0"
+kmptaskmanager = "4.0.0"
 
 [libraries]
 kmptaskmanager = { module = "io.github.vietnguyentuan2019:kmptaskmanager", version.ref = "kmptaskmanager" }
@@ -40,7 +86,81 @@ kmptaskmanager = { module = "io.github.vietnguyentuan2019:kmptaskmanager", versi
 
 ## Quick Start
 
-### 1. Initialize Koin
+### 1. Define Worker Identifiers
+
+```kotlin
+// commonMain - MyWorkers.kt
+object MyWorkers {
+    const val SYNC = "SyncWorker"
+    const val UPLOAD = "UploadWorker"
+}
+```
+
+### 2. Implement Workers
+
+**Android:**
+
+```kotlin
+// androidMain - SyncWorker.kt
+class SyncWorker : AndroidWorker {
+    override suspend fun doWork(input: String?): Boolean {
+        // Your sync logic
+        delay(2000)
+        TaskEventBus.emit(TaskCompletionEvent("Sync", true, "✅ Synced"))
+        return true
+    }
+}
+```
+
+**iOS:**
+
+```kotlin
+// iosMain - SyncWorker.kt
+class SyncWorker : IosWorker {
+    override suspend fun doWork(input: String?): Boolean {
+        // Your sync logic (must complete within 25s)
+        delay(2000)
+        TaskEventBus.emit(TaskCompletionEvent("Sync", true, "✅ Synced"))
+        return true
+    }
+}
+```
+
+### 3. Create Worker Factory
+
+**Android:**
+
+```kotlin
+// androidMain - MyWorkerFactory.kt
+class MyWorkerFactory : AndroidWorkerFactory {
+    override fun createWorker(workerClassName: String): AndroidWorker? {
+        return when (workerClassName) {
+            MyWorkers.SYNC -> SyncWorker()
+            MyWorkers.UPLOAD -> UploadWorker()
+            else -> null
+        }
+    }
+}
+```
+
+**iOS:**
+
+```kotlin
+// iosMain - MyWorkerFactory.kt
+class MyWorkerFactory : IosWorkerFactory {
+    override fun createWorker(workerClassName: String): IosWorker? {
+        return when (workerClassName) {
+            MyWorkers.SYNC -> SyncWorker()
+            MyWorkers.UPLOAD -> UploadWorker()
+            else -> null
+        }
+    }
+}
+```
+
+### 4. Initialize Koin with Factory
+
+**Android:**
 
 ```kotlin
 // Android - Application.kt
@@ -49,19 +169,28 @@ class MyApp : Application() {
         super.onCreate()
         startKoin {
             androidContext(this@MyApp)
-            modules(kmpTaskManagerModule())
+            modules(kmpTaskManagerModule(
+                workerFactory = MyWorkerFactory()  // ✅ Required in v4.0.0
+            ))
         }
     }
 }
+```
 
-// iOS - iOSApp.swift
-func application(_ application: UIApplication, didFinishLaunchingWithOptions...) -> Bool {
-    KoinModuleKt.doInitKoinIos()
-    return true
+**iOS:**
+
+```kotlin
+// iOS - KoinSetup.kt
+fun initKoinIos() {
+    startKoin {
+        modules(kmpTaskManagerModule(
+            workerFactory = MyWorkerFactory()  // ✅ Required in v4.0.0
+        ))
+    }
 }
 ```
 
-### 2. Inject Scheduler
+### 5. Schedule Tasks
 
 ```kotlin
 class MyViewModel(
@@ -71,33 +200,9 @@ class MyViewModel(
         scheduler.enqueue(
             id = "data-sync",
             trigger = TaskTrigger.OneTime(initialDelayMs = 5000),
-            workerClassName = "SyncWorker",
+            workerClassName = MyWorkers.SYNC,  // ✅ Use your constant
             constraints = Constraints(requiresNetwork = true)
         )
-    }
-}
-```
-
-### 3. Implement Workers
-
-**Android:**
-
-```kotlin
-class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
-    override suspend fun doWork(): Result {
-        // Your sync logic
-        return Result.success()
-    }
-}
-```
-
-**iOS:**
-
-```kotlin
-class SyncWorker : IosWorker {
-    override suspend fun doWork(input: String?): Boolean {
-        // Your sync logic (must complete within 25s)
-        return true
     }
 }
 ```
@@ -110,7 +215,7 @@ class SyncWorker : IosWorker {
 scheduler.enqueue(
     id = "upload-task",
     trigger = TaskTrigger.OneTime(initialDelayMs = 10_000),
-    workerClassName = "UploadWorker",
+    workerClassName = MyWorkers.UPLOAD,  // Use constant from MyWorkers
     constraints = Constraints(
         requiresNetwork = true,
         requiresCharging = false
@@ -124,7 +229,7 @@ scheduler.enqueue(
 scheduler.enqueue(
     id = "periodic-sync",
     trigger = TaskTrigger.Periodic(intervalMs = 900_000), // 15 min
-    workerClassName = "SyncWorker",
+    workerClassName = MyWorkers.SYNC,  // Use constant from MyWorkers
     policy = ExistingPolicy.KEEP
 )
 ```
@@ -132,26 +237,39 @@ scheduler.enqueue(
 ### Task Chains
 
 ```kotlin
-// Sequential: A → B → C
-scheduler.beginWith(TaskRequest("WorkerA"))
-    .then(TaskRequest("WorkerB"))
-    .then(TaskRequest("WorkerC"))
+// Define your workers first
+object MyWorkers {
+    const val DOWNLOAD = "DownloadWorker"
+    const val PROCESS = "ProcessWorker"
+    const val UPLOAD = "UploadWorker"
+}
+
+// Sequential: Download → Process → Upload
+scheduler.beginWith(TaskRequest(MyWorkers.DOWNLOAD))
+    .then(TaskRequest(MyWorkers.PROCESS))
+    .then(TaskRequest(MyWorkers.UPLOAD))
     .enqueue()
 
-// Parallel: (A ∥ B) → C
+// Parallel: (Download ∥ Sync) → Process
 scheduler.beginWith(
     listOf(
-        TaskRequest("WorkerA"),
-        TaskRequest("WorkerB")
+        TaskRequest(MyWorkers.DOWNLOAD),
+        TaskRequest(MyWorkers.SYNC)
     )
 )
-    .then(TaskRequest("WorkerC"))
+    .then(TaskRequest(MyWorkers.PROCESS))
     .enqueue()
 ```
 
 ### Android-Only Triggers
 
 ```kotlin
+// Define Android-specific workers
+object AndroidWorkers {
+    const val MEDIA = "MediaWorker"
+    const val CLEANUP = "CleanupWorker"
+}
+
 // Content URI monitoring
 scheduler.enqueue(
     id = "media-observer",
@@ -159,14 +277,14 @@ scheduler.enqueue(
         uriString = "content://media/external/images/media",
         triggerForDescendants = true
     ),
-    workerClassName = "MediaWorker"
+    workerClassName = AndroidWorkers.MEDIA
 )
 
 // Device idle
 scheduler.enqueue(
     id = "maintenance",
     trigger = TaskTrigger.DeviceIdle,
-    workerClassName = "CleanupWorker"
+    workerClassName = AndroidWorkers.CLEANUP
 )
 ```
 

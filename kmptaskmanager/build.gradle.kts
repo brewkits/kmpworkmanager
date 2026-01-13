@@ -13,7 +13,7 @@ plugins {
 }
 
 group = "io.github.vietnguyentuan2019"
-version = "3.0.0"
+version = "4.0.0"
 
 kotlin {
     androidTarget {
@@ -88,7 +88,7 @@ publishing {
         // Configure all publications with common POM information
         withType<MavenPublication> {
             groupId = "io.github.vietnguyentuan2019"
-            version = "3.0.0"
+            version = "4.0.0"
 
             pom {
                 name.set("KMP TaskManager")

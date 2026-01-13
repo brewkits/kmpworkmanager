@@ -36,8 +36,12 @@ import platform.UserNotifications.UNUserNotificationCenter
 @OptIn(ExperimentalForeignApi::class)
 actual class NativeTaskScheduler(
     /**
-     * Additional permitted task IDs beyond the default ones.
-     * These must match entries in your Info.plist BGTaskSchedulerPermittedIdentifiers array.
+     * Additional permitted task IDs beyond those in Info.plist.
+     *
+     * v4.0.0+: Task IDs are now read from Info.plist automatically.
+     * This parameter is kept for backward compatibility but is optional.
+     *
+     * Recommended: Define all task IDs in Info.plist only.
      *
      * Example:
      * ```kotlin
@@ -49,8 +53,24 @@ actual class NativeTaskScheduler(
     additionalPermittedTaskIds: Set<String> = emptySet()
 ) : BackgroundTaskScheduler {
 
+    private companion object {
+        const val CHAIN_EXECUTOR_IDENTIFIER = "kmp_chain_executor_task"
+        const val APPLE_TO_UNIX_EPOCH_OFFSET_SECONDS = 978307200.0
+    }
+
     private val fileStorage = IosFileStorage()
     private val migration = StorageMigration(fileStorage = fileStorage)
+
+    /**
+     * Task IDs read from Info.plist BGTaskSchedulerPermittedIdentifiers
+     */
+    private val infoPlistTaskIds: Set<String> = InfoPlistReader.readPermittedTaskIds()
+
+    /**
+     * Combined set of permitted task IDs (Info.plist + additional)
+     * IMPORTANT: Tasks with IDs not in this list will be silently rejected by iOS
+     */
+    private val permittedTaskIds: Set<String> = infoPlistTaskIds + additionalPermittedTaskIds
 
     init {
         // Perform one-time migration from NSUserDefaults to file storage
@@ -66,29 +86,15 @@ actual class NativeTaskScheduler(
                 Logger.e(LogTags.SCHEDULER, "Storage migration error", e)
             }
         }
+
+        // Log permitted task IDs for debugging
+        Logger.i(LogTags.SCHEDULER, """
+            iOS Task ID Configuration:
+            - From Info.plist: ${infoPlistTaskIds.joinToString()}
+            - Additional: ${additionalPermittedTaskIds.joinToString()}
+            - Total permitted: ${permittedTaskIds.size}
+        """.trimIndent())
     }
-
-    private companion object {
-        const val CHAIN_EXECUTOR_IDENTIFIER = "kmp_chain_executor_task"
-        const val APPLE_TO_UNIX_EPOCH_OFFSET_SECONDS = 978307200.0
-
-        /**
-         * Default permitted task identifiers that are always allowed
-         */
-        val DEFAULT_PERMITTED_TASK_IDS = setOf(
-            CHAIN_EXECUTOR_IDENTIFIER,
-            "one-time-upload",
-            "heavy-task-1",
-            "periodic-sync-task",
-            "network-task"
-        )
-    }
-
-    /**
-     * Combined set of permitted task IDs (default + user-provided)
-     * IMPORTANT: Tasks with IDs not in this list will be silently rejected by iOS
-     */
-    private val permittedTaskIds: Set<String> = DEFAULT_PERMITTED_TASK_IDS + additionalPermittedTaskIds
 
     actual override suspend fun enqueue(
         id: String,
@@ -124,11 +130,22 @@ actual class NativeTaskScheduler(
      */
     private fun validateTaskId(id: String): Boolean {
         if (id !in permittedTaskIds) {
-            Logger.w(LogTags.SCHEDULER, """
-                Task ID '$id' validation failed.
+            Logger.e(LogTags.SCHEDULER, """
+                ❌ Task ID '$id' validation failed
+
                 Permitted IDs: ${permittedTaskIds.joinToString()}
-                Please add '$id' to Info.plist > BGTaskSchedulerPermittedIdentifiers
-                AND pass it to NativeTaskScheduler constructor via additionalPermittedTaskIds parameter
+
+                To fix:
+                1. Add '$id' to Info.plist > BGTaskSchedulerPermittedIdentifiers:
+                   <key>BGTaskSchedulerPermittedIdentifiers</key>
+                   <array>
+                       <string>$id</string>
+                   </array>
+
+                2. Register task handler in AppDelegate/iOSApp.swift:
+                   BGTaskScheduler.shared.register(forTaskWithIdentifier: "$id") { task in
+                       // Handle task
+                   }
             """.trimIndent())
             return false
         }
