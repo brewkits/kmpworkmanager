@@ -171,20 +171,21 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         let scheduler = koinIos.getScheduler()
         let trigger = TaskTriggerHelperKt.createTaskTriggerOneTime(initialDelayMs: 5000)
         let constraints = TaskTriggerHelperKt.createConstraints()
-        scheduler.enqueue(
-            id: "task-from-push-\(UUID().uuidString)",
-            trigger: trigger,
-            workerClassName: "one-time-upload",
-            constraints: constraints,
-            inputJson: nil,
-            policy: .replace
-        ) { result, error in
-            if let error = error {
+        Task {
+            do {
+                let result = try await scheduler.enqueue(
+                    id: "task-from-push-\(UUID().uuidString)",
+                    trigger: trigger,
+                    workerClassName: "one-time-upload",
+                    constraints: constraints,
+                    inputJson: nil,
+                    policy: .replace
+                )
+                print(" KMP_PUSH_IOS: Successfully scheduled task from push. Result: \(result)")
+                completionHandler(.newData)
+            } catch {
                 print(" KMP_PUSH_IOS: Failed to schedule task from push. Error: \(error)")
                 completionHandler(.failed)
-            } else {
-                print(" KMP_PUSH_IOS: Successfully scheduled task from push. Result: \(result!)")
-                completionHandler(.newData)
             }
         }
     }
@@ -245,34 +246,34 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
         // Execute the task using the KMP SingleTaskExecutor
         let executor = koinIos.getSingleTaskExecutor()
-        executor.executeTask(workerClassName: workerName, input: inputJson) { (success, error) in
-            if let error = error {
+        Task {
+            do {
+                let success = try await executor.executeTask(workerClassName: workerName, input: inputJson, timeoutMs: 25000)
+                let result = success.boolValue
+                print("iOS BGTask: Task \(taskId) finished with success: \(result)")
+
+                // If it was a periodic task, re-schedule it.
+                if let meta = periodicMeta, meta["isPeriodic"] == "true" {
+                    print("iOS BGTask: Re-scheduling periodic task \(taskId).")
+                    let scheduler = self.koinIos.getScheduler()
+                    let intervalMs = Int64(meta["intervalMs"] ?? "0") ?? 0
+                    let requiresNetwork = (meta["requiresNetwork"] ?? "false") == "true"
+                    let requiresCharging = (meta["requiresCharging"] ?? "false") == "true"
+                    let isHeavyTask = (meta["isHeavyTask"] ?? "false") == "true"
+
+                    let constraints = Constraints(requiresNetwork: requiresNetwork, requiresUnmeteredNetwork: false, requiresCharging: requiresCharging, allowWhileIdle: false, qos: .background, isHeavyTask: isHeavyTask, backoffPolicy: .exponential, backoffDelayMs: 30000)
+                    let trigger = TaskTriggerPeriodic(intervalMs: intervalMs, flexMs: nil)
+
+                    scheduler.enqueue(id: taskId, trigger: trigger, workerClassName: workerName, constraints: constraints, inputJson: inputJson, policy: .replace) { _, _ in
+                        // The re-scheduling is best-effort.
+                    }
+                }
+
+                task.setTaskCompleted(success: result)
+            } catch {
                 print("iOS BGTask: Task \(taskId) failed with error: \(error.localizedDescription)")
                 task.setTaskCompleted(success: false)
-                return
             }
-
-            let result = success?.boolValue ?? false
-            print("iOS BGTask: Task \(taskId) finished with success: \(result)")
-
-            // If it was a periodic task, re-schedule it.
-            if let meta = periodicMeta, meta["isPeriodic"] == "true" {
-                print("iOS BGTask: Re-scheduling periodic task \(taskId).")
-                let scheduler = self.koinIos.getScheduler()
-                let intervalMs = Int64(meta["intervalMs"] ?? "0") ?? 0
-                let requiresNetwork = (meta["requiresNetwork"] ?? "false") == "true"
-                let requiresCharging = (meta["requiresCharging"] ?? "false") == "true"
-                let isHeavyTask = (meta["isHeavyTask"] ?? "false") == "true"
-
-                let constraints = Constraints(requiresNetwork: requiresNetwork, requiresUnmeteredNetwork: false, requiresCharging: requiresCharging, allowWhileIdle: false, qos: .background, isHeavyTask: isHeavyTask)
-                let trigger = TaskTriggerPeriodic(intervalMs: intervalMs, flexMs: nil)
-
-                scheduler.enqueue(id: taskId, trigger: trigger, workerClassName: workerName, constraints: constraints, inputJson: inputJson, policy: .replace) { _, _ in
-                    // The re-scheduling is best-effort.
-                }
-            }
-
-            task.setTaskCompleted(success: result)
         }
     }
 
@@ -309,22 +310,22 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
         // BATCH PROCESSING: Execute multiple chains in one BGTask invocation
         // This optimizes iOS BGTask usage and reduces latency
-        chainExecutor.executeChainsInBatch(maxChains: 3, totalTimeoutMs: 50_000) { (executedCount, error) in
-            if let error = error {
+        Task {
+            do {
+                let executedCount = try await chainExecutor.executeChainsInBatch(maxChains: 3, totalTimeoutMs: 50_000)
+                let count = executedCount.int32Value
+                print("✅ iOS BGTask: Batch execution completed - \(count) chain(s) executed out of \(initialQueueSize)")
+
+                // Mark task as completed successfully
+                task.setTaskCompleted(success: true)
+
+                // Schedule next executor task if queue not empty
+                scheduleNext()
+            } catch {
                 print("❌ iOS BGTask: Batch execution failed with error: \(error.localizedDescription)")
                 task.setTaskCompleted(success: false)
                 scheduleNext() // Schedule next even if batch failed
-                return
             }
-
-            let count = executedCount?.int32Value ?? 0
-            print("✅ iOS BGTask: Batch execution completed - \(count) chain(s) executed out of \(initialQueueSize)")
-
-            // Mark task as completed successfully
-            task.setTaskCompleted(success: true)
-
-            // Schedule next executor task if queue not empty
-            scheduleNext()
         }
     }
 

@@ -54,7 +54,7 @@ class LoggerTest {
         val levels = Logger.Level.entries.toList()
 
         assertEquals(4, levels.size)
-        kotlin.test.assertTrue(levels.contains(Logger.Level.DEBUG))
+        kotlin.test.assertTrue(levels.contains(Logger.Level.DEBUG_LEVEL))
         kotlin.test.assertTrue(levels.contains(Logger.Level.INFO))
         kotlin.test.assertTrue(levels.contains(Logger.Level.WARN))
         kotlin.test.assertTrue(levels.contains(Logger.Level.ERROR))
@@ -62,7 +62,7 @@ class LoggerTest {
 
     @Test
     fun `Logger Level values should be distinct`() {
-        val debug = Logger.Level.DEBUG
+        val debug = Logger.Level.DEBUG_LEVEL
         val info = Logger.Level.INFO
         val warn = Logger.Level.WARN
         val error = Logger.Level.ERROR
@@ -77,7 +77,7 @@ class LoggerTest {
 
     @Test
     fun `Logger Level should have correct names`() {
-        assertEquals("DEBUG", Logger.Level.DEBUG.name)
+        assertEquals("DEBUG_LEVEL", Logger.Level.DEBUG_LEVEL.name)
         assertEquals("INFO", Logger.Level.INFO.name)
         assertEquals("WARN", Logger.Level.WARN.name)
         assertEquals("ERROR", Logger.Level.ERROR.name)
@@ -85,7 +85,7 @@ class LoggerTest {
 
     @Test
     fun `Logger Level should have correct ordinals`() {
-        assertEquals(0, Logger.Level.DEBUG.ordinal)
+        assertEquals(0, Logger.Level.DEBUG_LEVEL.ordinal)
         assertEquals(1, Logger.Level.INFO.ordinal)
         assertEquals(2, Logger.Level.WARN.ordinal)
         assertEquals(3, Logger.Level.ERROR.ordinal)
@@ -102,7 +102,7 @@ class LogTagsTest {
         assertEquals("ExactAlarm", LogTags.ALARM)
         assertEquals("Permission", LogTags.PERMISSION)
         assertEquals("PushNotification", LogTags.PUSH)
-        assertEquals("Debug", LogTags.DEBUG)
+        assertEquals("Debug", LogTags.TAG_DEBUG)
         assertEquals("Error", LogTags.ERROR)
     }
 
@@ -115,7 +115,7 @@ class LogTagsTest {
             LogTags.ALARM,
             LogTags.PERMISSION,
             LogTags.PUSH,
-            LogTags.DEBUG,
+            LogTags.TAG_DEBUG,
             LogTags.ERROR
         )
 
@@ -132,7 +132,7 @@ class LogTagsTest {
             LogTags.ALARM,
             LogTags.PERMISSION,
             LogTags.PUSH,
-            LogTags.DEBUG,
+            LogTags.TAG_DEBUG,
             LogTags.ERROR
         )
 
@@ -152,7 +152,7 @@ class LogTagsTest {
             LogTags.ALARM,
             LogTags.PERMISSION,
             LogTags.PUSH,
-            LogTags.DEBUG,
+            LogTags.TAG_DEBUG,
             LogTags.ERROR
         )
 
