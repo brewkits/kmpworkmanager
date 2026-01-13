@@ -1,4 +1,4 @@
-rootProject.name = "KMPTaskManager"
+rootProject.name = "KMPWorker"
 // Temporarily disabled to avoid accessor generation issues
 // enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 

@@ -1,6 +1,6 @@
 # Migration Guide
 
-Step-by-step guide for upgrading to the latest version of KMP TaskManager.
+Step-by-step guide for upgrading to the latest version of KMP Worker.
 
 ## Table of Contents
 
@@ -283,7 +283,7 @@ val workRequest = PeriodicWorkRequestBuilder<SyncWorker>(15, TimeUnit.MINUTES)
 WorkManager.getInstance(context).enqueue(workRequest)
 ```
 
-**After (KMP TaskManager):**
+**After (KMP Worker):**
 
 ```kotlin
 // Common code (works on Android AND iOS!)
@@ -329,7 +329,7 @@ BGTaskScheduler.shared.register(
 }
 ```
 
-**After (KMP TaskManager):**
+**After (KMP Worker):**
 
 ```kotlin
 // Common code (works on Android AND iOS!)
@@ -351,7 +351,7 @@ scheduler.enqueue(
 
 ### From Alarmee
 
-**Alarmee** is focused on exact alarms and notifications. KMP TaskManager provides background execution.
+**Alarmee** is focused on exact alarms and notifications. KMP Worker provides background execution.
 
 **Before (Alarmee):**
 
@@ -368,7 +368,7 @@ alarmee.schedule(
 )
 ```
 
-**After (KMP TaskManager):**
+**After (KMP Worker):**
 
 ```kotlin
 scheduler.enqueue(
@@ -380,12 +380,12 @@ scheduler.enqueue(
 
 **Use Both:**
 
-You can use KMP TaskManager with Alarmee:
-- **KMP TaskManager**: Background task execution
+You can use KMP Worker with Alarmee:
+- **KMP Worker**: Background task execution
 - **Alarmee**: User-facing notifications
 
 ```kotlin
-// Background work with KMP TaskManager
+// Background work with KMP Worker
 scheduler.enqueue(
     id = "background-sync",
     trigger = TaskTrigger.Periodic(15_MINUTES),
@@ -406,7 +406,7 @@ alarmee.schedule(
 
 ### From KMPNotifier
 
-**KMPNotifier** is for push notifications. KMP TaskManager handles background execution.
+**KMPNotifier** is for push notifications. KMP Worker handles background execution.
 
 **Before (KMPNotifier only):**
 
@@ -415,10 +415,10 @@ alarmee.schedule(
 notifier.notify("sync-complete", "Data synced")
 ```
 
-**After (KMP TaskManager + KMPNotifier):**
+**After (KMP Worker + KMPNotifier):**
 
 ```kotlin
-// Background work with KMP TaskManager
+// Background work with KMP Worker
 scheduler.enqueue(
     id = "sync",
     trigger = TaskTrigger.Periodic(15_MINUTES),
@@ -441,7 +441,7 @@ class SyncWorker : IosWorker {
 **Recommended Approach:**
 
 Use both libraries together:
-- **KMP TaskManager**: Schedule and execute background tasks
+- **KMP Worker**: Schedule and execute background tasks
 - **KMPNotifier**: Show notifications to users
 
 ---
@@ -524,7 +524,7 @@ class MyApp : Application() {
 
         startKoin {
             androidContext(this@MyApp)
-            modules(kmpTaskManagerModule())
+            modules(kmpWorkerModule())
         }
     }
 }
@@ -579,7 +579,7 @@ class MyApp : Application() {
         // Initialize Koin FIRST
         startKoin {
             androidContext(this@MyApp)
-            modules(kmpTaskManagerModule())
+            modules(kmpWorkerModule())
         }
 
         // Then configure WorkManager (if needed)

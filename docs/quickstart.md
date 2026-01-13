@@ -1,6 +1,6 @@
 # Quick Start Guide
 
-Get KMP TaskManager running in your project in just 5 minutes!
+Get KMP Worker running in your project in just 5 minutes!
 
 ## Table of Contents
 
@@ -15,7 +15,7 @@ Get KMP TaskManager running in your project in just 5 minutes!
 
 ## Installation
 
-Add KMP TaskManager to your `build.gradle.kts` (module level):
+Add KMP Worker to your `build.gradle.kts` (module level):
 
 ```kotlin
 kotlin {
@@ -67,7 +67,7 @@ class MyApp : Application() {
 
         startKoin {
             androidContext(this@MyApp)
-            modules(kmpTaskManagerModule())
+            modules(kmpWorkerModule())
         }
     }
 }
@@ -84,7 +84,7 @@ Update your `AndroidManifest.xml` to reference the Application class:
 
 ### Step 3: Add WorkManager Dependency (Optional)
 
-KMP TaskManager uses WorkManager internally, but you may want to add it explicitly:
+KMP Worker uses WorkManager internally, but you may want to add it explicitly:
 
 ```kotlin
 androidMain.dependencies {
@@ -370,7 +370,7 @@ object IosWorkerFactory {
 
 ## Next Steps
 
-Congratulations! You've successfully integrated KMP TaskManager. Now you can:
+Congratulations! You've successfully integrated KMP Worker. Now you can:
 
 1. **[Explore all triggers](constraints-triggers.md)** - Learn about 9 different trigger types
 2. **[Build task chains](task-chains.md)** - Execute sequential and parallel workflows

@@ -36,7 +36,7 @@ kotlin {
         iosSimulatorArm64()
     ).forEach { iosTarget ->
         iosTarget.binaries.framework {
-            baseName = "KMPTaskManager"
+            baseName = "KMPWorker"
             isStatic = true
         }
     }
@@ -70,7 +70,7 @@ kotlin {
 }
 
 android {
-    namespace = "io.kmp.taskmanager"
+    namespace = "io.kmp.worker"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
 
     defaultConfig {
@@ -91,7 +91,7 @@ publishing {
             version = "4.0.0"
 
             pom {
-                name.set("KMP TaskManager")
+                name.set("KMP Worker")
                 description.set("A robust, cross-platform framework for scheduling and managing background tasks on Android and iOS using Kotlin Multiplatform")
                 url.set("https://github.com/brewkits/kmp_worker")
 

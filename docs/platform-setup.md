@@ -1,6 +1,6 @@
 # Platform Setup Guide
 
-Comprehensive guide for configuring KMP TaskManager on Android and iOS.
+Comprehensive guide for configuring KMP Worker on Android and iOS.
 
 ## Table of Contents
 
@@ -21,7 +21,7 @@ Add to your `build.gradle.kts`:
 kotlin {
     sourceSets {
         androidMain.dependencies {
-            // KMP TaskManager (required)
+            // KMP Worker (required)
             implementation("io.brewkits:kmpworker:2.2.0")
 
             // WorkManager (optional - already included transitively)
@@ -77,7 +77,7 @@ kotlin {
 
         <!-- Alarm Receiver for exact alarms -->
         <receiver
-            android:name="io.kmp.taskmanager.sample.background.data.AlarmReceiver"
+            android:name="io.kmp.worker.sample.background.data.AlarmReceiver"
             android:enabled="true"
             android:exported="false" />
 
@@ -100,7 +100,7 @@ class KMPWorkManagerApp : Application() {
         startKoin {
             androidLogger(Level.DEBUG)
             androidContext(this@KMPWorkManagerApp)
-            modules(kmpTaskManagerModule())
+            modules(kmpWorkerModule())
         }
 
         // Optional: Configure WorkManager
@@ -177,7 +177,7 @@ Add to `proguard-rules.pro`:
 ```proguard
 # Keep WorkManager classes
 -keep class androidx.work.** { *; }
--keep class io.kmp.taskmanager.sample.background.** { *; }
+-keep class io.kmp.worker.sample.background.** { *; }
 
 # Keep Koin classes
 -keep class org.koin.** { *; }

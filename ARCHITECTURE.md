@@ -1,6 +1,6 @@
-# 🏗️ KMP TaskManager Architecture
+# 🏗️ KMP Worker Architecture
 
-This document provides a comprehensive overview of the architecture, design decisions, and implementation details of KMP TaskManager.
+This document provides a comprehensive overview of the architecture, design decisions, and implementation details of KMP Worker.
 
 ## 📐 High-Level Architecture
 
@@ -15,7 +15,7 @@ This document provides a comprehensive overview of the architecture, design deci
 └───────────────────────────────┼─────────────────────────────────┘
                                 │
                 ┌───────────────▼───────────────┐
-                │   KMP TaskManager Library     │
+                │   KMP Worker Library     │
                 │  (Kotlin Multiplatform)       │
                 └───────────────┬───────────────┘
                                 │
@@ -91,7 +91,7 @@ kmpworker/
 │   │   └── LoggerPlatform.ios.kt (actual)
 │   └── KoinModule.ios.kt
 └── commonTest/
-    └── io/kmp/taskmanager/
+    └── io/kmp/worker/
         ├── ContractsTest.kt
         ├── TaskChainTest.kt
         ├── UtilsTest.kt
@@ -399,7 +399,7 @@ Platform-specific tests require actual devices/emulators:
 # Schedule task
 adb shell am start -n com.example/.MainActivity
 # Wait for execution
-adb logcat | grep "KMP_TaskManager"
+adb logcat | grep "KMP_Worker"
 ```
 
 **iOS:**

@@ -132,7 +132,7 @@ class MyApp : Application() {
         super.onCreate()
         startKoin {
             androidContext(this@MyApp)
-            modules(kmpTaskManagerModule(
+            modules(kmpWorkerModule(
                 workerFactory = MyWorkerFactory()
             ))
         }

@@ -77,7 +77,7 @@ class SyncWorker : AndroidWorker {  // or IosWorker on iOS
 ```kotlin
 startKoin {
     androidContext(this@Application)
-    modules(kmpTaskManagerModule())  // ❌ No longer works
+    modules(kmpWorkerModule())  // ❌ No longer works
 }
 ```
 
@@ -85,7 +85,7 @@ startKoin {
 ```kotlin
 startKoin {
     androidContext(this@Application)
-    modules(kmpTaskManagerModule(
+    modules(kmpWorkerModule(
         workerFactory = MyWorkerFactory()  // ✅ Required
     ))
 }
@@ -116,9 +116,9 @@ Create separate worker classes for your background tasks.
 // androidMain/kotlin/com/myapp/workers/SyncWorker.kt
 package com.myapp.workers
 
-import io.kmp.taskmanager.background.domain.AndroidWorker
-import io.kmp.taskmanager.background.domain.TaskEventBus
-import io.kmp.taskmanager.background.domain.TaskCompletionEvent
+import io.kmp.worker.background.domain.AndroidWorker
+import io.kmp.worker.background.domain.TaskEventBus
+import io.kmp.worker.background.domain.TaskCompletionEvent
 import kotlinx.coroutines.delay
 
 class SyncWorker : AndroidWorker {
@@ -142,9 +142,9 @@ class SyncWorker : AndroidWorker {
 // iosMain/kotlin/com/myapp/workers/SyncWorker.kt
 package com.myapp.workers
 
-import io.kmp.taskmanager.background.data.IosWorker
-import io.kmp.taskmanager.background.domain.TaskEventBus
-import io.kmp.taskmanager.background.domain.TaskCompletionEvent
+import io.kmp.worker.background.data.IosWorker
+import io.kmp.worker.background.domain.TaskEventBus
+import io.kmp.worker.background.domain.TaskCompletionEvent
 import kotlinx.coroutines.delay
 
 class SyncWorker : IosWorker {
@@ -174,8 +174,8 @@ Create a factory that maps worker class names to instances.
 // androidMain/kotlin/com/myapp/workers/MyWorkerFactory.kt
 package com.myapp.workers
 
-import io.kmp.taskmanager.background.domain.AndroidWorker
-import io.kmp.taskmanager.background.domain.AndroidWorkerFactory
+import io.kmp.worker.background.domain.AndroidWorker
+import io.kmp.worker.background.domain.AndroidWorkerFactory
 
 class MyWorkerFactory : AndroidWorkerFactory {
     override fun createWorker(workerClassName: String): AndroidWorker? {
@@ -195,8 +195,8 @@ class MyWorkerFactory : AndroidWorkerFactory {
 // iosMain/kotlin/com/myapp/workers/MyWorkerFactory.kt
 package com.myapp.workers
 
-import io.kmp.taskmanager.background.data.IosWorker
-import io.kmp.taskmanager.background.data.IosWorkerFactory
+import io.kmp.worker.background.data.IosWorker
+import io.kmp.worker.background.data.IosWorkerFactory
 
 class MyWorkerFactory : IosWorkerFactory {
     override fun createWorker(workerClassName: String): IosWorker? {
@@ -239,7 +239,7 @@ package com.myapp
 
 import android.app.Application
 import com.myapp.workers.MyWorkerFactory
-import io.kmp.taskmanager.kmpTaskManagerModule
+import io.kmp.worker.kmpWorkerModule
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
 
@@ -250,7 +250,7 @@ class MyApplication : Application() {
         startKoin {
             androidContext(this@MyApplication)
             modules(
-                kmpTaskManagerModule(
+                kmpWorkerModule(
                     workerFactory = MyWorkerFactory()  // ✅ Required in v4.0.0
                 )
             )
@@ -266,13 +266,13 @@ class MyApplication : Application() {
 package com.myapp
 
 import com.myapp.workers.MyWorkerFactory
-import io.kmp.taskmanager.kmpTaskManagerModule
+import io.kmp.worker.kmpWorkerModule
 import org.koin.core.context.startKoin
 
 fun initKoinIos() {
     startKoin {
         modules(
-            kmpTaskManagerModule(
+            kmpWorkerModule(
                 workerFactory = MyWorkerFactory(),  // ✅ Required in v4.0.0
                 iosTaskIds = setOf()  // Optional - reads from Info.plist automatically
             )
@@ -478,7 +478,7 @@ BGTaskScheduler.shared.register(forTaskWithIdentifier: "my-task-id") { task in
 @Test
 fun `factory is registered in Koin`() {
     startKoin {
-        modules(kmpTaskManagerModule(workerFactory = MyWorkerFactory()))
+        modules(kmpWorkerModule(workerFactory = MyWorkerFactory()))
     }
 
     val factory = KoinContext.get().get<AndroidWorkerFactory>()
@@ -538,7 +538,7 @@ If you encounter issues and need to stay on v3.x temporarily:
 ```gradle
 // In your build.gradle.kts
 dependencies {
-    implementation("io.kmp.taskmanager:kmpworker:3.0.0")  // v3.x
+    implementation("io.kmp.worker:kmpworker:3.0.0")  // v3.x
 }
 ```
 
@@ -548,8 +548,8 @@ dependencies {
 
 ## Need Help?
 
-- **GitHub Issues**: https://github.com/yourusername/KMPTaskManager/issues
-- **Discussions**: https://github.com/yourusername/KMPTaskManager/discussions
+- **GitHub Issues**: https://github.com/yourusername/KMPWorker/issues
+- **Discussions**: https://github.com/yourusername/KMPWorker/discussions
 - **Migration Examples**: See `examples/migration-v4` directory
 
 ---
