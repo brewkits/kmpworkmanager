@@ -538,7 +538,7 @@ If you encounter issues and need to stay on v3.x temporarily:
 ```gradle
 // In your build.gradle.kts
 dependencies {
-    implementation("io.kmp.taskmanager:kmptaskmanager:3.0.0")  // v3.x
+    implementation("io.kmp.taskmanager:kmpworker:3.0.0")  // v3.x
 }
 ```
 

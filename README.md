@@ -6,11 +6,11 @@
 
 **Write once, schedule anywhere.** Unified API for background tasks on Android & iOS.
 
-[![Maven Central](https://img.shields.io/maven-central/v/io.brewkits/kmptaskmanager?style=for-the-badge&label=Maven%20Central&color=4c1)](https://central.sonatype.com/artifact/io.brewkits/kmptaskmanager)
+[![Maven Central](https://img.shields.io/maven-central/v/io.brewkits/kmpworker?style=for-the-badge&label=Maven%20Central&color=4c1)](https://central.sonatype.com/artifact/io.brewkits/kmpworker)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.2.20-7F52FF?style=for-the-badge&logo=kotlin)](http://kotlinlang.org)
 [![License](https://img.shields.io/badge/License-Apache%202.0-green.svg?style=for-the-badge)](LICENSE)
 
-[![klibs.io](https://img.shields.io/badge/Kotlin%20Multiplatform-klibs.io-4c1?style=flat-square)](https://klibs.io/package/io.brewkits/kmptaskmanager)
+[![klibs.io](https://img.shields.io/badge/Kotlin%20Multiplatform-klibs.io-4c1?style=flat-square)](https://klibs.io/package/io.brewkits/kmpworker)
 [![GitHub Stars](https://img.shields.io/github/stars/brewkits/kmp_worker?style=flat-square)](https://github.com/brewkits/kmp_worker/stargazers)
 [![Build](https://img.shields.io/github/actions/workflow/status/brewkits/kmp_worker/build.yml?style=flat-square)](https://github.com/brewkits/kmp_worker/actions)
 
@@ -85,7 +85,7 @@ scheduler.enqueue(
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("io.brewkits:kmptaskmanager:4.0.0")
+            implementation("io.brewkits:kmpworker:4.0.0")
         }
     }
 }
@@ -358,8 +358,8 @@ We love contributions! Here's how you can help:
 
 <div align="center">
 
-[Maven Central](https://central.sonatype.com/artifact/io.brewkits/kmptaskmanager) •
-[klibs.io](https://klibs.io/package/io.brewkits/kmptaskmanager) •
+[Maven Central](https://central.sonatype.com/artifact/io.brewkits/kmpworker) •
+[klibs.io](https://klibs.io/package/io.brewkits/kmpworker) •
 [Changelog](CHANGELOG.md) •
 [Demo App](composeApp/)
 

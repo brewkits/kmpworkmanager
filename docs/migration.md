@@ -31,7 +31,7 @@ No breaking changes. Simply update your dependency:
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("io.brewkits:kmptaskmanager:2.2.0")
+            implementation("io.brewkits:kmpworker:2.2.0")
         }
     }
 }

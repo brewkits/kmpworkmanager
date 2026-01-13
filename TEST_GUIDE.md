@@ -16,7 +16,7 @@ Comprehensive guide for testing KMP TaskManager - from unit tests to integration
 ## 📁 Test Structure
 
 ```
-kmptaskmanager/
+kmpworker/
 ├── src/
 │   ├── commonTest/               # Shared unit tests
 │   │   └── io/kmp/taskmanager/
@@ -50,7 +50,7 @@ kmptaskmanager/
 ./gradlew test --info
 
 # Run specific module
-./gradlew :kmptaskmanager:test
+./gradlew :kmpworker:test
 ./gradlew :composeApp:test
 ```
 
@@ -71,13 +71,13 @@ kmptaskmanager/
 
 ```bash
 # Android unit tests
-./gradlew :kmptaskmanager:testDebugUnitTest
-./gradlew :kmptaskmanager:testReleaseUnitTest
+./gradlew :kmpworker:testDebugUnitTest
+./gradlew :kmpworker:testReleaseUnitTest
 
 # iOS tests (requires macOS)
-./gradlew :kmptaskmanager:iosX64Test
-./gradlew :kmptaskmanager:iosSimulatorArm64Test
-./gradlew :kmptaskmanager:iosArm64Test
+./gradlew :kmpworker:iosX64Test
+./gradlew :kmpworker:iosSimulatorArm64Test
+./gradlew :kmpworker:iosArm64Test
 ```
 
 ### Continuous Testing
@@ -296,10 +296,10 @@ class NativeTaskSchedulerAndroidTest {
 
 ```bash
 # Install and run tests on connected device
-./gradlew :kmptaskmanager:connectedAndroidTest
+./gradlew :kmpworker:connectedAndroidTest
 
 # Run on specific device
-./gradlew :kmptaskmanager:connectedAndroidTest -Pandroid.testInstrumentationRunnerArguments.device=emulator-5554
+./gradlew :kmpworker:connectedAndroidTest -Pandroid.testInstrumentationRunnerArguments.device=emulator-5554
 ```
 
 ### iOS Integration Tests
@@ -441,7 +441,7 @@ fun `ViewModel should schedule task on button click`() = runTest {
 ./gradlew test jacocoTestReport
 
 # View HTML report
-open kmptaskmanager/build/reports/jacoco/test/html/index.html
+open kmpworker/build/reports/jacoco/test/html/index.html
 ```
 
 ### Current Coverage Statistics
@@ -614,7 +614,7 @@ assertTrue(result == ScheduleResult.ACCEPTED)
 
 2. **Skip unrelated tests**:
    ```bash
-   ./gradlew :kmptaskmanager:test  # Only library tests
+   ./gradlew :kmpworker:test  # Only library tests
    ```
 
 ### Memory Issues

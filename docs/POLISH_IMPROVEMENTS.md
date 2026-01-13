@@ -138,7 +138,7 @@ WorkerFactory (commonMain)
 
 1. **AndroidWorker extends Worker** ✅
    ```kotlin
-   // kmptaskmanager/src/androidMain/.../AndroidWorker.kt:26
+   // kmpworker/src/androidMain/.../AndroidWorker.kt:26
    interface AndroidWorker : io.kmp.taskmanager.background.domain.Worker {
        override suspend fun doWork(input: String?): Boolean
    }
@@ -146,7 +146,7 @@ WorkerFactory (commonMain)
 
 2. **IosWorker extends Worker** ✅
    ```kotlin
-   // kmptaskmanager/src/iosMain/.../IosWorker.kt:22
+   // kmpworker/src/iosMain/.../IosWorker.kt:22
    interface IosWorker : io.kmp.taskmanager.background.domain.Worker {
        override suspend fun doWork(input: String?): Boolean
    }
@@ -174,7 +174,7 @@ WorkerFactory (commonMain)
 
 **Command:**
 ```bash
-./gradlew :kmptaskmanager:compileDebugKotlinAndroid :kmptaskmanager:compileKotlinIosSimulatorArm64
+./gradlew :kmpworker:compileDebugKotlinAndroid :kmpworker:compileKotlinIosSimulatorArm64
 ```
 
 **Result:**
@@ -190,11 +190,11 @@ BUILD SUCCESSFUL in 577ms
 ## Files Modified (NOT COMMITTED)
 
 ```diff
-M  kmptaskmanager/src/iosMain/kotlin/io/kmp/taskmanager/KoinModule.ios.kt
+M  kmpworker/src/iosMain/kotlin/io/kmp/taskmanager/KoinModule.ios.kt
    - Added require() validation with detailed error message
    - Removed unsafe cast after validation
 
-M  kmptaskmanager/src/iosMain/kotlin/io/kmp/taskmanager/background/data/NativeTaskScheduler.kt
+M  kmpworker/src/iosMain/kotlin/io/kmp/taskmanager/background/data/NativeTaskScheduler.kt
    - Replaced MainScope with CoroutineScope(Dispatchers.Default)
    - Added backgroundScope property with SupervisorJob
    - Added documentation for threading behavior
@@ -273,7 +273,7 @@ If releasing these improvements:
 
 3. Commit changes:
    ```bash
-   git add kmptaskmanager/src/iosMain/kotlin/io/kmp/taskmanager/
+   git add kmpworker/src/iosMain/kotlin/io/kmp/taskmanager/
    git commit -m "fix(ios): Improve type safety and background threading
 
    - Add early factory type validation with descriptive errors

@@ -1,6 +1,6 @@
 # KMP TaskManager
 
-[![Maven Central](https://img.shields.io/maven-central/v/io.brewkits/kmptaskmanager?label=Maven%20Central)](https://central.sonatype.com/artifact/io.brewkits/kmptaskmanager)
+[![Maven Central](https://img.shields.io/maven-central/v/io.brewkits/kmpworker?label=Maven%20Central)](https://central.sonatype.com/artifact/io.brewkits/kmpworker)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Kotlin](https://img.shields.io/badge/kotlin-2.2.20-blue.svg?logo=kotlin)](http://kotlinlang.org)
 [![Platform](https://img.shields.io/badge/platform-android%20|%20ios-lightgrey)](https://kotlinlang.org/docs/multiplatform.html)
@@ -71,7 +71,7 @@ startKoin {
 
 ```kotlin
 commonMain.dependencies {
-    implementation("io.brewkits:kmptaskmanager:4.0.0")
+    implementation("io.brewkits:kmpworker:4.0.0")
 }
 ```
 
@@ -79,10 +79,10 @@ commonMain.dependencies {
 
 ```toml
 [versions]
-kmptaskmanager = "4.0.0"
+kmpworker = "4.0.0"
 
 [libraries]
-kmptaskmanager = { module = "io.brewkits:kmptaskmanager", version.ref = "kmptaskmanager" }
+kmpworker = { module = "io.brewkits:kmpworker", version.ref = "kmpworker" }
 ```
 
 ## Quick Start

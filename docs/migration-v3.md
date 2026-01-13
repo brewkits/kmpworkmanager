@@ -235,7 +235,7 @@ scheduler.enqueue(
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("io.brewkits:kmptaskmanager:3.0.0") // Changed
+            implementation("io.brewkits:kmpworker:3.0.0") // Changed
         }
     }
 }
@@ -525,7 +525,7 @@ If you need to rollback to v2.x:
 ### Step 1: Revert Dependency
 
 ```kotlin
-implementation("io.brewkits:kmptaskmanager:2.2.2")
+implementation("io.brewkits:kmpworker:2.2.2")
 ```
 
 ### Step 2: Remove v3.0-Specific Code
