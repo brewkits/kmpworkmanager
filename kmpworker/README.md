@@ -1,4 +1,4 @@
-# KMP TaskManager
+# KMP Worker
 
 [![Maven Central](https://img.shields.io/maven-central/v/io.brewkits/kmpworker?label=Maven%20Central)](https://central.sonatype.com/artifact/io.brewkits/kmpworker)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
@@ -27,7 +27,7 @@ A robust, production-ready Kotlin Multiplatform library for scheduling and manag
 **Before (v3.x)**:
 ```kotlin
 startKoin {
-    modules(kmpTaskManagerModule())  // ❌ No longer works
+    modules(kmpWorkerModule())  // ❌ No longer works
 }
 ```
 
@@ -43,7 +43,7 @@ class MyWorkerFactory : AndroidWorkerFactory {
 
 // 2. Pass factory to Koin
 startKoin {
-    modules(kmpTaskManagerModule(
+    modules(kmpWorkerModule(
         workerFactory = MyWorkerFactory()  // ✅ Required
     ))
 }
@@ -170,7 +170,7 @@ class MyApp : Application() {
         super.onCreate()
         startKoin {
             androidContext(this@MyApp)
-            modules(kmpTaskManagerModule(
+            modules(kmpWorkerModule(
                 workerFactory = MyWorkerFactory()  // ✅ Required in v4.0.0
             ))
         }
@@ -184,7 +184,7 @@ class MyApp : Application() {
 // iOS - KoinSetup.kt
 fun initKoinIos() {
     startKoin {
-        modules(kmpTaskManagerModule(
+        modules(kmpWorkerModule(
             workerFactory = MyWorkerFactory()  // ✅ Required in v4.0.0
         ))
     }
@@ -360,8 +360,8 @@ scheduler.enqueue(
 ### Logging
 
 ```kotlin
-import io.kmp.taskmanager.utils.Logger
-import io.kmp.taskmanager.utils.LogTags
+import io.kmp.worker.utils.Logger
+import io.kmp.worker.utils.LogTags
 
 Logger.i(LogTags.WORKER, "Task completed successfully")
 Logger.e(LogTags.SCHEDULER, "Failed to schedule", exception)
@@ -527,9 +527,9 @@ class MyScheduler(context: Context) : NativeTaskScheduler(context) {
 
 ## Documentation
 
-- [Full Documentation](https://github.com/vietnguyentuan2019/KMPTaskManager)
-- [API Reference](https://github.com/vietnguyentuan2019/KMPTaskManager/wiki)
-- [Migration Guide](https://github.com/vietnguyentuan2019/KMPTaskManager/blob/main/MIGRATION.md)
+- [Full Documentation](https://github.com/vietnguyentuan2019/KMPWorker)
+- [API Reference](https://github.com/vietnguyentuan2019/KMPWorker/wiki)
+- [Migration Guide](https://github.com/vietnguyentuan2019/KMPWorker/blob/main/MIGRATION.md)
 
 ## License
 
@@ -555,8 +555,8 @@ Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) first.
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/vietnguyentuan2019/KMPTaskManager/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/vietnguyentuan2019/KMPTaskManager/discussions)
+- **Issues**: [GitHub Issues](https://github.com/vietnguyentuan2019/KMPWorker/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/vietnguyentuan2019/KMPWorker/discussions)
 
 ---
 

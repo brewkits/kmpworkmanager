@@ -1,4 +1,4 @@
-# 💡 KMP TaskManager Examples
+# 💡 KMP Worker Examples
 
 Comprehensive examples for common use cases with v3.0.0 API.
 

@@ -1,4 +1,4 @@
-# KMP TaskManager v4.0.0 - Audit Report
+# KMP Worker v4.0.0 - Audit Report
 
 ## ✅ RESOLVED ISSUES
 
@@ -10,7 +10,7 @@
 - ✅ Created `AndroidWorkerFactory` and `IosWorkerFactory` interfaces
 - ✅ `KmpWorker` now injects `AndroidWorkerFactory` from Koin
 - ✅ `KmpHeavyWorker` now injects `AndroidWorkerFactory` from Koin
-- ✅ Users provide factory via `kmpTaskManagerModule(workerFactory = MyWorkerFactory())`
+- ✅ Users provide factory via `kmpWorkerModule(workerFactory = MyWorkerFactory())`
 - ✅ Comprehensive migration guide in `MIGRATION_V4.md`
 
 **Evidence**:

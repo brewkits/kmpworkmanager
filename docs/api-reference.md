@@ -1,6 +1,6 @@
 # API Reference
 
-Complete API documentation for KMP TaskManager.
+Complete API documentation for KMP Worker.
 
 ## Table of Contents
 

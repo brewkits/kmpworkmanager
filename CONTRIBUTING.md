@@ -1,6 +1,6 @@
-# 🤝 Contributing to KMP TaskManager
+# 🤝 Contributing to KMP Worker
 
-Thank you for your interest in contributing to KMP TaskManager! This guide will help you get started with contributing to the project.
+Thank you for your interest in contributing to KMP Worker! This guide will help you get started with contributing to the project.
 
 ## 📋 Table of Contents
 
@@ -30,9 +30,9 @@ This project adheres to a Code of Conduct that all contributors are expected to 
 
 ### Ways to Contribute
 
-1. **Report Bugs**: Found a bug? [Open an issue](https://github.com/vietnguyentuan2019/KMPTaskManager/issues)
-2. **Suggest Features**: Have an idea? [Start a discussion](https://github.com/vietnguyentuan2019/KMPTaskManager/discussions)
-3. **Fix Issues**: Browse [open issues](https://github.com/vietnguyentuan2019/KMPTaskManager/issues) and submit PRs
+1. **Report Bugs**: Found a bug? [Open an issue](https://github.com/vietnguyentuan2019/KMPWorker/issues)
+2. **Suggest Features**: Have an idea? [Start a discussion](https://github.com/vietnguyentuan2019/KMPWorker/discussions)
+3. **Fix Issues**: Browse [open issues](https://github.com/vietnguyentuan2019/KMPWorker/issues) and submit PRs
 4. **Improve Documentation**: Help make our docs better
 5. **Write Tests**: Increase test coverage
 6. **Share Knowledge**: Answer questions in discussions
@@ -53,14 +53,14 @@ Look for issues tagged with `good first issue` - these are great entry points fo
 ### Clone the Repository
 
 ```bash
-git clone https://github.com/vietnguyentuan2019/KMPTaskManager.git
-cd KMPTaskManager
+git clone https://github.com/vietnguyentuan2019/KMPWorker.git
+cd KMPWorker
 ```
 
 ### Project Structure
 
 ```
-KMPTaskManager/
+KMPWorker/
 ├── kmpworker/          # Library module
 │   ├── src/
 │   │   ├── commonMain/      # Shared Kotlin code
@@ -101,7 +101,7 @@ KMPTaskManager/
 ./gradlew test
 
 # Run specific test file
-./gradlew :kmpworker:testDebugUnitTest --tests "io.kmp.taskmanager.ContractsTest"
+./gradlew :kmpworker:testDebugUnitTest --tests "io.kmp.worker.ContractsTest"
 
 # Run with coverage
 ./gradlew test jacocoTestReport
@@ -112,7 +112,7 @@ KMPTaskManager/
 **Android:**
 ```bash
 ./gradlew :composeApp:installDebug
-adb shell am start -n io.kmp.taskmanager.sample/.MainActivity
+adb shell am start -n io.kmp.worker.sample/.MainActivity
 ```
 
 **iOS:**
@@ -659,6 +659,6 @@ Your contributions make this project better. We appreciate your time and effort!
 
 ---
 
-**Questions?** Open a [discussion](https://github.com/vietnguyentuan2019/KMPTaskManager/discussions) or email vietnguyentuan@gmail.com
+**Questions?** Open a [discussion](https://github.com/vietnguyentuan2019/KMPWorker/discussions) or email vietnguyentuan@gmail.com
 
 **Last Updated:** December 2025

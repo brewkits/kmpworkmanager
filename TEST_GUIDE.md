@@ -1,6 +1,6 @@
-# 🧪 KMP TaskManager Testing Guide
+# 🧪 KMP Worker Testing Guide
 
-Comprehensive guide for testing KMP TaskManager - from unit tests to integration testing.
+Comprehensive guide for testing KMP Worker - from unit tests to integration testing.
 
 ## 📋 Table of Contents
 
@@ -19,7 +19,7 @@ Comprehensive guide for testing KMP TaskManager - from unit tests to integration
 kmpworker/
 ├── src/
 │   ├── commonTest/               # Shared unit tests
-│   │   └── io/kmp/taskmanager/
+│   │   └── io/kmp/worker/
 │   │       ├── ContractsTest.kt          # TaskTrigger, Constraints, enums
 │   │       ├── TaskChainTest.kt          # TaskChain, TaskRequest
 │   │       ├── TaskEventTest.kt          # EventBus, events
@@ -58,13 +58,13 @@ kmpworker/
 
 ```bash
 # Run single test file
-./gradlew test --tests "io.kmp.taskmanager.ContractsTest"
+./gradlew test --tests "io.kmp.worker.ContractsTest"
 
 # Run specific test method
-./gradlew test --tests "io.kmp.taskmanager.ContractsTest.TaskTrigger*"
+./gradlew test --tests "io.kmp.worker.ContractsTest.TaskTrigger*"
 
 # Run multiple test files
-./gradlew test --tests "io.kmp.taskmanager.*Test"
+./gradlew test --tests "io.kmp.worker.*Test"
 ```
 
 ### Platform-Specific Tests
@@ -310,7 +310,7 @@ iOS integration tests can be run in Xcode or using xcodebuild.
 
 ```swift
 import XCTest
-import KMPTaskManager
+import KMPWorker
 
 class NativeTaskSchedulerIOSTest: XCTestCase {
     var scheduler: NativeTaskScheduler!
@@ -651,6 +651,6 @@ xcrun simctl erase all
 
 **Happy Testing!** 🎉
 
-For questions, see [CONTRIBUTING.md](CONTRIBUTING.md) or open a [discussion](https://github.com/vietnguyentuan2019/KMPTaskManager/discussions).
+For questions, see [CONTRIBUTING.md](CONTRIBUTING.md) or open a [discussion](https://github.com/vietnguyentuan2019/KMPWorker/discussions).
 
 **Last Updated:** December 2025

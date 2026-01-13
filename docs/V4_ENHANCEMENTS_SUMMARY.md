@@ -39,7 +39,7 @@
 **Implemented reified inline extension functions:**
 
 1. **New file created:**
-   - `kmpworker/src/commonMain/kotlin/io/kmp/taskmanager/background/domain/BackgroundTaskSchedulerExt.kt`
+   - `kmpworker/src/commonMain/kotlin/io/kmp/worker/background/domain/BackgroundTaskSchedulerExt.kt`
 
 2. **Extension functions added:**
    
@@ -104,7 +104,7 @@
    - Added to Features list
 
 **Location:** 
-- Code: `kmpworker/src/commonMain/kotlin/io/kmp/taskmanager/background/domain/BackgroundTaskSchedulerExt.kt`
+- Code: `kmpworker/src/commonMain/kotlin/io/kmp/worker/background/domain/BackgroundTaskSchedulerExt.kt`
 - Docs: `kmpworker/README.md` (lines ~262-340)
 
 ---
@@ -126,7 +126,7 @@
 
 ```bash
 M  kmpworker/README.md
-A  kmpworker/src/commonMain/kotlin/io/kmp/taskmanager/background/domain/BackgroundTaskSchedulerExt.kt
+A  kmpworker/src/commonMain/kotlin/io/kmp/worker/background/domain/BackgroundTaskSchedulerExt.kt
 A  docs/AUDIT_V4.md
 ```
 

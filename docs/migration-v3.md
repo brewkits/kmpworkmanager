@@ -1,6 +1,6 @@
 # 📦 Migration Guide: v2.x → v3.0.0
 
-Complete guide for upgrading from KMP TaskManager v2.x to v3.0.0.
+Complete guide for upgrading from KMP Worker v2.x to v3.0.0.
 
 [📘 Back to README](../README.md) • [💡 Examples](examples.md)
 
@@ -303,7 +303,7 @@ If you use exact alarms, implement [AlarmReceiver](#3-alarmreceiver-base-class-a
 iOS migration is automatic. On first launch:
 
 ```
-[TaskManager] Storage migration: SUCCESS - Migrated X chains, Y tasks
+[Worker] Storage migration: SUCCESS - Migrated X chains, Y tasks
 ```
 
 Check logs to confirm migration succeeded.
@@ -362,9 +362,9 @@ abstract class AlarmReceiver : BroadcastReceiver() {
     )
 
     companion object {
-        const val EXTRA_TASK_ID = "io.kmp.taskmanager.TASK_ID"
-        const val EXTRA_WORKER_CLASS = "io.kmp.taskmanager.WORKER_CLASS"
-        const val EXTRA_INPUT_JSON = "io.kmp.taskmanager.INPUT_JSON"
+        const val EXTRA_TASK_ID = "io.kmp.worker.TASK_ID"
+        const val EXTRA_WORKER_CLASS = "io.kmp.worker.WORKER_CLASS"
+        const val EXTRA_INPUT_JSON = "io.kmp.worker.INPUT_JSON"
 
         fun createNotificationChannel(context: Context)
     }

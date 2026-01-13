@@ -139,7 +139,7 @@ WorkerFactory (commonMain)
 1. **AndroidWorker extends Worker** ✅
    ```kotlin
    // kmpworker/src/androidMain/.../AndroidWorker.kt:26
-   interface AndroidWorker : io.kmp.taskmanager.background.domain.Worker {
+   interface AndroidWorker : io.kmp.worker.background.domain.Worker {
        override suspend fun doWork(input: String?): Boolean
    }
    ```
@@ -147,21 +147,21 @@ WorkerFactory (commonMain)
 2. **IosWorker extends Worker** ✅
    ```kotlin
    // kmpworker/src/iosMain/.../IosWorker.kt:22
-   interface IosWorker : io.kmp.taskmanager.background.domain.Worker {
+   interface IosWorker : io.kmp.worker.background.domain.Worker {
        override suspend fun doWork(input: String?): Boolean
    }
    ```
 
 3. **AndroidWorkerFactory extends WorkerFactory** ✅
    ```kotlin
-   interface AndroidWorkerFactory : io.kmp.taskmanager.background.domain.WorkerFactory {
+   interface AndroidWorkerFactory : io.kmp.worker.background.domain.WorkerFactory {
        override fun createWorker(workerClassName: String): AndroidWorker?
    }
    ```
 
 4. **IosWorkerFactory extends WorkerFactory** ✅
    ```kotlin
-   interface IosWorkerFactory : io.kmp.taskmanager.background.domain.WorkerFactory {
+   interface IosWorkerFactory : io.kmp.worker.background.domain.WorkerFactory {
        override fun createWorker(workerClassName: String): IosWorker?
    }
    ```
@@ -190,11 +190,11 @@ BUILD SUCCESSFUL in 577ms
 ## Files Modified (NOT COMMITTED)
 
 ```diff
-M  kmpworker/src/iosMain/kotlin/io/kmp/taskmanager/KoinModule.ios.kt
+M  kmpworker/src/iosMain/kotlin/io/kmp/worker/KoinModule.ios.kt
    - Added require() validation with detailed error message
    - Removed unsafe cast after validation
 
-M  kmpworker/src/iosMain/kotlin/io/kmp/taskmanager/background/data/NativeTaskScheduler.kt
+M  kmpworker/src/iosMain/kotlin/io/kmp/worker/background/data/NativeTaskScheduler.kt
    - Replaced MainScope with CoroutineScope(Dispatchers.Default)
    - Added backgroundScope property with SupervisorJob
    - Added documentation for threading behavior
@@ -231,7 +231,7 @@ class WrongFactory : WorkerFactory { // Missing IosWorkerFactory!
     override fun createWorker(name: String) = null
 }
 
-kmpTaskManagerModule(workerFactory = WrongFactory())
+kmpWorkerModule(workerFactory = WrongFactory())
 // Expected: IllegalArgumentException with solution code
 
 // Should SUCCEED
@@ -239,7 +239,7 @@ class CorrectFactory : IosWorkerFactory {
     override fun createWorker(name: String) = null
 }
 
-kmpTaskManagerModule(workerFactory = CorrectFactory())
+kmpWorkerModule(workerFactory = CorrectFactory())
 // Expected: Success
 ```
 
@@ -273,7 +273,7 @@ If releasing these improvements:
 
 3. Commit changes:
    ```bash
-   git add kmpworker/src/iosMain/kotlin/io/kmp/taskmanager/
+   git add kmpworker/src/iosMain/kotlin/io/kmp/worker/
    git commit -m "fix(ios): Improve type safety and background threading
 
    - Add early factory type validation with descriptive errors

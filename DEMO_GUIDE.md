@@ -162,7 +162,7 @@ The demo app showcases all features of KMP Task Manager across **6 interactive t
 ```bash
 # Using adb
 adb shell am broadcast -a com.google.android.c2dm.intent.RECEIVE \
-  -n io.kmp.taskmanager.sample/.push.PushReceiver \
+  -n io.kmp.worker.sample/.push.PushReceiver \
   --es notification-type silent
 ```
 
@@ -170,7 +170,7 @@ adb shell am broadcast -a com.google.android.c2dm.intent.RECEIVE \
 ```bash
 # 1. Create push.apns file:
 {
-  "Simulator Target Bundle": "io.kmp.taskmanager.sample",
+  "Simulator Target Bundle": "io.kmp.worker.sample",
   "aps": {
     "content-available": 1,
     "alert": {
@@ -181,7 +181,7 @@ adb shell am broadcast -a com.google.android.c2dm.intent.RECEIVE \
 }
 
 # 2. Send push to simulator:
-xcrun simctl push booted io.kmp.taskmanager.sample push.apns
+xcrun simctl push booted io.kmp.worker.sample push.apns
 ```
 
 ## 🔐 Tab 5: Permissions
