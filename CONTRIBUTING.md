@@ -61,7 +61,7 @@ cd KMPTaskManager
 
 ```
 KMPTaskManager/
-├── kmptaskmanager/          # Library module
+├── kmpworker/          # Library module
 │   ├── src/
 │   │   ├── commonMain/      # Shared Kotlin code
 │   │   ├── commonTest/      # Shared tests
@@ -88,7 +88,7 @@ KMPTaskManager/
 ./gradlew build
 
 # Build only library
-./gradlew :kmptaskmanager:build
+./gradlew :kmpworker:build
 
 # Build demo app
 ./gradlew :composeApp:assembleDebug  # Android
@@ -101,7 +101,7 @@ KMPTaskManager/
 ./gradlew test
 
 # Run specific test file
-./gradlew :kmptaskmanager:testDebugUnitTest --tests "io.kmp.taskmanager.ContractsTest"
+./gradlew :kmpworker:testDebugUnitTest --tests "io.kmp.taskmanager.ContractsTest"
 
 # Run with coverage
 ./gradlew test jacocoTestReport

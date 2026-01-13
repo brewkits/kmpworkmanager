@@ -58,7 +58,7 @@ This document provides a comprehensive overview of the architecture, design deci
 ## 📦 Module Structure
 
 ```
-kmptaskmanager/
+kmpworker/
 ├── commonMain/
 │   ├── background/
 │   │   ├── domain/           # Public API interfaces

@@ -30,7 +30,7 @@
    - ✅ Use for opportunistic optimizations
    - ✅ Alternative strategies provided
 
-**Location:** `kmptaskmanager/README.md` (lines ~313-400)
+**Location:** `kmpworker/README.md` (lines ~313-400)
 
 ---
 
@@ -39,7 +39,7 @@
 **Implemented reified inline extension functions:**
 
 1. **New file created:**
-   - `kmptaskmanager/src/commonMain/kotlin/io/kmp/taskmanager/background/domain/BackgroundTaskSchedulerExt.kt`
+   - `kmpworker/src/commonMain/kotlin/io/kmp/taskmanager/background/domain/BackgroundTaskSchedulerExt.kt`
 
 2. **Extension functions added:**
    
@@ -104,8 +104,8 @@
    - Added to Features list
 
 **Location:** 
-- Code: `kmptaskmanager/src/commonMain/kotlin/io/kmp/taskmanager/background/domain/BackgroundTaskSchedulerExt.kt`
-- Docs: `kmptaskmanager/README.md` (lines ~262-340)
+- Code: `kmpworker/src/commonMain/kotlin/io/kmp/taskmanager/background/domain/BackgroundTaskSchedulerExt.kt`
+- Docs: `kmpworker/README.md` (lines ~262-340)
 
 ---
 
@@ -113,7 +113,7 @@
 
 **Command:**
 ```bash
-./gradlew :kmptaskmanager:compileDebugKotlinAndroid :kmptaskmanager:compileKotlinIosSimulatorArm64
+./gradlew :kmpworker:compileDebugKotlinAndroid :kmpworker:compileKotlinIosSimulatorArm64
 ```
 
 **Result:** ✅ BUILD SUCCESSFUL
@@ -125,8 +125,8 @@
 ## Files Modified (Unstaged)
 
 ```bash
-M  kmptaskmanager/README.md
-A  kmptaskmanager/src/commonMain/kotlin/io/kmp/taskmanager/background/domain/BackgroundTaskSchedulerExt.kt
+M  kmpworker/README.md
+A  kmpworker/src/commonMain/kotlin/io/kmp/taskmanager/background/domain/BackgroundTaskSchedulerExt.kt
 A  docs/AUDIT_V4.md
 ```
 

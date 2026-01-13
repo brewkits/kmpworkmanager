@@ -22,7 +22,7 @@ kotlin {
     sourceSets {
         androidMain.dependencies {
             // KMP TaskManager (required)
-            implementation("io.brewkits:kmptaskmanager:2.2.0")
+            implementation("io.brewkits:kmpworker:2.2.0")
 
             // WorkManager (optional - already included transitively)
             implementation("androidx.work:work-runtime-ktx:2.9.0")

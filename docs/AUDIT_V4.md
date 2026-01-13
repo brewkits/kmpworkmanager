@@ -15,7 +15,7 @@
 
 **Evidence**:
 ```kotlin
-// kmptaskmanager/src/androidMain/kotlin/.../KmpWorker.kt:30
+// kmpworker/src/androidMain/kotlin/.../KmpWorker.kt:30
 private val workerFactory: AndroidWorkerFactory by inject()
 
 // Line 39
@@ -38,7 +38,7 @@ val worker = workerFactory.createWorker(workerClassName)
 
 **Evidence**:
 ```kotlin
-// kmptaskmanager/src/iosMain/kotlin/.../NativeTaskScheduler.kt:67
+// kmpworker/src/iosMain/kotlin/.../NativeTaskScheduler.kt:67
 private val infoPlistTaskIds: Set<String> = InfoPlistReader.readPermittedTaskIds()
 
 // Line 73
@@ -162,15 +162,15 @@ scheduler.enqueue(
 
 ```bash
 # Verify no hardcoded workers in library
-grep -r "when (workerClassName)" kmptaskmanager/src/ --include="*.kt"
+grep -r "when (workerClassName)" kmpworker/src/ --include="*.kt"
 # Expected: No matches (factory pattern used)
 
 # Verify InfoPlistReader usage
-grep -r "InfoPlistReader" kmptaskmanager/src/ --include="*.kt"
+grep -r "InfoPlistReader" kmpworker/src/ --include="*.kt"
 # Expected: Used in NativeTaskScheduler.kt
 
 # Check factory injection
-grep -r "AndroidWorkerFactory by inject" kmptaskmanager/src/ --include="*.kt"
+grep -r "AndroidWorkerFactory by inject" kmpworker/src/ --include="*.kt"
 # Expected: KmpWorker.kt, KmpHeavyWorker.kt
 ```
 

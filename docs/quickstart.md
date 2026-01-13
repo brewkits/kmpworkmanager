@@ -21,7 +21,7 @@ Add KMP TaskManager to your `build.gradle.kts` (module level):
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("io.brewkits:kmptaskmanager:2.2.0")
+            implementation("io.brewkits:kmpworker:2.2.0")
         }
     }
 }

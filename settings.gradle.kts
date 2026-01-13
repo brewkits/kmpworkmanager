@@ -29,5 +29,5 @@ dependencyResolutionManagement {
     }
 }
 
-include(":kmptaskmanager")
+include(":kmpworker")
 include(":composeApp")
