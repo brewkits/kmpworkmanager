@@ -104,9 +104,9 @@ publishing {
 
                 developers {
                     developer {
-                        id.set("vietnguyentuan2019")
-                        name.set("Nguyễn Tuấn Việt")
-                        email.set("vietnguyentuan@gmail.com")
+                        id.set("brewkits")
+                        name.set("Brewkits")
+                        email.set("support@brewkits.io")
                     }
                 }
 

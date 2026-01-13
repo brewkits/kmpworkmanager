@@ -1,4 +1,4 @@
-# KMP Worker
+# KMP WorkManager
 
 A Kotlin Multiplatform library for scheduling and managing background tasks on Android and iOS with a unified API.
 
@@ -7,7 +7,7 @@ A Kotlin Multiplatform library for scheduling and managing background tasks on A
 
 ## Overview
 
-KMP Worker provides a single, consistent API for background task scheduling across Android and iOS platforms. It abstracts away platform-specific implementations (WorkManager on Android, BGTaskScheduler on iOS) and lets you write your background task logic once in shared Kotlin code.
+KMP WorkManager provides a single, consistent API for background task scheduling across Android and iOS platforms. It abstracts away platform-specific implementations (WorkManager on Android, BGTaskScheduler on iOS) and lets you write your background task logic once in shared Kotlin code.
 
 ### The Problem
 
@@ -29,7 +29,7 @@ This leads to duplicated logic, more maintenance, and platform-specific bugs.
 
 ### The Solution
 
-With KMP Worker, you write your scheduling logic once:
+With KMP WorkManager, you write your scheduling logic once:
 
 ```kotlin
 scheduler.enqueue(
@@ -328,7 +328,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 ## License
 
 ```
-Copyright 2025 Nguyễn Tuấn Việt
+Copyright 2025 Brewkits
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -351,6 +351,5 @@ limitations under the License.
 
 ---
 
-**Author**: Nguyễn Tuấn Việt
 **Organization**: [Brewkits](https://github.com/brewkits)
-**Contact**: vietnguyentuan@gmail.com
+**Contact**: support@brewkits.io
