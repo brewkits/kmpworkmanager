@@ -12,7 +12,7 @@ plugins {
     id("signing")
 }
 
-group = "io.github.vietnguyentuan2019"
+group = "io.brewkits"
 version = "4.0.0"
 
 kotlin {
@@ -87,13 +87,13 @@ publishing {
     publications {
         // Configure all publications with common POM information
         withType<MavenPublication> {
-            groupId = "io.github.vietnguyentuan2019"
+            groupId = "io.brewkits"
             version = "4.0.0"
 
             pom {
                 name.set("KMP TaskManager")
                 description.set("A robust, cross-platform framework for scheduling and managing background tasks on Android and iOS using Kotlin Multiplatform")
-                url.set("https://github.com/vietnguyentuan2019/KMPTaskManager")
+                url.set("https://github.com/brewkits/kmp_worker")
 
                 licenses {
                     license {
@@ -111,9 +111,9 @@ publishing {
                 }
 
                 scm {
-                    connection.set("scm:git:git://github.com/vietnguyentuan2019/KMPTaskManager.git")
-                    developerConnection.set("scm:git:ssh://github.com/vietnguyentuan2019/KMPTaskManager.git")
-                    url.set("https://github.com/vietnguyentuan2019/KMPTaskManager")
+                    connection.set("scm:git:git://github.com/brewkits/kmp_worker.git")
+                    developerConnection.set("scm:git:ssh://github.com/brewkits/kmp_worker.git")
+                    url.set("https://github.com/brewkits/kmp_worker")
                 }
             }
         }
@@ -122,7 +122,7 @@ publishing {
     repositories {
         maven {
             name = "GitHubPackages"
-            url = uri("https://maven.pkg.github.com/vietnguyentuan2019/KMPTaskManager")
+            url = uri("https://maven.pkg.github.com/brewkits/kmp_worker")
             credentials {
                 username = project.findProperty("gpr.user") as String? ?: System.getenv("GITHUB_ACTOR")
                 password = project.findProperty("gpr.token") as String? ?: System.getenv("GITHUB_TOKEN")

@@ -913,4 +913,4 @@ const val ONE_DAY = 86_400_000L
 - [Platform Setup](platform-setup.md) - Detailed platform configuration
 - [Task Chains](task-chains.md) - Advanced workflow patterns
 - [Constraints & Triggers](constraints-triggers.md) - Detailed trigger documentation
-- [GitHub Issues](https://github.com/vietnguyentuan2019/KMPTaskManager/issues)
+- [GitHub Issues](https://github.com/brewkits/kmp_worker/issues)

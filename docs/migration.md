@@ -31,7 +31,7 @@ No breaking changes. Simply update your dependency:
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("io.github.vietnguyentuan2019:kmptaskmanager:2.2.0")
+            implementation("io.brewkits:kmptaskmanager:2.2.0")
         }
     }
 }
@@ -461,7 +461,7 @@ Use both libraries together:
 ### Version 2.0.0
 
 1. **Package Rename**
-   - Changed from `com.example` to `io.github.vietnguyentuan2019`
+   - Changed from `com.example` to `io.brewkits`
    - **Fix:** Update imports
 
 2. **Koin Modules**
@@ -629,8 +629,8 @@ Use this checklist when upgrading:
 - 📖 [Quick Start Guide](quickstart.md)
 - 📗 [API Reference](api-reference.md)
 - 📙 [Platform Setup](platform-setup.md)
-- 🐛 [GitHub Issues](https://github.com/vietnguyentuan2019/KMPTaskManager/issues)
-- 💬 [GitHub Discussions](https://github.com/vietnguyentuan2019/KMPTaskManager/discussions)
+- 🐛 [GitHub Issues](https://github.com/brewkits/kmp_worker/issues)
+- 💬 [GitHub Discussions](https://github.com/brewkits/kmp_worker/discussions)
 
 ---
 

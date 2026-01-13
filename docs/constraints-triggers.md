@@ -1034,4 +1034,4 @@ Different behavior:
 
 ---
 
-Need help? [Open an issue](https://github.com/vietnguyentuan2019/KMPTaskManager/issues) or ask in [Discussions](https://github.com/vietnguyentuan2019/KMPTaskManager/discussions).
+Need help? [Open an issue](https://github.com/brewkits/kmp_worker/issues) or ask in [Discussions](https://github.com/brewkits/kmp_worker/discussions).

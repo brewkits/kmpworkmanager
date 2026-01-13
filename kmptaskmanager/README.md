@@ -1,6 +1,6 @@
 # KMP TaskManager
 
-[![Maven Central](https://img.shields.io/maven-central/v/io.github.vietnguyentuan2019/kmptaskmanager?label=Maven%20Central)](https://central.sonatype.com/artifact/io.github.vietnguyentuan2019/kmptaskmanager)
+[![Maven Central](https://img.shields.io/maven-central/v/io.brewkits/kmptaskmanager?label=Maven%20Central)](https://central.sonatype.com/artifact/io.brewkits/kmptaskmanager)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Kotlin](https://img.shields.io/badge/kotlin-2.2.20-blue.svg?logo=kotlin)](http://kotlinlang.org)
 [![Platform](https://img.shields.io/badge/platform-android%20|%20ios-lightgrey)](https://kotlinlang.org/docs/multiplatform.html)
@@ -60,6 +60,7 @@ startKoin {
 ✅ **Task Chains** - Sequential and parallel task execution
 ✅ **Constraints** - Network, charging, battery, storage requirements
 ✅ **ExistingPolicy** - KEEP or REPLACE duplicate tasks
+✅ **Type-Safe Serialization** - Reified inline extensions for automatic JSON conversion
 ✅ **Professional Logging** - 4-level structured logging system
 ✅ **Timeout Protection** - Automatic timeout handling on iOS
 ✅ **Production Ready** - Comprehensive error handling and documentation
@@ -70,7 +71,7 @@ startKoin {
 
 ```kotlin
 commonMain.dependencies {
-    implementation("io.github.vietnguyentuan2019:kmptaskmanager:4.0.0")
+    implementation("io.brewkits:kmptaskmanager:4.0.0")
 }
 ```
 
@@ -81,7 +82,7 @@ commonMain.dependencies {
 kmptaskmanager = "4.0.0"
 
 [libraries]
-kmptaskmanager = { module = "io.github.vietnguyentuan2019:kmptaskmanager", version.ref = "kmptaskmanager" }
+kmptaskmanager = { module = "io.brewkits:kmptaskmanager", version.ref = "kmptaskmanager" }
 ```
 
 ## Quick Start
@@ -261,6 +262,74 @@ scheduler.beginWith(
     .enqueue()
 ```
 
+### Type-Safe Serialization
+
+Use extension functions for automatic JSON serialization of input data:
+
+```kotlin
+// 1. Define your data model
+@Serializable
+data class UploadData(
+    val fileUrl: String,
+    val fileName: String,
+    val size: Long
+)
+
+// 2. Pass object directly (no manual JSON conversion!)
+scheduler.enqueue(
+    id = "upload-file",
+    trigger = TaskTrigger.OneTime(),
+    workerClassName = MyWorkers.UPLOAD,
+    input = UploadData(
+        fileUrl = "https://example.com/file.zip",
+        fileName = "data.zip",
+        size = 1024000
+    ),
+    constraints = Constraints(requiresNetwork = true)
+)
+
+// 3. Worker receives JSON string
+class UploadWorker : AndroidWorker {
+    override suspend fun doWork(input: String?): Boolean {
+        val data = input?.let { Json.decodeFromString<UploadData>(it) }
+        // Use data.fileUrl, data.fileName, data.size
+        return uploadFile(data)
+    }
+}
+```
+
+**Type-safe chains**:
+
+```kotlin
+@Serializable
+data class DownloadRequest(val url: String, val priority: Int)
+
+@Serializable
+data class ProcessRequest(val inputPath: String, val format: String)
+
+// Sequential with typed input
+scheduler.beginWith(
+    workerClassName = MyWorkers.DOWNLOAD,
+    input = DownloadRequest("https://...", priority = 1)
+)
+    .then(TaskRequest(MyWorkers.PROCESS))
+    .enqueue()
+
+// Parallel with typed inputs
+scheduler.beginWith(
+    TaskSpec(MyWorkers.FETCH_USERS, input = FetchRequest("/users")),
+    TaskSpec(MyWorkers.FETCH_POSTS, input = FetchRequest("/posts"))
+)
+    .then(TaskRequest(MyWorkers.MERGE_DATA))
+    .enqueue()
+```
+
+**Benefits**:
+- ✅ Compile-time type safety
+- ✅ No manual JSON conversion
+- ✅ Refactoring-friendly (rename fields, IDE updates all)
+- ✅ Reduce boilerplate code
+
 ### Android-Only Triggers
 
 ```kotlin
@@ -310,6 +379,92 @@ Logger.e(LogTags.SCHEDULER, "Failed to schedule", exception)
 | ContentUri Triggers | ✅ Supported | ❌ Android only |
 | Battery/Storage Triggers | ✅ Supported | ❌ Android only |
 | Device Idle | ✅ Supported | ❌ Android only |
+
+## ⚠️ Important iOS Limitations
+
+### Opportunistic Scheduling
+
+iOS background tasks are **opportunistic**, not guaranteed:
+
+- ❌ **No guarantees**: iOS decides when (or if) to run tasks based on:
+  - Device usage patterns
+  - Battery level
+  - Network availability
+  - Thermal state
+  - User engagement with your app
+
+- ⏰ **Timing is unpredictable**: Even if you schedule a task for "15 minutes from now", iOS may:
+  - Delay it for hours
+  - Never run it if the user rarely opens your app
+  - Bundle it with other tasks for efficiency
+
+- 🔋 **System prioritizes battery**: Background execution is severely limited to preserve battery life
+
+- 📱 **Best effort, not guaranteed**: Unlike Android's WorkManager which provides deterministic guarantees, iOS BGTaskScheduler is best-effort only
+
+### Platform Reliability Comparison
+
+| Aspect | Android (WorkManager) | iOS (BGTaskScheduler) |
+|--------|----------------------|----------------------|
+| **Scheduling** | Deterministic | Opportunistic |
+| **Reliability** | High (guaranteed execution) | Low (system-dependent) |
+| **Timing** | Predictable (within constraints) | Unpredictable |
+| **Use Case** | Critical operations ✅ | Nice-to-have operations only ⚠️ |
+
+### Best Practices for iOS
+
+❌ **DO NOT** rely on iOS background tasks for:
+- Time-critical operations
+- User-facing features that must complete
+- Financial transactions or important data sync
+- Anything that affects app functionality
+
+✅ **DO** use iOS background tasks for:
+- Opportunistic cache updates
+- Pre-fetching content
+- Non-critical sync operations
+- Nice-to-have optimizations
+
+✅ **Alternative strategies for critical operations**:
+- **Server-side scheduling**: Push notifications to trigger foreground work
+- **User-initiated**: Prompt user to keep app open for important operations
+- **Hybrid approach**: Use background tasks as optimization, but handle failures gracefully
+
+### Example: Handling iOS Uncertainty
+
+```kotlin
+// ❌ BAD: Expecting iOS to reliably sync data
+scheduler.enqueue(
+    id = "critical-sync",
+    trigger = TaskTrigger.Periodic(intervalMs = 900_000),
+    workerClassName = "SyncWorker"
+)
+// User may lose data if iOS never runs this!
+
+// ✅ GOOD: Opportunistic optimization + fallback
+// 1. Schedule background sync (best effort)
+scheduler.enqueue(
+    id = "cache-refresh",
+    trigger = TaskTrigger.Periodic(intervalMs = 900_000),
+    workerClassName = "CacheRefreshWorker"
+)
+
+// 2. Always sync on app launch (guaranteed)
+class MyApp {
+    override fun onCreate() {
+        viewModelScope.launch {
+            dataRepository.syncNow() // Foreground sync
+        }
+    }
+}
+
+// 3. Notify user if critical operation needed
+if (hasPendingImportantData) {
+    showNotification("Please open app to complete sync")
+}
+```
+
+---
 
 ## iOS Specific
 

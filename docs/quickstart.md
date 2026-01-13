@@ -21,7 +21,7 @@ Add KMP TaskManager to your `build.gradle.kts` (module level):
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("io.github.vietnguyentuan2019:kmptaskmanager:2.2.0")
+            implementation("io.brewkits:kmptaskmanager:2.2.0")
         }
     }
 }
@@ -418,7 +418,7 @@ fun MyScreen() {
 
 - Read the [API Reference](api-reference.md)
 - Check the [Platform Setup Guide](platform-setup.md)
-- Browse [GitHub Issues](https://github.com/vietnguyentuan2019/KMPTaskManager/issues)
-- Ask in [GitHub Discussions](https://github.com/vietnguyentuan2019/KMPTaskManager/discussions)
+- Browse [GitHub Issues](https://github.com/brewkits/kmp_worker/issues)
+- Ask in [GitHub Discussions](https://github.com/brewkits/kmp_worker/discussions)
 
 Happy scheduling! 🚀

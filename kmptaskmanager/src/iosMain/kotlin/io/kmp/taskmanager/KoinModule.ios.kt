@@ -40,14 +40,36 @@ actual fun kmpTaskManagerModule(
     workerFactory: WorkerFactory,
     iosTaskIds: Set<String>
 ) = module {
+    // Validate factory type early (fail-fast on iOS)
+    require(workerFactory is IosWorkerFactory) {
+        """
+        ❌ Invalid WorkerFactory for iOS platform
+
+        Expected: IosWorkerFactory
+        Received: ${workerFactory::class.qualifiedName}
+
+        Solution:
+        Create a factory implementing IosWorkerFactory on iOS:
+
+        class MyWorkerFactory : IosWorkerFactory {
+            override fun createWorker(workerClassName: String): IosWorker? {
+                return when (workerClassName) {
+                    "SyncWorker" -> SyncWorker()
+                    else -> null
+                }
+            }
+        }
+
+        Then pass it to kmpTaskManagerModule:
+        kmpTaskManagerModule(workerFactory = MyWorkerFactory())
+        """.trimIndent()
+    }
+
     single<BackgroundTaskScheduler> {
         NativeTaskScheduler(additionalPermittedTaskIds = iosTaskIds)
     }
 
-    // Register the user's worker factory
+    // Register the user's worker factory (already validated above)
     single<WorkerFactory> { workerFactory }
-    single<IosWorkerFactory> {
-        workerFactory as? IosWorkerFactory
-            ?: error("WorkerFactory must implement IosWorkerFactory on iOS")
-    }
+    single<IosWorkerFactory> { workerFactory }
 }

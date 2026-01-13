@@ -6,13 +6,13 @@
 
 **Write once, schedule anywhere.** Unified API for background tasks on Android & iOS.
 
-[![Maven Central](https://img.shields.io/maven-central/v/io.github.vietnguyentuan2019/kmptaskmanager?style=for-the-badge&label=Maven%20Central&color=4c1)](https://central.sonatype.com/artifact/io.github.vietnguyentuan2019/kmptaskmanager)
+[![Maven Central](https://img.shields.io/maven-central/v/io.brewkits/kmptaskmanager?style=for-the-badge&label=Maven%20Central&color=4c1)](https://central.sonatype.com/artifact/io.brewkits/kmptaskmanager)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.2.20-7F52FF?style=for-the-badge&logo=kotlin)](http://kotlinlang.org)
 [![License](https://img.shields.io/badge/License-Apache%202.0-green.svg?style=for-the-badge)](LICENSE)
 
-[![klibs.io](https://img.shields.io/badge/Kotlin%20Multiplatform-klibs.io-4c1?style=flat-square)](https://klibs.io/package/io.github.vietnguyentuan2019/kmptaskmanager)
-[![GitHub Stars](https://img.shields.io/github/stars/vietnguyentuan2019/KMPTaskManager?style=flat-square)](https://github.com/vietnguyentuan2019/KMPTaskManager/stargazers)
-[![Build](https://img.shields.io/github/actions/workflow/status/vietnguyentuan2019/KMPTaskManager/build.yml?style=flat-square)](https://github.com/vietnguyentuan2019/KMPTaskManager/actions)
+[![klibs.io](https://img.shields.io/badge/Kotlin%20Multiplatform-klibs.io-4c1?style=flat-square)](https://klibs.io/package/io.brewkits/kmptaskmanager)
+[![GitHub Stars](https://img.shields.io/github/stars/brewkits/kmp_worker?style=flat-square)](https://github.com/brewkits/kmp_worker/stargazers)
+[![Build](https://img.shields.io/github/actions/workflow/status/brewkits/kmp_worker/build.yml?style=flat-square)](https://github.com/brewkits/kmp_worker/actions)
 
 [📖 Documentation](docs/quickstart.md) • [🚀 Quick Start](#-get-started-in-5-minutes) • [💡 Examples](docs/examples.md) • [📦 Migration to v3.0](docs/migration-v3.md)
 
@@ -85,7 +85,7 @@ scheduler.enqueue(
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("io.github.vietnguyentuan2019:kmptaskmanager:3.0.0")
+            implementation("io.brewkits:kmptaskmanager:4.0.0")
         }
     }
 }
@@ -345,8 +345,8 @@ constraints = Constraints(
 
 We love contributions! Here's how you can help:
 
-- **Report bugs** via [GitHub Issues](https://github.com/vietnguyentuan2019/KMPTaskManager/issues)
-- **Suggest features** in [GitHub Issues](https://github.com/vietnguyentuan2019/KMPTaskManager/issues)
+- **Report bugs** via [GitHub Issues](https://github.com/brewkits/kmp_worker/issues)
+- **Suggest features** in [GitHub Issues](https://github.com/brewkits/kmp_worker/issues)
 - **Improve docs** - Submit a PR
 - **Star the repo** - Show your support!
 
@@ -358,8 +358,8 @@ We love contributions! Here's how you can help:
 
 <div align="center">
 
-[Maven Central](https://central.sonatype.com/artifact/io.github.vietnguyentuan2019/kmptaskmanager) •
-[klibs.io](https://klibs.io/package/io.github.vietnguyentuan2019/kmptaskmanager) •
+[Maven Central](https://central.sonatype.com/artifact/io.brewkits/kmptaskmanager) •
+[klibs.io](https://klibs.io/package/io.brewkits/kmptaskmanager) •
 [Changelog](CHANGELOG.md) •
 [Demo App](composeApp/)
 
@@ -399,9 +399,9 @@ It helps other developers discover this project.
 
 ---
 
-Made with ❤️ by [Nguyễn Tuấn Việt](https://github.com/vietnguyentuan2019)
+Made with ❤️ by [Nguyễn Tuấn Việt](https://github.com/vietnguyentuan2019) at [Brewkits](https://github.com/brewkits)
 
 **Support**: [vietnguyentuan@gmail.com](mailto:vietnguyentuan@gmail.com) •
-**Community**: [GitHub Issues](https://github.com/vietnguyentuan2019/KMPTaskManager/issues)
+**Community**: [GitHub Issues](https://github.com/brewkits/kmp_worker/issues)
 
 </div>
