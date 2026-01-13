@@ -7,7 +7,7 @@ package io.brewkits.kmpworkmanager.utils
 object Logger {
 
     enum class Level {
-        DEBUG,
+        DEBUG_LEVEL,
         INFO,
         WARN,
         ERROR
@@ -17,7 +17,7 @@ object Logger {
      * Log debug message - verbose information for development
      */
     fun d(tag: String, message: String, throwable: Throwable? = null) {
-        log(Level.DEBUG, tag, message, throwable)
+        log(Level.DEBUG_LEVEL, tag, message, throwable)
     }
 
     /**
@@ -54,7 +54,7 @@ object Logger {
      */
     private fun formatMessage(level: Level, tag: String, message: String, throwable: Throwable?): String {
         val levelIcon = when (level) {
-            Level.DEBUG -> "🔍"
+            Level.DEBUG_LEVEL -> "🔍"
             Level.INFO -> "ℹ️"
             Level.WARN -> "⚠️"
             Level.ERROR -> "❌"
@@ -94,6 +94,6 @@ object LogTags {
     const val ALARM = "ExactAlarm"
     const val PERMISSION = "Permission"
     const val PUSH = "PushNotification"
-    const val DEBUG = "Debug"
+    const val TAG_DEBUG = "Debug"
     const val ERROR = "Error"
 }

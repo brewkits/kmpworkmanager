@@ -10,7 +10,7 @@ internal actual object LoggerPlatform {
 
     actual fun log(level: Logger.Level, message: String) {
         when (level) {
-            Logger.Level.DEBUG -> Log.d(TAG, message)
+            Logger.Level.DEBUG_LEVEL -> Log.d(TAG, message)
             Logger.Level.INFO -> Log.i(TAG, message)
             Logger.Level.WARN -> Log.w(TAG, message)
             Logger.Level.ERROR -> Log.e(TAG, message)
