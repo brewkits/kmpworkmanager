@@ -24,7 +24,7 @@ kotlin {
             isStatic = true
 
             // Add bundle ID to fix compilation error
-            binaryOption("bundleId", "com.example.kmpworkmanagerv2.ComposeApp")
+            binaryOption("bundleId", "io.kmp.taskmanager.sample.ComposeApp")
 
             linkerOpts.add("-framework")
             linkerOpts.add("UserNotifications")
@@ -74,11 +74,11 @@ composeCompiler {
 }
 
 android {
-    namespace = "com.example.kmpworkmanagerv2"
+    namespace = "io.kmp.taskmanager.sample"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
 
     defaultConfig {
-        applicationId = "com.example.kmpworkmanagerv2"
+        applicationId = "io.kmp.taskmanager.sample"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionCode = 1
