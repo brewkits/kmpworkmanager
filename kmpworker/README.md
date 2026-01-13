@@ -1,6 +1,6 @@
 # KMP Worker
 
-[![Maven Central](https://img.shields.io/maven-central/v/io.brewkits/kmpworker?label=Maven%20Central)](https://central.sonatype.com/artifact/io.brewkits/kmpworker)
+[![Maven Central](https://img.shields.io/maven-central/v/io.brewkits/kmpworkmanager?label=Maven%20Central)](https://central.sonatype.com/artifact/io.brewkits/kmpworkmanager)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Kotlin](https://img.shields.io/badge/kotlin-2.2.20-blue.svg?logo=kotlin)](http://kotlinlang.org)
 [![Platform](https://img.shields.io/badge/platform-android%20|%20ios-lightgrey)](https://kotlinlang.org/docs/multiplatform.html)
@@ -9,9 +9,9 @@ A robust, production-ready Kotlin Multiplatform library for scheduling and manag
 
 ---
 
-## ⚠️ Version 4.0.0 Breaking Changes
+## ⚠️ Version 1.0.0 Breaking Changes
 
-**v4.0.0** introduces a cleaner, more extensible worker registration system via factory pattern.
+**v1.0.0** introduces a cleaner, more extensible worker registration system via factory pattern.
 
 ### Key Changes
 - ✅ **Worker factory pattern** replaces hardcoded workers
@@ -19,8 +19,8 @@ A robust, production-ready Kotlin Multiplatform library for scheduling and manag
 - ❌ **`WorkerTypes` object removed** (define your own)
 - ❌ **Koin initialization** now requires `workerFactory` parameter
 
-### Migration Time
-~30 minutes - [See Migration Guide](../docs/MIGRATION_V4.md)
+### Getting Started
+Follow the quick start guide below to integrate KMP WorkManager in your project.
 
 ### Quick Migration Example
 
@@ -31,7 +31,7 @@ startKoin {
 }
 ```
 
-**After (v4.0.0)**:
+**After (v1.0.0)**:
 ```kotlin
 // 1. Create worker factory
 class MyWorkerFactory : AndroidWorkerFactory {
@@ -48,8 +48,6 @@ startKoin {
     ))
 }
 ```
-
-**Full migration guide**: [MIGRATION_V4.md](../docs/MIGRATION_V4.md)
 
 ---
 
@@ -71,7 +69,7 @@ startKoin {
 
 ```kotlin
 commonMain.dependencies {
-    implementation("io.brewkits:kmpworker:4.0.0")
+    implementation("io.brewkits:kmpworkmanager:1.0.0")
 }
 ```
 
@@ -79,10 +77,10 @@ commonMain.dependencies {
 
 ```toml
 [versions]
-kmpworker = "4.0.0"
+kmpworkmanager = "1.0.0"
 
 [libraries]
-kmpworker = { module = "io.brewkits:kmpworker", version.ref = "kmpworker" }
+kmpworkmanager = { module = "io.brewkits:kmpworkmanager", version.ref = "kmpworkmanager" }
 ```
 
 ## Quick Start
@@ -171,7 +169,7 @@ class MyApp : Application() {
         startKoin {
             androidContext(this@MyApp)
             modules(kmpWorkerModule(
-                workerFactory = MyWorkerFactory()  // ✅ Required in v4.0.0
+                workerFactory = MyWorkerFactory()  // ✅ Required in v1.0.0
             ))
         }
     }
@@ -185,7 +183,7 @@ class MyApp : Application() {
 fun initKoinIos() {
     startKoin {
         modules(kmpWorkerModule(
-            workerFactory = MyWorkerFactory()  // ✅ Required in v4.0.0
+            workerFactory = MyWorkerFactory()  // ✅ Required in v1.0.0
         ))
     }
 }
@@ -360,8 +358,8 @@ scheduler.enqueue(
 ### Logging
 
 ```kotlin
-import io.kmp.worker.utils.Logger
-import io.kmp.worker.utils.LogTags
+import io.brewkits.kmpworkmanager.utils.Logger
+import io.brewkits.kmpworkmanager.utils.LogTags
 
 Logger.i(LogTags.WORKER, "Task completed successfully")
 Logger.e(LogTags.SCHEDULER, "Failed to schedule", exception)

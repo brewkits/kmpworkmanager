@@ -58,7 +58,7 @@ This document provides a comprehensive overview of the architecture, design deci
 ## 📦 Module Structure
 
 ```
-kmpworker/
+kmpworkmanager/
 ├── commonMain/
 │   ├── background/
 │   │   ├── domain/           # Public API interfaces
@@ -91,7 +91,7 @@ kmpworker/
 │   │   └── LoggerPlatform.ios.kt (actual)
 │   └── KoinModule.ios.kt
 └── commonTest/
-    └── io/kmp/worker/
+    └── io/brewkits/kmpworkmanager/
         ├── ContractsTest.kt
         ├── TaskChainTest.kt
         ├── UtilsTest.kt
@@ -522,11 +522,28 @@ scheduler.beginWith(task1)
 
 ### Planned Improvements
 
-1. **Result Data Passing**: Workers return data to scheduler
-2. **Progress Updates**: Real-time progress for long-running tasks
-3. **SQLite Backend**: For complex task queries and history
-4. **Plugin Architecture**: Extensible worker registration
-5. **Code Generation**: Annotation processor for boilerplate reduction
+1. **Result Data Passing**: Enable workers to return structured data (not just Boolean)
+   - Workers can return serializable results to be consumed by next task in chain
+   - Useful for passing data between sequential tasks
+
+2. **Progress Updates**: Real-time progress reporting for long-running tasks
+   - Support for intermediate progress callbacks (0-100%)
+   - Useful for UI progress indicators during heavy processing
+
+3. **Advanced Worker Discovery**: Enhanced worker registration mechanisms
+   - Automatic worker discovery via reflection or annotation processing
+   - Reduce boilerplate in worker factory implementations
+   - Note: Current worker factory pattern provides good extensibility
+
+4. **Task History & Analytics**: Optional task execution history tracking
+   - Query past task executions and their results
+   - Useful for debugging and monitoring
+   - Lightweight in-memory option or optional SQLite persistence
+
+5. **Retry Strategies**: More sophisticated retry policies
+   - Exponential backoff
+   - Custom retry predicates based on failure type
+   - Maximum retry attempts with callbacks
 
 ### Scalability Limits
 
@@ -544,5 +561,5 @@ scheduler.beginWith(task1)
 
 ---
 
-**Last Updated:** December 2025
-**Version:** 2.2.0
+**Last Updated:** January 2026
+**Version:** 1.0.0

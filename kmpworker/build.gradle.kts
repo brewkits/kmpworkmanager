@@ -13,7 +13,7 @@ plugins {
 }
 
 group = "io.brewkits"
-version = "4.0.0"
+version = "1.0.0"
 
 kotlin {
     androidTarget {
@@ -36,7 +36,7 @@ kotlin {
         iosSimulatorArm64()
     ).forEach { iosTarget ->
         iosTarget.binaries.framework {
-            baseName = "KMPWorker"
+            baseName = "KMPWorkManager"
             isStatic = true
         }
     }
@@ -70,7 +70,7 @@ kotlin {
 }
 
 android {
-    namespace = "io.kmp.worker"
+    namespace = "io.brewkits.kmpworkmanager"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
 
     defaultConfig {
@@ -88,12 +88,12 @@ publishing {
         // Configure all publications with common POM information
         withType<MavenPublication> {
             groupId = "io.brewkits"
-            version = "4.0.0"
+            version = "1.0.0"
 
             pom {
-                name.set("KMP Worker")
+                name.set("KMP WorkManager")
                 description.set("A robust, cross-platform framework for scheduling and managing background tasks on Android and iOS using Kotlin Multiplatform")
-                url.set("https://github.com/brewkits/kmp_worker")
+                url.set("https://github.com/brewkits/kmpworkmanager")
 
                 licenses {
                     license {
@@ -111,9 +111,9 @@ publishing {
                 }
 
                 scm {
-                    connection.set("scm:git:git://github.com/brewkits/kmp_worker.git")
-                    developerConnection.set("scm:git:ssh://github.com/brewkits/kmp_worker.git")
-                    url.set("https://github.com/brewkits/kmp_worker")
+                    connection.set("scm:git:git://github.com/brewkits/kmpworkmanager.git")
+                    developerConnection.set("scm:git:ssh://github.com/brewkits/kmpworkmanager.git")
+                    url.set("https://github.com/brewkits/kmpworkmanager")
                 }
             }
         }
@@ -122,7 +122,7 @@ publishing {
     repositories {
         maven {
             name = "GitHubPackages"
-            url = uri("https://maven.pkg.github.com/brewkits/kmp_worker")
+            url = uri("https://maven.pkg.github.com/brewkits/kmpworkmanager")
             credentials {
                 username = project.findProperty("gpr.user") as String? ?: System.getenv("GITHUB_ACTOR")
                 password = project.findProperty("gpr.token") as String? ?: System.getenv("GITHUB_TOKEN")
