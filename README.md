@@ -352,4 +352,4 @@ limitations under the License.
 ---
 
 **Organization**: [Brewkits](https://github.com/brewkits)
-**Contact**: support@brewkits.io
+**Contact**: vietnguyentuan@gmail.com
