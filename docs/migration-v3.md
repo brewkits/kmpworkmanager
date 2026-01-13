@@ -235,7 +235,7 @@ scheduler.enqueue(
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("io.github.vietnguyentuan2019:kmptaskmanager:3.0.0") // Changed
+            implementation("io.brewkits:kmptaskmanager:3.0.0") // Changed
         }
     }
 }
@@ -525,7 +525,7 @@ If you need to rollback to v2.x:
 ### Step 1: Revert Dependency
 
 ```kotlin
-implementation("io.github.vietnguyentuan2019:kmptaskmanager:2.2.2")
+implementation("io.brewkits:kmptaskmanager:2.2.2")
 ```
 
 ### Step 2: Remove v3.0-Specific Code
@@ -559,7 +559,7 @@ v3.0 stores migration status. Rollback is safe - NSUserDefaults data is preserve
 
 - 📖 [Examples](examples.md) - Code examples
 - 📗 [API Reference](api-reference.md) - Complete API docs
-- 💬 [GitHub Issues](https://github.com/vietnguyentuan2019/KMPTaskManager/issues) - Ask questions
+- 💬 [GitHub Issues](https://github.com/brewkits/kmp_worker/issues) - Ask questions
 - 📧 [Email Support](mailto:vietnguyentuan@gmail.com) - Direct help
 
 ---

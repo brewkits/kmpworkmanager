@@ -22,7 +22,7 @@ kotlin {
     sourceSets {
         androidMain.dependencies {
             // KMP TaskManager (required)
-            implementation("io.github.vietnguyentuan2019:kmptaskmanager:2.2.0")
+            implementation("io.brewkits:kmptaskmanager:2.2.0")
 
             // WorkManager (optional - already included transitively)
             implementation("androidx.work:work-runtime-ktx:2.9.0")
@@ -915,4 +915,4 @@ println("Periodic metadata: $metadata")
 
 ---
 
-Need help? [Open an issue](https://github.com/vietnguyentuan2019/KMPTaskManager/issues) or ask in [Discussions](https://github.com/vietnguyentuan2019/KMPTaskManager/discussions).
+Need help? [Open an issue](https://github.com/brewkits/kmp_worker/issues) or ask in [Discussions](https://github.com/brewkits/kmp_worker/discussions).

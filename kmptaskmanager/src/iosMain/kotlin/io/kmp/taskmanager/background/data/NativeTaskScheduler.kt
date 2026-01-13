@@ -5,7 +5,9 @@ import io.kmp.taskmanager.background.domain.*
 import io.kmp.taskmanager.utils.Logger
 import io.kmp.taskmanager.utils.LogTags
 import kotlinx.cinterop.*
-import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -62,6 +64,12 @@ actual class NativeTaskScheduler(
     private val migration = StorageMigration(fileStorage = fileStorage)
 
     /**
+     * Background scope for IO operations (migration, file access)
+     * Uses Dispatchers.Default to avoid blocking Main thread during initialization
+     */
+    private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /**
      * Task IDs read from Info.plist BGTaskSchedulerPermittedIdentifiers
      */
     private val infoPlistTaskIds: Set<String> = InfoPlistReader.readPermittedTaskIds()
@@ -74,7 +82,8 @@ actual class NativeTaskScheduler(
 
     init {
         // Perform one-time migration from NSUserDefaults to file storage
-        kotlinx.coroutines.MainScope().launch {
+        // Uses background thread to avoid blocking Main thread during app startup
+        backgroundScope.launch {
             try {
                 val result = migration.migrate()
                 if (result.success) {
@@ -87,7 +96,7 @@ actual class NativeTaskScheduler(
             }
         }
 
-        // Log permitted task IDs for debugging
+        // Log permitted task IDs for debugging (lightweight, can stay on caller thread)
         Logger.i(LogTags.SCHEDULER, """
             iOS Task ID Configuration:
             - From Info.plist: ${infoPlistTaskIds.joinToString()}

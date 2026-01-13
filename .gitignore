@@ -17,6 +17,8 @@ captures
 !*.xcworkspace/contents.xcworkspacedata
 **/xcshareddata/WorkspaceSettings.xcsettings
 node_modules/
+.claude
+.claude/settings.local.json
 
 # ===================================
 # Security - Sensitive Files
@@ -39,6 +41,7 @@ DEPLOYMENT_GUIDE.md
 FIXES_SUMMARY.md
 RESEARCH.md
 COMPARISON.md
+CLAUDE.md
 
 # Deployment bundles
 *-bundle.zip
