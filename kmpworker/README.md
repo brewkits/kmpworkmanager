@@ -525,14 +525,14 @@ class MyScheduler(context: Context) : NativeTaskScheduler(context) {
 
 ## Documentation
 
-- [Full Documentation](https://github.com/vietnguyentuan2019/KMPWorker)
-- [API Reference](https://github.com/vietnguyentuan2019/KMPWorker/wiki)
-- [Migration Guide](https://github.com/vietnguyentuan2019/KMPWorker/blob/main/MIGRATION.md)
+- [Full Documentation](https://github.com/brewkits/kmpworkmanager)
+- [API Reference](https://github.com/brewkits/kmpworkmanager/wiki)
+- [Migration Guide](https://github.com/brewkits/kmpworkmanager/blob/main/CHANGELOG.md)
 
 ## License
 
 ```
-Copyright 2025 Nguyễn Tuấn Việt
+Copyright 2025 Brewkits
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -553,8 +553,8 @@ Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) first.
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/vietnguyentuan2019/KMPWorker/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/vietnguyentuan2019/KMPWorker/discussions)
+- **Issues**: [GitHub Issues](https://github.com/brewkits/kmpworkmanager/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/brewkits/kmpworkmanager/discussions)
 
 ---
 

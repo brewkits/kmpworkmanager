@@ -651,6 +651,6 @@ xcrun simctl erase all
 
 **Happy Testing!** 🎉
 
-For questions, see [CONTRIBUTING.md](CONTRIBUTING.md) or open a [discussion](https://github.com/vietnguyentuan2019/KMPWorker/discussions).
+For questions, see [CONTRIBUTING.md](CONTRIBUTING.md) or open a [discussion](https://github.com/brewkits/kmpworkmanager/discussions).
 
 **Last Updated:** December 2025

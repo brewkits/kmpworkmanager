@@ -30,9 +30,9 @@ This project adheres to a Code of Conduct that all contributors are expected to 
 
 ### Ways to Contribute
 
-1. **Report Bugs**: Found a bug? [Open an issue](https://github.com/vietnguyentuan2019/KMPWorker/issues)
-2. **Suggest Features**: Have an idea? [Start a discussion](https://github.com/vietnguyentuan2019/KMPWorker/discussions)
-3. **Fix Issues**: Browse [open issues](https://github.com/vietnguyentuan2019/KMPWorker/issues) and submit PRs
+1. **Report Bugs**: Found a bug? [Open an issue](https://github.com/brewkits/kmpworkmanager/issues)
+2. **Suggest Features**: Have an idea? [Start a discussion](https://github.com/brewkits/kmpworkmanager/discussions)
+3. **Fix Issues**: Browse [open issues](https://github.com/brewkits/kmpworkmanager/issues) and submit PRs
 4. **Improve Documentation**: Help make our docs better
 5. **Write Tests**: Increase test coverage
 6. **Share Knowledge**: Answer questions in discussions
@@ -53,8 +53,8 @@ Look for issues tagged with `good first issue` - these are great entry points fo
 ### Clone the Repository
 
 ```bash
-git clone https://github.com/vietnguyentuan2019/KMPWorker.git
-cd KMPWorker
+git clone https://github.com/brewkits/kmpworkmanager.git
+cd kmpworkmanager
 ```
 
 ### Project Structure
@@ -575,7 +575,7 @@ We follow [Semantic Versioning](https://semver.org/):
 
 - **GitHub Issues**: Bug reports and feature requests
 - **GitHub Discussions**: Questions and general discussion
-- **Email**: vietnguyentuan@gmail.com
+- **Email**: support@brewkits.io
 
 ### Asking Questions
 
@@ -659,6 +659,6 @@ Your contributions make this project better. We appreciate your time and effort!
 
 ---
 
-**Questions?** Open a [discussion](https://github.com/vietnguyentuan2019/KMPWorker/discussions) or email vietnguyentuan@gmail.com
+**Questions?** Open a [discussion](https://github.com/brewkits/kmpworkmanager/discussions) or email support@brewkits.io
 
 **Last Updated:** December 2025
