@@ -575,7 +575,7 @@ We follow [Semantic Versioning](https://semver.org/):
 
 - **GitHub Issues**: Bug reports and feature requests
 - **GitHub Discussions**: Questions and general discussion
-- **Email**: support@brewkits.io
+- **Email**: vietnguyentuan@gmail.com
 
 ### Asking Questions
 
@@ -659,6 +659,6 @@ Your contributions make this project better. We appreciate your time and effort!
 
 ---
 
-**Questions?** Open a [discussion](https://github.com/brewkits/kmpworkmanager/discussions) or email support@brewkits.io
+**Questions?** Open a [discussion](https://github.com/brewkits/kmpworkmanager/discussions) or email vietnguyentuan@gmail.com
 
 **Last Updated:** December 2025

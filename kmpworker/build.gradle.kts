@@ -106,7 +106,7 @@ publishing {
                     developer {
                         id.set("brewkits")
                         name.set("Brewkits")
-                        email.set("support@brewkits.io")
+                        email.set("vietnguyentuan@gmail.com")
                     }
                 }
 
