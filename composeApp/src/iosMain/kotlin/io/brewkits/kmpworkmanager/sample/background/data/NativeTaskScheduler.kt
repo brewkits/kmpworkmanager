@@ -5,6 +5,7 @@ import io.brewkits.kmpworkmanager.sample.background.domain.*
 import io.brewkits.kmpworkmanager.sample.utils.Logger
 import io.brewkits.kmpworkmanager.sample.utils.LogTags
 import kotlinx.cinterop.*
+import kotlinx.cinterop.BetaInteropApi
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import platform.BackgroundTasks.BGAppRefreshTaskRequest
@@ -233,6 +234,7 @@ actual class NativeTaskScheduler : BackgroundTaskScheduler {
     /**
      * Schedule exact notification using UNUserNotificationCenter
      */
+    @OptIn(kotlinx.cinterop.BetaInteropApi::class)
     private fun scheduleExactNotification(
         id: String,
         trigger: TaskTrigger.Exact,
@@ -289,6 +291,7 @@ actual class NativeTaskScheduler : BackgroundTaskScheduler {
         return TaskChain(this, tasks)
     }
 
+    @OptIn(kotlinx.cinterop.BetaInteropApi::class)
     actual override fun enqueueChain(chain: TaskChain) {
         val steps = chain.getSteps()
         if (steps.isEmpty()) {
@@ -304,7 +307,7 @@ actual class NativeTaskScheduler : BackgroundTaskScheduler {
         userDefaults.setObject(chainJson, forKey = "$CHAIN_DEFINITION_PREFIX$chainId")
 
         // 2. Add the chainId to the execution queue
-        val stringArray: List<String>? = userDefaults.stringArrayForKey(CHAIN_QUEUE_KEY) as? List<String>
+        val stringArray: List<String>? = userDefaults.arrayForKey(CHAIN_QUEUE_KEY)?.filterIsInstance<String>()
         val queue: MutableList<String> = stringArray?.toMutableList() ?: mutableListOf()
         queue.add(chainId)
         userDefaults.setObject(queue, forKey = CHAIN_QUEUE_KEY)

@@ -43,7 +43,7 @@ fun DebugScreen() {
             }
             items(tasks) { task ->
                 TaskInfoItem(task)
-                Divider()
+                HorizontalDivider()
             }
         }
     }

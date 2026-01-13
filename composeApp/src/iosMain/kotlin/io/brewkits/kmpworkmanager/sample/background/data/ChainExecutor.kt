@@ -51,7 +51,7 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
      * Returns the current number of chains waiting in the execution queue.
      */
     fun getChainQueueSize(): Int {
-        val queue = userDefaults.stringArrayForKey(CHAIN_QUEUE_KEY) as? List<String>
+        val queue = userDefaults.arrayForKey(CHAIN_QUEUE_KEY)?.filterIsInstance<String>()
         return queue?.size ?: 0
     }
 
@@ -109,7 +109,7 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
      */
     suspend fun executeNextChainFromQueue(): Boolean {
         // 1. Retrieve and remove the next chain ID from the queue
-        val stringArray: List<String>? = userDefaults.stringArrayForKey(CHAIN_QUEUE_KEY) as? List<String>
+        val stringArray: List<String>? = userDefaults.arrayForKey(CHAIN_QUEUE_KEY)?.filterIsInstance<String>()
         val queue: MutableList<String> = stringArray?.toMutableList() ?: mutableListOf()
 
         val chainId = queue.removeFirstOrNull() ?: run {

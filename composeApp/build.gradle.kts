@@ -13,6 +13,14 @@ kotlin {
     androidTarget()
 
     jvmToolchain(17)
+
+    targets.all {
+        compilations.all {
+            compilerOptions.configure {
+                freeCompilerArgs.add("-Xexpect-actual-classes")
+            }
+        }
+    }
     
     listOf(
         iosX64(),
@@ -104,6 +112,3 @@ dependencies {
     debugImplementation(compose.uiTooling)
 }
 
-tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
-    compilerOptions.freeCompilerArgs.add("-Xexpect-actual-classes")
-}

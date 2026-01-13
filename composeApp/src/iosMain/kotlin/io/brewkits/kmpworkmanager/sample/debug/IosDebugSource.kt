@@ -3,6 +3,7 @@ package io.brewkits.kmpworkmanager.sample.debug
 import io.brewkits.kmpworkmanager.sample.background.data.NativeTaskScheduler
 import platform.BackgroundTasks.BGTaskScheduler
 import platform.Foundation.NSUserDefaults
+import platform.Foundation.NSDictionary
 import kotlin.coroutines.resume
 import kotlinx.cinterop.ExperimentalForeignApi
 import platform.BackgroundTasks.BGTaskRequest
@@ -16,6 +17,13 @@ class IosDebugSource : DebugSource {
 
     private val userDefaults = NSUserDefaults.standardUserDefaults
 
+    private fun Map<*, *>?.toStringMap(): Map<String, String>? {
+        return (this as? Map<*, *>)?.filter { (key, value) ->
+            key is String && value is String
+        }?.mapKeys { it.key as String }
+        ?.mapValues { it.value as String }
+    }
+
     override suspend fun getTasks(): List<DebugTaskInfo> {
         val pendingTasks = getPendingBGTasks()
         val taskInfos = mutableListOf<DebugTaskInfo>()
@@ -28,13 +36,13 @@ class IosDebugSource : DebugSource {
             var workerClassName = "N/A"
 
             // Check for periodic metadata
-            val periodicMeta = userDefaults.dictionaryForKey("kmp_periodic_meta_$id") as? Map<String, String>
+            val periodicMeta = userDefaults.dictionaryForKey("kmp_periodic_meta_$id").toStringMap()
             if (periodicMeta != null && periodicMeta["isPeriodic"] == "true") {
                 type = "Periodic"
                 workerClassName = periodicMeta["workerClassName"] ?: "N/A"
             } else {
                 // Check for one-time task metadata
-                val taskMeta = userDefaults.dictionaryForKey("kmp_task_meta_$id") as? Map<String, String>
+                val taskMeta = userDefaults.dictionaryForKey("kmp_task_meta_$id").toStringMap()
                 if (taskMeta != null) {
                     workerClassName = taskMeta["workerClassName"] ?: "N/A"
                 }
@@ -60,7 +68,7 @@ class IosDebugSource : DebugSource {
         }
 
         // 2. Add chains that are in the queue but not yet submitted to BGTaskScheduler
-        val chainQueue = (userDefaults.stringArrayForKey("kmp_chain_queue") as? List<String> ?: emptyList())
+        val chainQueue = (userDefaults.arrayForKey("kmp_chain_queue")?.filterIsInstance<String>() ?: emptyList())
         for (chainId in chainQueue) {
             // Avoid adding duplicates if the executor task is already pending
             if (taskInfos.none { it.id.contains(chainId) }) {
@@ -82,7 +90,7 @@ class IosDebugSource : DebugSource {
     private suspend fun getPendingBGTasks(): List<BGTaskRequest> = suspendCoroutine {
         continuation ->
             BGTaskScheduler.sharedScheduler.getPendingTaskRequestsWithCompletionHandler { requests ->
-                continuation.resume(requests as? List<BGTaskRequest> ?: emptyList())
+                continuation.resume(requests?.filterIsInstance<BGTaskRequest>() ?: emptyList())
         }
     }
 }
