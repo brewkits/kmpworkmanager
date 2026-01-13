@@ -112,7 +112,7 @@ KMPTaskManager/
 **Android:**
 ```bash
 ./gradlew :composeApp:installDebug
-adb shell am start -n com.example.kmpworkmanagerv2/.MainActivity
+adb shell am start -n io.kmp.taskmanager.sample/.MainActivity
 ```
 
 **iOS:**

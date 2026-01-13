@@ -77,7 +77,7 @@ kotlin {
 
         <!-- Alarm Receiver for exact alarms -->
         <receiver
-            android:name="com.example.kmpworkmanagerv2.background.data.AlarmReceiver"
+            android:name="io.kmp.taskmanager.sample.background.data.AlarmReceiver"
             android:enabled="true"
             android:exported="false" />
 
@@ -177,7 +177,7 @@ Add to `proguard-rules.pro`:
 ```proguard
 # Keep WorkManager classes
 -keep class androidx.work.** { *; }
--keep class com.example.kmpworkmanagerv2.background.** { *; }
+-keep class io.kmp.taskmanager.sample.background.** { *; }
 
 # Keep Koin classes
 -keep class org.koin.** { *; }
