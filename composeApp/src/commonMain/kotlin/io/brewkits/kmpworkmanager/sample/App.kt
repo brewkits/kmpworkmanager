@@ -104,7 +104,7 @@ fun App(
                 .padding(WindowInsets.systemBars.asPaddingValues())
         ) {
             // Tab bar for navigation
-            TabRow(selectedTabIndex = pagerState.currentPage) {
+            PrimaryTabRow(selectedTabIndex = pagerState.currentPage) {
                 Tab(selected = pagerState.currentPage == 0, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(0) } }) { Text("Test & Demo", modifier = Modifier.padding(16.dp)) }
                 Tab(selected = pagerState.currentPage == 1, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(1) } }) { Text("Tasks", modifier = Modifier.padding(16.dp)) }
                 Tab(selected = pagerState.currentPage == 2, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(2) } }) { Text("Chains", modifier = Modifier.padding(16.dp)) }
