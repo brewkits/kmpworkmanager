@@ -5,6 +5,8 @@ package io.kmp.taskmanager.background.data
  *
  * Implement this interface for each type of background work you want to perform on iOS.
  *
+ * v4.0.0+: Now extends common Worker interface
+ *
  * Example:
  * ```kotlin
  * class SyncWorker : IosWorker {
@@ -17,7 +19,7 @@ package io.kmp.taskmanager.background.data
  * }
  * ```
  */
-interface IosWorker {
+interface IosWorker : io.kmp.taskmanager.background.domain.Worker {
     /**
      * Performs the background work.
      *
@@ -29,13 +31,15 @@ interface IosWorker {
      * @param input Optional input data passed from scheduler.enqueue()
      * @return true if work completed successfully, false otherwise
      */
-    suspend fun doWork(input: String?): Boolean
+    override suspend fun doWork(input: String?): Boolean
 }
 
 /**
  * Factory interface for creating iOS workers.
  *
  * Implement this to provide your custom worker implementations.
+ *
+ * v4.0.0+: Now extends common WorkerFactory interface
  *
  * Example:
  * ```kotlin
@@ -50,12 +54,12 @@ interface IosWorker {
  * }
  * ```
  */
-interface IosWorkerFactory {
+interface IosWorkerFactory : io.kmp.taskmanager.background.domain.WorkerFactory {
     /**
      * Creates a worker instance based on the class name.
      *
      * @param workerClassName The fully qualified class name or simple name
      * @return Worker instance or null if not found
      */
-    fun createWorker(workerClassName: String): IosWorker?
+    override fun createWorker(workerClassName: String): IosWorker?
 }

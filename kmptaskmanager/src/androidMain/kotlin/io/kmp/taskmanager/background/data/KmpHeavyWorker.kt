@@ -8,8 +8,11 @@ import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
+import io.kmp.taskmanager.background.domain.AndroidWorkerFactory
 import io.kmp.taskmanager.utils.Logger
 import io.kmp.taskmanager.utils.LogTags
+import org.koin.core.component.KoinComponent
+import org.koin.core.component.inject
 
 /**
  * Heavy worker that runs in foreground service with persistent notification.
@@ -47,7 +50,9 @@ import io.kmp.taskmanager.utils.LogTags
 class KmpHeavyWorker(
     appContext: Context,
     workerParams: WorkerParameters
-) : CoroutineWorker(appContext, workerParams) {
+) : CoroutineWorker(appContext, workerParams), KoinComponent {
+
+    private val workerFactory: AndroidWorkerFactory by inject()
 
     companion object {
         const val CHANNEL_ID = "kmp_heavy_worker_channel"
@@ -134,34 +139,20 @@ class KmpHeavyWorker(
     /**
      * Executes the actual heavy work by delegating to the specified worker class.
      *
-     * **Note:** This is a simplified implementation. For production use:
-     * - Integrate with your DI framework (Koin, Hilt, etc.)
-     * - Use reflection or a worker factory registry
-     * - Handle worker instantiation errors gracefully
+     * v4.0.0+: Now uses AndroidWorkerFactory from Koin
      *
      * @param workerClassName Fully qualified worker class name
      * @param inputJson Optional JSON input data
      * @return true if work succeeded, false otherwise
      */
     private suspend fun executeHeavyWork(workerClassName: String, inputJson: String?): Boolean {
-        // TODO: Integrate with your worker factory/DI system
-        // Example with Koin:
-        // val workerFactory: WorkerFactory = KoinContext.get().get()
-        // val worker = workerFactory.createWorker(workerClassName) ?: return false
-        // return worker.doWork(inputJson)
+        val worker = workerFactory.createWorker(workerClassName)
 
-        Logger.w(LogTags.WORKER, """
-            KmpHeavyWorker.executeHeavyWork() is not yet integrated with worker factory.
+        if (worker == null) {
+            Logger.e(LogTags.WORKER, "Worker factory returned null for heavy worker: $workerClassName")
+            return false
+        }
 
-            To use heavy workers:
-            1. Extend KmpHeavyWorker in your app
-            2. Override executeHeavyWork() to integrate with your DI/factory
-            3. Use your extended worker class in WorkManager configuration
-
-            Worker: $workerClassName
-        """.trimIndent())
-
-        // Placeholder: return false (user must implement)
-        return false
+        return worker.doWork(inputJson)
     }
 }

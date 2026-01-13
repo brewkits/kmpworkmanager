@@ -7,9 +7,24 @@ import io.kmp.taskmanager.background.domain.ScheduleResult
 import io.kmp.taskmanager.background.domain.TaskTrigger
 
 /**
- * Shared constants for worker identifiers to ensure consistency between platforms.
- * These unique strings are used to map a task ID to the actual worker/job class on each platform.
+ * DEPRECATED in v4.0.0
+ *
+ * WorkerTypes contained example worker class names that should be in user applications.
+ *
+ * Migration:
+ * Define your own worker identifiers as constants in your app code.
+ * ```kotlin
+ * // In your app
+ * object MyWorkers {
+ *     const val SYNC = "SyncWorker"
+ *     const val UPLOAD = "UploadWorker"
+ * }
+ * ```
  */
+@Deprecated(
+    message = "WorkerTypes removed in v4.0.0. Define worker identifiers in your app code.",
+    level = DeprecationLevel.ERROR
+)
 object WorkerTypes {
     const val HEAVY_PROCESSING_WORKER = "io.kmp.taskmanager.background.workers.HeavyProcessingWorker"
     const val SYNC_WORKER = "io.kmp.taskmanager.background.workers.SyncWorker"
