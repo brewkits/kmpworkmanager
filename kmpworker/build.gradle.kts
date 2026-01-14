@@ -133,6 +133,19 @@ publishing {
             name = "MavenCentralLocal"
             url = uri(layout.buildDirectory.dir("maven-central-staging"))
         }
+
+        // Sonatype OSSRH (Maven Central)
+        maven {
+            name = "OSSRH"
+            val releasesRepoUrl = uri("https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/")
+            val snapshotsRepoUrl = uri("https://s01.oss.sonatype.org/content/repositories/snapshots/")
+            url = if (version.toString().endsWith("SNAPSHOT")) snapshotsRepoUrl else releasesRepoUrl
+
+            credentials {
+                username = project.findProperty("ossrhUsername") as String? ?: ""
+                password = project.findProperty("ossrhPassword") as String? ?: ""
+            }
+        }
     }
 }
 
