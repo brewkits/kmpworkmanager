@@ -482,7 +482,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 ## License
 
 ```
-Copyright 2025 Brewkits
+Copyright 2026 Brewkits
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -505,5 +505,16 @@ limitations under the License.
 
 ---
 
-**Organization**: [Brewkits](https://github.com/brewkits)
-**Contact**: vietnguyentuan@gmail.com
+## ⭐ Star Us on GitHub!
+
+If KMP WorkManager saves you time, please give us a star!
+
+It helps other developers discover this project.
+
+[⬆️ Back to Top](#kmp-workmanager---enterprise-grade-background-manager)
+
+---
+
+Made with ❤️ by **Nguyễn Tuấn Việt** at **Brewkits**
+
+**Support**: datacenter111@gmail.com • **Community**: [GitHub Issues](https://github.com/brewkits/kmp_worker/issues)

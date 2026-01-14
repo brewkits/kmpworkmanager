@@ -518,7 +518,7 @@ class MyScheduler(context: Context) : NativeTaskScheduler(context) {
 
 ## Requirements
 
-- **Kotlin**: 2.2.20+
+- **Kotlin**: 2.1.21+
 - **Android**: API 26+ (Android 8.0)
 - **iOS**: 13.0+
 - **Koin**: 4.1.1+
@@ -532,7 +532,7 @@ class MyScheduler(context: Context) : NativeTaskScheduler(context) {
 ## License
 
 ```
-Copyright 2025 Brewkits
+Copyright 2026 Brewkits
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -558,4 +558,16 @@ Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) first.
 
 ---
 
-**Made with ❤️ using Kotlin Multiplatform**
+## ⭐ Star Us on GitHub!
+
+If KMP WorkManager saves you time, please give us a star!
+
+It helps other developers discover this project.
+
+[⬆️ Back to Top](#kmp-workmanager)
+
+---
+
+Made with ❤️ by **Nguyễn Tuấn Việt** at **Brewkits**
+
+**Support**: datacenter111@gmail.com • **Community**: [GitHub Issues](https://github.com/brewkits/kmpworkmanager/issues)
