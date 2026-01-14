@@ -1,6 +1,6 @@
 # 💡 KMP WorkManager Examples
 
-Comprehensive examples for common use cases with v1.0.0 API.
+Comprehensive examples for common use cases with v1.1.0 API.
 
 [📘 Back to README](../README.md)
 

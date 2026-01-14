@@ -11,7 +11,7 @@ import kotlinx.serialization.Serializable
  *
  * Platform Support Matrix:
  * - Periodic, OneTime, Exact: ✅ Android ✅ iOS
- * - Windowed: ❌ Not implemented
+ * - Windowed: ✅ Android ✅ iOS
  * - ContentUri, Battery*, Storage*, DeviceIdle: ✅ Android only
  */
 sealed interface TaskTrigger {
@@ -43,9 +43,17 @@ sealed interface TaskTrigger {
     data class Exact(val atEpochMillis: Long) : TaskTrigger
 
     /**
-     * Triggers within a time window - **NOT IMPLEMENTED**.
+     * Triggers within a time window.
      *
      * Allows the OS to optimize execution by choosing best time within window.
+     *
+     * **Android Implementation**:
+     * - Uses `WorkManager` with `setInitialDelay()` and constraints
+     * - Executes within the specified window
+     *
+     * **iOS Implementation**:
+     * - Uses `BGTaskScheduler` with `earliestBeginDate`
+     * - Note: Only `earliest` time is enforced; `latest` is logged but not enforced by BGTaskScheduler
      *
      * @param earliest Earliest time to execute (Unix epoch milliseconds)
      * @param latest Latest time to execute (Unix epoch milliseconds)

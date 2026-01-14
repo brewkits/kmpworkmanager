@@ -2,7 +2,7 @@
 
 [![Maven Central](https://img.shields.io/maven-central/v/io.brewkits/kmpworkmanager?label=Maven%20Central)](https://central.sonatype.com/artifact/io.brewkits/kmpworkmanager)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Kotlin](https://img.shields.io/badge/kotlin-2.2.20-blue.svg?logo=kotlin)](http://kotlinlang.org)
+[![Kotlin](https://img.shields.io/badge/kotlin-2.1.21-blue.svg?logo=kotlin)](http://kotlinlang.org)
 [![Platform](https://img.shields.io/badge/platform-android%20|%20ios-lightgrey)](https://kotlinlang.org/docs/multiplatform.html)
 
 A robust, production-ready Kotlin Multiplatform library for scheduling and managing background tasks on **Android** and **iOS**.
@@ -69,7 +69,7 @@ startKoin {
 
 ```kotlin
 commonMain.dependencies {
-    implementation("io.brewkits:kmpworkmanager:1.0.0")
+    implementation("io.brewkits:kmpworkmanager:1.1.0")
 }
 ```
 
@@ -77,7 +77,7 @@ commonMain.dependencies {
 
 ```toml
 [versions]
-kmpworkmanager = "1.0.0"
+kmpworkmanager = "1.1.0"
 
 [libraries]
 kmpworkmanager = { module = "io.brewkits:kmpworkmanager", version.ref = "kmpworkmanager" }

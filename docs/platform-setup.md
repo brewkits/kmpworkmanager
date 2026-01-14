@@ -22,13 +22,13 @@ kotlin {
     sourceSets {
         androidMain.dependencies {
             // KMP WorkManager (required)
-            implementation("io.brewkits:kmpworkmanager:1.0.0")
+            implementation("io.brewkits:kmpworkmanager:1.1.0")
 
             // WorkManager (optional - already included transitively)
-            implementation("androidx.work:work-runtime-ktx:2.9.0")
+            implementation("androidx.work:work-runtime-ktx:2.11.0")
 
             // For Kotlin coroutines support
-            implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0")
+            implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
         }
     }
 }

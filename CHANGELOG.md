@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-01-14
+
+### Added
+- Real-time worker progress tracking with `WorkerProgress` and `TaskProgressBus`
+- iOS chain state restoration - resume from last completed step after interruptions
+- Windowed task trigger support (execute within time window)
+- Comprehensive iOS test suite (38+ tests for ChainProgress, ChainExecutor, IosFileStorage)
+
+### Improved
+- iOS retry logic with max retry limits (prevents infinite loops)
+- Enhanced iOS batch processing for efficient BGTask usage
+- Production-grade error handling and logging improvements
+
+### Documentation
+- iOS best practices guide
+- iOS migration guide
+- Updated API examples with v1.1.0 features
+
 ## [1.0.0] - 2026-01-13
 
 ### Added
