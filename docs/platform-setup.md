@@ -305,6 +305,23 @@ scheduler.enqueue(
 
 ## iOS Setup
 
+> [!WARNING]
+> **Critical iOS Limitations - Read Before Implementing**
+>
+> iOS background tasks are **fundamentally different** from Android:
+>
+> 1. **Opportunistic Execution**: The system decides when to run tasks. Tasks may be delayed hours or never run.
+> 2. **Strict Time Limits**: BGAppRefreshTask has ~30 seconds max, BGProcessingTask has ~60 seconds.
+> 3. **Force-Quit Termination**: All background tasks are **immediately killed** when user force-quits the app.
+> 4. **Limited Constraints**: iOS only supports network constraints. Charging, battery, and storage constraints are not available.
+>
+> **Do NOT use iOS background tasks for**:
+> - Time-critical operations
+> - Long-running processes (> 30s)
+> - Operations that must complete reliably
+>
+> See **[iOS Best Practices](ios-best-practices.md)** for detailed guidance and **[iOS Migration Guide](ios-migration.md)** for converting Android patterns to iOS.
+
 ### 1. Info.plist Configuration
 
 Add background task identifiers and capabilities:
