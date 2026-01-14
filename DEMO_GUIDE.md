@@ -1,10 +1,10 @@
-# 🚀 KMP Task Manager Demo App Guide
+# 🚀 KMP Worker Demo App Guide
 
 This guide explains how to test and use the comprehensive demo app included in this project.
 
 ## 📱 Demo App Overview
 
-The demo app showcases all features of KMP Task Manager across **6 interactive tabs**:
+The demo app showcases all features of **KMP Worker - Enterprise-grade Background Manager** across **6 interactive tabs**:
 
 1. **Test & Demo** - Quick tests that work instantly in foreground
 2. **Tasks** - Schedule background tasks with various triggers
@@ -341,17 +341,79 @@ Use this checklist to verify all features:
 - [ ] Refresh updates task list correctly
 - [ ] Task status changes are reflected (ENQUEUED → RUNNING → SUCCEEDED)
 
+## 💡 Enterprise Features in Demo
+
+### Progress Tracking (v1.1.0+)
+The demo app demonstrates real-time progress tracking for long-running operations:
+
+**In Workers**:
+- Workers can report progress percentage (0-100%)
+- Support for step-based tracking ("Step 3/5")
+- Human-readable status messages
+
+**In UI**:
+- Real-time progress updates via `TaskProgressBus`
+- Reactive UI with Flow/StateFlow
+- Progress bars and status text
+
+**Example in Demo**:
+```kotlin
+// See HeavyProcessingWorker for progress tracking implementation
+progressListener?.onProgressUpdate(
+    WorkerProgress(
+        progress = (step * 100 / totalSteps),
+        message = "Processing step $step of $totalSteps",
+        currentStep = step,
+        totalSteps = totalSteps
+    )
+)
+```
+
+### Chain State Restoration (iOS)
+The demo showcases iOS chain state restoration:
+
+**What it demonstrates**:
+- Chains resume from last completed step after interruptions
+- Retry logic with configurable max retries
+- Progress preservation across BGTask invocations
+
+**How to test**:
+1. Schedule a multi-step chain
+2. Force background app during execution
+3. Wait for BGTask timeout
+4. App resumes chain from last completed step (not from beginning)
+
+### Windowed Task Support (v1.1.0+)
+Schedule tasks to run within a specific time window:
+
+**Android**: Both `earliest` and `latest` times enforced
+**iOS**: Only `earliest` time enforced (BGTaskScheduler limitation)
+
+**Example**:
+```kotlin
+scheduler.enqueue(
+    id = "maintenance",
+    trigger = TaskTrigger.Windowed(
+        earliest = System.currentTimeMillis() + 3600_000,
+        latest = System.currentTimeMillis() + 7200_000
+    ),
+    workerClassName = "MaintenanceWorker"
+)
+```
+
 ## 🎓 Learning Outcomes
 
 After testing this demo, you should understand:
 
 1. **Differences between Android and iOS background execution**
-2. **How to schedule tasks with various triggers**
-3. **Task chains for complex workflows**
-4. **Constraint-based execution**
-5. **Permission handling for notifications and alarms**
-6. **EventBus pattern for worker-UI communication**
-7. **Platform-specific limitations and workarounds**
+2. **How to schedule tasks with various triggers (OneTime, Periodic, Windowed, Exact)**
+3. **Task chains for complex workflows with state restoration**
+4. **Real-time progress tracking for long-running operations**
+5. **Constraint-based execution**
+6. **Permission handling for notifications and alarms**
+7. **EventBus pattern for worker-UI communication**
+8. **Platform-specific limitations and workarounds**
+9. **Enterprise features: Progress tracking, chain restoration, retry logic**
 
 ## 🚀 Next Steps
 
