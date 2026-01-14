@@ -1,7 +1,7 @@
 package io.brewkits.kmpworkmanager.utils
 
 /**
- * Professional logging utility for KMP Worker.
+ * Professional logging utility for KMP WorkManager.
  * Provides structured logging with levels, tags, and platform-specific formatting.
  */
 object Logger {

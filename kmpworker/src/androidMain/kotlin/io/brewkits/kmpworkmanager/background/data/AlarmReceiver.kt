@@ -77,7 +77,7 @@ abstract class AlarmReceiver : BroadcastReceiver() {
                     NOTIFICATION_CHANNEL_NAME,
                     NotificationManager.IMPORTANCE_HIGH
                 ).apply {
-                    description = "Notifications for exact time alarms from KMP Worker"
+                    description = "Notifications for exact time alarms from KMP WorkManager"
                     enableVibration(true)
                     enableLights(true)
                 }

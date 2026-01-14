@@ -6,7 +6,7 @@ import android.util.Log
  * Android implementation of Logger using Android's Log system
  */
 internal actual object LoggerPlatform {
-    private const val TAG = "KMP_Worker"
+    private const val TAG = "KMP_WorkManager"
 
     actual fun log(level: Logger.Level, message: String) {
         when (level) {

@@ -127,7 +127,7 @@ class KmpHeavyWorker(
                 CHANNEL_NAME,
                 NotificationManager.IMPORTANCE_LOW // Low importance for background work
             ).apply {
-                description = "Notifications for long-running background tasks from KMP Worker"
+                description = "Notifications for long-running background tasks from KMP WorkManager"
                 setShowBadge(false) // Don't show badge on app icon
             }
 
@@ -139,7 +139,7 @@ class KmpHeavyWorker(
     /**
      * Executes the actual heavy work by delegating to the specified worker class.
      *
-     * v4.0.0+: Now uses AndroidWorkerFactory from Koin
+     * v1.0.0+: Now uses AndroidWorkerFactory from Koin
      *
      * @param workerClassName Fully qualified worker class name
      * @param inputJson Optional JSON input data
