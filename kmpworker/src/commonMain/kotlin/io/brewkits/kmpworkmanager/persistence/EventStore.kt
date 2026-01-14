@@ -1,6 +1,7 @@
 package io.brewkits.kmpworkmanager.persistence
 
 import io.brewkits.kmpworkmanager.background.domain.TaskCompletionEvent
+import kotlinx.serialization.Serializable
 
 /**
  * Persistent storage for task completion events.
@@ -81,6 +82,7 @@ interface EventStore {
  * @property timestamp When the event was created (milliseconds since epoch)
  * @property consumed Whether the UI has processed this event
  */
+@Serializable
 data class StoredEvent(
     val id: String,
     val event: TaskCompletionEvent,
