@@ -3,10 +3,12 @@ package io.brewkits.kmpworkmanager.background.domain
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.serialization.Serializable
 
 /**
  * Event emitted when a background task completes.
  */
+@Serializable
 data class TaskCompletionEvent(
     val taskName: String,
     val success: Boolean,

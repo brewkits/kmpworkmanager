@@ -88,62 +88,69 @@ data class StoredEvent(
 
 #### 3. Platform Implementations
 
-**Android: SQLDelight**
-- Use SQLite database via SQLDelight
-- Schema:
-  ```sql
-  CREATE TABLE events (
-      id TEXT PRIMARY KEY,
-      task_name TEXT NOT NULL,
-      success INTEGER NOT NULL,
-      message TEXT NOT NULL,
-      timestamp INTEGER NOT NULL,
-      consumed INTEGER NOT NULL DEFAULT 0
-  );
+**File-based Storage for BOTH Platforms**
 
-  CREATE INDEX idx_consumed_timestamp ON events(consumed, timestamp);
-  ```
+Rationale: Zero dependencies, proven pattern from IosFileStorage
 
-**iOS: File-based (IosFileStorage)**
-- Reuse existing `IosFileStorage` infrastructure
-- Store events as JSON in separate directory
-- File naming: `event_{timestamp}_{uuid}.json`
+**Storage Format (JSONL - JSON Lines):**
+```jsonl
+{"id":"uuid1","taskName":"Task","success":true,"message":"OK","ts":1705234800000,"consumed":false}
+{"id":"uuid2","taskName":"Task2","success":false,"message":"Error","ts":1705234900000,"consumed":false}
+```
+
+**Android Implementation:**
+- Base directory: `Context.filesDir/io.brewkits.kmpworkmanager/events/`
+- File: `events.jsonl` (append-only for performance)
+- Thread-safety: `synchronized` blocks
+- Atomic operations: temp file + rename pattern
+
+**iOS Implementation:**
+- Base directory: `Library/Application Support/io.brewkits.kmpworkmanager/events/`
+- File: `events.jsonl`
+- Thread-safety: `Mutex` + `NSFileCoordinator`
+- Atomic operations: NSFileCoordinator for coordination
+
+**Common Pattern:**
+1. Write: Append line to JSONL file (~5ms)
+2. Read: Scan entire file, parse lines (~50ms for 1000 events)
+3. Compact: Periodically rewrite file without consumed events
+4. Cleanup: Auto-delete old events during compact
 
 ---
 
 ## Implementation Plan
 
-### Phase 1: Core Interface & Android Implementation (3 days)
+### Phase 1: Common Code & Android Implementation (2 days)
 
-**Day 1: Setup**
-- [ ] Add SQLDelight dependency to build.gradle.kts
-- [ ] Create EventStore.kt interface
-- [ ] Design SQL schema
-- [ ] Create StoredEvent data class
+**Day 1: Foundation**
+- [ ] Update EventStore.kt interface (already done)
+- [ ] Create StoredEvent data class with Serialization
+- [ ] Add kotlinx-serialization-json dependency
+- [ ] Create FileBasedEventStore abstract class
 
 **Day 2: Android Implementation**
-- [ ] Implement AndroidEventStore with SQLDelight
-- [ ] Write CRUD operations
-- [ ] Add cleanup logic
+- [ ] Implement AndroidEventStore with file operations
+- [ ] JSONL append/read operations
+- [ ] Thread-safety with synchronized
 - [ ] Unit tests for Android implementation
 
-**Day 3: Integration**
-- [ ] Integrate EventStore with TaskEventBus
-- [ ] Add EventSyncManager for app launch
-- [ ] Integration tests
+### Phase 2: iOS Implementation (1 day)
 
-### Phase 2: iOS Implementation (2 days)
-
-**Day 4: iOS Storage**
-- [ ] Implement IosEventStore using IosFileStorage
-- [ ] JSON serialization for events
-- [ ] Atomic file operations
+**Day 3: iOS Storage**
+- [ ] Implement IosEventStore adapting IosFileStorage pattern
+- [ ] Reuse NSFileCoordinator infrastructure
 - [ ] Unit tests for iOS implementation
 
-**Day 5: Cross-platform Testing**
-- [ ] Integration tests on both platforms
+### Phase 3: Integration & Testing (1 day)
+
+**Day 4: Integration**
+- [ ] Integrate EventStore with TaskEventBus
+- [ ] Add EventSyncManager for app launch
+- [ ] Cross-platform integration tests
 - [ ] Performance testing (<100ms target)
 - [ ] Stress testing (1000+ events)
+
+**Total: 4 days** (reduced from 5 due to simpler approach)
 
 ---
 
@@ -359,26 +366,27 @@ KmpWorkerConfig.eventStoreConfig = EventStoreConfig(
 
 ## Dependencies
 
-### Android
+### Common (Only One Dependency)
 ```kotlin
 dependencies {
-    implementation("app.cash.sqldelight:android-driver:2.0.1")
-    implementation("app.cash.sqldelight:coroutines-extensions:2.0.1")
+    // Already included in project - just for JSON serialization
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2")
 }
+```
+
+### Android
+```kotlin
+// No additional dependencies
+// Uses standard Java File I/O
 ```
 
 ### iOS
 ```kotlin
-// No new dependencies - use existing IosFileStorage
+// No additional dependencies
+// Uses standard iOS Foundation APIs (NSFileManager, NSFileCoordinator)
 ```
 
-### Common
-```kotlin
-dependencies {
-    implementation("app.cash.sqldelight:runtime:2.0.1")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2")
-}
-```
+**Total new dependencies:** ZERO (kotlinx-serialization already in project)
 
 ---
 
