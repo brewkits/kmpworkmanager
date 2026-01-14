@@ -258,6 +258,67 @@ internal class IosFileStorage {
         Logger.d(LogTags.CHAIN, "Deleted chain definition $id")
     }
 
+    // ==================== Chain Progress Operations ====================
+
+    /**
+     * Save chain progress to file.
+     *
+     * Progress is stored separately from the chain definition to allow
+     * resuming chains after interruptions (timeout, force-quit, etc.).
+     *
+     * @param progress The progress state to save
+     */
+    fun saveChainProgress(progress: ChainProgress) {
+        val progressFile = chainsDirURL.URLByAppendingPathComponent("${progress.chainId}_progress.json")!!
+        val json = Json.encodeToString(progress)
+
+        coordinated(progressFile, write = true) {
+            writeStringToFile(progressFile, json)
+        }
+
+        Logger.d(
+            LogTags.CHAIN,
+            "Saved chain progress ${progress.chainId} (${progress.getCompletionPercentage()}% complete, ${progress.completedSteps.size}/${progress.totalSteps} steps)"
+        )
+    }
+
+    /**
+     * Load chain progress from file.
+     *
+     * @param chainId The chain ID
+     * @return The progress state, or null if no progress file exists
+     */
+    fun loadChainProgress(chainId: String): ChainProgress? {
+        val progressFile = chainsDirURL.URLByAppendingPathComponent("${chainId}_progress.json")!!
+
+        return coordinated(progressFile, write = false) {
+            val json = readStringFromFile(progressFile) ?: return@coordinated null
+
+            try {
+                Json.decodeFromString<ChainProgress>(json)
+            } catch (e: Exception) {
+                Logger.e(LogTags.CHAIN, "Failed to deserialize chain progress $chainId", e)
+                null
+            }
+        }
+    }
+
+    /**
+     * Delete chain progress file.
+     *
+     * Should be called when:
+     * - Chain completes successfully
+     * - Chain is abandoned (exceeded retry limit)
+     * - Chain definition is deleted
+     *
+     * @param chainId The chain ID
+     */
+    fun deleteChainProgress(chainId: String) {
+        val progressFile = chainsDirURL.URLByAppendingPathComponent("${chainId}_progress.json")!!
+        deleteFile(progressFile)
+        Logger.d(LogTags.CHAIN, "Deleted chain progress $chainId")
+    }
+
     // ==================== Metadata Operations ====================
 
     /**

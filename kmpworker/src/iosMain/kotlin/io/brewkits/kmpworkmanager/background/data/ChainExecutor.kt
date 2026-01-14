@@ -124,7 +124,13 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
     }
 
     /**
-     * Execute a single chain by ID
+     * Execute a single chain by ID with progress tracking and resume support.
+     *
+     * This method implements state restoration:
+     * - Loads existing progress (if any) to resume from last completed step
+     * - Saves progress after each step completes
+     * - Handles retry logic with configurable max retries
+     * - Cleans up progress files on completion or abandonment
      */
     private suspend fun executeChain(chainId: String): Boolean {
         // 1. Check for duplicate execution (race condition protection)
@@ -142,38 +148,101 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
             val steps = fileStorage.loadChainDefinition(chainId)
             if (steps == null) {
                 Logger.e(LogTags.CHAIN, "No chain definition found for ID: $chainId")
+                fileStorage.deleteChainProgress(chainId) // Clean up orphaned progress
                 return false
             }
 
-            Logger.d(LogTags.CHAIN, "Executing chain $chainId with ${steps.size} steps")
+            // 4. Load or create progress
+            var progress = fileStorage.loadChainProgress(chainId) ?: ChainProgress(
+                chainId = chainId,
+                totalSteps = steps.size
+            )
 
-            // 4. Execute steps sequentially with timeout protection
+            // 5. Check if max retries exceeded
+            if (progress.hasExceededRetries()) {
+                Logger.e(
+                    LogTags.CHAIN,
+                    "Chain $chainId has exceeded max retries (${progress.retryCount}/${progress.maxRetries}). Abandoning."
+                )
+                fileStorage.deleteChainDefinition(chainId)
+                fileStorage.deleteChainProgress(chainId)
+                return false
+            }
+
+            // 6. Log resume status
+            if (progress.completedSteps.isNotEmpty()) {
+                Logger.i(
+                    LogTags.CHAIN,
+                    "Resuming chain $chainId from step ${progress.getNextStepIndex() ?: "end"} " +
+                            "(${progress.getCompletionPercentage()}% complete, ${progress.completedSteps.size}/${steps.size} steps done)"
+                )
+            } else {
+                Logger.d(LogTags.CHAIN, "Executing chain $chainId with ${steps.size} steps")
+            }
+
+            // 7. Execute steps sequentially with timeout protection
             try {
                 withTimeout(CHAIN_TIMEOUT_MS) {
                     for ((index, step) in steps.withIndex()) {
+                        // Skip already completed steps
+                        if (progress.isStepCompleted(index)) {
+                            Logger.d(LogTags.CHAIN, "Skipping already completed step ${index + 1}/${steps.size} for chain $chainId")
+                            continue
+                        }
+
                         Logger.i(LogTags.CHAIN, "Executing step ${index + 1}/${steps.size} for chain $chainId (${step.size} tasks)")
 
                         val stepSuccess = executeStep(step)
                         if (!stepSuccess) {
-                            Logger.e(LogTags.CHAIN, "Step ${index + 1} failed. Aborting chain $chainId")
-                            fileStorage.deleteChainDefinition(chainId) // Clean up on failure
+                            Logger.e(LogTags.CHAIN, "Step ${index + 1} failed. Updating progress for chain $chainId")
+
+                            // Update progress with failure and increment retry count
+                            progress = progress.withFailure(index)
+                            fileStorage.saveChainProgress(progress)
+
+                            // Check if we should abandon this chain
+                            if (progress.hasExceededRetries()) {
+                                Logger.e(
+                                    LogTags.CHAIN,
+                                    "Chain $chainId exceeded max retries after step ${index + 1} failure. Abandoning."
+                                )
+                                fileStorage.deleteChainDefinition(chainId)
+                                fileStorage.deleteChainProgress(chainId)
+                            }
+
                             return@withTimeout false
                         }
+
+                        // Step succeeded - update progress
+                        progress = progress.withCompletedStep(index)
+                        fileStorage.saveChainProgress(progress)
+                        Logger.d(
+                            LogTags.CHAIN,
+                            "Step ${index + 1}/${steps.size} completed for chain $chainId (${progress.getCompletionPercentage()}% complete)"
+                        )
                     }
                 }
             } catch (e: TimeoutCancellationException) {
                 Logger.e(LogTags.CHAIN, "Chain $chainId timed out after ${CHAIN_TIMEOUT_MS}ms")
-                fileStorage.deleteChainDefinition(chainId)
+
+                // Save current progress (don't delete - allow resume)
+                // Progress already saved after last successful step
+                Logger.i(
+                    LogTags.CHAIN,
+                    "Chain $chainId progress saved. Will resume from step ${progress.getNextStepIndex()} on next execution."
+                )
+
                 return false
             }
 
-            // 5. Clean up the chain definition upon successful completion
+            // 8. Clean up the chain definition and progress upon successful completion
             fileStorage.deleteChainDefinition(chainId)
-            Logger.i(LogTags.CHAIN, "Chain $chainId completed all steps successfully")
+            fileStorage.deleteChainProgress(chainId)
+            Logger.i(LogTags.CHAIN, "Chain $chainId completed all ${steps.size} steps successfully")
             return true
 
         } finally {
-            // 6. Always remove from active set (even on failure/timeout)
+            // 9. Always remove from active set (even on failure/timeout)
             activeChains.removeObject(chainId)
             Logger.d(LogTags.CHAIN, "Removed chain $chainId from active set (Remaining active: ${activeChains.count})")
         }
