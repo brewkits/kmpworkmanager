@@ -273,7 +273,27 @@ scheduler.enqueue(
 - Thread-safe task execution
 - Timeout protection
 
-**Important iOS Limitation**: iOS background tasks are opportunistic. The system decides when to run them based on device usage, battery level, and other factors. Tasks may be delayed or never run if the app is rarely used. Do not rely on iOS background tasks for time-critical operations.
+> [!WARNING]
+> **Critical iOS Limitations**
+>
+> iOS background tasks are **fundamentally different** from Android:
+>
+> 1. **Opportunistic Execution**: The system decides when to run tasks based on device usage, battery, and other factors. Tasks may be delayed hours or never run.
+>
+> 2. **Strict Time Limits**:
+>    - `BGAppRefreshTask`: ~30 seconds maximum
+>    - `BGProcessingTask`: ~60 seconds (requires charging + WiFi)
+>
+> 3. **Force-Quit Termination**: All background tasks are **immediately killed** when user force-quits the app. This is by iOS design and cannot be worked around.
+>
+> 4. **Limited Constraints**: iOS does not support battery, charging, or storage constraints.
+>
+> **Do NOT use iOS background tasks for**:
+> - Time-critical operations
+> - Long-running processes (>30s)
+> - Operations that must complete (use foreground mode)
+>
+> See [iOS Best Practices](docs/ios-best-practices.md) for detailed guidance.
 
 ## Platform Support Matrix
 
@@ -294,6 +314,8 @@ scheduler.enqueue(
 - [Platform Setup](docs/platform-setup.md)
 - [API Reference](docs/api-reference.md)
 - [Task Chains](docs/task-chains.md)
+- [iOS Best Practices](docs/ios-best-practices.md) ⚠️ **Read this if using iOS**
+- [iOS Migration Guide](docs/ios-migration.md)
 - [Architecture Overview](ARCHITECTURE.md)
 
 ## Version History
