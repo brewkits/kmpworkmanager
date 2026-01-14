@@ -5,7 +5,7 @@ import io.brewkits.kmpworkmanager.background.domain.WorkerFactory
 import org.koin.dsl.module
 
 /**
- * Koin dependency injection module for KMP Worker.
+ * Koin dependency injection module for KMP WorkManager.
  *
  * v4.0.0+ Breaking Change: Now requires WorkerFactory parameter
  *
@@ -21,7 +21,7 @@ import org.koin.dsl.module
  */
 
 /**
- * Creates a Koin module for KMP Worker with platform-specific scheduler and worker factory.
+ * Creates a Koin module for KMP WorkManager with platform-specific scheduler and worker factory.
  *
  * v4.0.0+ Breaking Change: Now requires WorkerFactory parameter
  *

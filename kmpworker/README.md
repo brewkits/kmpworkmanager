@@ -1,4 +1,4 @@
-# KMP Worker
+# KMP WorkManager
 
 [![Maven Central](https://img.shields.io/maven-central/v/io.brewkits/kmpworkmanager?label=Maven%20Central)](https://central.sonatype.com/artifact/io.brewkits/kmpworkmanager)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)

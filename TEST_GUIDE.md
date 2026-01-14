@@ -1,6 +1,6 @@
-# 🧪 KMP Worker Testing Guide
+# 🧪 KMP WorkManager Testing Guide
 
-Comprehensive guide for testing KMP Worker - from unit tests to integration testing.
+Comprehensive guide for testing KMP WorkManager - from unit tests to integration testing.
 
 ## 📋 Table of Contents
 

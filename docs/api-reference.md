@@ -1,6 +1,6 @@
 # API Reference
 
-Complete API documentation for KMP Worker.
+Complete API documentation for KMP WorkManager.
 
 ## Table of Contents
 
