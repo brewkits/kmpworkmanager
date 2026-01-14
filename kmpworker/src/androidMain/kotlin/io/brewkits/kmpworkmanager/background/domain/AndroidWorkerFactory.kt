@@ -18,7 +18,7 @@ package io.brewkits.kmpworkmanager.background.domain
  * }
  * ```
  *
- * v4.0.0+: Required for registering custom workers with KMP Worker
+ * v1.0.0+: Required for registering custom workers with KMP WorkManager
  */
 interface AndroidWorkerFactory : io.brewkits.kmpworkmanager.background.domain.WorkerFactory {
     /**
