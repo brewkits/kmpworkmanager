@@ -4,7 +4,10 @@ import android.content.Context
 import io.brewkits.kmpworkmanager.background.data.NativeTaskScheduler
 import io.brewkits.kmpworkmanager.background.domain.AndroidWorkerFactory
 import io.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
+import io.brewkits.kmpworkmanager.background.domain.TaskEventManager
 import io.brewkits.kmpworkmanager.background.domain.WorkerFactory
+import io.brewkits.kmpworkmanager.persistence.AndroidEventStore
+import io.brewkits.kmpworkmanager.persistence.EventStore
 import org.koin.dsl.module
 
 /**
@@ -39,5 +42,16 @@ actual fun kmpWorkerModule(
     single<AndroidWorkerFactory> {
         workerFactory as? AndroidWorkerFactory
             ?: error("WorkerFactory must implement AndroidWorkerFactory on Android")
+    }
+
+    // Event persistence
+    single<EventStore> {
+        val context = get<Context>()
+        val store = AndroidEventStore(context)
+
+        // Initialize TaskEventManager with the store
+        TaskEventManager.initialize(store)
+
+        store
     }
 }

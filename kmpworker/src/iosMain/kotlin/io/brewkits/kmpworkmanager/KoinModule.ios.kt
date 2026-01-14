@@ -3,7 +3,10 @@ package io.brewkits.kmpworkmanager
 import io.brewkits.kmpworkmanager.background.data.IosWorkerFactory
 import io.brewkits.kmpworkmanager.background.data.NativeTaskScheduler
 import io.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
+import io.brewkits.kmpworkmanager.background.domain.TaskEventManager
 import io.brewkits.kmpworkmanager.background.domain.WorkerFactory
+import io.brewkits.kmpworkmanager.persistence.EventStore
+import io.brewkits.kmpworkmanager.persistence.IosEventStore
 import org.koin.dsl.module
 
 /**
@@ -72,4 +75,14 @@ actual fun kmpWorkerModule(
     // Register the user's worker factory (already validated above)
     single<WorkerFactory> { workerFactory }
     single<IosWorkerFactory> { workerFactory }
+
+    // Event persistence
+    single<EventStore> {
+        val store = IosEventStore()
+
+        // Initialize TaskEventManager with the store
+        TaskEventManager.initialize(store)
+
+        store
+    }
 }
