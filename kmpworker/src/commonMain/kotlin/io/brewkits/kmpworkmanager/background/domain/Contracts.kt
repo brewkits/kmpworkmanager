@@ -10,9 +10,11 @@ import kotlinx.serialization.Serializable
  * platform support and scheduling characteristics.
  *
  * Platform Support Matrix:
- * - Periodic, OneTime, Exact: ✅ Android ✅ iOS
- * - Windowed: ❌ Not implemented
+ * - Periodic, OneTime, Exact, Windowed: ✅ Android ✅ iOS
  * - ContentUri, Battery*, Storage*, DeviceIdle: ✅ Android only
+ *
+ * **Note on Windowed (iOS)**: iOS only supports `earliest` time via `earliestBeginDate`.
+ * The `latest` time is logged but not enforced - iOS decides when to run opportunistically.
  */
 sealed interface TaskTrigger {
 
