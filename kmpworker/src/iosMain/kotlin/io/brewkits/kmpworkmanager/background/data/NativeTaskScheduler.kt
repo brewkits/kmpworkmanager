@@ -125,7 +125,7 @@ actual class NativeTaskScheduler(
             is TaskTrigger.Periodic -> schedulePeriodicTask(id, trigger, workerClassName, constraints, inputJson, policy)
             is TaskTrigger.OneTime -> scheduleOneTimeTask(id, trigger, workerClassName, constraints, inputJson, policy)
             is TaskTrigger.Exact -> scheduleExactNotification(id, trigger, workerClassName, inputJson)
-            is TaskTrigger.Windowed -> rejectUnsupportedTrigger("Windowed")
+            is TaskTrigger.Windowed -> scheduleWindowedTask(id, trigger, workerClassName, constraints, inputJson, policy)
             is TaskTrigger.ContentUri -> rejectUnsupportedTrigger("ContentUri")
             TaskTrigger.StorageLow -> rejectUnsupportedTrigger("StorageLow")
             TaskTrigger.BatteryLow -> rejectUnsupportedTrigger("BatteryLow")
@@ -227,6 +227,67 @@ actual class NativeTaskScheduler(
         request.earliestBeginDate = NSDate().dateByAddingTimeInterval(trigger.initialDelayMs / 1000.0)
 
         return submitTaskRequest(request, "one-time task '$id'")
+    }
+
+    /**
+     * Schedule a windowed task (execute within a time window).
+     *
+     * **iOS Limitation**: iOS's BGTaskScheduler only supports `earliestBeginDate`.
+     * There is no "latest" deadline - the system decides when to run the task
+     * opportunistically based on device conditions.
+     *
+     * **Implementation**:
+     * - `earliest` → Maps to `earliestBeginDate`
+     * - `latest` → Logged as a warning, but not enforced by iOS
+     *
+     * **Best Practice**: Design your app logic to not depend on the task
+     * running before the `latest` time. Use exact alarms if strict timing is required.
+     *
+     * @param id Unique task identifier
+     * @param trigger Windowed trigger with earliest and latest times
+     * @param workerClassName Worker class name
+     * @param constraints Execution constraints
+     * @param inputJson Worker input data
+     * @param policy Policy for handling existing tasks
+     */
+    private fun scheduleWindowedTask(
+        id: String,
+        trigger: TaskTrigger.Windowed,
+        workerClassName: String,
+        constraints: Constraints,
+        inputJson: String?,
+        policy: ExistingPolicy
+    ): ScheduleResult {
+        val earliestDate = NSDate.dateWithTimeIntervalSince1970(trigger.earliest / 1000.0)
+        val latestDate = NSDate.dateWithTimeIntervalSince1970(trigger.latest / 1000.0)
+
+        Logger.i(
+            LogTags.SCHEDULER,
+            "Scheduling windowed task - ID: '$id', Window: ${earliestDate} to ${latestDate}"
+        )
+        Logger.w(
+            LogTags.SCHEDULER,
+            "⚠️ iOS BGTaskScheduler does not support 'latest' deadline. Task may run after the specified window."
+        )
+
+        // Handle ExistingPolicy
+        if (!handleExistingPolicy(id, policy, isPeriodicMetadata = false)) {
+            Logger.i(LogTags.SCHEDULER, "Task '$id' already exists, KEEP policy - skipping")
+            return ScheduleResult.ACCEPTED
+        }
+
+        val taskMetadata = mapOf(
+            "workerClassName" to (workerClassName ?: ""),
+            "inputJson" to (inputJson ?: ""),
+            "windowEarliest" to trigger.earliest.toString(),
+            "windowLatest" to trigger.latest.toString()
+        )
+        fileStorage.saveTaskMetadata(id, taskMetadata, periodic = false)
+
+        val request = createBackgroundTaskRequest(id, constraints)
+        request.earliestBeginDate = earliestDate
+
+        return submitTaskRequest(request, "windowed task '$id'")
     }
 
     /**
