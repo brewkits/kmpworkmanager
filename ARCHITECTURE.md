@@ -1,6 +1,6 @@
-# 🏗️ KMP Worker Architecture
+# 🏗️ KMP WorkManager Architecture
 
-This document provides a comprehensive overview of the architecture, design decisions, and implementation details of KMP Worker.
+This document provides a comprehensive overview of the architecture, design decisions, and implementation details of KMP WorkManager.
 
 ## 📐 High-Level Architecture
 
@@ -15,7 +15,7 @@ This document provides a comprehensive overview of the architecture, design deci
 └───────────────────────────────┼─────────────────────────────────┘
                                 │
                 ┌───────────────▼───────────────┐
-                │   KMP Worker Library     │
+                │ KMP WorkManager Library  │
                 │  (Kotlin Multiplatform)       │
                 └───────────────┬───────────────┘
                                 │

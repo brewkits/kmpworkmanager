@@ -1,6 +1,6 @@
-# 🤝 Contributing to KMP Worker
+# 🤝 Contributing to KMP WorkManager
 
-Thank you for your interest in contributing to KMP Worker! This guide will help you get started with contributing to the project.
+Thank you for your interest in contributing to KMP WorkManager! This guide will help you get started with contributing to the project.
 
 ## 📋 Table of Contents
 

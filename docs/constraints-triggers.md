@@ -1,6 +1,6 @@
 # Constraints & Triggers Reference
 
-Complete guide to all task triggers and execution constraints in KMP Worker.
+Complete guide to all task triggers and execution constraints in KMP WorkManager.
 
 ## Table of Contents
 
@@ -14,7 +14,7 @@ Complete guide to all task triggers and execution constraints in KMP Worker.
 
 ## Task Triggers
 
-Triggers define **when** a task should execute. KMP Worker supports 9 different trigger types.
+Triggers define **when** a task should execute. KMP WorkManager supports 9 different trigger types.
 
 ### OneTime
 

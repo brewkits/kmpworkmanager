@@ -1,6 +1,6 @@
 # Platform Setup Guide
 
-Comprehensive guide for configuring KMP Worker on Android and iOS.
+Comprehensive guide for configuring KMP WorkManager on Android and iOS.
 
 ## Table of Contents
 

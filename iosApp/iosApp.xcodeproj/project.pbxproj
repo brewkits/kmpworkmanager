@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXFileReference section */
-		682C25623ADB03E9F641F1F3 /* KMPWorkManagerV2.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = KMPWorkManagerV2.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		682C25623ADB03E9F641F1F3 /* KMPWorkManager.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = KMPWorkManager.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -50,7 +50,7 @@
 		76D9344DCC3D337584BEBFC6 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				682C25623ADB03E9F641F1F3 /* KMPWorkManagerV2.app */,
+				682C25623ADB03E9F641F1F3 /* KMPWorkManager.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -87,7 +87,7 @@
 			packageProductDependencies = (
 			);
 			productName = iosApp;
-			productReference = 682C25623ADB03E9F641F1F3 /* KMPWorkManagerV2.app */;
+			productReference = 682C25623ADB03E9F641F1F3 /* KMPWorkManager.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -191,7 +191,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.kmpworkmanagerv2.KMPWorkManagerV2;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.kmpworkmanager.KMPWorkManager;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -223,7 +223,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.kmpworkmanagerv2.KMPWorkManagerV2;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.kmpworkmanager.KMPWorkManager;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
