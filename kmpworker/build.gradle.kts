@@ -240,6 +240,9 @@ signing {
     val signingKeyBase64 = project.findProperty("signing.key") as String?
     val signingPassword = project.findProperty("signing.password") as String? ?: ""
 
+    // Only enable signing if credentials are available
+    isRequired = signingKeyBase64 != null
+
     if (signingKeyBase64 != null) {
         val signingKey = String(Base64.getDecoder().decode(signingKeyBase64))
         useInMemoryPgpKeys(
