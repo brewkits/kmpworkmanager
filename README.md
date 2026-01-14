@@ -1,15 +1,15 @@
-# KMP Worker - Enterprise-grade Background Manager
+# KMP WorkManager - Enterprise-grade Background Manager
 
 **Production-ready** Kotlin Multiplatform library for scheduling and managing background tasks on Android and iOS with a unified API. Built for enterprise applications requiring reliability, stability, and comprehensive monitoring.
 
 [![Maven Central](https://img.shields.io/maven-central/v/io.brewkits/kmpworkmanager)](https://central.sonatype.com/artifact/io.brewkits/kmpworkmanager)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Kotlin](https://img.shields.io/badge/Kotlin-2.2.0-blue.svg)](https://kotlinlang.org)
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.1.21-blue.svg)](https://kotlinlang.org)
 [![Platform](https://img.shields.io/badge/Platform-Android%20%7C%20iOS-green.svg)](https://kotlinlang.org/docs/multiplatform.html)
 
 ## Overview
 
-KMP Worker provides a single, consistent API for background task scheduling across Android and iOS platforms. It abstracts away platform-specific implementations (WorkManager on Android, BGTaskScheduler on iOS) and lets you write your background task logic once in shared Kotlin code.
+KMP WorkManager provides a single, consistent API for background task scheduling across Android and iOS platforms. It abstracts away platform-specific implementations (WorkManager on Android, BGTaskScheduler on iOS) and lets you write your background task logic once in shared Kotlin code.
 
 **Enterprise Features**:
 - Real-time progress tracking for long-running operations
@@ -51,7 +51,7 @@ scheduler.enqueue(
 
 The library handles platform-specific details automatically.
 
-## Why Choose KMP Worker?
+## Why Choose KMP WorkManager?
 
 ### For Enterprise Applications
 
@@ -81,7 +81,7 @@ The library handles platform-specific details automatically.
 
 ### Comparison with Alternatives
 
-| Feature | KMP Worker | WorkManager (Android only) | Raw BGTaskScheduler (iOS only) |
+| Feature | KMP WorkManager | WorkManager (Android only) | Raw BGTaskScheduler (iOS only) |
 |---------|-----------|---------------------------|-------------------------------|
 | Multiplatform Support | ✅ Android + iOS | ❌ Android only | ❌ iOS only |
 | Progress Tracking | ✅ Built-in | ⚠️ Manual setup | ❌ Not available |
@@ -98,7 +98,7 @@ Add to your `build.gradle.kts`:
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("io.brewkits:kmpworkmanager:1.0.0")
+            implementation("io.brewkits:kmpworkmanager:1.1.0")
         }
     }
 }
@@ -108,7 +108,7 @@ Or using version catalog:
 
 ```toml
 [versions]
-kmpworkmanager = "1.0.0"
+kmpworkmanager = "1.1.0"
 
 [libraries]
 kmpworkmanager = { module = "io.brewkits:kmpworkmanager", version.ref = "kmpworkmanager" }
@@ -463,7 +463,7 @@ Progress features:
 
 ## Requirements
 
-- Kotlin 2.2.0 or higher
+- Kotlin 2.1.21 or higher
 - Android: API 21+ (Android 5.0)
 - iOS: 13.0+
 - Gradle 8.0+

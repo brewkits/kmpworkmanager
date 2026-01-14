@@ -1,10 +1,10 @@
-# 🚀 KMP Worker Demo App Guide
+# 🚀 KMP WorkManager Demo App Guide
 
 This guide explains how to test and use the comprehensive demo app included in this project.
 
 ## 📱 Demo App Overview
 
-The demo app showcases all features of **KMP Worker - Enterprise-grade Background Manager** across **6 interactive tabs**:
+The demo app showcases all features of **KMP WorkManager - Enterprise-grade Background Manager** across **6 interactive tabs**:
 
 1. **Test & Demo** - Quick tests that work instantly in foreground
 2. **Tasks** - Schedule background tasks with various triggers

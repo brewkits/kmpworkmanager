@@ -21,7 +21,7 @@ Add KMP WorkManager to your `build.gradle.kts` (module level):
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("io.brewkits:kmpworkmanager:1.0.0")
+            implementation("io.brewkits:kmpworkmanager:1.1.0")
         }
     }
 }
@@ -88,7 +88,7 @@ KMP WorkManager uses WorkManager internally, but you may want to add it explicit
 
 ```kotlin
 androidMain.dependencies {
-    implementation("androidx.work:work-runtime-ktx:2.9.0")
+    implementation("androidx.work:work-runtime-ktx:2.11.0")
 }
 ```
 
