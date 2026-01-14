@@ -131,13 +131,14 @@ sealed interface TaskTrigger {
      *
      * **Example**:
      * ```kotlin
-     * // Monitor new photos added
+     * @OptIn(AndroidOnly::class)
      * TaskTrigger.ContentUri(
      *     uriString = "content://media/external/images/media",
      *     triggerForDescendants = true
      * )
      * ```
      */
+    @AndroidOnly
     data class ContentUri(
         val uriString: String,
         val triggerForDescendants: Boolean = false
@@ -256,6 +257,7 @@ sealed interface TaskTrigger {
  * **v3.0.0+**: Replaces deprecated TaskTrigger variants (BatteryLow, StorageLow, etc.)
  * which incorrectly represented constraints as triggers.
  */
+@AndroidOnly
 @Serializable
 enum class SystemConstraint {
     /**
