@@ -1,13 +1,22 @@
-# KMP WorkManager
+# KMP Worker - Enterprise-grade Background Manager
 
-A Kotlin Multiplatform library for scheduling and managing background tasks on Android and iOS with a unified API.
+**Production-ready** Kotlin Multiplatform library for scheduling and managing background tasks on Android and iOS with a unified API. Built for enterprise applications requiring reliability, stability, and comprehensive monitoring.
 
 [![Maven Central](https://img.shields.io/maven-central/v/io.brewkits/kmpworkmanager)](https://central.sonatype.com/artifact/io.brewkits/kmpworkmanager)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.2.0-blue.svg)](https://kotlinlang.org)
+[![Platform](https://img.shields.io/badge/Platform-Android%20%7C%20iOS-green.svg)](https://kotlinlang.org/docs/multiplatform.html)
 
 ## Overview
 
-KMP WorkManager provides a single, consistent API for background task scheduling across Android and iOS platforms. It abstracts away platform-specific implementations (WorkManager on Android, BGTaskScheduler on iOS) and lets you write your background task logic once in shared Kotlin code.
+KMP Worker provides a single, consistent API for background task scheduling across Android and iOS platforms. It abstracts away platform-specific implementations (WorkManager on Android, BGTaskScheduler on iOS) and lets you write your background task logic once in shared Kotlin code.
+
+**Enterprise Features**:
+- Real-time progress tracking for long-running operations
+- Chain state restoration for reliability on iOS
+- Comprehensive test coverage for critical components
+- File-based storage for improved iOS performance
+- Production-grade error handling and logging
 
 ### The Problem
 
@@ -41,6 +50,45 @@ scheduler.enqueue(
 ```
 
 The library handles platform-specific details automatically.
+
+## Why Choose KMP Worker?
+
+### For Enterprise Applications
+
+**Production-Ready Reliability**
+- Comprehensive test coverage (200+ tests) including iOS-specific integration tests
+- Chain state restoration ensures no work is lost on iOS interruptions
+- Retry logic with configurable limits prevents infinite failure loops
+- File-based storage with atomic operations for data integrity
+
+**Real-Time Monitoring**
+- Built-in progress tracking for long-running operations (downloads, uploads, data processing)
+- Event bus architecture for reactive UI updates
+- Step-based progress for multi-phase operations
+- Human-readable status messages for user feedback
+
+**Platform Expertise**
+- Deep understanding of iOS background limitations (documented in detail)
+- Smart fallbacks for Android exact alarm permissions
+- Batch processing optimization for iOS BGTask quotas
+- Platform-specific best practices and migration guides
+
+**Developer Experience**
+- Single API for both platforms reduces maintenance
+- Type-safe input serialization
+- Koin integration for dependency injection
+- Extensive documentation and examples
+
+### Comparison with Alternatives
+
+| Feature | KMP Worker | WorkManager (Android only) | Raw BGTaskScheduler (iOS only) |
+|---------|-----------|---------------------------|-------------------------------|
+| Multiplatform Support | ✅ Android + iOS | ❌ Android only | ❌ iOS only |
+| Progress Tracking | ✅ Built-in | ⚠️ Manual setup | ❌ Not available |
+| Chain State Restoration | ✅ Automatic | ✅ Yes | ❌ Manual implementation |
+| Type-Safe Input | ✅ Yes | ⚠️ Limited | ❌ No |
+| Test Coverage | ✅ Comprehensive | ✅ Yes | ❌ Manual testing |
+| Enterprise Documentation | ✅ Extensive | ⚠️ Basic | ❌ Apple docs only |
 
 ## Installation
 
@@ -188,7 +236,20 @@ scheduler.enqueue(
 )
 ```
 
-**Exact Alarms** (Android)
+**Windowed Tasks** (Execute within a time window)
+```kotlin
+scheduler.enqueue(
+    id = "maintenance",
+    trigger = TaskTrigger.Windowed(
+        earliest = System.currentTimeMillis() + 3600_000,  // 1 hour from now
+        latest = System.currentTimeMillis() + 7200_000     // 2 hours from now
+    ),
+    workerClassName = "MaintenanceWorker"
+)
+```
+> **Note**: On iOS, only `earliest` time is enforced via `earliestBeginDate`. The `latest` time is logged but not enforced by BGTaskScheduler.
+
+**Exact Alarms** (Android only)
 ```kotlin
 scheduler.enqueue(
     id = "reminder",
@@ -255,6 +316,61 @@ scheduler.enqueue(
 )
 ```
 
+### Real-Time Progress Tracking
+
+Workers can report progress to provide real-time feedback to the UI, essential for enterprise applications with long-running operations:
+
+**In Your Worker**:
+```kotlin
+class FileDownloadWorker(
+    private val progressListener: ProgressListener?
+) : Worker {
+    override suspend fun doWork(input: String?): Boolean {
+        val totalBytes = getTotalFileSize()
+        var downloaded = 0L
+
+        while (downloaded < totalBytes) {
+            val chunk = downloadChunk()
+            downloaded += chunk.size
+
+            val progress = (downloaded * 100 / totalBytes).toInt()
+            progressListener?.onProgressUpdate(
+                WorkerProgress(
+                    progress = progress,
+                    message = "Downloaded $downloaded / $totalBytes bytes"
+                )
+            )
+        }
+
+        return true
+    }
+}
+```
+
+**In Your UI**:
+```kotlin
+@Composable
+fun DownloadScreen() {
+    val progressFlow = TaskProgressBus.events
+        .filterIsInstance<TaskProgressEvent>()
+        .filter { it.taskId == "download-task" }
+
+    val progress by progressFlow.collectAsState(initial = null)
+
+    LinearProgressIndicator(
+        progress = (progress?.progress?.progress ?: 0) / 100f
+    )
+    Text(text = progress?.progress?.message ?: "Waiting...")
+}
+```
+
+Progress features:
+- Percentage-based progress (0-100%)
+- Optional human-readable messages
+- Step-based tracking (e.g., "Step 3/5")
+- Real-time updates via SharedFlow
+- Works across Android and iOS
+
 ## Platform-Specific Features
 
 ### Android
@@ -268,10 +384,13 @@ scheduler.enqueue(
 ### iOS
 
 - BGTaskScheduler integration
+- **Chain state restoration**: Resume interrupted chains from last completed step
 - Automatic re-scheduling of periodic tasks
-- File-based storage for better performance
-- Thread-safe task execution
-- Timeout protection
+- File-based storage for better performance and thread safety
+- Thread-safe task execution with NSFileCoordinator
+- Timeout protection with configurable limits
+- Retry logic with max retry limits (prevents infinite loops)
+- Batch processing for efficient BGTask usage
 
 > [!WARNING]
 > **Critical iOS Limitations**
@@ -299,14 +418,16 @@ scheduler.enqueue(
 
 | Feature | Android | iOS |
 |---------|---------|-----|
-| Periodic Tasks | Supported (15 min minimum) | Supported (opportunistic) |
-| One-Time Tasks | Supported | Supported |
-| Exact Timing | Supported (AlarmManager) | Not supported |
-| Task Chains | Supported | Supported |
-| Network Constraints | Supported | Supported |
-| Charging Constraints | Supported | Not supported |
-| Battery Constraints | Supported | Not supported |
-| ContentUri Triggers | Supported | Not supported |
+| Periodic Tasks | ✅ Supported (15 min minimum) | ✅ Supported (opportunistic) |
+| One-Time Tasks | ✅ Supported | ✅ Supported |
+| Windowed Tasks | ✅ Supported | ✅ Supported (`earliest` only) |
+| Exact Timing | ✅ Supported (AlarmManager) | ❌ Not supported |
+| Task Chains | ✅ Supported | ✅ Supported with state restoration |
+| Progress Tracking | ✅ Supported | ✅ Supported |
+| Network Constraints | ✅ Supported | ✅ Supported |
+| Charging Constraints | ✅ Supported | ❌ Not supported |
+| Battery Constraints | ✅ Supported | ❌ Not supported |
+| ContentUri Triggers | ✅ Supported | ❌ Not supported |
 
 ## Documentation
 
@@ -320,14 +441,25 @@ scheduler.enqueue(
 
 ## Version History
 
-**v1.0.0** (Latest)
+**v1.1.0** (Latest) - Stability & Enterprise Features
+- **NEW**: Real-time worker progress tracking with `WorkerProgress` and `TaskProgressBus`
+- **NEW**: iOS chain state restoration - resume from last completed step after interruptions
+- **NEW**: Windowed task trigger support (execute within time window)
+- **NEW**: Comprehensive iOS test suite (38+ tests for ChainProgress, ChainExecutor, IosFileStorage)
+- Improved iOS retry logic with max retry limits (prevents infinite loops)
+- Enhanced iOS batch processing for efficient BGTask usage
+- Production-grade error handling and logging improvements
+- iOS documentation: Best practices and migration guides
+
+**v1.0.0** - Initial Stable Release
 - Worker factory pattern for better extensibility
 - Automatic iOS task ID validation from Info.plist
 - Type-safe serialization extensions
-- Initial stable release with unified API for Android and iOS
+- Unified API for Android and iOS
 - File-based storage on iOS for better performance
 - Smart exact alarm fallback on Android
 - Heavy task support with foreground services
+- Task chains with sequential and parallel execution
 
 ## Requirements
 
