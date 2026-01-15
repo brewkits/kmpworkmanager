@@ -439,6 +439,132 @@ Progress features:
 - [iOS Migration Guide](docs/ios-migration.md)
 - [Architecture Overview](ARCHITECTURE.md)
 
+## Roadmap
+
+KMP WorkManager is actively developed with a focus on reliability, developer experience, and enterprise features. Here's our planned development roadmap:
+
+### v1.2.0 - Event Persistence & Smart Retries (Q1 2026)
+
+**Event Persistence System**
+- Persistent storage for TaskCompletionEvents (survives app kills and force-quit)
+- Automatic event replay on app launch
+- Zero event loss even when UI isn't actively listening
+- SQLDelight on Android, file-based storage on iOS
+
+**Smart Retry Policies**
+- Error-aware retry strategies (network failures vs. business logic errors)
+- Exponential backoff with jitter and circuit breaker patterns
+- Configurable max retry limits per task type
+- Retry predicates based on error classification
+
+**Platform Capabilities API**
+```kotlin
+expect object PlatformCapabilities {
+    val supportsExactTiming: Boolean
+    val supportsChargingConstraint: Boolean
+    val maxTaskDuration: Duration
+    val maxChainLength: Int
+}
+```
+
+### v1.3.0 - Typed Results & Enhanced Observability (Q2 2026)
+
+**Typed Result Data Passing**
+- Workers return structured results, not just Boolean
+- Type-safe data flow between chained tasks
+- Automatic serialization with kotlinx.serialization
+```kotlin
+sealed class WorkResult {
+    data class Success(val data: JsonElement?) : WorkResult()
+    data class Failure(val error: WorkError, val shouldRetry: Boolean) : WorkResult()
+}
+```
+
+**Task Execution History & Analytics**
+- Query past task executions and their results
+- Task statistics: success rate, average duration, failure patterns
+- Optional SQLDelight persistence with configurable retention
+- Useful for debugging and monitoring in production
+
+**Advanced Testing Support**
+- TestTaskScheduler for unit testing without actual execution
+- Mock worker factories
+- Test utilities for simulating background task scenarios
+- Documentation with testing best practices
+
+### v1.4.0 - Developer Experience & Tooling (Q3 2026)
+
+**Annotation-Based Worker Discovery**
+- `@Worker` annotation for automatic registration
+- KSP plugin for compile-time worker factory generation
+- Reduces boilerplate and human error
+
+**Gradle Plugin**
+- Validate iOS Info.plist configuration at build time
+- Detect missing BGTaskSchedulerPermittedIdentifiers
+- Generate platform capability reports
+
+**Enhanced Debugging**
+- Built-in task monitoring UI for development builds
+- Real-time visualization of scheduled, running, and completed tasks
+- Export task history for analysis
+
+**Batch Operations API**
+```kotlin
+scheduler.enqueueBatch(
+    listOf(
+        TaskRequest("Worker1"),
+        TaskRequest("Worker2"),
+        TaskRequest("Worker3")
+    )
+)
+```
+
+### v2.0.0 - Advanced Features & Platform Expansion (Q4 2026)
+
+**Desktop Support (JVM)**
+- Windows, macOS, Linux support
+- Use native OS schedulers (Task Scheduler, launchd, systemd)
+- Shared codebase with mobile platforms
+
+**Web/JS Support (Experimental)**
+- Service Worker integration
+- Background Sync API support
+- Progressive Web App (PWA) compatibility
+
+**Cloud Integration**
+- Optional Firebase Cloud Messaging integration for iOS background wakeup
+- Remote task scheduling via push notifications
+- Server-driven configuration
+
+**iOS 17+ Features**
+- Background Assets framework integration for large downloads
+- Extended background time under optimal conditions
+- Better Low Power Mode handling with adaptive intervals
+
+### Future Considerations
+
+**Features Under Research:**
+- Background data sync with conflict resolution
+- Distributed task orchestration across devices
+- ML-based optimal scheduling prediction
+- Integration with Kotlin/Wasm for web workers
+
+### Contributing to the Roadmap
+
+Have a feature request or idea? We welcome community input:
+- Open a [GitHub Issue](https://github.com/brewkits/kmp_worker/issues) with the `enhancement` label
+- Join discussions on existing feature proposals
+- Contribute PRs for planned features
+
+Priority is given to:
+1. Features solving real developer pain points
+2. Cross-platform capabilities (not single-platform)
+3. Improvements to reliability and resilience
+4. Better developer experience and testing
+
+---
+
 ## Version History
 
 **v1.1.0** (Latest) - Stability & Enterprise Features
