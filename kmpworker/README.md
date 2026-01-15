@@ -1,6 +1,6 @@
 # KMP WorkManager
 
-[![Maven Central](https://img.shields.io/maven-central/v/io.brewkits/kmpworkmanager?label=Maven%20Central)](https://central.sonatype.com/artifact/io.brewkits/kmpworkmanager)
+[![Maven Central](https://img.shields.io/maven-central/v/dev.brewkits/kmpworkmanager?label=Maven%20Central)](https://central.sonatype.com/artifact/dev.brewkits/kmpworkmanager)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Kotlin](https://img.shields.io/badge/kotlin-2.1.21-blue.svg?logo=kotlin)](http://kotlinlang.org)
 [![Platform](https://img.shields.io/badge/platform-android%20|%20ios-lightgrey)](https://kotlinlang.org/docs/multiplatform.html)
@@ -69,7 +69,7 @@ startKoin {
 
 ```kotlin
 commonMain.dependencies {
-    implementation("io.brewkits:kmpworkmanager:1.1.0")
+    implementation("dev.brewkits:kmpworkmanager:1.1.0")
 }
 ```
 
@@ -80,7 +80,7 @@ commonMain.dependencies {
 kmpworkmanager = "1.1.0"
 
 [libraries]
-kmpworkmanager = { module = "io.brewkits:kmpworkmanager", version.ref = "kmpworkmanager" }
+kmpworkmanager = { module = "dev.brewkits:kmpworkmanager", version.ref = "kmpworkmanager" }
 ```
 
 ## Quick Start
@@ -358,8 +358,8 @@ scheduler.enqueue(
 ### Logging
 
 ```kotlin
-import io.brewkits.kmpworkmanager.utils.Logger
-import io.brewkits.kmpworkmanager.utils.LogTags
+import dev.brewkits.kmpworkmanager.utils.Logger
+import dev.brewkits.kmpworkmanager.utils.LogTags
 
 Logger.i(LogTags.WORKER, "Task completed successfully")
 Logger.e(LogTags.SCHEDULER, "Failed to schedule", exception)

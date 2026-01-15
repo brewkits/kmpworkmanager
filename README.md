@@ -2,7 +2,7 @@
 
 **Production-ready** Kotlin Multiplatform library for scheduling and managing background tasks on Android and iOS with a unified API. Built for enterprise applications requiring reliability, stability, and comprehensive monitoring.
 
-[![Maven Central](https://img.shields.io/maven-central/v/io.brewkits/kmpworkmanager)](https://central.sonatype.com/artifact/io.brewkits/kmpworkmanager)
+[![Maven Central](https://img.shields.io/maven-central/v/dev.brewkits/kmpworkmanager)](https://central.sonatype.com/artifact/dev.brewkits/kmpworkmanager)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.1.21-blue.svg)](https://kotlinlang.org)
 [![Platform](https://img.shields.io/badge/Platform-Android%20%7C%20iOS-green.svg)](https://kotlinlang.org/docs/multiplatform.html)
@@ -98,7 +98,7 @@ Add to your `build.gradle.kts`:
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("io.brewkits:kmpworkmanager:1.1.0")
+            implementation("dev.brewkits:kmpworkmanager:1.1.0")
         }
     }
 }
@@ -111,7 +111,7 @@ Or using version catalog:
 kmpworkmanager = "1.1.0"
 
 [libraries]
-kmpworkmanager = { module = "io.brewkits:kmpworkmanager", version.ref = "kmpworkmanager" }
+kmpworkmanager = { module = "dev.brewkits:kmpworkmanager", version.ref = "kmpworkmanager" }
 ```
 
 ## Quick Start
@@ -625,7 +625,7 @@ limitations under the License.
 
 ## Links
 
-- [Maven Central](https://central.sonatype.com/artifact/io.brewkits/kmpworkmanager)
+- [Maven Central](https://central.sonatype.com/artifact/dev.brewkits/kmpworkmanager)
 - [GitHub Issues](https://github.com/brewkits/kmp_worker/issues)
 - [Changelog](CHANGELOG.md)
 

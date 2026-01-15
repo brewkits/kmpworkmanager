@@ -91,7 +91,7 @@ kmpworkmanager/
 │   │   └── LoggerPlatform.ios.kt (actual)
 │   └── KoinModule.ios.kt
 └── commonTest/
-    └── io/brewkits/kmpworkmanager/
+    └── dev.brewkits/kmpworkmanager/
         ├── ContractsTest.kt
         ├── TaskChainTest.kt
         ├── UtilsTest.kt

@@ -162,7 +162,7 @@ The demo app showcases all features of **KMP WorkManager - Enterprise-grade Back
 ```bash
 # Using adb
 adb shell am broadcast -a com.google.android.c2dm.intent.RECEIVE \
-  -n io.brewkits.kmpworkmanager.sample/.push.PushReceiver \
+  -n dev.brewkits.kmpworkmanager.sample/.push.PushReceiver \
   --es notification-type silent
 ```
 
@@ -170,7 +170,7 @@ adb shell am broadcast -a com.google.android.c2dm.intent.RECEIVE \
 ```bash
 # 1. Create push.apns file:
 {
-  "Simulator Target Bundle": "io.brewkits.kmpworkmanager.sample",
+  "Simulator Target Bundle": "dev.brewkits.kmpworkmanager.sample",
   "aps": {
     "content-available": 1,
     "alert": {
@@ -181,7 +181,7 @@ adb shell am broadcast -a com.google.android.c2dm.intent.RECEIVE \
 }
 
 # 2. Send push to simulator:
-xcrun simctl push booted io.brewkits.kmpworkmanager.sample push.apns
+xcrun simctl push booted dev.brewkits.kmpworkmanager.sample push.apns
 ```
 
 ## 🔐 Tab 5: Permissions

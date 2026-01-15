@@ -4,9 +4,9 @@
 >
 > Please migrate to the new library for better iOS reliability, thread-safety, and enterprise features.
 
-## 👉 [GO TO NEW LIBRARY: io.brewkits.kmpworkmanager](https://github.com/brewkits/kmpworkmanager)
+## 👉 [GO TO NEW LIBRARY: dev.brewkits.kmpworkmanager](https://github.com/brewkits/kmpworkmanager)
 
-[![Maven Central](https://img.shields.io/maven-central/v/io.brewkits/kmpworkmanager)](https://central.sonatype.com/artifact/io.brewkits/kmpworkmanager)
+[![Maven Central](https://img.shields.io/maven-central/v/dev.brewkits/kmpworkmanager)](https://central.sonatype.com/artifact/dev.brewkits/kmpworkmanager)
 
 ---
 
@@ -67,7 +67,7 @@ dependencies {
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("io.brewkits:kmpworkmanager:1.1.0")
+            implementation("dev.brewkits:kmpworkmanager:1.1.0")
         }
     }
 }
@@ -84,9 +84,9 @@ import io.kmp.worker.domain.Constraints
 
 **New:**
 ```kotlin
-import io.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
-import io.brewkits.kmpworkmanager.background.domain.TaskTrigger
-import io.brewkits.kmpworkmanager.background.domain.Constraints
+import dev.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
+import dev.brewkits.kmpworkmanager.background.domain.TaskTrigger
+import dev.brewkits.kmpworkmanager.background.domain.Constraints
 ```
 
 ### Step 3: Update Worker Factory Pattern
@@ -193,7 +193,7 @@ fun DownloadScreen() {
 
 | Old API | New API | Notes |
 |---------|---------|-------|
-| `io.kmp.worker.*` | `io.brewkits.kmpworkmanager.*` | Package renamed |
+| `io.kmp.worker.*` | `dev.brewkits.kmpworkmanager.*` | Package renamed |
 | `WorkerFactory` | `AndroidWorkerFactory` / `IosWorkerFactory` | Platform-specific factories |
 | `workerModule()` | `kmpWorkerModule()` | Koin module renamed |
 | `Worker.doWork(): Boolean` | Same | No change |
@@ -234,7 +234,7 @@ fun DownloadScreen() {
 
 - **New Library GitHub**: [brewkits/kmpworkmanager](https://github.com/brewkits/kmpworkmanager)
 - **Issues**: [GitHub Issues](https://github.com/brewkits/kmpworkmanager/issues)
-- **Maven Central**: [io.brewkits:kmpworkmanager](https://central.sonatype.com/artifact/io.brewkits/kmpworkmanager)
+- **Maven Central**: [dev.brewkits:kmpworkmanager](https://central.sonatype.com/artifact/dev.brewkits/kmpworkmanager)
 - **Contact**: datacenter111@gmail.com
 
 ---
