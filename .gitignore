@@ -42,6 +42,14 @@ FIXES_SUMMARY.md
 RESEARCH.md
 COMPARISON.md
 CLAUDE.md
+KLIBS_IO_INFO.md
+MAVEN_CENTRAL_SETUP.md
+PUBLISH_SUMMARY.md
+RELEASE_v*_NOTES.md
+*_NOTES.md
+NOTES.md
+TODO.md
+PERSONAL_*.md
 
 # Deployment bundles
 *-bundle.zip
