@@ -87,7 +87,7 @@ echo "✅ Local staging complete"
 echo "Artifacts location: kmpworker/build/maven-central-staging/"
 
 # Verify artifacts exist
-STAGING_DIR="kmpworker/build/maven-central-staging/io/brewkits/kmpworker/${VERSION}"
+STAGING_DIR="kmpworker/build/maven-central-staging/dev.brewkits/kmpworker/${VERSION}"
 if [ ! -d "$STAGING_DIR" ]; then
     echo -e "${RED}❌ Error: Staging directory not found${NC}"
     exit 1
@@ -143,7 +143,7 @@ if ./gradlew :kmpworker:publishAllPublicationsToOSSRHRepository; then
     echo "1. Visit https://s01.oss.sonatype.org/"
     echo "2. Login with your Sonatype credentials"
     echo "3. Click 'Staging Repositories' in left menu"
-    echo "4. Find 'io.brewkits-XXXX' repository"
+    echo "4. Find 'dev.brewkits-XXXX' repository"
     echo "5. Click 'Close' button (wait for validation)"
     echo "6. If validation passes, click 'Release' button"
     echo ""

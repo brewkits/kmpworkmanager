@@ -57,9 +57,9 @@ interface EventStore {
 - [x] Works after app force-quit and restart
 
 **Files to Modify:**
-- `kmpworker/src/commonMain/kotlin/io/brewkits/kmpworkmanager/background/domain/TaskCompletionEvent.kt`
-- New: `kmpworker/src/commonMain/kotlin/io/brewkits/kmpworkmanager/persistence/EventStore.kt`
-- New: `kmpworker/src/iosMain/kotlin/io/brewkits/kmpworkmanager/persistence/IosEventStore.kt`
+- `kmpworker/src/commonMain/kotlin/dev.brewkits/kmpworkmanager/background/domain/TaskCompletionEvent.kt`
+- New: `kmpworker/src/commonMain/kotlin/dev.brewkits/kmpworkmanager/persistence/EventStore.kt`
+- New: `kmpworker/src/iosMain/kotlin/dev.brewkits/kmpworkmanager/persistence/IosEventStore.kt`
 
 **Related Issues:** #1
 
@@ -136,8 +136,8 @@ data class ChainProgress(
 - [x] Progress files cleaned up after completion
 
 **Files to Modify:**
-- `kmpworker/src/iosMain/kotlin/io/brewkits/kmpworkmanager/background/data/ChainExecutor.kt`
-- `kmpworker/src/iosMain/kotlin/io/brewkits/kmpworkmanager/background/data/IosFileStorage.kt`
+- `kmpworker/src/iosMain/kotlin/dev.brewkits/kmpworkmanager/background/data/ChainExecutor.kt`
+- `kmpworker/src/iosMain/kotlin/dev.brewkits/kmpworkmanager/background/data/IosFileStorage.kt`
 
 **Related Issues:** #2
 
@@ -192,7 +192,7 @@ Comprehensive documentation covering:
 - docs/platform-setup.md
 - docs/ios-migration.md (new)
 - docs/ios-best-practices.md (new)
-- `kmpworker/src/commonMain/kotlin/io/brewkits/kmpworkmanager/background/domain/Contracts.kt`
+- `kmpworker/src/commonMain/kotlin/dev.brewkits/kmpworkmanager/background/domain/Contracts.kt`
 
 **Related Issues:** #3
 
@@ -233,7 +233,7 @@ private val _events = MutableSharedFlow<TaskCompletionEvent>(
 - [x] Unit tests verify replay behavior
 
 **Files to Modify:**
-- `kmpworker/src/commonMain/kotlin/io/brewkits/kmpworkmanager/background/domain/TaskCompletionEvent.kt`
+- `kmpworker/src/commonMain/kotlin/dev.brewkits/kmpworkmanager/background/domain/TaskCompletionEvent.kt`
 
 **Related Issues:** #4
 

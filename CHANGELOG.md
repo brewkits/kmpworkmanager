@@ -43,7 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Rebranded from `kmpworker` to `kmpworkmanager`
-- Migrated package from `io.kmp.worker` to `io.brewkits.kmpworkmanager`
+- Migrated package from `io.kmp.worker` to `dev.brewkits.kmpworkmanager`
 - Project organization moved to brewkits/kmpworkmanager
 
 ### Documentation

@@ -12,7 +12,7 @@ plugins {
     id("signing")
 }
 
-group = "io.brewkits"
+group = "dev.brewkits"
 version = "1.1.0"
 
 kotlin {
@@ -70,7 +70,7 @@ kotlin {
 }
 
 android {
-    namespace = "io.brewkits.kmpworkmanager"
+    namespace = "dev.brewkits.kmpworkmanager"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
 
     defaultConfig {
@@ -87,7 +87,7 @@ publishing {
     publications {
         // Configure all publications with common POM information
         withType<MavenPublication> {
-            groupId = "io.brewkits"
+            groupId = "dev.brewkits"
             version = "1.1.0"
 
             pom {

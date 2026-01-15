@@ -32,7 +32,7 @@ kotlin {
             isStatic = true
 
             // Add bundle ID to fix compilation error
-            binaryOption("bundleId", "io.brewkits.kmpworkmanager.sample.ComposeApp")
+            binaryOption("bundleId", "dev.brewkits.kmpworkmanager.sample.ComposeApp")
 
             linkerOpts.add("-framework")
             linkerOpts.add("UserNotifications")
@@ -82,11 +82,11 @@ composeCompiler {
 }
 
 android {
-    namespace = "io.brewkits.kmpworkmanager.sample"
+    namespace = "dev.brewkits.kmpworkmanager.sample"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
 
     defaultConfig {
-        applicationId = "io.brewkits.kmpworkmanager.sample"
+        applicationId = "dev.brewkits.kmpworkmanager.sample"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionCode = 1
