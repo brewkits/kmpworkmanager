@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-01-15
+
+### BREAKING CHANGES
+
+**Group ID Migration: `io.brewkits` → `dev.brewkits`**
+
+This version introduces a breaking change to align with domain ownership for Maven Central.
+
+**What Changed:**
+- Maven artifact: `io.brewkits:kmpworkmanager` → `dev.brewkits:kmpworkmanager`
+- Package namespace: `io.brewkits.kmpworkmanager.*` → `dev.brewkits.kmpworkmanager.*`
+- All source files (117 files) updated with new package structure
+
+**Migration Required:**
+```kotlin
+// Old (v1.x)
+implementation("io.brewkits:kmpworkmanager:1.1.0")
+import io.brewkits.kmpworkmanager.*
+
+// New (v2.0+)
+implementation("dev.brewkits:kmpworkmanager:2.0.0")
+import dev.brewkits.kmpworkmanager.*
+```
+
+**Why?**
+- Aligns with owned domain `brewkits.dev`
+- Proper Maven Central ownership verification
+- Long-term namespace stability
+
+See [DEPRECATED_README.md](DEPRECATED_README.md) for detailed migration guide.
+
 ## [1.1.0] - 2026-01-14
 
 ### Added

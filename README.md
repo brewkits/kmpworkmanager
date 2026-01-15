@@ -98,7 +98,7 @@ Add to your `build.gradle.kts`:
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("dev.brewkits:kmpworkmanager:1.1.0")
+            implementation("dev.brewkits:kmpworkmanager:2.0.0")
         }
     }
 }
@@ -108,7 +108,7 @@ Or using version catalog:
 
 ```toml
 [versions]
-kmpworkmanager = "1.1.0"
+kmpworkmanager = "2.0.0"
 
 [libraries]
 kmpworkmanager = { module = "dev.brewkits:kmpworkmanager", version.ref = "kmpworkmanager" }
@@ -567,7 +567,21 @@ Priority is given to:
 
 ## Version History
 
-**v1.1.0** (Latest) - Stability & Enterprise Features
+**v2.0.0** (Latest) - Package Namespace Migration
+
+**BREAKING CHANGE**: Group ID changed from `io.brewkits` to `dev.brewkits`
+- Maven artifact: `io.brewkits:kmpworkmanager` → `dev.brewkits:kmpworkmanager`
+- Package namespace: `io.brewkits.kmpworkmanager.*` → `dev.brewkits.kmpworkmanager.*`
+- Aligns with owned domain `brewkits.dev` for proper Maven Central ownership
+
+**Migration Guide:**
+1. Update dependency: `implementation("dev.brewkits:kmpworkmanager:2.0.0")`
+2. Update imports: `import dev.brewkits.kmpworkmanager.*`
+3. Clean and rebuild project
+
+See [DEPRECATED_README.md](DEPRECATED_README.md) for detailed migration instructions.
+
+**v1.1.0** - Stability & Enterprise Features
 - **NEW**: Real-time worker progress tracking with `WorkerProgress` and `TaskProgressBus`
 - **NEW**: iOS chain state restoration - resume from last completed step after interruptions
 - **NEW**: Windowed task trigger support (execute within time window)
