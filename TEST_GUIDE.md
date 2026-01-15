@@ -58,13 +58,13 @@ kmpworkmanager/
 
 ```bash
 # Run single test file
-./gradlew test --tests "io.brewkits.kmpworkmanager.ContractsTest"
+./gradlew test --tests "dev.brewkits.kmpworkmanager.ContractsTest"
 
 # Run specific test method
-./gradlew test --tests "io.brewkits.kmpworkmanager.ContractsTest.TaskTrigger*"
+./gradlew test --tests "dev.brewkits.kmpworkmanager.ContractsTest.TaskTrigger*"
 
 # Run multiple test files
-./gradlew test --tests "io.brewkits.kmpworkmanager.*Test"
+./gradlew test --tests "dev.brewkits.kmpworkmanager.*Test"
 ```
 
 ### Platform-Specific Tests

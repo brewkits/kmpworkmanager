@@ -49,7 +49,7 @@
 
 **Kết quả xác minh CODE:**
 
-**File:** `kmpworker/src/iosMain/kotlin/io/brewkits/kmpworkmanager/background/data/ChainExecutor.kt`
+**File:** `kmpworker/src/iosMain/kotlin/dev.brewkits/kmpworkmanager/background/data/ChainExecutor.kt`
 
 ```kotlin
 // Line 38-44
@@ -119,7 +119,7 @@ fileStorage.markChainForRetry(chainId, failedStepIndex = index + 1)
 
 **Kết quả xác minh CODE:**
 
-**File:** `kmpworker/src/iosMain/kotlin/io/brewkits/kmpworkmanager/background/data/NativeTaskScheduler.kt`
+**File:** `kmpworker/src/iosMain/kotlin/dev.brewkits/kmpworkmanager/background/data/NativeTaskScheduler.kt`
 
 ```kotlin
 // Line 130-133
@@ -171,7 +171,7 @@ TaskTrigger.BatteryOkay -> Remove battery constraint, proceed as OneTime
 
 **Kết quả xác minh CODE:**
 
-**File:** `kmpworker/src/commonMain/kotlin/io/brewkits/kmpworkmanager/background/domain/TaskCompletionEvent.kt`
+**File:** `kmpworker/src/commonMain/kotlin/dev.brewkits/kmpworkmanager/background/domain/TaskCompletionEvent.kt`
 
 ```kotlin
 // Line 21

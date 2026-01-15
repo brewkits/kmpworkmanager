@@ -101,7 +101,7 @@ KMPWorker/
 ./gradlew test
 
 # Run specific test file
-./gradlew :kmpworkmanager:testDebugUnitTest --tests "io.brewkits.kmpworkmanager.ContractsTest"
+./gradlew :kmpworkmanager:testDebugUnitTest --tests "dev.brewkits.kmpworkmanager.ContractsTest"
 
 # Run with coverage
 ./gradlew test jacocoTestReport
@@ -112,7 +112,7 @@ KMPWorker/
 **Android:**
 ```bash
 ./gradlew :composeApp:installDebug
-adb shell am start -n io.brewkits.kmpworkmanager.sample/.MainActivity
+adb shell am start -n dev.brewkits.kmpworkmanager.sample/.MainActivity
 ```
 
 **iOS:**

@@ -22,7 +22,7 @@ kotlin {
     sourceSets {
         androidMain.dependencies {
             // KMP WorkManager (required)
-            implementation("io.brewkits:kmpworkmanager:1.1.0")
+            implementation("dev.brewkits:kmpworkmanager:1.1.0")
 
             // WorkManager (optional - already included transitively)
             implementation("androidx.work:work-runtime-ktx:2.11.0")
@@ -77,7 +77,7 @@ kotlin {
 
         <!-- Alarm Receiver for exact alarms -->
         <receiver
-            android:name="io.brewkits.kmpworkmanager.sample.background.data.AlarmReceiver"
+            android:name="dev.brewkits.kmpworkmanager.sample.background.data.AlarmReceiver"
             android:enabled="true"
             android:exported="false" />
 
@@ -177,7 +177,7 @@ Add to `proguard-rules.pro`:
 ```proguard
 # Keep WorkManager classes
 -keep class androidx.work.** { *; }
--keep class io.brewkits.kmpworkmanager.sample.background.** { *; }
+-keep class dev.brewkits.kmpworkmanager.sample.background.** { *; }
 
 # Keep Koin classes
 -keep class org.koin.** { *; }

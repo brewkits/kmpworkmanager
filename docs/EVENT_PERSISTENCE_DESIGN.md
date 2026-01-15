@@ -99,13 +99,13 @@ Rationale: Zero dependencies, proven pattern from IosFileStorage
 ```
 
 **Android Implementation:**
-- Base directory: `Context.filesDir/io.brewkits.kmpworkmanager/events/`
+- Base directory: `Context.filesDir/dev.brewkits.kmpworkmanager/events/`
 - File: `events.jsonl` (append-only for performance)
 - Thread-safety: `synchronized` blocks
 - Atomic operations: temp file + rename pattern
 
 **iOS Implementation:**
-- Base directory: `Library/Application Support/io.brewkits.kmpworkmanager/events/`
+- Base directory: `Library/Application Support/dev.brewkits.kmpworkmanager/events/`
 - File: `events.jsonl`
 - Thread-safety: `Mutex` + `NSFileCoordinator`
 - Atomic operations: NSFileCoordinator for coordination
