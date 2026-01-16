@@ -45,8 +45,6 @@ kotlin {
             implementation(compose.preview)
             implementation(libs.androidx.activity.compose)
 
-            // Koin for Android
-            implementation(libs.koin.android)
             // AndroidX WorkManager for native background tasks
             implementation(libs.androidx.work.runtime.ktx)
             // Coroutines support for Guava ListenableFuture
@@ -62,9 +60,9 @@ kotlin {
             implementation(libs.androidx.lifecycle.viewmodelCompose)
             implementation(libs.androidx.lifecycle.runtimeCompose)
 
-            // Koin for dependency injection
-            implementation(libs.koin.core)
-            implementation(libs.koin.compose)
+            // Core KMP WorkManager (DI-agnostic)
+            implementation(project(":kmpworker"))
+
             // Kotlinx Datetime for handling dates and times
             implementation(libs.kotlinx.datetime)
             // Kotlinx Serialization for JSON processing
@@ -97,6 +95,28 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+    flavorDimensions += "di"
+
+    productFlavors {
+        create("manual") {
+            dimension = "di"
+            applicationIdSuffix = ".manual"
+            versionNameSuffix = "-manual"
+        }
+
+        create("koin") {
+            dimension = "di"
+            applicationIdSuffix = ".koin"
+            versionNameSuffix = "-koin"
+        }
+
+        create("hilt") {
+            dimension = "di"
+            applicationIdSuffix = ".hilt"
+            versionNameSuffix = "-hilt"
+        }
+    }
+
     buildTypes {
         getByName("release") {
             isMinifyEnabled = false
@@ -110,5 +130,17 @@ android {
 
 dependencies {
     debugImplementation(compose.uiTooling)
+
+    // Manual flavor - no DI framework dependencies
+    // (already has core kmpworker from commonMain)
+
+    // Koin flavor - add Koin extension
+    "koinImplementation"(project(":kmpworker-koin"))
+    "koinImplementation"(libs.koin.android)
+    "koinImplementation"(libs.koin.core)
+    "koinImplementation"(libs.koin.compose)
+
+    // Hilt flavor - add Hilt extension (TODO: when available)
+    // "hiltImplementation"(project(":kmpworker-hilt"))
 }
 
