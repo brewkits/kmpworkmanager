@@ -1,19 +1,17 @@
-package dev.brewkits.kmpworkmanager
+package dev.brewkits.kmpworkmanager.koin
 
 import android.content.Context
-import dev.brewkits.kmpworkmanager.background.data.NativeTaskScheduler
+import dev.brewkits.kmpworkmanager.WorkerManagerInitializer
 import dev.brewkits.kmpworkmanager.background.domain.AndroidWorkerFactory
 import dev.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
-import dev.brewkits.kmpworkmanager.background.domain.TaskEventManager
 import dev.brewkits.kmpworkmanager.background.domain.WorkerFactory
-import dev.brewkits.kmpworkmanager.persistence.AndroidEventStore
-import dev.brewkits.kmpworkmanager.persistence.EventStore
 import org.koin.dsl.module
 
 /**
- * Android implementation of the Koin module.
+ * Android implementation of the Koin module for KMP WorkManager.
  *
- * v4.0.0+ Breaking Change: Now requires WorkerFactory parameter
+ * This module uses WorkerManagerInitializer to set up the scheduler,
+ * maintaining backward compatibility with v2.0.0 while using the new DI-agnostic core.
  *
  * Usage:
  * ```kotlin
@@ -27,6 +25,7 @@ import org.koin.dsl.module
  *
  * @param workerFactory User-provided factory implementing AndroidWorkerFactory
  * @param iosTaskIds Ignored on Android (iOS-only parameter)
+ * @since 2.1.0
  */
 actual fun kmpWorkerModule(
     workerFactory: WorkerFactory,
@@ -34,24 +33,18 @@ actual fun kmpWorkerModule(
 ) = module {
     single<BackgroundTaskScheduler> {
         val context = get<Context>()
-        NativeTaskScheduler(context)
+
+        // Use WorkerManagerInitializer to set up everything
+        WorkerManagerInitializer.initialize(
+            workerFactory = workerFactory,
+            context = context
+        )
     }
 
-    // Register the user's worker factory
+    // Register the user's worker factory for direct injection if needed
     single<WorkerFactory> { workerFactory }
     single<AndroidWorkerFactory> {
         workerFactory as? AndroidWorkerFactory
             ?: error("WorkerFactory must implement AndroidWorkerFactory on Android")
-    }
-
-    // Event persistence
-    single<EventStore> {
-        val context = get<Context>()
-        val store = AndroidEventStore(context)
-
-        // Initialize TaskEventManager with the store
-        TaskEventManager.initialize(store)
-
-        store
     }
 }

@@ -13,11 +13,15 @@ plugins {
 }
 
 group = "dev.brewkits"
-version = "2.0.0"
+version = "2.1.0"
 
 kotlin {
     androidTarget {
         publishLibraryVariants("release")
+
+        mavenPublication {
+            artifactId = "kmpworkmanager-android"
+        }
 
         compilations.all {
             compileTaskProvider.configure {
@@ -47,13 +51,9 @@ kotlin {
             implementation(libs.androidx.work.runtime.ktx)
             // Coroutines support for Guava ListenableFuture
             implementation(libs.kotlinx.coroutines.guava)
-            // Koin for Android
-            implementation(libs.koin.android)
         }
 
         commonMain.dependencies {
-            // Koin for dependency injection
-            implementation(libs.koin.core)
             // Kotlinx Datetime for handling dates and times
             implementation(libs.kotlinx.datetime)
             // Kotlinx Serialization for JSON processing
@@ -88,6 +88,7 @@ publishing {
         // Configure all publications with common POM information
         withType<MavenPublication> {
             groupId = "dev.brewkits"
+            artifactId = artifactId.replace("kmpworker", "kmpworkmanager")
             version = "2.0.0"
 
             pom {

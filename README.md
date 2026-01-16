@@ -92,26 +92,52 @@ The library handles platform-specific details automatically.
 
 ## Installation
 
-Add to your `build.gradle.kts`:
+**Version 2.1.0+**: Choose your dependency injection approach:
+
+### Option 1: Manual (No DI Framework) - Recommended for New Projects
 
 ```kotlin
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("dev.brewkits:kmpworkmanager:2.0.0")
+            implementation("dev.brewkits:kmpworkmanager:2.1.0")
         }
     }
 }
 ```
 
-Or using version catalog:
+### Option 2: Koin Integration - For Existing Koin Users
+
+```kotlin
+kotlin {
+    sourceSets {
+        commonMain.dependencies {
+            implementation("dev.brewkits:kmpworkmanager:2.1.0")
+            implementation("dev.brewkits:kmpworkmanager-koin:2.1.0")
+        }
+    }
+}
+```
+
+### Option 3: Hilt Integration (Android Only) - For Hilt/Dagger Users
+
+```kotlin
+dependencies {
+    implementation("dev.brewkits:kmpworkmanager:2.1.0")
+    implementation("dev.brewkits:kmpworkmanager-hilt:2.1.0")
+}
+```
+
+**Version Catalog** (recommended):
 
 ```toml
 [versions]
-kmpworkmanager = "2.0.0"
+kmpworkmanager = "2.1.0"
 
 [libraries]
 kmpworkmanager = { module = "dev.brewkits:kmpworkmanager", version.ref = "kmpworkmanager" }
+kmpworkmanager-koin = { module = "dev.brewkits:kmpworkmanager-koin", version.ref = "kmpworkmanager" }
+kmpworkmanager-hilt = { module = "dev.brewkits:kmpworkmanager-hilt", version.ref = "kmpworkmanager" }
 ```
 
 ## Quick Start
@@ -170,7 +196,36 @@ class MyWorkerFactory : IosWorkerFactory {
 }
 ```
 
-### 3. Initialize Koin
+### 3. Initialize the Library
+
+#### Option A: Manual Initialization (No DI Framework)
+
+**Android** (`Application.kt`):
+
+```kotlin
+class MyApp : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        WorkerManagerInitializer.initialize(
+            workerFactory = MyWorkerFactory(),
+            context = this
+        )
+    }
+}
+```
+
+**iOS** (call from `AppDelegate`):
+
+```kotlin
+fun initializeWorkManager() {
+    WorkerManagerInitializer.initialize(
+        workerFactory = MyWorkerFactory(),
+        iosTaskIds = setOf("kmp-sync-task", "kmp-upload-task")
+    )
+}
+```
+
+#### Option B: With Koin
 
 **Android** (`Application.kt`):
 

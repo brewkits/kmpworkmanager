@@ -7,6 +7,84 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-01-16
+
+### 🎉 Major Enhancement: DI-Agnostic Architecture
+
+KMP WorkManager is now **dependency injection framework agnostic**! Koin is optional.
+
+### Added
+
+#### Core Library (Zero DI Dependencies)
+- **WorkerManagerConfig**: Global service locator for DI-agnostic factory registration
+- **WorkerManagerInitializer**: Unified initialization API (expect/actual pattern)
+  - Manual initialization without any DI framework
+  - Platform-specific setup (Android Context, iOS task IDs)
+- **AndroidWorkerFactoryProvider** / **IosWorkerFactoryProvider**: Type-safe factory accessors
+- **IosTaskHandlerRegistry**: Lazy-initialized task executors for iOS
+
+#### Extension Modules
+- **kmpworkmanager-koin** (v2.1.0): Optional Koin integration extension
+  - 100% backward compatible with v2.0.0
+  - Same API, just add the dependency
+- **kmpworkmanager-hilt** (v2.1.0): Optional Hilt/Dagger integration (Android only)
+  - Native Hilt support for Android apps
+
+### Changed
+
+- **Core library**: Removed Koin dependencies (koin-core, koin-android)
+- **KmpWorker** / **KmpHeavyWorker**: Use `AndroidWorkerFactoryProvider` instead of Koin injection
+- **Version**: 2.0.0 → 2.1.0 (minor version bump - non-breaking)
+
+### Deprecated
+
+- **KoinModule files** in core library: Moved to `kmpworkmanager-koin` extension
+  - Old code still works with extension dependency
+  - Will be removed in v3.0.0
+
+### Migration
+
+**For existing Koin users** (100% backward compatible):
+```kotlin
+// Just add one dependency - code stays the same
+implementation("dev.brewkits:kmpworkmanager:2.1.0")
+implementation("dev.brewkits:kmpworkmanager-koin:2.1.0")  // ADD THIS
+```
+
+**For new projects** (manual initialization):
+```kotlin
+// Android
+class MyApp : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        WorkerManagerInitializer.initialize(
+            workerFactory = MyWorkerFactory(),
+            context = this
+        )
+    }
+}
+
+// iOS
+fun initializeWorkManager() {
+    WorkerManagerInitializer.initialize(
+        workerFactory = MyWorkerFactory(),
+        iosTaskIds = setOf("my-task")
+    )
+}
+```
+
+See [docs/migration-v2.1.0.md](docs/migration-v2.1.0.md) for complete migration guide.
+
+### Benefits
+
+- 🎯 **Zero dependencies**: Core library has no DI framework requirements
+- 🔌 **Flexible integration**: Choose your DI solution (Koin, Hilt, manual, or others)
+- 📦 **Smaller binary size**: Only include DI framework if you need it
+- 🧪 **Easier testing**: Simple manual initialization for tests
+- ♻️ **Backward compatible**: Existing Koin code works with extension module
+
+---
+
 ## [2.0.0] - 2026-01-15
 
 ### BREAKING CHANGES

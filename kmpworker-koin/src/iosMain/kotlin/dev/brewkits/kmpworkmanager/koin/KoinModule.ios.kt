@@ -1,18 +1,16 @@
-package dev.brewkits.kmpworkmanager
+package dev.brewkits.kmpworkmanager.koin
 
+import dev.brewkits.kmpworkmanager.WorkerManagerInitializer
 import dev.brewkits.kmpworkmanager.background.data.IosWorkerFactory
-import dev.brewkits.kmpworkmanager.background.data.NativeTaskScheduler
 import dev.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
-import dev.brewkits.kmpworkmanager.background.domain.TaskEventManager
 import dev.brewkits.kmpworkmanager.background.domain.WorkerFactory
-import dev.brewkits.kmpworkmanager.persistence.EventStore
-import dev.brewkits.kmpworkmanager.persistence.IosEventStore
 import org.koin.dsl.module
 
 /**
- * iOS implementation of the Koin module.
+ * iOS implementation of the Koin module for KMP WorkManager.
  *
- * v4.0.0+ Breaking Change: Now requires WorkerFactory parameter
+ * This module uses WorkerManagerInitializer to set up the scheduler,
+ * maintaining backward compatibility with v2.0.0 while using the new DI-agnostic core.
  *
  * Usage:
  * ```kotlin
@@ -38,6 +36,7 @@ import org.koin.dsl.module
  *
  * @param workerFactory User-provided factory implementing IosWorkerFactory
  * @param iosTaskIds Additional iOS task IDs (optional, Info.plist is primary source)
+ * @since 2.1.0
  */
 actual fun kmpWorkerModule(
     workerFactory: WorkerFactory,
@@ -69,20 +68,14 @@ actual fun kmpWorkerModule(
     }
 
     single<BackgroundTaskScheduler> {
-        NativeTaskScheduler(additionalPermittedTaskIds = iosTaskIds)
+        // Use WorkerManagerInitializer to set up everything
+        WorkerManagerInitializer.initialize(
+            workerFactory = workerFactory,
+            iosTaskIds = iosTaskIds
+        )
     }
 
-    // Register the user's worker factory (already validated above)
+    // Register the user's worker factory for direct injection if needed
     single<WorkerFactory> { workerFactory }
     single<IosWorkerFactory> { workerFactory }
-
-    // Event persistence
-    single<EventStore> {
-        val store = IosEventStore()
-
-        // Initialize TaskEventManager with the store
-        TaskEventManager.initialize(store)
-
-        store
-    }
 }
