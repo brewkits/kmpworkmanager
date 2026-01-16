@@ -30,4 +30,5 @@ dependencyResolutionManagement {
 }
 
 include(":kmpworker")
+include(":kmpworker-koin")
 include(":composeApp")
