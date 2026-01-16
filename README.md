@@ -443,7 +443,7 @@ Progress features:
 
 KMP WorkManager is actively developed with a focus on reliability, developer experience, and enterprise features. Here's our planned development roadmap:
 
-### v1.2.0 - Event Persistence & Smart Retries (Q1 2026)
+### v2.1.0 - Event Persistence & Smart Retries (Q1 2026)
 
 **Event Persistence System**
 - Persistent storage for TaskCompletionEvents (survives app kills and force-quit)
@@ -467,7 +467,7 @@ expect object PlatformCapabilities {
 }
 ```
 
-### v1.3.0 - Typed Results & Enhanced Observability (Q2 2026)
+### v2.2.0 - Typed Results & Enhanced Observability (Q2 2026)
 
 **Typed Result Data Passing**
 - Workers return structured results, not just Boolean
@@ -492,7 +492,7 @@ sealed class WorkResult {
 - Test utilities for simulating background task scenarios
 - Documentation with testing best practices
 
-### v1.4.0 - Developer Experience & Tooling (Q3 2026)
+### v2.3.0 - Developer Experience & Tooling (Q3 2026)
 
 **Annotation-Based Worker Discovery**
 - `@Worker` annotation for automatic registration
@@ -520,7 +520,7 @@ scheduler.enqueueBatch(
 )
 ```
 
-### v2.0.0 - Advanced Features & Platform Expansion (Q4 2026)
+### v3.0.0 - Advanced Features & Platform Expansion (Q4 2026)
 
 **Desktop Support (JVM)**
 - Windows, macOS, Linux support
