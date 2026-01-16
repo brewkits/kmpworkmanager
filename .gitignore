@@ -51,6 +51,12 @@ NOTES.md
 TODO.md
 PERSONAL_*.md
 
+# Internal docs/ files (uppercase filenames)
+docs/ROADMAP_*.md
+docs/TEST_PLAN.md
+docs/EVENT_PERSISTENCE_DESIGN.md
+docs/RESEARCH_ANALYSIS.md
+
 # Deployment bundles
 *-bundle.zip
 *.bundle.zip
