@@ -288,9 +288,20 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         let initialQueueSize = chainExecutor.getChainQueueSize()
         print("📦 iOS BGTask: Chain queue size: \(initialQueueSize)")
 
-        // Define an expiration handler
+        // Define an expiration handler - CRITICAL: Call graceful shutdown to save progress
         task.expirationHandler = {
-            print("⏰ iOS BGTask: KMP Chain Executor Task expired - stopping batch processing")
+            print("⏰ iOS BGTask: KMP Chain Executor Task expired - initiating graceful shutdown")
+
+            // Graceful shutdown with 5s grace period for progress save
+            Task {
+                do {
+                    try await chainExecutor.requestShutdown()
+                    print("✅ iOS BGTask: Graceful shutdown completed")
+                } catch {
+                    print("❌ iOS BGTask: Graceful shutdown failed: \(error)")
+                }
+            }
+
             task.setTaskCompleted(success: false)
         }
 

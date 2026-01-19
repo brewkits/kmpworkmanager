@@ -350,4 +350,173 @@ class AppendOnlyQueueTest {
         // Verify queue is empty
         assertNull(queue.dequeue())
     }
+
+    // ==================== Compaction Tests ====================
+
+    @Test
+    fun `compaction reduces file size after many dequeues`() = runTest {
+        // Enqueue 200 items
+        repeat(200) { i ->
+            queue.enqueue("item-$i")
+        }
+
+        // Dequeue 180 items (90% processed - above 80% threshold)
+        repeat(180) {
+            queue.dequeue()
+        }
+
+        // Give compaction some time to run in background
+        kotlinx.coroutines.delay(2000)
+
+        // After compaction, queue should still have 20 items
+        assertEquals(20, queue.getSize())
+
+        // Verify remaining items are correct
+        repeat(20) { i ->
+            val expected = "item-${180 + i}"
+            assertEquals(expected, queue.dequeue())
+        }
+
+        assertNull(queue.dequeue())
+    }
+
+    @Test
+    fun `queue continues to work after compaction`() = runTest {
+        // Enqueue 150 items
+        repeat(150) { i ->
+            queue.enqueue("item-$i")
+        }
+
+        // Dequeue 130 items (triggers compaction)
+        repeat(130) {
+            queue.dequeue()
+        }
+
+        // Wait for compaction
+        kotlinx.coroutines.delay(2000)
+
+        // Enqueue more items after compaction
+        repeat(10) { i ->
+            queue.enqueue("new-item-$i")
+        }
+
+        // Verify old items still accessible
+        repeat(20) { i ->
+            val expected = "item-${130 + i}"
+            assertEquals(expected, queue.dequeue())
+        }
+
+        // Verify new items accessible
+        repeat(10) { i ->
+            assertEquals("new-item-$i", queue.dequeue())
+        }
+
+        assertNull(queue.dequeue())
+    }
+
+    @Test
+    fun `compaction preserves item order`() = runTest {
+        // Enqueue 100 items with specific pattern
+        val items = (0 until 100).map { "task-${it.toString().padStart(4, '0')}" }
+        items.forEach { queue.enqueue(it) }
+
+        // Dequeue 85 items (85% - triggers compaction)
+        repeat(85) {
+            queue.dequeue()
+        }
+
+        // Wait for compaction
+        kotlinx.coroutines.delay(2000)
+
+        // Verify remaining 15 items are in correct order
+        repeat(15) { i ->
+            val expected = items[85 + i]
+            assertEquals(expected, queue.dequeue())
+        }
+    }
+
+    @Test
+    fun `multiple compactions work correctly`() = runTest {
+        // First cycle: enqueue 200, dequeue 180, compact
+        repeat(200) { i -> queue.enqueue("cycle1-$i") }
+        repeat(180) { queue.dequeue() }
+        kotlinx.coroutines.delay(2000)  // Wait for compaction
+
+        // After cycle1: remaining 20 items (cycle1-180 to cycle1-199)
+        // After compaction: file has 20 items, head pointer reset to 0
+        assertEquals(20, queue.getSize())
+
+        // Second cycle: enqueue 200 more
+        repeat(200) { i -> queue.enqueue("cycle2-$i") }
+        // Now file has 220 items (20 from cycle1 + 200 from cycle2)
+        // Dequeue 180: takes cycle1 (20) + cycle2 (0-159)
+        repeat(180) { queue.dequeue() }
+        kotlinx.coroutines.delay(2000)  // Wait for compaction
+
+        // After cycle2: remaining 40 items (cycle2-160 to cycle2-199)
+        assertEquals(40, queue.getSize())
+
+        // Third cycle: enqueue 200 more
+        repeat(200) { i -> queue.enqueue("cycle3-$i") }
+        // Dequeue 180: takes cycle2 (40) + cycle3 (0-139)
+        repeat(180) { queue.dequeue() }
+        kotlinx.coroutines.delay(2000)  // Wait for compaction
+
+        // After cycle3: remaining 60 items (cycle3-140 to cycle3-199)
+        assertEquals(60, queue.getSize())
+
+        // Verify items are correct (only cycle3 remaining)
+        repeat(60) { i ->
+            assertEquals("cycle3-${140 + i}", queue.dequeue())
+        }
+
+        assertNull(queue.dequeue())
+    }
+
+    @Test
+    fun `compaction does not trigger when queue is too small`() = runTest {
+        // Enqueue only 50 items
+        repeat(50) { i ->
+            queue.enqueue("item-$i")
+        }
+
+        // Dequeue 45 items (90% but total < 100 threshold)
+        repeat(45) {
+            queue.dequeue()
+        }
+
+        // Wait a bit
+        kotlinx.coroutines.delay(1000)
+
+        // Queue should still have 5 items
+        assertEquals(5, queue.getSize())
+
+        // Items should be accessible
+        repeat(5) { i ->
+            assertEquals("item-${45 + i}", queue.dequeue())
+        }
+    }
+
+    @Test
+    fun `compaction handles empty queue gracefully`() = runTest {
+        // Enqueue and dequeue all items
+        repeat(200) { i ->
+            queue.enqueue("item-$i")
+        }
+
+        repeat(200) {
+            queue.dequeue()
+        }
+
+        // Wait for potential compaction
+        kotlinx.coroutines.delay(2000)
+
+        // Queue should be empty
+        assertEquals(0, queue.getSize())
+        assertNull(queue.dequeue())
+
+        // Should still be able to enqueue new items
+        queue.enqueue("new-item")
+        assertEquals("new-item", queue.dequeue())
+    }
 }

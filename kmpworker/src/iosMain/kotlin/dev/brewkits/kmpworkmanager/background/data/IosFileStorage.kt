@@ -41,7 +41,16 @@ internal class IosFileStorage {
     private val fileManager = NSFileManager.defaultManager
     private val fileCoordinator = NSFileCoordinator(filePresenter = null)
 
+    // v2.1.0+: High-performance O(1) queue using AppendOnlyQueue
+    private val queue: AppendOnlyQueue by lazy {
+        // Create queue subdirectory for better organization
+        val queueDirURL = baseDir.URLByAppendingPathComponent("queue")!!
+        ensureDirectoryExists(queueDirURL)
+        AppendOnlyQueue(queueDirURL)
+    }
+
     // In-memory mutex for queue operations (complements file coordinator)
+    // Note: AppendOnlyQueue has its own mutex, but we keep this for coordinated operations
     private val queueMutex = Mutex()
 
     companion object {
@@ -100,113 +109,52 @@ internal class IosFileStorage {
 
     /**
      * Enqueue a chain ID to the queue (thread-safe, atomic)
+     * v2.1.0+: Uses AppendOnlyQueue for O(1) performance
      */
     suspend fun enqueueChain(chainId: String) {
-        queueMutex.withLock {
-            coordinated(queueFileURL, write = true) {
-                val currentQueue = readQueueInternal()
-
-                // Validate queue size limit
-                if (currentQueue.size >= MAX_QUEUE_SIZE) {
-                    Logger.e(LogTags.CHAIN, "Queue size limit reached ($MAX_QUEUE_SIZE). Cannot enqueue chain: $chainId")
-                    throw IllegalStateException("Queue size limit exceeded")
-                }
-
-                // Append to queue
-                val updatedQueue = currentQueue + chainId
-                writeQueueInternal(updatedQueue)
-
-                Logger.d(LogTags.CHAIN, "Enqueued chain $chainId. Queue size: ${updatedQueue.size}")
-            }
+        // Check queue size before enqueue (AppendOnlyQueue doesn't enforce limit)
+        val currentSize = queue.getSize()
+        if (currentSize >= MAX_QUEUE_SIZE) {
+            Logger.e(LogTags.CHAIN, "Queue size limit reached ($MAX_QUEUE_SIZE). Cannot enqueue chain: $chainId")
+            throw IllegalStateException("Queue size limit exceeded")
         }
+
+        // O(1) enqueue operation
+        queue.enqueue(chainId)
+        Logger.d(LogTags.CHAIN, "Enqueued chain $chainId. Queue size: ${currentSize + 1}")
     }
 
     /**
      * Dequeue the first chain ID from the queue (thread-safe, atomic)
+     * v2.1.0+: Uses AppendOnlyQueue for O(1) performance
      * @return Chain ID or null if queue is empty
      */
     suspend fun dequeueChain(): String? {
-        return queueMutex.withLock {
-            coordinated(queueFileURL, write = true) {
-                val currentQueue = readQueueInternal()
+        // O(1) dequeue operation (with automatic compaction at 80% threshold)
+        val chainId = queue.dequeue()
 
-                if (currentQueue.isEmpty()) {
-                    Logger.d(LogTags.CHAIN, "Queue is empty")
-                    return@coordinated null
-                }
-
-                val chainId = currentQueue.first()
-                val updatedQueue = currentQueue.drop(1)
-                writeQueueInternal(updatedQueue)
-
-                Logger.d(LogTags.CHAIN, "Dequeued chain $chainId. Remaining: ${updatedQueue.size}")
-                chainId
-            }
+        if (chainId == null) {
+            Logger.d(LogTags.CHAIN, "Queue is empty")
+        } else {
+            Logger.d(LogTags.CHAIN, "Dequeued chain $chainId. Remaining: ${queue.getSize()}")
         }
+
+        return chainId
     }
 
     /**
      * Get current queue size
+     * v2.1.0+: Uses AppendOnlyQueue for O(1) performance
+     * Note: This is not suspend because queue.getSize() uses runBlocking internally
      */
     fun getQueueSize(): Int {
-        return coordinated(queueFileURL, write = false) {
-            readQueueInternal().size
+        return kotlinx.coroutines.runBlocking {
+            queue.getSize()
         }
     }
 
-    /**
-     * Read queue from file (internal, must be called within coordinated block)
-     */
-    private fun readQueueInternal(): List<String> {
-        val path = queueFileURL.path ?: return emptyList()
-
-        if (!fileManager.fileExistsAtPath(path)) {
-            return emptyList()
-        }
-
-        return memScoped {
-            val errorPtr = alloc<ObjCObjectVar<NSError?>>()
-            val content = NSString.stringWithContentsOfFile(
-                path,
-                encoding = NSUTF8StringEncoding,
-                error = errorPtr.ptr
-            )
-
-            if (content == null) {
-                Logger.w(LogTags.CHAIN, "Failed to read queue file: ${errorPtr.value?.localizedDescription}")
-                return emptyList()
-            }
-
-            // Parse JSONL format (one ID per line)
-            content.split("\n")
-                .filter { it.isNotBlank() }
-        }
-    }
-
-    /**
-     * Write queue to file (internal, must be called within coordinated block)
-     */
-    private fun writeQueueInternal(queue: List<String>) {
-        val path = queueFileURL.path ?: return
-        val content = queue.joinToString("\n") + (if (queue.isNotEmpty()) "\n" else "")
-
-        memScoped {
-            val errorPtr = alloc<ObjCObjectVar<NSError?>>()
-            val nsString = content as NSString
-
-            val success = nsString.writeToFile(
-                path,
-                atomically = true,
-                encoding = NSUTF8StringEncoding,
-                error = errorPtr.ptr
-            )
-
-            if (!success) {
-                Logger.e(LogTags.CHAIN, "Failed to write queue file: ${errorPtr.value?.localizedDescription}")
-                throw IllegalStateException("Failed to write queue file")
-            }
-        }
-    }
+    // v2.1.0+: Queue operations moved to AppendOnlyQueue
+    // readQueueInternal() and writeQueueInternal() removed - no longer needed
 
     // ==================== Chain Definition Operations ====================
 

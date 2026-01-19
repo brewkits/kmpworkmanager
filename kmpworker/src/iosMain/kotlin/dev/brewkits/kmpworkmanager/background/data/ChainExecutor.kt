@@ -33,6 +33,11 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
     private val activeChainsMutex = Mutex()
     private val activeChains = mutableSetOf<String>()
 
+    // v2.1.0+: Graceful shutdown support for BGTask expiration
+    private val shutdownMutex = Mutex()
+    // Use Mutex for thread-safe boolean access (no @Volatile needed in Kotlin/Native)
+    private var isShuttingDown = false
+
     companion object {
         /**
          * Timeout for individual tasks within chain (20 seconds)
@@ -45,6 +50,64 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
          * Provides 10s safety margin for BGProcessingTask (60s limit)
          */
         const val CHAIN_TIMEOUT_MS = 50_000L
+
+        /**
+         * v2.1.0+: Shutdown grace period (5 seconds)
+         * Time allowed for saving progress after shutdown signal
+         */
+        const val SHUTDOWN_GRACE_PERIOD_MS = 5_000L
+    }
+
+    /**
+     * v2.1.0+: Request graceful shutdown of chain execution.
+     * This should be called when iOS signals BGTask expiration.
+     *
+     * **What it does**:
+     * - Sets shutdown flag to stop accepting new chains
+     * - Cancels the coroutine scope to interrupt running chains
+     * - Running chains will catch CancellationException and save progress
+     * - Waits for grace period to allow progress saving
+     *
+     * **Usage in Swift/Obj-C**:
+     * ```swift
+     * BGTaskScheduler.shared.register(forTaskWithIdentifier: id) { task in
+     *     task.expirationHandler = {
+     *         chainExecutor.requestShutdown() // Call this!
+     *     }
+     *     // ... execute chains ...
+     * }
+     * ```
+     */
+    suspend fun requestShutdown() {
+        shutdownMutex.withLock {
+            if (isShuttingDown) {
+                Logger.w(LogTags.CHAIN, "Shutdown already in progress")
+                return
+            }
+
+            isShuttingDown = true
+            Logger.w(LogTags.CHAIN, "🛑 Graceful shutdown requested - cancelling active chains")
+        }
+
+        // Cancel all running chains
+        job.cancelChildren()
+
+        // Wait for grace period to allow progress saving
+        Logger.i(LogTags.CHAIN, "Waiting ${SHUTDOWN_GRACE_PERIOD_MS}ms for progress to be saved...")
+        kotlinx.coroutines.delay(SHUTDOWN_GRACE_PERIOD_MS)
+
+        Logger.i(LogTags.CHAIN, "Graceful shutdown complete. Active chains: ${activeChains.size}")
+    }
+
+    /**
+     * v2.1.0+: Reset shutdown state (call on next BGTask launch)
+     * Thread-safe version using mutex to prevent race conditions
+     */
+    suspend fun resetShutdownState() {
+        shutdownMutex.withLock {
+            isShuttingDown = false
+            Logger.d(LogTags.CHAIN, "Shutdown state reset")
+        }
     }
 
     /**
@@ -67,6 +130,17 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
         maxChains: Int = 3,
         totalTimeoutMs: Long = CHAIN_TIMEOUT_MS
     ): Int {
+        // v2.1.0+: Check shutdown flag
+        shutdownMutex.withLock {
+            if (isShuttingDown) {
+                Logger.w(LogTags.CHAIN, "Batch execution skipped - shutdown in progress")
+                return 0
+            }
+        }
+
+        // Reset shutdown state on new execution
+        resetShutdownState()
+
         Logger.i(LogTags.CHAIN, "Starting batch chain execution (max: $maxChains, timeout: ${totalTimeoutMs}ms)")
 
         var executedCount = 0
@@ -75,6 +149,12 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
         try {
             withTimeout(totalTimeoutMs) {
                 repeat(maxChains) {
+                    // v2.1.0+: Check shutdown flag before each chain
+                    if (isShuttingDown) {
+                        Logger.w(LogTags.CHAIN, "Stopping batch execution - shutdown requested")
+                        return@repeat
+                    }
+
                     // Check remaining time
                     val elapsedTime = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime
                     val remainingTime = totalTimeoutMs - elapsedTime
@@ -96,6 +176,10 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
             }
         } catch (e: TimeoutCancellationException) {
             Logger.e(LogTags.CHAIN, "Batch execution timed out after ${totalTimeoutMs}ms")
+        } catch (e: CancellationException) {
+            // v2.1.0+: Graceful shutdown triggered
+            Logger.w(LogTags.CHAIN, "Batch execution cancelled - graceful shutdown in progress")
+            throw e // Re-throw to propagate cancellation
         }
 
         Logger.i(LogTags.CHAIN, "Batch execution completed: $executedCount chains executed")
@@ -240,6 +324,23 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
                     LogTags.CHAIN,
                     "Chain $chainId progress saved. Will resume from step ${progress.getNextStepIndex()} on next execution."
                 )
+
+                return false
+            } catch (e: CancellationException) {
+                // v2.1.0+: Graceful shutdown - save progress and exit cleanly
+                Logger.w(LogTags.CHAIN, "🛑 Chain $chainId cancelled due to graceful shutdown")
+
+                // Progress is already saved after each step, so current progress is persisted
+                val nextStep = progress.getNextStepIndex()
+                Logger.i(
+                    LogTags.CHAIN,
+                    "Chain $chainId progress saved (${progress.getCompletionPercentage()}% complete). " +
+                    "Will resume from step $nextStep on next BGTask execution."
+                )
+
+                // Re-queue the chain for next execution
+                fileStorage.enqueueChain(chainId)
+                Logger.i(LogTags.CHAIN, "Re-queued chain $chainId for resumption")
 
                 return false
             }

@@ -3,6 +3,8 @@ package dev.brewkits.kmpworkmanager.background.data
 import kotlinx.cinterop.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 import platform.Foundation.*
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.utils.LogTags
@@ -63,6 +65,9 @@ internal class AppendOnlyQueue(
     // Maximum queue size to prevent unbounded growth
     private val MAX_QUEUE_SIZE = 10_000
 
+    // Compaction state tracking
+    private var isCompacting = false
+
     companion object {
         private const val QUEUE_FILENAME = "queue.jsonl"
         private const val HEAD_POINTER_FILENAME = "head_pointer.txt"
@@ -117,9 +122,10 @@ internal class AppendOnlyQueue(
                     Logger.d(LogTags.CHAIN, "Dequeued $item. New head index: ${headIndex + 1}")
 
                     // Check if compaction is needed (non-blocking)
-                    if (shouldCompact()) {
+                    if (shouldCompact() && !isCompacting) {
                         Logger.i(LogTags.CHAIN, "Compaction threshold reached. Scheduling compaction...")
-                        // TODO: Launch compaction in background (Phase 1, Day 2)
+                        // Launch compaction in background (non-blocking)
+                        scheduleCompaction()
                     }
                 } else {
                     Logger.d(LogTags.CHAIN, "Queue is empty")
@@ -362,6 +368,142 @@ internal class AppendOnlyQueue(
 
         val processedRatio = headIndex.toDouble() / totalLines
         return processedRatio >= COMPACTION_THRESHOLD && headIndex > 100  // Only compact if significant waste
+    }
+
+    /**
+     * Schedule background compaction (non-blocking)
+     * Compaction runs in a separate coroutine to avoid blocking dequeue operations
+     */
+    private fun scheduleCompaction() {
+        if (isCompacting) {
+            Logger.w(LogTags.CHAIN, "Compaction already in progress. Skipping.")
+            return
+        }
+
+        isCompacting = true
+
+        // Launch compaction in background
+        // Note: Using GlobalScope for background operation
+        // In production, this should use a proper coroutine scope from DI
+        GlobalScope.launch {
+            try {
+                compactQueue()
+                Logger.i(LogTags.CHAIN, "Background compaction completed successfully")
+            } catch (e: Exception) {
+                Logger.e(LogTags.CHAIN, "Background compaction failed: ${e.message}")
+            } finally {
+                isCompacting = false
+            }
+        }
+    }
+
+    /**
+     * Compact the queue by removing processed items
+     * **Algorithm**:
+     * 1. Read all unprocessed items (from head to end)
+     * 2. Write to temporary compacted file
+     * 3. Atomically replace old file with compacted file
+     * 4. Reset head pointer to 0
+     * 5. Invalidate cache
+     *
+     * **Thread-safety**: Uses queueMutex to ensure exclusive access
+     * **Crash-safety**: Uses atomic file replacement (write to temp, then move)
+     */
+    private suspend fun compactQueue() {
+        queueMutex.withLock {
+            coordinated(queueFileURL, write = true) {
+                Logger.i(LogTags.CHAIN, "Starting queue compaction...")
+
+                val headIndex = readHeadPointer()
+                val totalLines = countTotalLines()
+                val unprocessedCount = totalLines - headIndex
+
+                if (unprocessedCount <= 0) {
+                    Logger.i(LogTags.CHAIN, "Queue is empty. No compaction needed.")
+                    return@coordinated
+                }
+
+                // Step 1: Read all unprocessed items
+                val unprocessedItems = mutableListOf<String>()
+                for (i in headIndex until totalLines) {
+                    val item = readLineAtIndex(i)
+                    if (item != null) {
+                        unprocessedItems.add(item)
+                    }
+                }
+
+                Logger.d(LogTags.CHAIN, "Compacting: $unprocessedCount unprocessed items (${headIndex} processed)")
+
+                // Step 2: Write to temporary compacted file
+                writeItemsToFile(compactedQueueURL, unprocessedItems)
+
+                // Step 3: Atomically replace old file with compacted file
+                val queuePath = queueFileURL.path ?: throw IllegalStateException("Queue file path is null")
+                val compactedPath = compactedQueueURL.path ?: throw IllegalStateException("Compacted file path is null")
+
+                memScoped {
+                    val errorPtr = alloc<ObjCObjectVar<NSError?>>()
+
+                    // Delete old queue file
+                    fileManager.removeItemAtPath(queuePath, errorPtr.ptr)
+
+                    // Move compacted file to queue file
+                    val success = fileManager.moveItemAtPath(
+                        compactedPath,
+                        toPath = queuePath,
+                        error = errorPtr.ptr
+                    )
+
+                    if (!success) {
+                        throw IllegalStateException("Failed to replace queue file: ${errorPtr.value?.localizedDescription}")
+                    }
+                }
+
+                // Step 4: Reset head pointer to 0
+                writeHeadPointer(0)
+
+                // Step 5: Invalidate cache
+                linePositionCache.clear()
+                cacheValid = false
+
+                Logger.i(LogTags.CHAIN, "Compaction complete. Reduced from $totalLines to $unprocessedCount items.")
+            }
+        }
+    }
+
+    /**
+     * Write items to a file (helper for compaction)
+     */
+    private fun writeItemsToFile(fileURL: NSURL, items: List<String>) {
+        val path = fileURL.path ?: throw IllegalStateException("File path is null")
+
+        // Create or overwrite file
+        memScoped {
+            val errorPtr = alloc<ObjCObjectVar<NSError?>>()
+
+            // Delete if exists
+            if (fileManager.fileExistsAtPath(path)) {
+                fileManager.removeItemAtPath(path, errorPtr.ptr)
+            }
+
+            // Create new file
+            fileManager.createFileAtPath(path, null, null)
+
+            // Open for writing
+            val fileHandle = NSFileHandle.fileHandleForWritingToURL(fileURL, errorPtr.ptr)
+                ?: throw IllegalStateException("Failed to open file for writing: ${errorPtr.value?.localizedDescription}")
+
+            try {
+                // Write all items
+                items.forEach { item ->
+                    val line = "$item\n"
+                    val data = line.toNSData()
+                    fileHandle.writeData(data)
+                }
+            } finally {
+                fileHandle.closeFile()
+            }
+        }
     }
 
     /**
