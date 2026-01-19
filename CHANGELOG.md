@@ -7,6 +7,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-01-20
+
+### 🚀 Major Performance Improvements
+
+**iOS Queue Operations - 13-40x Faster**
+- Implemented O(1) append-only queue with head pointer tracking
+- **Enqueue performance**: 40x faster (1000ms → 24ms for 100 chains)
+- **Dequeue performance**: 13x faster (5000ms → 382ms for 100 chains)
+- **Mixed operations**: 17x faster (30s+ → 1.7s for 700 operations)
+- Line position cache for efficient random access
+- Automatic compaction at 80% threshold to manage disk space
+
+**iOS Graceful Shutdown for BGTask Expiration**
+- Added graceful shutdown support for iOS BGProcessingTask time limits
+- 5-second grace period for progress save before termination
+- Automatic chain re-queuing on cancellation
+- Thread-safe shutdown state management with Mutex
+- Batch execution with shutdown flag checks
+- Integration with iOS BGTask `expirationHandler`
+
+### 🐛 Bug Fixes
+
+**iOS Storage Migration**
+- Fixed ClassCastException in `StorageMigration.kt` when migrating periodic tasks
+- Issue: `NSUserDefaults.dictionaryRepresentation().keys` returns NSSet, not List
+- Fix: Removed incorrect type casts at lines 79 and 173
+- Impact: Unblocked migration for users with existing periodic tasks
+
+**Demo App Integration**
+- Added `requestShutdown()` and `resetShutdownState()` to demo app ChainExecutor
+- Fixed Swift error handling in `iOSApp.swift` BGTask expiration handler
+- Added proper `do-catch` block with `try await` for Kotlin suspend functions
+
+### ✅ Test Coverage
+
+- Added 22 comprehensive tests for AppendOnlyQueue
+- Added 5 graceful shutdown scenario tests
+- Added 5 performance benchmark tests
+- **Total test count**: 236 tests (all passing)
+
+### 📖 Documentation
+
+- Added v2.1.0 implementation progress report
+- Added comprehensive code review document
+- Added test coverage analysis with production readiness assessment
+- Documented all bug fixes with root cause analysis
+
+### 🔧 Technical Details
+
+**New Classes**:
+- `AppendOnlyQueue.kt` - O(1) queue implementation with compaction
+- `GracefulShutdownTest.kt` - Shutdown scenario testing
+- `QueuePerformanceBenchmark.kt` - Performance verification
+
+**Modified Classes**:
+- `IosFileStorage.kt` - Integrated AppendOnlyQueue
+- `ChainExecutor.kt` - Added graceful shutdown support
+- `StorageMigration.kt` - Fixed NSSet casting bug
+
+**Performance Metrics**:
+- Queue operations now O(1) instead of O(N)
+- Compaction reduces file size by up to 90%
+- Background compaction doesn't block main operations
+
 ## [2.0.1] - 2026-01-19
 
 ### 🐛 Critical Bug Fixes

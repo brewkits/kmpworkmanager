@@ -27,6 +27,8 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
     private val job = SupervisorJob()
     private val coroutineScope = CoroutineScope(Dispatchers.Default + job)
 
+    private var isShuttingDown = false
+
     companion object {
         /**
          * Timeout for individual tasks within chain (20 seconds)
@@ -41,10 +43,45 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
         const val CHAIN_TIMEOUT_MS = 50_000L
 
         /**
+         * Shutdown grace period (5 seconds)
+         */
+        const val SHUTDOWN_GRACE_PERIOD_MS = 5_000L
+
+        /**
          * UserDefaults keys for chain persistence
          */
         private const val CHAIN_DEFINITION_PREFIX = "kmp_chain_definition_"
         private const val CHAIN_QUEUE_KEY = "kmp_chain_queue"
+    }
+
+    /**
+     * Request graceful shutdown (call from BGTask expirationHandler)
+     */
+    suspend fun requestShutdown() {
+        if (isShuttingDown) {
+            Logger.w(LogTags.CHAIN, "Shutdown already in progress")
+            return
+        }
+
+        isShuttingDown = true
+        Logger.w(LogTags.CHAIN, "🛑 Graceful shutdown requested")
+
+        // Cancel running chains
+        job.cancelChildren()
+
+        // Wait for grace period
+        Logger.i(LogTags.CHAIN, "Waiting ${SHUTDOWN_GRACE_PERIOD_MS}ms for cleanup...")
+        kotlinx.coroutines.delay(SHUTDOWN_GRACE_PERIOD_MS)
+
+        Logger.i(LogTags.CHAIN, "Graceful shutdown complete")
+    }
+
+    /**
+     * Reset shutdown state (call on next BGTask launch)
+     */
+    fun resetShutdownState() {
+        isShuttingDown = false
+        Logger.d(LogTags.CHAIN, "Shutdown state reset")
     }
 
     /**
@@ -68,6 +105,15 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
         maxChains: Int = 3,
         totalTimeoutMs: Long = CHAIN_TIMEOUT_MS
     ): Int {
+        // Check shutdown flag
+        if (isShuttingDown) {
+            Logger.w(LogTags.CHAIN, "Batch execution skipped - shutdown in progress")
+            return 0
+        }
+
+        // Reset shutdown state on new execution
+        resetShutdownState()
+
         Logger.i(LogTags.CHAIN, "Starting batch chain execution (max: $maxChains, timeout: ${totalTimeoutMs}ms)")
 
         var executedCount = 0
@@ -76,6 +122,12 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
         try {
             withTimeout(totalTimeoutMs) {
                 repeat(maxChains) {
+                    // Check shutdown flag before each chain
+                    if (isShuttingDown) {
+                        Logger.w(LogTags.CHAIN, "Stopping batch execution - shutdown requested")
+                        return@repeat
+                    }
+
                     // Check remaining time
                     val elapsedTime = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime
                     val remainingTime = totalTimeoutMs - elapsedTime

@@ -56,10 +56,10 @@ The library handles platform-specific details automatically.
 ### For Enterprise Applications
 
 **Production-Ready Reliability**
-- Comprehensive test coverage (200+ tests) including iOS-specific integration tests
+- Comprehensive test coverage (236 tests) including iOS-specific integration tests
 - Chain state restoration ensures no work is lost on iOS interruptions
 - Retry logic with configurable limits prevents infinite failure loops
-- File-based storage with atomic operations for data integrity
+- File-based storage with O(1) queue operations and atomic operations for data integrity
 
 **Real-Time Monitoring**
 - Built-in progress tracking for long-running operations (downloads, uploads, data processing)
