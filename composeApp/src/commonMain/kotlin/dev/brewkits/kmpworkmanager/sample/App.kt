@@ -242,9 +242,8 @@ fun TestDemoTab(scheduler: BackgroundTaskScheduler, coroutineScope: CoroutineSco
                 Button(
                     onClick = {
                         coroutineScope.launch {
-                            val timestamp = Clock.System.now().toEpochMilliseconds()
                             scheduler.enqueue(
-                                id = "demo-task-$timestamp",
+                                id = "demo-task",
                                 trigger = TaskTrigger.OneTime(initialDelayMs = 5000),
                                 workerClassName = WorkerTypes.SYNC_WORKER
                             )
@@ -258,7 +257,7 @@ fun TestDemoTab(scheduler: BackgroundTaskScheduler, coroutineScope: CoroutineSco
                 ) {
                     Text("Schedule Task (Check Debug Tab)")
                 }
-                Text("✓ Android: WorkManager | iOS: BGTaskScheduler", style = MaterialTheme.typography.bodySmall)
+                Text("✓ Android: WorkManager | iOS: BGTaskScheduler (uses fixed ID 'demo-task')", style = MaterialTheme.typography.bodySmall)
             }
         }
 
