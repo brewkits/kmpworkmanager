@@ -34,6 +34,22 @@ import org.koin.core.component.inject
  * )
  * ```
  *
+ * **v2.0.1+: Customize notification text (for localization):**
+ * ```kotlin
+ * val inputData = buildJsonObject {
+ *     put(KmpHeavyWorker.NOTIFICATION_TITLE_KEY, "處理中")
+ *     put(KmpHeavyWorker.NOTIFICATION_TEXT_KEY, "正在處理大型任務...")
+ * }.toString()
+ *
+ * scheduler.enqueue(
+ *     id = "heavy-processing",
+ *     trigger = TaskTrigger.OneTime(),
+ *     workerClassName = "ProcessVideoWorker",
+ *     constraints = Constraints(isHeavyTask = true),
+ *     inputJson = inputData  // ← Custom notification text
+ * )
+ * ```
+ *
  * **Requirements:**
  * - Requires `FOREGROUND_SERVICE` permission in AndroidManifest.xml
  * - Shows persistent notification while running (Android requirement)
@@ -64,6 +80,19 @@ class KmpHeavyWorker(
          */
         const val WORKER_CLASS_KEY = "workerClassName"
         const val INPUT_JSON_KEY = "inputJson"
+
+        /**
+         * v2.0.1+: Notification customization keys
+         * These can be passed via inputData to customize the foreground notification
+         */
+        const val NOTIFICATION_TITLE_KEY = "notificationTitle"
+        const val NOTIFICATION_TEXT_KEY = "notificationText"
+
+        /**
+         * Default notification text (used if not provided via inputData)
+         */
+        private const val DEFAULT_NOTIFICATION_TITLE = "Background Task Running"
+        private const val DEFAULT_NOTIFICATION_TEXT = "Processing heavy task..."
     }
 
     override suspend fun doWork(): Result {
@@ -102,13 +131,18 @@ class KmpHeavyWorker(
 
     /**
      * Creates foreground notification info
+     * v2.0.1+: Now supports custom notification text via inputData
      */
     private fun createForegroundInfo(): ForegroundInfo {
         createNotificationChannel()
 
+        // v2.0.1+: Allow custom notification text for localization
+        val notificationTitle = inputData.getString(NOTIFICATION_TITLE_KEY) ?: DEFAULT_NOTIFICATION_TITLE
+        val notificationText = inputData.getString(NOTIFICATION_TEXT_KEY) ?: DEFAULT_NOTIFICATION_TEXT
+
         val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
-            .setContentTitle("Background Task Running")
-            .setContentText("Processing heavy task...")
+            .setContentTitle(notificationTitle)
+            .setContentText(notificationText)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setOngoing(true) // Cannot be dismissed
             .setPriority(NotificationCompat.PRIORITY_LOW) // Low priority for less intrusion

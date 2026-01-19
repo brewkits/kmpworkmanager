@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-01-19
+
+### 🐛 Critical Bug Fixes
+
+**iOS Concurrency & Stability**
+- Fixed thread-safety issue in `ChainExecutor.activeChains` (replaced NSMutableSet with Mutex-protected Kotlin set)
+- Fixed ANR risk in `NativeTaskScheduler.enqueueChain` (moved file I/O from MainScope to backgroundScope)
+- Fixed stale metadata handling in `ExistingPolicy.KEEP` (now queries actual BGTaskScheduler pending tasks)
+- Fixed NPE in `IosFileStorage.coordinated()` by implementing conditional coordination (production uses NSFileCoordinator for inter-process safety; tests skip coordination to avoid callback execution issues)
+
+**Android Reliability**
+- Fixed `AlarmReceiver` process kill risk by adding `goAsync()` support with `PendingResult` parameter
+- Added configurable notification text for `KmpHeavyWorker` (supports localization via `NOTIFICATION_TITLE_KEY` and `NOTIFICATION_TEXT_KEY`)
+
+**Sample App**
+- Fixed memory leak in `DebugViewModel` (added proper CoroutineScope cleanup with `DisposableEffect`)
+
+### ⚠️ Breaking Changes
+
+**AlarmReceiver Signature Update**
+```kotlin
+// Before (v2.0.0)
+abstract fun handleAlarm(
+    context: Context,
+    taskId: String,
+    workerClassName: String,
+    inputJson: String?
+)
+
+// After (v2.0.1+)
+abstract fun handleAlarm(
+    context: Context,
+    taskId: String,
+    workerClassName: String,
+    inputJson: String?,
+    pendingResult: PendingResult  // Must call finish() when done
+)
+```
+
+**Migration**: Apps extending `AlarmReceiver` must update the method signature and call `pendingResult.finish()` when work completes.
+
+### 📝 Documentation
+- Added comprehensive inline documentation for all fixes
+- All code changes marked with "v2.0.1+" comments for traceability
+
 ## [2.0.0] - 2026-01-15
 
 ### BREAKING CHANGES
