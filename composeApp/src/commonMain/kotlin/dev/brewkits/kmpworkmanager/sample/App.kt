@@ -236,7 +236,7 @@ fun TestDemoTab(scheduler: BackgroundTaskScheduler, coroutineScope: CoroutineSco
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text("3. Task Scheduling (Both Platforms)", style = MaterialTheme.typography.titleLarge)
-                InfoBox("Schedule tasks on native schedulers. Check Debug tab to see scheduled tasks.")
+                InfoBox("Schedule a task on native schedulers. Clicking multiple times will replace the previous task (iOS requirement: fixed task IDs). Check Debug tab to see scheduled tasks.")
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Button(
