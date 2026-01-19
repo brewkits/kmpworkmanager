@@ -38,6 +38,9 @@ class AlarmReceiver : BroadcastReceiver() {
 
         Logger.i(LogTags.ALARM, "Alarm triggered - Title: '$title', ID: $notificationId")
 
+        // v2.0.1+: Use goAsync() to prevent Android from killing process during async operations
+        val pendingResult = goAsync()
+
         try {
             // Ensure notification channel exists (Android 8.0+)
             createNotificationChannel(context)
@@ -46,11 +49,12 @@ class AlarmReceiver : BroadcastReceiver() {
             showNotification(context, title, message, notificationId)
 
             // Emit completion event for UI updates
-            emitCompletionEvent(title, message)
+            emitCompletionEvent(title, message, pendingResult)
 
             Logger.i(LogTags.ALARM, "Alarm notification displayed successfully")
         } catch (e: Exception) {
             Logger.e(LogTags.ALARM, "Failed to display alarm notification", e)
+            pendingResult.finish()
         }
     }
 
@@ -111,8 +115,9 @@ class AlarmReceiver : BroadcastReceiver() {
 
     /**
      * Emit task completion event to notify UI
+     * v2.0.1+: Now accepts PendingResult to ensure process stays alive during async operation
      */
-    private fun emitCompletionEvent(title: String, message: String) {
+    private fun emitCompletionEvent(title: String, message: String, pendingResult: BroadcastReceiver.PendingResult) {
         CoroutineScope(Dispatchers.Main).launch {
             try {
                 TaskEventBus.emit(
@@ -125,6 +130,9 @@ class AlarmReceiver : BroadcastReceiver() {
                 Logger.d(LogTags.ALARM, "Task completion event emitted")
             } catch (e: Exception) {
                 Logger.e(LogTags.ALARM, "Failed to emit completion event", e)
+            } finally {
+                // Always finish the pending result to release the receiver
+                pendingResult.finish()
             }
         }
     }
