@@ -11,6 +11,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlin.coroutines.resume
+import kotlin.coroutines.suspendCoroutine
 import platform.BackgroundTasks.BGAppRefreshTaskRequest
 import platform.BackgroundTasks.BGProcessingTaskRequest
 import platform.BackgroundTasks.BGTaskRequest
@@ -163,8 +165,9 @@ actual class NativeTaskScheduler(
 
     /**
      * Schedule a periodic task with automatic re-scheduling
+     * v2.0.1+: Now suspend to support improved ExistingPolicy.KEEP logic
      */
-    private fun schedulePeriodicTask(
+    private suspend fun schedulePeriodicTask(
         id: String,
         trigger: TaskTrigger.Periodic,
         workerClassName: String,
@@ -200,8 +203,9 @@ actual class NativeTaskScheduler(
 
     /**
      * Schedule a one-time task
+     * v2.0.1+: Now suspend to support improved ExistingPolicy.KEEP logic
      */
-    private fun scheduleOneTimeTask(
+    private suspend fun scheduleOneTimeTask(
         id: String,
         trigger: TaskTrigger.OneTime,
         workerClassName: String,
@@ -243,6 +247,8 @@ actual class NativeTaskScheduler(
      * **Best Practice**: Design your app logic to not depend on the task
      * running before the `latest` time. Use exact alarms if strict timing is required.
      *
+     * v2.0.1+: Now suspend to support improved ExistingPolicy.KEEP logic
+     *
      * @param id Unique task identifier
      * @param trigger Windowed trigger with earliest and latest times
      * @param workerClassName Worker class name
@@ -250,7 +256,7 @@ actual class NativeTaskScheduler(
      * @param inputJson Worker input data
      * @param policy Policy for handling existing tasks
      */
-    private fun scheduleWindowedTask(
+    private suspend fun scheduleWindowedTask(
         id: String,
         trigger: TaskTrigger.Windowed,
         workerClassName: String,
@@ -292,8 +298,9 @@ actual class NativeTaskScheduler(
 
     /**
      * Handle ExistingPolicy - returns true if should proceed with scheduling, false if should skip
+     * v2.0.1+: Enhanced KEEP logic to query actual pending tasks, preventing stale metadata issues
      */
-    private fun handleExistingPolicy(id: String, policy: ExistingPolicy, isPeriodicMetadata: Boolean): Boolean {
+    private suspend fun handleExistingPolicy(id: String, policy: ExistingPolicy, isPeriodicMetadata: Boolean): Boolean {
         val existingMetadata = fileStorage.loadTaskMetadata(id, periodic = isPeriodicMetadata)
 
         if (existingMetadata != null) {
@@ -301,10 +308,18 @@ actual class NativeTaskScheduler(
 
             when (policy) {
                 ExistingPolicy.KEEP -> {
-                    // Check if task is still pending in BGTaskScheduler
-                    // Note: BGTaskScheduler doesn't provide API to query pending requests,
-                    // so we rely on metadata existence as proxy
-                    return false
+                    // v2.0.1+: Query BGTaskScheduler to verify task is actually pending
+                    // This prevents issues with stale metadata after crashes
+                    val isPending = isTaskPending(id)
+
+                    if (isPending) {
+                        Logger.i(LogTags.SCHEDULER, "Task '$id' is pending in BGTaskScheduler, keeping existing task")
+                        return false
+                    } else {
+                        Logger.w(LogTags.SCHEDULER, "Task '$id' metadata exists but not pending (stale). Cleaning up and rescheduling.")
+                        fileStorage.deleteTaskMetadata(id, periodic = isPeriodicMetadata)
+                        return true
+                    }
                 }
                 ExistingPolicy.REPLACE -> {
                     Logger.i(LogTags.SCHEDULER, "Replacing existing task '$id'")
@@ -314,6 +329,18 @@ actual class NativeTaskScheduler(
             }
         }
         return true
+    }
+
+    /**
+     * Check if a task is actually pending in BGTaskScheduler.
+     * v2.0.1+: Added to support reliable ExistingPolicy.KEEP logic
+     */
+    private suspend fun isTaskPending(taskId: String): Boolean = suspendCoroutine { continuation ->
+        BGTaskScheduler.sharedScheduler.getPendingTaskRequestsWithCompletionHandler { requests ->
+            val taskList = requests?.filterIsInstance<BGTaskRequest>() ?: emptyList()
+            val isPending = taskList.any { it.identifier == taskId }
+            continuation.resume(isPending)
+        }
     }
 
     /**
@@ -432,7 +459,8 @@ actual class NativeTaskScheduler(
         fileStorage.saveChainDefinition(chainId, steps)
 
         // 2. Add the chainId to the execution queue (atomic operation)
-        kotlinx.coroutines.MainScope().launch {
+        // v2.0.1+: Use background scope to avoid blocking Main thread with file I/O
+        backgroundScope.launch {
             try {
                 fileStorage.enqueueChain(chainId)
                 Logger.d(LogTags.CHAIN, "Added chain $chainId to execution queue. Queue size: ${fileStorage.getQueueSize()}")

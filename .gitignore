@@ -19,6 +19,7 @@ captures
 node_modules/
 .claude
 .claude/settings.local.json
+publish-to-maven-central.sh
 
 # ===================================
 # Security - Sensitive Files

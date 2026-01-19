@@ -20,8 +20,14 @@ class IosFileStorageTest {
     private lateinit var storage: IosFileStorage
 
     @BeforeTest
-    fun setup() {
+    fun setup() = runTest {
         storage = IosFileStorage()
+
+        // v2.0.1+: Clear queue to ensure test isolation
+        // Previous tests may have left data in filesystem
+        while (storage.dequeueChain() != null) {
+            // Clear all items
+        }
     }
 
     // ==================== Queue Operations ====================

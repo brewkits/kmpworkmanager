@@ -93,6 +93,8 @@ abstract class AlarmReceiver : BroadcastReceiver() {
     /**
      * Final onReceive - extracts alarm data and delegates to [handleAlarm]
      * Do NOT override this method - override [handleAlarm] instead
+     *
+     * v2.0.1+: Added goAsync() support to prevent process kill during async operations
      */
     final override fun onReceive(context: Context, intent: Intent) {
         val taskId = intent.getStringExtra(EXTRA_TASK_ID)
@@ -106,30 +108,73 @@ abstract class AlarmReceiver : BroadcastReceiver() {
 
         Logger.i(LogTags.ALARM, "Alarm received - Task: '$taskId', Worker: '$workerClassName'")
 
+        // v2.0.1+: Use goAsync() to prevent Android from killing the process
+        // before async work completes. The PendingResult keeps the receiver alive.
+        val pendingResult = goAsync()
+
         try {
-            handleAlarm(context, taskId, workerClassName, inputJson)
+            handleAlarm(context, taskId, workerClassName, inputJson, pendingResult)
         } catch (e: Exception) {
             Logger.e(LogTags.ALARM, "Error handling alarm for task '$taskId'", e)
+            // Ensure we finish even on exception to avoid leaking the PendingResult
+            pendingResult.finish()
         }
     }
 
     /**
      * Override this method to implement custom alarm handling logic.
      *
-     * **Important Notes:**
-     * - This runs in BroadcastReceiver context (10s limit)
-     * - For long-running work, use WorkManager or foreground service
-     * - Consider using [goAsync()] for async work within time limit
+     * **Important Notes (v2.0.1+):**
+     * - The [pendingResult] parameter keeps the receiver alive for async operations
+     * - You MUST call `pendingResult.finish()` when your work is complete
+     * - Recommended: Use WorkManager for reliable long-running work
+     * - BroadcastReceiver has a ~10 second time limit even with goAsync()
+     *
+     * **Example with coroutine:**
+     * ```kotlin
+     * override fun handleAlarm(
+     *     context: Context,
+     *     taskId: String,
+     *     workerClassName: String,
+     *     inputJson: String?,
+     *     pendingResult: PendingResult
+     * ) {
+     *     CoroutineScope(Dispatchers.IO).launch {
+     *         try {
+     *             // Do work here
+     *             val worker = workerFactory.createWorker(workerClassName)
+     *             worker?.doWork(inputJson)
+     *         } finally {
+     *             // CRITICAL: Always call finish() in finally block
+     *             pendingResult.finish()
+     *         }
+     *     }
+     * }
+     * ```
+     *
+     * **Best Practice:** For reliability, just schedule a WorkManager job from here:
+     * ```kotlin
+     * override fun handleAlarm(..., pendingResult: PendingResult) {
+     *     // Schedule expedited work
+     *     val workRequest = OneTimeWorkRequestBuilder<MyWorker>()
+     *         .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+     *         .build()
+     *     WorkManager.getInstance(context).enqueue(workRequest)
+     *     pendingResult.finish()
+     * }
+     * ```
      *
      * @param context Application context
      * @param taskId Unique task identifier
      * @param workerClassName Fully qualified worker class name
      * @param inputJson Optional JSON input data
+     * @param pendingResult PendingResult from goAsync() - MUST call finish() when done
      */
     abstract fun handleAlarm(
         context: Context,
         taskId: String,
         workerClassName: String,
-        inputJson: String?
+        inputJson: String?,
+        pendingResult: PendingResult
     )
 }

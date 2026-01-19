@@ -6,8 +6,9 @@ import dev.brewkits.kmpworkmanager.background.domain.TaskRequest
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.utils.LogTags
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import platform.Foundation.NSDate
-import platform.Foundation.NSMutableSet
 import platform.Foundation.timeIntervalSince1970
 
 /**
@@ -28,7 +29,9 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
     private val coroutineScope = CoroutineScope(Dispatchers.Default + job)
 
     // Thread-safe set to track active chains (prevents duplicate execution)
-    private val activeChains = NSMutableSet()
+    // v2.0.1+: Replaced NSMutableSet with Kotlin mutable set + Mutex for thread safety
+    private val activeChainsMutex = Mutex()
+    private val activeChains = mutableSetOf<String>()
 
     companion object {
         /**
@@ -133,15 +136,21 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
      * - Cleans up progress files on completion or abandonment
      */
     private suspend fun executeChain(chainId: String): Boolean {
-        // 1. Check for duplicate execution (race condition protection)
-        if (activeChains.member(chainId) != null) {
+        // 1. Check for duplicate execution and mark as active (thread-safe)
+        val isAlreadyActive = activeChainsMutex.withLock {
+            if (activeChains.contains(chainId)) {
+                true
+            } else {
+                activeChains.add(chainId)
+                Logger.d(LogTags.CHAIN, "Marked chain $chainId as active (Total active: ${activeChains.size})")
+                false
+            }
+        }
+
+        if (isAlreadyActive) {
             Logger.w(LogTags.CHAIN, "⚠️ Chain $chainId is already executing, skipping duplicate")
             return false
         }
-
-        // 2. Mark chain as active
-        activeChains.addObject(chainId)
-        Logger.d(LogTags.CHAIN, "Marked chain $chainId as active (Total active: ${activeChains.count})")
 
         try {
             // 3. Load the chain definition from file storage
@@ -242,9 +251,11 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
             return true
 
         } finally {
-            // 9. Always remove from active set (even on failure/timeout)
-            activeChains.removeObject(chainId)
-            Logger.d(LogTags.CHAIN, "Removed chain $chainId from active set (Remaining active: ${activeChains.count})")
+            // 9. Always remove from active set (even on failure/timeout) - thread-safe
+            activeChainsMutex.withLock {
+                activeChains.remove(chainId)
+                Logger.d(LogTags.CHAIN, "Removed chain $chainId from active set (Remaining active: ${activeChains.size})")
+            }
         }
     }
 
