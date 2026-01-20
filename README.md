@@ -98,7 +98,7 @@ Add to your `build.gradle.kts`:
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("dev.brewkits:kmpworkmanager:2.0.0")
+            implementation("dev.brewkits:kmpworkmanager:2.1.1")
         }
     }
 }
@@ -443,7 +443,36 @@ Progress features:
 
 KMP WorkManager is actively developed with a focus on reliability, developer experience, and enterprise features. Here's our planned development roadmap:
 
-### v2.1.0 - Event Persistence & Smart Retries (Q1 2026)
+### ✅ v2.1.1 - Critical Fixes & iOS Transparency (Released - January 2026)
+
+**Coroutine Lifecycle Management**
+- Fixed `GlobalScope` usage in queue compaction (now uses injected `CoroutineScope`)
+- Better lifecycle management and testability
+- Proper resource cleanup
+
+**Thread Safety Improvements**
+- Fixed race condition in `ChainExecutor.isShuttingDown` access
+- All reads/writes now consistently protected by mutex
+- Eliminated potential crashes during shutdown
+
+**iOS Exact Alarm Transparency** ⭐
+- New `ExactAlarmIOSBehavior` enum for explicit iOS exact alarm handling
+- Three options: `SHOW_NOTIFICATION` (default), `ATTEMPT_BACKGROUND_RUN`, `THROW_ERROR`
+- Addresses platform parity issues - iOS cannot execute background code at exact times
+- Fail-fast option for development safety
+
+**Migration**: Backward compatible - existing code continues to work with default behavior. See [CHANGELOG.md](CHANGELOG.md) for details.
+
+### v2.1.0 - Performance & Graceful Shutdown (Released - January 2026)
+
+**Performance Improvements**
+- iOS queue operations 13-40x faster with O(1) append-only queue
+- Automatic compaction at 80% threshold
+- Graceful shutdown for iOS BGTask expiration with 5-second grace period
+
+**See**: [CHANGELOG.md](CHANGELOG.md) for complete details.
+
+### v2.2.0 - Event Persistence & Smart Retries (Q1 2026)
 
 **Event Persistence System**
 - Persistent storage for TaskCompletionEvents (survives app kills and force-quit)

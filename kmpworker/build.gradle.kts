@@ -13,7 +13,7 @@ plugins {
 }
 
 group = "dev.brewkits"
-version = "2.0.0"
+version = "2.1.1"
 
 kotlin {
     androidTarget {
@@ -88,7 +88,7 @@ publishing {
         // Configure all publications with common POM information
         withType<MavenPublication> {
             groupId = "dev.brewkits"
-            version = "2.0.0"
+            version = "2.1.1"
 
             pom {
                 name.set("KMP WorkManager")

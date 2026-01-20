@@ -441,7 +441,54 @@ data class Constraints(
      *
      * Default: emptySet()
      */
-    val systemConstraints: Set<SystemConstraint> = emptySet()
+    val systemConstraints: Set<SystemConstraint> = emptySet(),
+
+    /**
+     * iOS-specific behavior for TaskTrigger.Exact alarms - **iOS ONLY**.
+     *
+     * **v2.1.1+**: Added to provide transparency about iOS exact alarm limitations.
+     *
+     * **Problem**: iOS does NOT support background code execution at exact times.
+     * Android can execute worker code via AlarmManager, but iOS can only:
+     * 1. Show notifications (SHOW_NOTIFICATION)
+     * 2. Attempt opportunistic background run (ATTEMPT_BACKGROUND_RUN - not guaranteed)
+     * 3. Throw error to force developer awareness (THROW_ERROR)
+     *
+     * **Android**: This field is ignored (Android always executes worker code)
+     * **iOS**: Determines how TaskTrigger.Exact is handled
+     *
+     * **Migration from v2.1.0**:
+     * - Old behavior: iOS always showed notification (silent, undocumented)
+     * - New behavior: Explicit configuration with fail-fast option
+     *
+     * **Example - Notification-based (Safe Default)**:
+     * ```kotlin
+     * scheduler.enqueue(
+     *     id = "morning-alarm",
+     *     trigger = TaskTrigger.Exact(morningTime),
+     *     workerClassName = "AlarmWorker", // Ignored on iOS
+     *     constraints = Constraints(
+     *         exactAlarmIOSBehavior = ExactAlarmIOSBehavior.SHOW_NOTIFICATION // Default
+     *     )
+     * )
+     * ```
+     *
+     * **Example - Fail Fast (Development)**:
+     * ```kotlin
+     * scheduler.enqueue(
+     *     id = "critical-task",
+     *     trigger = TaskTrigger.Exact(criticalTime),
+     *     workerClassName = "CriticalWorker",
+     *     constraints = Constraints(
+     *         exactAlarmIOSBehavior = ExactAlarmIOSBehavior.THROW_ERROR
+     *     )
+     * )
+     * // Throws on iOS: "iOS does not support exact alarms for code execution"
+     * ```
+     *
+     * Default: ExactAlarmIOSBehavior.SHOW_NOTIFICATION
+     */
+    val exactAlarmIOSBehavior: ExactAlarmIOSBehavior = ExactAlarmIOSBehavior.SHOW_NOTIFICATION
 )
 
 /**
@@ -508,6 +555,119 @@ enum class Qos {
      * **Note**: Avoid for background tasks (defeats purpose of background work)
      */
     UserInteractive
+}
+
+/**
+ * iOS-specific behavior for TaskTrigger.Exact alarms.
+ *
+ * **Background**: iOS does not allow background code execution at exact times due to strict
+ * background execution policies. This enum provides transparency and control over how exact
+ * alarms are handled on iOS.
+ *
+ * **v2.1.1+**: Added to address platform parity issues and prevent silent failures.
+ *
+ * **Platform Support**: iOS only (Android always executes code)
+ */
+enum class ExactAlarmIOSBehavior {
+    /**
+     * Show a local notification at the exact time (DEFAULT - Safe & Approved by Apple).
+     *
+     * **What happens**:
+     * - iOS displays a UNNotification at the specified time
+     * - No background code execution
+     * - User sees/hears notification
+     * - Tapping notification opens the app
+     *
+     * **Use Cases**:
+     * - Reminders, alarms, time-sensitive user notifications
+     * - Any user-facing event that doesn't require code execution
+     *
+     * **Guarantees**:
+     * - ✅ Notification will appear at exact time (±seconds)
+     * - ✅ Works reliably even in Low Power Mode
+     * - ✅ Survives app termination
+     *
+     * **Example**:
+     * ```kotlin
+     * scheduler.enqueue(
+     *     id = "morning-reminder",
+     *     trigger = TaskTrigger.Exact(morningTime),
+     *     workerClassName = "ReminderWorker", // Not executed on iOS
+     *     constraints = Constraints(
+     *         exactAlarmIOSBehavior = ExactAlarmIOSBehavior.SHOW_NOTIFICATION
+     *     )
+     * )
+     * ```
+     */
+    SHOW_NOTIFICATION,
+
+    /**
+     * Attempt to run background code (Best Effort - NOT GUARANTEED).
+     *
+     * **What happens**:
+     * - Schedules a BGAppRefreshTask with `earliestBeginDate` = exact time
+     * - iOS MAY run the task around that time (opportunistic scheduling)
+     * - NO guarantee of exact timing
+     * - May be delayed by hours or not run at all
+     *
+     * **Use Cases**:
+     * - Non-critical background sync that benefits from timing hint
+     * - Data refresh where approximate timing is acceptable
+     *
+     * **Limitations**:
+     * - ❌ NOT suitable for time-critical operations
+     * - ❌ Timing accuracy: ±minutes to ±hours (iOS decides)
+     * - ❌ May not run if device is in Low Power Mode
+     * - ❌ May not run if app exceeded background budget
+     *
+     * **Example**:
+     * ```kotlin
+     * scheduler.enqueue(
+     *     id = "nightly-sync",
+     *     trigger = TaskTrigger.Exact(midnightTime),
+     *     workerClassName = "SyncWorker",
+     *     constraints = Constraints(
+     *         exactAlarmIOSBehavior = ExactAlarmIOSBehavior.ATTEMPT_BACKGROUND_RUN
+     *     )
+     * )
+     * // iOS will TRY to run around midnight, but may run much later
+     * ```
+     */
+    ATTEMPT_BACKGROUND_RUN,
+
+    /**
+     * Throw exception immediately (Fail Fast - Development Safety).
+     *
+     * **What happens**:
+     * - Throws `UnsupportedOperationException` when scheduling
+     * - Prevents silent failures
+     * - Forces developer to handle iOS limitation explicitly
+     *
+     * **Use Cases**:
+     * - Development/testing to catch incorrect assumptions
+     * - Critical operations that MUST run at exact time (forces rethink of approach)
+     * - Ensuring iOS limitations are acknowledged
+     *
+     * **Benefits**:
+     * - ✅ Immediate feedback during development
+     * - ✅ Prevents deploying code with wrong expectations
+     * - ✅ Forces platform-aware design
+     *
+     * **Example**:
+     * ```kotlin
+     * scheduler.enqueue(
+     *     id = "critical-task",
+     *     trigger = TaskTrigger.Exact(criticalTime),
+     *     workerClassName = "CriticalWorker",
+     *     constraints = Constraints(
+     *         exactAlarmIOSBehavior = ExactAlarmIOSBehavior.THROW_ERROR
+     *     )
+     * )
+     * // Throws: "iOS does not support exact alarms for code execution.
+     * //          Use SHOW_NOTIFICATION or ATTEMPT_BACKGROUND_RUN instead."
+     * ```
+     */
+    THROW_ERROR
 }
 
 /**
