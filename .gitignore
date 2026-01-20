@@ -57,6 +57,8 @@ docs/ROADMAP_*.md
 docs/TEST_PLAN.md
 docs/EVENT_PERSISTENCE_DESIGN.md
 docs/RESEARCH_ANALYSIS.md
+docs/V2.1.0_*.md
+docs/CODE_REVIEW_*.md
 
 # Deployment bundles
 *-bundle.zip

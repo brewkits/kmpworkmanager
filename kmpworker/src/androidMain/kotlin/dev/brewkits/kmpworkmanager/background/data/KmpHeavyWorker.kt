@@ -132,6 +132,7 @@ class KmpHeavyWorker(
     /**
      * Creates foreground notification info
      * v2.0.1+: Now supports custom notification text via inputData
+     * v2.1.1+: CRITICAL FIX - Add foregroundServiceType for Android 14+ (API 34)
      */
     private fun createForegroundInfo(): ForegroundInfo {
         createNotificationChannel()
@@ -148,7 +149,19 @@ class KmpHeavyWorker(
             .setPriority(NotificationCompat.PRIORITY_LOW) // Low priority for less intrusion
             .build()
 
-        return ForegroundInfo(NOTIFICATION_ID, notification)
+        // v2.1.1+: CRITICAL FIX - Android 14+ requires foregroundServiceType
+        // Without this, app crashes with SecurityException on API 34+
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            // API 34+: Must specify service type to match Manifest permission
+            ForegroundInfo(
+                NOTIFICATION_ID,
+                notification,
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            )
+        } else {
+            // API 33 and below: Standard constructor
+            ForegroundInfo(NOTIFICATION_ID, notification)
+        }
     }
 
     /**

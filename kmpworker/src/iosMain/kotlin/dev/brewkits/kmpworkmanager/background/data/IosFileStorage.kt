@@ -172,8 +172,9 @@ internal class IosFileStorage {
             throw IllegalStateException("Chain size exceeds limit")
         }
 
-        coordinated(chainFile, write = true) {
-            writeStringToFile(chainFile, json)
+        coordinated(chainFile, write = true) { safeUrl ->
+            // v2.1.1+: CRITICAL FIX - Use safeUrl provided by NSFileCoordinator
+            writeStringToFile(safeUrl, json)
         }
 
         Logger.d(LogTags.CHAIN, "Saved chain definition $id ($sizeBytes bytes)")
@@ -185,8 +186,9 @@ internal class IosFileStorage {
     fun loadChainDefinition(id: String): List<List<TaskRequest>>? {
         val chainFile = chainsDirURL.URLByAppendingPathComponent("$id.json")!!
 
-        return coordinated(chainFile, write = false) {
-            val json = readStringFromFile(chainFile) ?: return@coordinated null
+        return coordinated(chainFile, write = false) { safeUrl ->
+            // v2.1.1+: CRITICAL FIX - Use safeUrl provided by NSFileCoordinator
+            val json = readStringFromFile(safeUrl) ?: return@coordinated null
 
             try {
                 Json.decodeFromString<List<List<TaskRequest>>>(json)
@@ -220,8 +222,9 @@ internal class IosFileStorage {
         val progressFile = chainsDirURL.URLByAppendingPathComponent("${progress.chainId}_progress.json")!!
         val json = Json.encodeToString(progress)
 
-        coordinated(progressFile, write = true) {
-            writeStringToFile(progressFile, json)
+        coordinated(progressFile, write = true) { safeUrl ->
+            // v2.1.1+: CRITICAL FIX - Use safeUrl provided by NSFileCoordinator
+            writeStringToFile(safeUrl, json)
         }
 
         Logger.d(
@@ -239,8 +242,9 @@ internal class IosFileStorage {
     fun loadChainProgress(chainId: String): ChainProgress? {
         val progressFile = chainsDirURL.URLByAppendingPathComponent("${chainId}_progress.json")!!
 
-        return coordinated(progressFile, write = false) {
-            val json = readStringFromFile(progressFile) ?: return@coordinated null
+        return coordinated(progressFile, write = false) { safeUrl ->
+            // v2.1.1+: CRITICAL FIX - Use safeUrl provided by NSFileCoordinator
+            val json = readStringFromFile(safeUrl) ?: return@coordinated null
 
             try {
                 Json.decodeFromString<ChainProgress>(json)
@@ -277,8 +281,9 @@ internal class IosFileStorage {
         val metaFile = dir.URLByAppendingPathComponent("$id.json")!!
         val json = Json.encodeToString(metadata)
 
-        coordinated(metaFile, write = true) {
-            writeStringToFile(metaFile, json)
+        coordinated(metaFile, write = true) { safeUrl ->
+            // v2.1.1+: CRITICAL FIX - Use safeUrl provided by NSFileCoordinator
+            writeStringToFile(safeUrl, json)
         }
 
         Logger.d(LogTags.SCHEDULER, "Saved ${if (periodic) "periodic" else "task"} metadata for $id")
@@ -291,8 +296,9 @@ internal class IosFileStorage {
         val dir = if (periodic) periodicDirURL else tasksDirURL
         val metaFile = dir.URLByAppendingPathComponent("$id.json")!!
 
-        return coordinated(metaFile, write = false) {
-            val json = readStringFromFile(metaFile) ?: return@coordinated null
+        return coordinated(metaFile, write = false) { safeUrl ->
+            // v2.1.1+: CRITICAL FIX - Use safeUrl provided by NSFileCoordinator
+            val json = readStringFromFile(safeUrl) ?: return@coordinated null
 
             try {
                 Json.decodeFromString<Map<String, String>>(json)
@@ -443,13 +449,14 @@ internal class IosFileStorage {
      *
      * Detection: Test executables have "test.kexe" in NSProcessInfo
      */
-    private fun <T> coordinated(url: NSURL, write: Boolean, block: () -> T): T {
+    private fun <T> coordinated(url: NSURL, write: Boolean, block: (NSURL) -> T): T {
         // v2.0.1+: Detect test environment
         val isTestEnvironment = platform.Foundation.NSProcessInfo.processInfo.processName.contains("test.kexe")
 
         if (isTestEnvironment) {
             // Test environment: Direct execution (Kotlin Mutex provides thread-safety)
-            return block()
+            // v2.1.1+: CRITICAL FIX - Pass URL to block for consistency
+            return block(url)
         }
 
         // Production: Full NSFileCoordinator protection
@@ -466,7 +473,8 @@ internal class IosFileStorage {
                     error = errorPtr.ptr,
                     byAccessor = { actualURL ->
                         try {
-                            result = block()
+                            // v2.1.1+: CRITICAL FIX - Pass actualURL to block (Apple requirement)
+                            result = block(actualURL!!)
                         } catch (e: Exception) {
                             blockError = e
                         }
@@ -479,7 +487,8 @@ internal class IosFileStorage {
                     error = errorPtr.ptr,
                     byAccessor = { actualURL ->
                         try {
-                            result = block()
+                            // v2.1.1+: CRITICAL FIX - Pass actualURL to block (Apple requirement)
+                            result = block(actualURL!!)
                         } catch (e: Exception) {
                             blockError = e
                         }

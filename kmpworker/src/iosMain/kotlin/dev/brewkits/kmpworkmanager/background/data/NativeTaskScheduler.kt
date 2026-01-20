@@ -13,6 +13,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
+import kotlinx.coroutines.suspendCancellableCoroutine
 import platform.BackgroundTasks.BGAppRefreshTaskRequest
 import platform.BackgroundTasks.BGProcessingTaskRequest
 import platform.BackgroundTasks.BGTaskRequest
@@ -337,12 +338,23 @@ actual class NativeTaskScheduler(
     /**
      * Check if a task is actually pending in BGTaskScheduler.
      * v2.0.1+: Added to support reliable ExistingPolicy.KEEP logic
+     * v2.1.1+: Uses suspendCancellableCoroutine to prevent crash if cancelled before callback executes
      */
-    private suspend fun isTaskPending(taskId: String): Boolean = suspendCoroutine { continuation ->
+    private suspend fun isTaskPending(taskId: String): Boolean = suspendCancellableCoroutine { continuation ->
         BGTaskScheduler.sharedScheduler.getPendingTaskRequestsWithCompletionHandler { requests ->
-            val taskList = requests?.filterIsInstance<BGTaskRequest>() ?: emptyList()
-            val isPending = taskList.any { it.identifier == taskId }
-            continuation.resume(isPending)
+            // v2.1.1+: Check if continuation is still active before resuming
+            if (continuation.isActive) {
+                val taskList = requests?.filterIsInstance<BGTaskRequest>() ?: emptyList()
+                val isPending = taskList.any { it.identifier == taskId }
+                continuation.resume(isPending)
+            } else {
+                Logger.d(LogTags.SCHEDULER, "isTaskPending cancelled for $taskId - callback ignored")
+            }
+        }
+
+        // v2.1.1+: Cleanup on cancellation
+        continuation.invokeOnCancellation {
+            Logger.d(LogTags.SCHEDULER, "isTaskPending cancelled for $taskId")
         }
     }
 
