@@ -35,7 +35,8 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
 
     // v2.1.0+: Graceful shutdown support for BGTask expiration
     private val shutdownMutex = Mutex()
-    // Use Mutex for thread-safe boolean access (no @Volatile needed in Kotlin/Native)
+    // v2.1.1+: CRITICAL - ALL reads/writes of isShuttingDown MUST be protected by shutdownMutex
+    // to prevent race conditions
     private var isShuttingDown = false
 
     companion object {
@@ -149,8 +150,9 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
         try {
             withTimeout(totalTimeoutMs) {
                 repeat(maxChains) {
-                    // v2.1.0+: Check shutdown flag before each chain
-                    if (isShuttingDown) {
+                    // v2.1.1+: Check shutdown flag before each chain (thread-safe with mutex)
+                    val shouldStop = shutdownMutex.withLock { isShuttingDown }
+                    if (shouldStop) {
                         Logger.w(LogTags.CHAIN, "Stopping batch execution - shutdown requested")
                         return@repeat
                     }

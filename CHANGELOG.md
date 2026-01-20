@@ -7,6 +7,126 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-01-20
+
+### 🔧 Critical Fixes & Improvements
+
+**Coroutine Lifecycle Management (HIGH PRIORITY)**
+- Fixed `GlobalScope` usage in `AppendOnlyQueue` compaction
+- **Issue**: GlobalScope not tied to lifecycle, difficult to test and cancel
+- **Fix**: Injected `CoroutineScope` parameter with default `SupervisorJob + Dispatchers.Default`
+- **Impact**: Better lifecycle management, testability, and resource cleanup
+- Changed in: `AppendOnlyQueue.kt:46-48` (constructor), `AppendOnlyQueue.kt:388` (compaction)
+
+**Race Condition Fix in ChainExecutor (MEDIUM PRIORITY)**
+- Fixed inconsistent mutex protection for `isShuttingDown` flag
+- **Issue**: Read at line 153 was not protected by `shutdownMutex`, potential race condition
+- **Fix**: All reads/writes now consistently use `shutdownMutex.withLock`
+- **Impact**: Thread-safe shutdown state access, eliminates potential crashes
+- Changed in: `ChainExecutor.kt:153-156`
+
+**iOS Exact Alarm Transparency (HIGH PRIORITY)**
+- Added `ExactAlarmIOSBehavior` enum for explicit iOS exact alarm handling
+- **Problem**: iOS cannot execute background code at exact times (unlike Android)
+- **Previous behavior**: Silently showed notification without documentation
+- **New behavior**: Three explicit options with fail-fast capability
+  - `SHOW_NOTIFICATION` (default): Display notification at exact time
+  - `ATTEMPT_BACKGROUND_RUN`: Best-effort background task (timing NOT guaranteed)
+  - `THROW_ERROR`: Fail fast for development/testing
+
+### ✨ New Features
+
+**ExactAlarmIOSBehavior Configuration**
+```kotlin
+// Option 1: Notification-based (recommended for user-facing events)
+scheduler.enqueue(
+    id = "morning-alarm",
+    trigger = TaskTrigger.Exact(morningTime),
+    workerClassName = "AlarmWorker",
+    constraints = Constraints(
+        exactAlarmIOSBehavior = ExactAlarmIOSBehavior.SHOW_NOTIFICATION // Default
+    )
+)
+
+// Option 2: Fail fast (development safety)
+scheduler.enqueue(
+    id = "critical-task",
+    trigger = TaskTrigger.Exact(criticalTime),
+    workerClassName = "CriticalWorker",
+    constraints = Constraints(
+        exactAlarmIOSBehavior = ExactAlarmIOSBehavior.THROW_ERROR
+    )
+)
+// Throws: "iOS does not support exact alarms for code execution"
+
+// Option 3: Best effort (non-critical sync)
+scheduler.enqueue(
+    id = "nightly-sync",
+    trigger = TaskTrigger.Exact(midnightTime),
+    workerClassName = "SyncWorker",
+    constraints = Constraints(
+        exactAlarmIOSBehavior = ExactAlarmIOSBehavior.ATTEMPT_BACKGROUND_RUN
+    )
+)
+// iOS will TRY to run around midnight, but timing is NOT guaranteed
+```
+
+### 🔄 API Changes
+
+**New Enum: ExactAlarmIOSBehavior** (iOS only)
+- Added to `Constraints` data class
+- Default: `SHOW_NOTIFICATION` (backward compatible)
+- No breaking changes for existing code
+
+**Updated Methods**:
+- `NativeTaskScheduler.scheduleExactAlarm()` - Now handles all three behaviors
+- `NativeTaskScheduler.scheduleExactNotification()` - Made private
+- Added `NativeTaskScheduler.scheduleExactBackgroundTask()` - For best-effort runs
+
+### 📖 Documentation Improvements
+
+**Enhanced Documentation for iOS Limitations**
+- Updated `TaskTrigger.Exact` documentation with clear iOS behavior description
+- Added comprehensive examples for each `ExactAlarmIOSBehavior` option
+- Documented platform differences (Android always executes code, iOS has restrictions)
+- Added migration guide for apps using exact alarms
+
+**Code Comments**
+- All changes marked with "v2.1.1+" for traceability
+- Added rationale comments for design decisions
+- Improved inline documentation for thread safety patterns
+
+### 🎯 Migration Guide
+
+**No Breaking Changes**
+This is a backward-compatible release. Existing code will continue to work with default behavior.
+
+**Recommended Action for iOS Exact Alarms**:
+```kotlin
+// Review your exact alarm usage and explicitly configure behavior:
+
+// If showing notification is acceptable (most cases)
+constraints = Constraints(
+    exactAlarmIOSBehavior = ExactAlarmIOSBehavior.SHOW_NOTIFICATION
+)
+
+// If you need to catch iOS limitation during development
+constraints = Constraints(
+    exactAlarmIOSBehavior = ExactAlarmIOSBehavior.THROW_ERROR
+)
+```
+
+### 🔬 Testing
+
+**Test Impact**:
+- All existing tests pass without modification (backward compatible)
+- Default behavior (`SHOW_NOTIFICATION`) matches previous implementation
+- No test updates required unless explicitly testing new behaviors
+
+### 🙏 Acknowledgments
+
+This release addresses critical technical debt and improves transparency about platform limitations. Special thanks to the community for highlighting these issues through code reviews.
+
 ## [2.1.0] - 2026-01-20
 
 ### 🚀 Major Performance Improvements
