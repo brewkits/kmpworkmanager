@@ -123,16 +123,19 @@ actual class NativeTaskScheduler(
             return ScheduleResult.REJECTED_OS_POLICY
         }
 
+        @Suppress("DEPRECATION")  // Keep backward compatibility for deprecated triggers until v3.0.0
         return when (trigger) {
             is TaskTrigger.Periodic -> schedulePeriodicTask(id, trigger, workerClassName, constraints, inputJson, policy)
             is TaskTrigger.OneTime -> scheduleOneTimeTask(id, trigger, workerClassName, constraints, inputJson, policy)
-            is TaskTrigger.Exact -> scheduleExactNotification(id, trigger, workerClassName, inputJson)
+            is TaskTrigger.Exact -> scheduleExactAlarm(id, trigger, workerClassName, constraints, inputJson)
             is TaskTrigger.Windowed -> scheduleWindowedTask(id, trigger, workerClassName, constraints, inputJson, policy)
             is TaskTrigger.ContentUri -> rejectUnsupportedTrigger("ContentUri")
-            TaskTrigger.StorageLow -> rejectUnsupportedTrigger("StorageLow")
-            TaskTrigger.BatteryLow -> rejectUnsupportedTrigger("BatteryLow")
-            TaskTrigger.BatteryOkay -> rejectUnsupportedTrigger("BatteryOkay")
-            TaskTrigger.DeviceIdle -> rejectUnsupportedTrigger("DeviceIdle")
+            // v2.1.1+: These triggers are deprecated (use SystemConstraint instead), but kept for backward compatibility
+            // Will be removed in v3.0.0
+            TaskTrigger.StorageLow -> rejectUnsupportedTrigger("StorageLow (deprecated - use Constraints.systemConstraints)")
+            TaskTrigger.BatteryLow -> rejectUnsupportedTrigger("BatteryLow (deprecated - use Constraints.systemConstraints)")
+            TaskTrigger.BatteryOkay -> rejectUnsupportedTrigger("BatteryOkay (deprecated - use Constraints.systemConstraints)")
+            TaskTrigger.DeviceIdle -> rejectUnsupportedTrigger("DeviceIdle (deprecated - use Constraints.systemConstraints)")
         }
     }
 
@@ -387,7 +390,88 @@ actual class NativeTaskScheduler(
     }
 
     /**
-     * Schedule exact notification using UNUserNotificationCenter
+     * Schedule exact alarm with iOS-specific behavior handling.
+     *
+     * **v2.1.1+**: Implements ExactAlarmIOSBehavior for transparent exact alarm handling.
+     *
+     * **Background**: iOS does NOT support background code execution at exact times.
+     * This method provides three explicit behaviors based on constraints.exactAlarmIOSBehavior:
+     * 1. SHOW_NOTIFICATION (default): Display UNNotification at exact time
+     * 2. ATTEMPT_BACKGROUND_RUN: Schedule BGAppRefreshTask (not guaranteed to run at exact time)
+     * 3. THROW_ERROR: Throw exception to force developer awareness
+     *
+     * @param id Task identifier
+     * @param trigger Exact trigger with timestamp
+     * @param workerClassName Worker class (used only for ATTEMPT_BACKGROUND_RUN, ignored for SHOW_NOTIFICATION)
+     * @param constraints Execution constraints (contains exactAlarmIOSBehavior)
+     * @param inputJson Worker input data
+     * @return ScheduleResult indicating success/failure
+     * @throws UnsupportedOperationException if exactAlarmIOSBehavior is THROW_ERROR
+     */
+    private fun scheduleExactAlarm(
+        id: String,
+        trigger: TaskTrigger.Exact,
+        workerClassName: String,
+        constraints: Constraints,
+        inputJson: String?
+    ): ScheduleResult {
+        val behavior = constraints.exactAlarmIOSBehavior
+
+        Logger.i(
+            LogTags.ALARM,
+            "Scheduling exact alarm - ID: '$id', Time: ${trigger.atEpochMillis}, Behavior: $behavior"
+        )
+
+        return when (behavior) {
+            ExactAlarmIOSBehavior.SHOW_NOTIFICATION -> {
+                scheduleExactNotification(id, trigger, workerClassName, inputJson)
+            }
+
+            ExactAlarmIOSBehavior.ATTEMPT_BACKGROUND_RUN -> {
+                Logger.w(
+                    LogTags.ALARM,
+                    "⚠️ ATTEMPT_BACKGROUND_RUN: iOS will TRY to run around specified time, but timing is NOT guaranteed"
+                )
+                scheduleExactBackgroundTask(id, trigger, workerClassName, constraints, inputJson)
+            }
+
+            ExactAlarmIOSBehavior.THROW_ERROR -> {
+                val errorMessage = """
+                    ❌ iOS does not support exact alarms for background code execution.
+
+                    TaskTrigger.Exact on iOS can only:
+                    1. Show notification at exact time (SHOW_NOTIFICATION)
+                    2. Attempt opportunistic background run (ATTEMPT_BACKGROUND_RUN - not guaranteed)
+
+                    To fix this error, choose one of:
+
+                    Option 1: Show notification (user-facing events)
+                    Constraints(exactAlarmIOSBehavior = ExactAlarmIOSBehavior.SHOW_NOTIFICATION)
+
+                    Option 2: Best-effort background run (non-critical sync)
+                    Constraints(exactAlarmIOSBehavior = ExactAlarmIOSBehavior.ATTEMPT_BACKGROUND_RUN)
+
+                    Option 3: Platform-specific implementation
+                    if (Platform.isIOS) {
+                        // Use notification or rethink approach
+                    } else {
+                        // Use TaskTrigger.Exact on Android
+                    }
+
+                    See: ExactAlarmIOSBehavior documentation
+                """.trimIndent()
+
+                Logger.e(LogTags.ALARM, errorMessage)
+                throw UnsupportedOperationException(errorMessage)
+            }
+        }
+    }
+
+    /**
+     * Schedule exact notification using UNUserNotificationCenter.
+     * This is the default and recommended approach for exact alarms on iOS.
+     *
+     * v2.1.1+: Made private, called from scheduleExactAlarm
      */
     private fun scheduleExactNotification(
         id: String,
@@ -427,6 +511,56 @@ actual class NativeTaskScheduler(
             }
         }
         return ScheduleResult.ACCEPTED
+    }
+
+    /**
+     * Schedule background task to run around the exact time (best effort).
+     *
+     * **IMPORTANT**: iOS decides when to actually run the task. May be delayed by
+     * minutes to hours, or may not run at all.
+     *
+     * v2.1.1+: Added for ATTEMPT_BACKGROUND_RUN behavior
+     */
+    private fun scheduleExactBackgroundTask(
+        id: String,
+        trigger: TaskTrigger.Exact,
+        workerClassName: String,
+        constraints: Constraints,
+        inputJson: String?
+    ): ScheduleResult {
+        Logger.i(
+            LogTags.ALARM,
+            "Scheduling best-effort background task - ID: '$id', Target time: ${trigger.atEpochMillis}"
+        )
+
+        // Save metadata for task execution
+        val taskMetadata = mapOf(
+            "workerClassName" to workerClassName,
+            "inputJson" to (inputJson ?: ""),
+            "targetTime" to trigger.atEpochMillis.toString()
+        )
+        fileStorage.saveTaskMetadata(id, taskMetadata, periodic = false)
+
+        // Schedule BGAppRefreshTask with earliestBeginDate = exact time
+        val request = createBackgroundTaskRequest(id, constraints)
+
+        val unixTimestampInSeconds = trigger.atEpochMillis / 1000.0
+        val appleTimestamp = unixTimestampInSeconds - APPLE_TO_UNIX_EPOCH_OFFSET_SECONDS
+        val targetDate = NSDate(timeIntervalSinceReferenceDate = appleTimestamp)
+
+        request.earliestBeginDate = targetDate
+
+        Logger.w(
+            LogTags.ALARM,
+            """
+            ⚠️ Best-effort scheduling - iOS will ATTEMPT to run around ${targetDate}
+            - Timing is NOT guaranteed (may be delayed significantly)
+            - May not run if device is in Low Power Mode
+            - May not run if app exceeded background budget
+            """.trimIndent()
+        )
+
+        return submitTaskRequest(request, "best-effort background task '$id'")
     }
 
     /**

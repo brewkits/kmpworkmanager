@@ -3,7 +3,9 @@ package dev.brewkits.kmpworkmanager.background.data
 import kotlinx.cinterop.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import platform.Foundation.*
 import dev.brewkits.kmpworkmanager.utils.Logger
@@ -39,12 +41,15 @@ import dev.brewkits.kmpworkmanager.utils.LogTags
  * ```
  *
  * @param baseDirectoryURL Base directory URL for queue storage
+ * @param compactionScope CoroutineScope for background compaction operations (v2.1.1+)
+ *                        Defaults to a supervised scope with Default dispatcher
  *
  * Note: File coordination will be added in Phase 3 (v2.1.0 DI implementation)
  */
 @OptIn(ExperimentalForeignApi::class)
 internal class AppendOnlyQueue(
-    private val baseDirectoryURL: NSURL
+    private val baseDirectoryURL: NSURL,
+    private val compactionScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 ) {
     private val queueMutex = Mutex()
     private val fileManager = NSFileManager.defaultManager
@@ -373,6 +378,8 @@ internal class AppendOnlyQueue(
     /**
      * Schedule background compaction (non-blocking)
      * Compaction runs in a separate coroutine to avoid blocking dequeue operations
+     *
+     * v2.1.1+: Uses injected CoroutineScope instead of GlobalScope for better lifecycle management
      */
     private fun scheduleCompaction() {
         if (isCompacting) {
@@ -382,10 +389,9 @@ internal class AppendOnlyQueue(
 
         isCompacting = true
 
-        // Launch compaction in background
-        // Note: Using GlobalScope for background operation
-        // In production, this should use a proper coroutine scope from DI
-        GlobalScope.launch {
+        // Launch compaction in background using injected scope
+        // v2.1.1+: Replaced GlobalScope with injected compactionScope for proper lifecycle management
+        compactionScope.launch {
             try {
                 compactQueue()
                 Logger.i(LogTags.CHAIN, "Background compaction completed successfully")
