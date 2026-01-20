@@ -448,9 +448,12 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
 
     /**
      * Emit chain failure event to UI
+     * v2.1.1+: Uses existing coroutineScope instead of creating new scope to prevent memory leak
      */
     private fun emitChainFailureEvent(chainId: String) {
-        CoroutineScope(Dispatchers.Main).launch {
+        // v2.1.1+: Use existing managed coroutineScope instead of creating new CoroutineScope
+        // This prevents unbounded scope creation and ensures proper lifecycle management
+        coroutineScope.launch(Dispatchers.Main) {
             TaskEventBus.emit(
                 TaskCompletionEvent(
                     taskName = "Chain-$chainId",

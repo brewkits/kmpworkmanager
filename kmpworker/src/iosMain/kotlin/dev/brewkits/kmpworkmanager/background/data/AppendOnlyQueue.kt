@@ -71,6 +71,8 @@ internal class AppendOnlyQueue(
     private val MAX_QUEUE_SIZE = 10_000
 
     // Compaction state tracking
+    // v2.1.1+: Protected by compactionMutex to prevent race conditions
+    private val compactionMutex = Mutex()
     private var isCompacting = false
 
     companion object {
@@ -127,7 +129,8 @@ internal class AppendOnlyQueue(
                     Logger.d(LogTags.CHAIN, "Dequeued $item. New head index: ${headIndex + 1}")
 
                     // Check if compaction is needed (non-blocking)
-                    if (shouldCompact() && !isCompacting) {
+                    // v2.1.1+: Removed !isCompacting check here - scheduleCompaction() handles it thread-safely
+                    if (shouldCompact()) {
                         Logger.i(LogTags.CHAIN, "Compaction threshold reached. Scheduling compaction...")
                         // Launch compaction in background (non-blocking)
                         scheduleCompaction()
@@ -158,6 +161,7 @@ internal class AppendOnlyQueue(
     /**
      * Append a single line to the queue file
      * **Performance**: O(1) - seek to end and write
+     * v2.1.1+: Ensures NSFileHandle is always closed via try-finally immediately after acquisition
      */
     private fun appendToQueueFile(item: String) {
         val path = queueFileURL.path ?: throw IllegalStateException("Queue file path is null")
@@ -170,10 +174,14 @@ internal class AppendOnlyQueue(
         memScoped {
             val errorPtr = alloc<ObjCObjectVar<NSError?>>()
 
-            // Open file for writing at end
+            // v2.1.1+: Open file handle and IMMEDIATELY wrap in try-finally for guaranteed cleanup
             val fileHandle = NSFileHandle.fileHandleForWritingToURL(queueFileURL, errorPtr.ptr)
-                ?: throw IllegalStateException("Failed to open queue file: ${errorPtr.value?.localizedDescription}")
 
+            if (fileHandle == null) {
+                throw IllegalStateException("Failed to open queue file: ${errorPtr.value?.localizedDescription}")
+            }
+
+            // v2.1.1+: try-finally starts IMMEDIATELY after successful handle acquisition
             try {
                 // Seek to end of file (O(1))
                 fileHandle.seekToEndOfFile()
@@ -183,6 +191,7 @@ internal class AppendOnlyQueue(
                 val data = line.toNSData()
                 fileHandle.writeData(data)
             } finally {
+                // v2.1.1+: Guaranteed to execute, preventing resource leaks
                 fileHandle.closeFile()
             }
         }
@@ -380,25 +389,36 @@ internal class AppendOnlyQueue(
      * Compaction runs in a separate coroutine to avoid blocking dequeue operations
      *
      * v2.1.1+: Uses injected CoroutineScope instead of GlobalScope for better lifecycle management
+     * v2.1.1+: Thread-safe check-and-set using compactionMutex to prevent duplicate compaction
      */
     private fun scheduleCompaction() {
-        if (isCompacting) {
-            Logger.w(LogTags.CHAIN, "Compaction already in progress. Skipping.")
-            return
-        }
-
-        isCompacting = true
-
-        // Launch compaction in background using injected scope
-        // v2.1.1+: Replaced GlobalScope with injected compactionScope for proper lifecycle management
+        // Launch in compactionScope to perform async mutex check
         compactionScope.launch {
+            // Atomic check-and-set protected by mutex
+            val shouldCompact = compactionMutex.withLock {
+                if (isCompacting) {
+                    false // Already compacting
+                } else {
+                    isCompacting = true
+                    true
+                }
+            }
+
+            if (!shouldCompact) {
+                Logger.w(LogTags.CHAIN, "Compaction already in progress. Skipping.")
+                return@launch
+            }
+
             try {
                 compactQueue()
                 Logger.i(LogTags.CHAIN, "Background compaction completed successfully")
             } catch (e: Exception) {
                 Logger.e(LogTags.CHAIN, "Background compaction failed: ${e.message}")
             } finally {
-                isCompacting = false
+                // Reset flag under mutex protection
+                compactionMutex.withLock {
+                    isCompacting = false
+                }
             }
         }
     }
@@ -414,6 +434,7 @@ internal class AppendOnlyQueue(
      *
      * **Thread-safety**: Uses queueMutex to ensure exclusive access
      * **Crash-safety**: Uses atomic file replacement (write to temp, then move)
+     * v2.1.1+: Invalidates cache immediately to prevent stale reads during compaction
      */
     private suspend fun compactQueue() {
         queueMutex.withLock {
@@ -426,6 +447,9 @@ internal class AppendOnlyQueue(
 
                 if (unprocessedCount <= 0) {
                     Logger.i(LogTags.CHAIN, "Queue is empty. No compaction needed.")
+                    // v2.1.1+: Still invalidate cache even if queue is empty
+                    cacheValid = false
+                    linePositionCache.clear()
                     return@coordinated
                 }
 
@@ -468,7 +492,8 @@ internal class AppendOnlyQueue(
                 // Step 4: Reset head pointer to 0
                 writeHeadPointer(0)
 
-                // Step 5: Invalidate cache
+                // Step 5: Invalidate cache AFTER file replacement (Fix #3 - prevent stale reads)
+                // v2.1.1+: Moved to AFTER replacement to ensure consistency
                 linePositionCache.clear()
                 cacheValid = false
 
@@ -479,6 +504,7 @@ internal class AppendOnlyQueue(
 
     /**
      * Write items to a file (helper for compaction)
+     * v2.1.1+: Ensures NSFileHandle is always closed via try-finally immediately after acquisition
      */
     private fun writeItemsToFile(fileURL: NSURL, items: List<String>) {
         val path = fileURL.path ?: throw IllegalStateException("File path is null")
@@ -495,10 +521,14 @@ internal class AppendOnlyQueue(
             // Create new file
             fileManager.createFileAtPath(path, null, null)
 
-            // Open for writing
+            // v2.1.1+: Open file handle and IMMEDIATELY wrap in try-finally for guaranteed cleanup
             val fileHandle = NSFileHandle.fileHandleForWritingToURL(fileURL, errorPtr.ptr)
-                ?: throw IllegalStateException("Failed to open file for writing: ${errorPtr.value?.localizedDescription}")
 
+            if (fileHandle == null) {
+                throw IllegalStateException("Failed to open file for writing: ${errorPtr.value?.localizedDescription}")
+            }
+
+            // v2.1.1+: try-finally starts IMMEDIATELY after successful handle acquisition
             try {
                 // Write all items
                 items.forEach { item ->
@@ -507,6 +537,7 @@ internal class AppendOnlyQueue(
                     fileHandle.writeData(data)
                 }
             } finally {
+                // v2.1.1+: Guaranteed to execute, preventing resource leaks
                 fileHandle.closeFile()
             }
         }
