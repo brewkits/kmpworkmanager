@@ -113,8 +113,9 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
 
     /**
      * Returns the current number of chains waiting in the execution queue.
+     * v2.1.2+: Converted to suspend function to prevent Main Thread blocking
      */
-    fun getChainQueueSize(): Int {
+    suspend fun getChainQueueSize(): Int {
         return fileStorage.getQueueSize()
     }
 

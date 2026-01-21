@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.2] - 2026-01-21
+
+### 🩹 Critical iOS Stability Fixes
+
+**Eliminated Main Thread Blocking Risk (CRITICAL)**
+- Converted `IosFileStorage.getQueueSize()` from blocking to suspend function
+- **Issue**: Used `runBlocking` which could block iOS Main Thread if called from UI code
+- **Risk**: iOS Watchdog Kill (0x8badf00d) when background thread holds mutex during file I/O
+- **Fix**: Now properly `suspend fun` - forces async usage from Swift via `await`
+- **Impact**: Prevents ANR/Watchdog kills, eliminates UI jank
+- Files changed:
+  - `IosFileStorage.kt:150` - Removed `runBlocking`, now `suspend fun`
+  - `ChainExecutor.kt:118` - Updated to `suspend fun getChainQueueSize()`
+  - `iOSApp.swift:307, 325` - Swift callers now use `await`
+
+**Self-Healing for Corrupt JSON Files (CRITICAL)**
+- Added automatic cleanup of corrupt files to prevent crash loops
+- **Issue**: Partial writes during crashes could create corrupt JSON files
+- **Previous behavior**: Return `null` on parse error, file remains corrupt
+- **New behavior**: Delete corrupt file + log error, preventing infinite crash loops
+- **Impact**: App recovers from corrupt data instead of crashing repeatedly
+- Files changed:
+  - `IosFileStorage.kt:195-204` - `loadChainDefinition()` self-healing
+  - `IosFileStorage.kt:260-267` - `loadChainProgress()` self-healing
+  - `IosFileStorage.kt:321-329` - `loadTaskMetadata()` self-healing
+
+**Fixed Timeout Documentation Mismatch (MEDIUM)**
+- Corrected timeout values in documentation to match implementation
+- **Issue**: Comments said 25s/55s but implementation used 20s/50s
+- **Fix**: Updated `IosWorker.kt` documentation to reflect actual values
+- Files changed: `IosWorker.kt:26-33`
+
+### 📝 Documentation Updates
+- Added comprehensive comments explaining self-healing mechanism
+- Updated Swift async/await usage examples for `getChainQueueSize()`
+- Clarified iOS BGTask timeout behavior vs hardcoded timeouts
+
 ## [2.1.1] - 2026-01-20
 
 ### 🔧 Critical Fixes & Improvements
