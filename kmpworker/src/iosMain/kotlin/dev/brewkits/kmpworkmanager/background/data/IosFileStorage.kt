@@ -145,12 +145,10 @@ internal class IosFileStorage {
     /**
      * Get current queue size
      * v2.1.0+: Uses AppendOnlyQueue for O(1) performance
-     * Note: This is not suspend because queue.getSize() uses runBlocking internally
+     * v2.1.2+: Converted to suspend function to prevent Main Thread blocking
      */
-    fun getQueueSize(): Int {
-        return kotlinx.coroutines.runBlocking {
-            queue.getSize()
-        }
+    suspend fun getQueueSize(): Int {
+        return queue.getSize()
     }
 
     // v2.1.0+: Queue operations moved to AppendOnlyQueue
@@ -181,7 +179,8 @@ internal class IosFileStorage {
     }
 
     /**
-     * Load chain definition from file
+     * Load chain definition from file with self-healing for corrupt data
+     * v2.1.2+: Added automatic cleanup of corrupt files to prevent crash loops
      */
     fun loadChainDefinition(id: String): List<List<TaskRequest>>? {
         val chainFile = chainsDirURL.URLByAppendingPathComponent("$id.json")!!
@@ -193,7 +192,15 @@ internal class IosFileStorage {
             try {
                 Json.decodeFromString<List<List<TaskRequest>>>(json)
             } catch (e: Exception) {
-                Logger.e(LogTags.CHAIN, "Failed to deserialize chain $id", e)
+                // v2.1.2+: Self-healing - delete corrupt file to prevent crash loops
+                Logger.e(LogTags.CHAIN, "🩹 Self-healing: Corrupt chain definition detected for $id. Deleting corrupt file...", e)
+
+                // Delete corrupt chain definition
+                deleteFile(chainFile)
+                // Also delete associated progress file to maintain consistency
+                deleteChainProgress(id)
+
+                Logger.w(LogTags.CHAIN, "Corrupt chain $id has been removed. It will need to be re-enqueued if still needed.")
                 null
             }
         }
@@ -234,10 +241,11 @@ internal class IosFileStorage {
     }
 
     /**
-     * Load chain progress from file.
+     * Load chain progress from file with self-healing for corrupt data.
+     * v2.1.2+: Added automatic cleanup of corrupt files to prevent crash loops
      *
      * @param chainId The chain ID
-     * @return The progress state, or null if no progress file exists
+     * @return The progress state, or null if no progress file exists or is corrupt
      */
     fun loadChainProgress(chainId: String): ChainProgress? {
         val progressFile = chainsDirURL.URLByAppendingPathComponent("${chainId}_progress.json")!!
@@ -249,7 +257,13 @@ internal class IosFileStorage {
             try {
                 Json.decodeFromString<ChainProgress>(json)
             } catch (e: Exception) {
-                Logger.e(LogTags.CHAIN, "Failed to deserialize chain progress $chainId", e)
+                // v2.1.2+: Self-healing - delete corrupt progress file
+                Logger.e(LogTags.CHAIN, "🩹 Self-healing: Corrupt chain progress detected for $chainId. Deleting corrupt file...", e)
+
+                // Delete corrupt progress file - chain will restart from beginning
+                deleteFile(progressFile)
+
+                Logger.w(LogTags.CHAIN, "Corrupt progress for chain $chainId has been removed. Chain will restart from beginning on next execution.")
                 null
             }
         }
@@ -290,7 +304,8 @@ internal class IosFileStorage {
     }
 
     /**
-     * Load task metadata
+     * Load task metadata with self-healing for corrupt data
+     * v2.1.2+: Added automatic cleanup of corrupt files to prevent crash loops
      */
     fun loadTaskMetadata(id: String, periodic: Boolean): Map<String, String>? {
         val dir = if (periodic) periodicDirURL else tasksDirURL
@@ -303,7 +318,14 @@ internal class IosFileStorage {
             try {
                 Json.decodeFromString<Map<String, String>>(json)
             } catch (e: Exception) {
-                Logger.e(LogTags.SCHEDULER, "Failed to deserialize metadata for $id", e)
+                // v2.1.2+: Self-healing - delete corrupt metadata file
+                val metadataType = if (periodic) "periodic" else "task"
+                Logger.e(LogTags.SCHEDULER, "🩹 Self-healing: Corrupt $metadataType metadata detected for $id. Deleting corrupt file...", e)
+
+                // Delete corrupt metadata file
+                deleteFile(metaFile)
+
+                Logger.w(LogTags.SCHEDULER, "Corrupt $metadataType metadata for $id has been removed. Task will need to be rescheduled.")
                 null
             }
         }
