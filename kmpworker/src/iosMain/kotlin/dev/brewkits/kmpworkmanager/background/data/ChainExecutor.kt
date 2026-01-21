@@ -6,8 +6,9 @@ import dev.brewkits.kmpworkmanager.background.domain.TaskRequest
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.utils.LogTags
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import platform.Foundation.NSDate
-import platform.Foundation.NSMutableSet
 import platform.Foundation.timeIntervalSince1970
 
 /**
@@ -28,7 +29,15 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
     private val coroutineScope = CoroutineScope(Dispatchers.Default + job)
 
     // Thread-safe set to track active chains (prevents duplicate execution)
-    private val activeChains = NSMutableSet()
+    // v2.0.1+: Replaced NSMutableSet with Kotlin mutable set + Mutex for thread safety
+    private val activeChainsMutex = Mutex()
+    private val activeChains = mutableSetOf<String>()
+
+    // v2.1.0+: Graceful shutdown support for BGTask expiration
+    private val shutdownMutex = Mutex()
+    // v2.1.1+: CRITICAL - ALL reads/writes of isShuttingDown MUST be protected by shutdownMutex
+    // to prevent race conditions
+    private var isShuttingDown = false
 
     companion object {
         /**
@@ -42,12 +51,71 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
          * Provides 10s safety margin for BGProcessingTask (60s limit)
          */
         const val CHAIN_TIMEOUT_MS = 50_000L
+
+        /**
+         * v2.1.0+: Shutdown grace period (5 seconds)
+         * Time allowed for saving progress after shutdown signal
+         */
+        const val SHUTDOWN_GRACE_PERIOD_MS = 5_000L
+    }
+
+    /**
+     * v2.1.0+: Request graceful shutdown of chain execution.
+     * This should be called when iOS signals BGTask expiration.
+     *
+     * **What it does**:
+     * - Sets shutdown flag to stop accepting new chains
+     * - Cancels the coroutine scope to interrupt running chains
+     * - Running chains will catch CancellationException and save progress
+     * - Waits for grace period to allow progress saving
+     *
+     * **Usage in Swift/Obj-C**:
+     * ```swift
+     * BGTaskScheduler.shared.register(forTaskWithIdentifier: id) { task in
+     *     task.expirationHandler = {
+     *         chainExecutor.requestShutdown() // Call this!
+     *     }
+     *     // ... execute chains ...
+     * }
+     * ```
+     */
+    suspend fun requestShutdown() {
+        shutdownMutex.withLock {
+            if (isShuttingDown) {
+                Logger.w(LogTags.CHAIN, "Shutdown already in progress")
+                return
+            }
+
+            isShuttingDown = true
+            Logger.w(LogTags.CHAIN, "🛑 Graceful shutdown requested - cancelling active chains")
+        }
+
+        // Cancel all running chains
+        job.cancelChildren()
+
+        // Wait for grace period to allow progress saving
+        Logger.i(LogTags.CHAIN, "Waiting ${SHUTDOWN_GRACE_PERIOD_MS}ms for progress to be saved...")
+        kotlinx.coroutines.delay(SHUTDOWN_GRACE_PERIOD_MS)
+
+        Logger.i(LogTags.CHAIN, "Graceful shutdown complete. Active chains: ${activeChains.size}")
+    }
+
+    /**
+     * v2.1.0+: Reset shutdown state (call on next BGTask launch)
+     * Thread-safe version using mutex to prevent race conditions
+     */
+    suspend fun resetShutdownState() {
+        shutdownMutex.withLock {
+            isShuttingDown = false
+            Logger.d(LogTags.CHAIN, "Shutdown state reset")
+        }
     }
 
     /**
      * Returns the current number of chains waiting in the execution queue.
+     * v2.1.2+: Converted to suspend function to prevent Main Thread blocking
      */
-    fun getChainQueueSize(): Int {
+    suspend fun getChainQueueSize(): Int {
         return fileStorage.getQueueSize()
     }
 
@@ -64,6 +132,17 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
         maxChains: Int = 3,
         totalTimeoutMs: Long = CHAIN_TIMEOUT_MS
     ): Int {
+        // v2.1.0+: Check shutdown flag
+        shutdownMutex.withLock {
+            if (isShuttingDown) {
+                Logger.w(LogTags.CHAIN, "Batch execution skipped - shutdown in progress")
+                return 0
+            }
+        }
+
+        // Reset shutdown state on new execution
+        resetShutdownState()
+
         Logger.i(LogTags.CHAIN, "Starting batch chain execution (max: $maxChains, timeout: ${totalTimeoutMs}ms)")
 
         var executedCount = 0
@@ -72,6 +151,13 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
         try {
             withTimeout(totalTimeoutMs) {
                 repeat(maxChains) {
+                    // v2.1.1+: Check shutdown flag before each chain (thread-safe with mutex)
+                    val shouldStop = shutdownMutex.withLock { isShuttingDown }
+                    if (shouldStop) {
+                        Logger.w(LogTags.CHAIN, "Stopping batch execution - shutdown requested")
+                        return@repeat
+                    }
+
                     // Check remaining time
                     val elapsedTime = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime
                     val remainingTime = totalTimeoutMs - elapsedTime
@@ -93,6 +179,10 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
             }
         } catch (e: TimeoutCancellationException) {
             Logger.e(LogTags.CHAIN, "Batch execution timed out after ${totalTimeoutMs}ms")
+        } catch (e: CancellationException) {
+            // v2.1.0+: Graceful shutdown triggered
+            Logger.w(LogTags.CHAIN, "Batch execution cancelled - graceful shutdown in progress")
+            throw e // Re-throw to propagate cancellation
         }
 
         Logger.i(LogTags.CHAIN, "Batch execution completed: $executedCount chains executed")
@@ -133,15 +223,21 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
      * - Cleans up progress files on completion or abandonment
      */
     private suspend fun executeChain(chainId: String): Boolean {
-        // 1. Check for duplicate execution (race condition protection)
-        if (activeChains.member(chainId) != null) {
+        // 1. Check for duplicate execution and mark as active (thread-safe)
+        val isAlreadyActive = activeChainsMutex.withLock {
+            if (activeChains.contains(chainId)) {
+                true
+            } else {
+                activeChains.add(chainId)
+                Logger.d(LogTags.CHAIN, "Marked chain $chainId as active (Total active: ${activeChains.size})")
+                false
+            }
+        }
+
+        if (isAlreadyActive) {
             Logger.w(LogTags.CHAIN, "⚠️ Chain $chainId is already executing, skipping duplicate")
             return false
         }
-
-        // 2. Mark chain as active
-        activeChains.addObject(chainId)
-        Logger.d(LogTags.CHAIN, "Marked chain $chainId as active (Total active: ${activeChains.count})")
 
         try {
             // 3. Load the chain definition from file storage
@@ -233,6 +329,23 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
                 )
 
                 return false
+            } catch (e: CancellationException) {
+                // v2.1.0+: Graceful shutdown - save progress and exit cleanly
+                Logger.w(LogTags.CHAIN, "🛑 Chain $chainId cancelled due to graceful shutdown")
+
+                // Progress is already saved after each step, so current progress is persisted
+                val nextStep = progress.getNextStepIndex()
+                Logger.i(
+                    LogTags.CHAIN,
+                    "Chain $chainId progress saved (${progress.getCompletionPercentage()}% complete). " +
+                    "Will resume from step $nextStep on next BGTask execution."
+                )
+
+                // Re-queue the chain for next execution
+                fileStorage.enqueueChain(chainId)
+                Logger.i(LogTags.CHAIN, "Re-queued chain $chainId for resumption")
+
+                return false
             }
 
             // 8. Clean up the chain definition and progress upon successful completion
@@ -242,9 +355,11 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
             return true
 
         } finally {
-            // 9. Always remove from active set (even on failure/timeout)
-            activeChains.removeObject(chainId)
-            Logger.d(LogTags.CHAIN, "Removed chain $chainId from active set (Remaining active: ${activeChains.count})")
+            // 9. Always remove from active set (even on failure/timeout) - thread-safe
+            activeChainsMutex.withLock {
+                activeChains.remove(chainId)
+                Logger.d(LogTags.CHAIN, "Removed chain $chainId from active set (Remaining active: ${activeChains.size})")
+            }
         }
     }
 
@@ -334,9 +449,12 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
 
     /**
      * Emit chain failure event to UI
+     * v2.1.1+: Uses existing coroutineScope instead of creating new scope to prevent memory leak
      */
     private fun emitChainFailureEvent(chainId: String) {
-        CoroutineScope(Dispatchers.Main).launch {
+        // v2.1.1+: Use existing managed coroutineScope instead of creating new CoroutineScope
+        // This prevents unbounded scope creation and ensures proper lifecycle management
+        coroutineScope.launch(Dispatchers.Main) {
             TaskEventBus.emit(
                 TaskCompletionEvent(
                     taskName = "Chain-$chainId",

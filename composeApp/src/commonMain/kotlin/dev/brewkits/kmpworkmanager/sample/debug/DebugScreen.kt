@@ -18,6 +18,13 @@ fun DebugScreen() {
     val viewModel = remember { DebugViewModel() }
     val tasks by viewModel.tasks.collectAsState()
 
+    // v2.0.1+: Cleanup ViewModel when composable is disposed to prevent memory leaks
+    DisposableEffect(viewModel) {
+        onDispose {
+            viewModel.clear()
+        }
+    }
+
     LaunchedEffect(Unit) {
         viewModel.refresh()
     }

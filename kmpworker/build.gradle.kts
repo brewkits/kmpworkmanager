@@ -13,7 +13,7 @@ plugins {
 }
 
 group = "dev.brewkits"
-version = "2.0.0"
+version = "2.1.2"
 
 kotlin {
     androidTarget {
@@ -88,11 +88,11 @@ publishing {
         // Configure all publications with common POM information
         withType<MavenPublication> {
             groupId = "dev.brewkits"
-            version = "2.0.0"
+            version = "2.1.2"
 
             pom {
                 name.set("KMP WorkManager")
-                description.set("A robust, cross-platform framework for scheduling and managing background tasks on Android and iOS using Kotlin Multiplatform")
+                description.set("Enterprise-grade Kotlin Multiplatform background task scheduler for Android & iOS. Unified API for WorkManager (Android) and BGTaskScheduler (iOS) with progress tracking, task chains, and production-ready reliability.")
                 url.set("https://github.com/brewkits/kmpworkmanager")
 
                 licenses {
@@ -105,7 +105,7 @@ publishing {
                 developers {
                     developer {
                         id.set("brewkits")
-                        name.set("Brewkits")
+                        name.set("Brewkits Team")
                         email.set("vietnguyentuan@gmail.com")
                     }
                 }

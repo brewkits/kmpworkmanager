@@ -76,7 +76,7 @@ internal class StorageMigration(
             }
 
             // 2. Migrate chain definitions
-            val allKeys = userDefaults.dictionaryRepresentation().keys as List<*>
+            val allKeys = userDefaults.dictionaryRepresentation().keys
             allKeys.forEach { key ->
                 val keyStr = key as? String ?: return@forEach
 
@@ -170,7 +170,7 @@ internal class StorageMigration(
     fun clearOldStorage() {
         Logger.w(LogTags.SCHEDULER, "Clearing old NSUserDefaults storage")
 
-        val allKeys = userDefaults.dictionaryRepresentation().keys as List<*>
+        val allKeys = userDefaults.dictionaryRepresentation().keys
         allKeys.forEach { key ->
             val keyStr = key as? String ?: return@forEach
 
