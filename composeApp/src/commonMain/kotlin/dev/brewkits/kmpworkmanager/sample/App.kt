@@ -236,15 +236,14 @@ fun TestDemoTab(scheduler: BackgroundTaskScheduler, coroutineScope: CoroutineSco
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text("3. Task Scheduling (Both Platforms)", style = MaterialTheme.typography.titleLarge)
-                InfoBox("Schedule tasks on native schedulers. Check Debug tab to see scheduled tasks.")
+                InfoBox("Schedule a task on native schedulers. Clicking multiple times will replace the previous task (iOS requirement: fixed task IDs). Check Debug tab to see scheduled tasks.")
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Button(
                     onClick = {
                         coroutineScope.launch {
-                            val timestamp = Clock.System.now().toEpochMilliseconds()
                             scheduler.enqueue(
-                                id = "demo-task-$timestamp",
+                                id = "demo-task",
                                 trigger = TaskTrigger.OneTime(initialDelayMs = 5000),
                                 workerClassName = WorkerTypes.SYNC_WORKER
                             )
@@ -258,7 +257,7 @@ fun TestDemoTab(scheduler: BackgroundTaskScheduler, coroutineScope: CoroutineSco
                 ) {
                     Text("Schedule Task (Check Debug Tab)")
                 }
-                Text("✓ Android: WorkManager | iOS: BGTaskScheduler", style = MaterialTheme.typography.bodySmall)
+                Text("✓ Android: WorkManager | iOS: BGTaskScheduler (uses fixed ID 'demo-task')", style = MaterialTheme.typography.bodySmall)
             }
         }
 

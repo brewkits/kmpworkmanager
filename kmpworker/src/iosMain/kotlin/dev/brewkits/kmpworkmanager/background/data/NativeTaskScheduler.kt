@@ -11,6 +11,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlin.coroutines.resume
+import kotlin.coroutines.suspendCoroutine
+import kotlinx.coroutines.suspendCancellableCoroutine
 import platform.BackgroundTasks.BGAppRefreshTaskRequest
 import platform.BackgroundTasks.BGProcessingTaskRequest
 import platform.BackgroundTasks.BGTaskRequest
@@ -121,16 +124,19 @@ actual class NativeTaskScheduler(
             return ScheduleResult.REJECTED_OS_POLICY
         }
 
+        @Suppress("DEPRECATION")  // Keep backward compatibility for deprecated triggers until v3.0.0
         return when (trigger) {
             is TaskTrigger.Periodic -> schedulePeriodicTask(id, trigger, workerClassName, constraints, inputJson, policy)
             is TaskTrigger.OneTime -> scheduleOneTimeTask(id, trigger, workerClassName, constraints, inputJson, policy)
-            is TaskTrigger.Exact -> scheduleExactNotification(id, trigger, workerClassName, inputJson)
+            is TaskTrigger.Exact -> scheduleExactAlarm(id, trigger, workerClassName, constraints, inputJson)
             is TaskTrigger.Windowed -> scheduleWindowedTask(id, trigger, workerClassName, constraints, inputJson, policy)
             is TaskTrigger.ContentUri -> rejectUnsupportedTrigger("ContentUri")
-            TaskTrigger.StorageLow -> rejectUnsupportedTrigger("StorageLow")
-            TaskTrigger.BatteryLow -> rejectUnsupportedTrigger("BatteryLow")
-            TaskTrigger.BatteryOkay -> rejectUnsupportedTrigger("BatteryOkay")
-            TaskTrigger.DeviceIdle -> rejectUnsupportedTrigger("DeviceIdle")
+            // v2.1.1+: These triggers are deprecated (use SystemConstraint instead), but kept for backward compatibility
+            // Will be removed in v3.0.0
+            TaskTrigger.StorageLow -> rejectUnsupportedTrigger("StorageLow (deprecated - use Constraints.systemConstraints)")
+            TaskTrigger.BatteryLow -> rejectUnsupportedTrigger("BatteryLow (deprecated - use Constraints.systemConstraints)")
+            TaskTrigger.BatteryOkay -> rejectUnsupportedTrigger("BatteryOkay (deprecated - use Constraints.systemConstraints)")
+            TaskTrigger.DeviceIdle -> rejectUnsupportedTrigger("DeviceIdle (deprecated - use Constraints.systemConstraints)")
         }
     }
 
@@ -163,8 +169,9 @@ actual class NativeTaskScheduler(
 
     /**
      * Schedule a periodic task with automatic re-scheduling
+     * v2.0.1+: Now suspend to support improved ExistingPolicy.KEEP logic
      */
-    private fun schedulePeriodicTask(
+    private suspend fun schedulePeriodicTask(
         id: String,
         trigger: TaskTrigger.Periodic,
         workerClassName: String,
@@ -200,8 +207,9 @@ actual class NativeTaskScheduler(
 
     /**
      * Schedule a one-time task
+     * v2.0.1+: Now suspend to support improved ExistingPolicy.KEEP logic
      */
-    private fun scheduleOneTimeTask(
+    private suspend fun scheduleOneTimeTask(
         id: String,
         trigger: TaskTrigger.OneTime,
         workerClassName: String,
@@ -243,6 +251,8 @@ actual class NativeTaskScheduler(
      * **Best Practice**: Design your app logic to not depend on the task
      * running before the `latest` time. Use exact alarms if strict timing is required.
      *
+     * v2.0.1+: Now suspend to support improved ExistingPolicy.KEEP logic
+     *
      * @param id Unique task identifier
      * @param trigger Windowed trigger with earliest and latest times
      * @param workerClassName Worker class name
@@ -250,7 +260,7 @@ actual class NativeTaskScheduler(
      * @param inputJson Worker input data
      * @param policy Policy for handling existing tasks
      */
-    private fun scheduleWindowedTask(
+    private suspend fun scheduleWindowedTask(
         id: String,
         trigger: TaskTrigger.Windowed,
         workerClassName: String,
@@ -292,8 +302,9 @@ actual class NativeTaskScheduler(
 
     /**
      * Handle ExistingPolicy - returns true if should proceed with scheduling, false if should skip
+     * v2.0.1+: Enhanced KEEP logic to query actual pending tasks, preventing stale metadata issues
      */
-    private fun handleExistingPolicy(id: String, policy: ExistingPolicy, isPeriodicMetadata: Boolean): Boolean {
+    private suspend fun handleExistingPolicy(id: String, policy: ExistingPolicy, isPeriodicMetadata: Boolean): Boolean {
         val existingMetadata = fileStorage.loadTaskMetadata(id, periodic = isPeriodicMetadata)
 
         if (existingMetadata != null) {
@@ -301,10 +312,18 @@ actual class NativeTaskScheduler(
 
             when (policy) {
                 ExistingPolicy.KEEP -> {
-                    // Check if task is still pending in BGTaskScheduler
-                    // Note: BGTaskScheduler doesn't provide API to query pending requests,
-                    // so we rely on metadata existence as proxy
-                    return false
+                    // v2.0.1+: Query BGTaskScheduler to verify task is actually pending
+                    // This prevents issues with stale metadata after crashes
+                    val isPending = isTaskPending(id)
+
+                    if (isPending) {
+                        Logger.i(LogTags.SCHEDULER, "Task '$id' is pending in BGTaskScheduler, keeping existing task")
+                        return false
+                    } else {
+                        Logger.w(LogTags.SCHEDULER, "Task '$id' metadata exists but not pending (stale). Cleaning up and rescheduling.")
+                        fileStorage.deleteTaskMetadata(id, periodic = isPeriodicMetadata)
+                        return true
+                    }
                 }
                 ExistingPolicy.REPLACE -> {
                     Logger.i(LogTags.SCHEDULER, "Replacing existing task '$id'")
@@ -314,6 +333,29 @@ actual class NativeTaskScheduler(
             }
         }
         return true
+    }
+
+    /**
+     * Check if a task is actually pending in BGTaskScheduler.
+     * v2.0.1+: Added to support reliable ExistingPolicy.KEEP logic
+     * v2.1.1+: Uses suspendCancellableCoroutine to prevent crash if cancelled before callback executes
+     */
+    private suspend fun isTaskPending(taskId: String): Boolean = suspendCancellableCoroutine { continuation ->
+        BGTaskScheduler.sharedScheduler.getPendingTaskRequestsWithCompletionHandler { requests ->
+            // v2.1.1+: Check if continuation is still active before resuming
+            if (continuation.isActive) {
+                val taskList = requests?.filterIsInstance<BGTaskRequest>() ?: emptyList()
+                val isPending = taskList.any { it.identifier == taskId }
+                continuation.resume(isPending)
+            } else {
+                Logger.d(LogTags.SCHEDULER, "isTaskPending cancelled for $taskId - callback ignored")
+            }
+        }
+
+        // v2.1.1+: Cleanup on cancellation
+        continuation.invokeOnCancellation {
+            Logger.d(LogTags.SCHEDULER, "isTaskPending cancelled for $taskId")
+        }
     }
 
     /**
@@ -360,7 +402,88 @@ actual class NativeTaskScheduler(
     }
 
     /**
-     * Schedule exact notification using UNUserNotificationCenter
+     * Schedule exact alarm with iOS-specific behavior handling.
+     *
+     * **v2.1.1+**: Implements ExactAlarmIOSBehavior for transparent exact alarm handling.
+     *
+     * **Background**: iOS does NOT support background code execution at exact times.
+     * This method provides three explicit behaviors based on constraints.exactAlarmIOSBehavior:
+     * 1. SHOW_NOTIFICATION (default): Display UNNotification at exact time
+     * 2. ATTEMPT_BACKGROUND_RUN: Schedule BGAppRefreshTask (not guaranteed to run at exact time)
+     * 3. THROW_ERROR: Throw exception to force developer awareness
+     *
+     * @param id Task identifier
+     * @param trigger Exact trigger with timestamp
+     * @param workerClassName Worker class (used only for ATTEMPT_BACKGROUND_RUN, ignored for SHOW_NOTIFICATION)
+     * @param constraints Execution constraints (contains exactAlarmIOSBehavior)
+     * @param inputJson Worker input data
+     * @return ScheduleResult indicating success/failure
+     * @throws UnsupportedOperationException if exactAlarmIOSBehavior is THROW_ERROR
+     */
+    private fun scheduleExactAlarm(
+        id: String,
+        trigger: TaskTrigger.Exact,
+        workerClassName: String,
+        constraints: Constraints,
+        inputJson: String?
+    ): ScheduleResult {
+        val behavior = constraints.exactAlarmIOSBehavior
+
+        Logger.i(
+            LogTags.ALARM,
+            "Scheduling exact alarm - ID: '$id', Time: ${trigger.atEpochMillis}, Behavior: $behavior"
+        )
+
+        return when (behavior) {
+            ExactAlarmIOSBehavior.SHOW_NOTIFICATION -> {
+                scheduleExactNotification(id, trigger, workerClassName, inputJson)
+            }
+
+            ExactAlarmIOSBehavior.ATTEMPT_BACKGROUND_RUN -> {
+                Logger.w(
+                    LogTags.ALARM,
+                    "⚠️ ATTEMPT_BACKGROUND_RUN: iOS will TRY to run around specified time, but timing is NOT guaranteed"
+                )
+                scheduleExactBackgroundTask(id, trigger, workerClassName, constraints, inputJson)
+            }
+
+            ExactAlarmIOSBehavior.THROW_ERROR -> {
+                val errorMessage = """
+                    ❌ iOS does not support exact alarms for background code execution.
+
+                    TaskTrigger.Exact on iOS can only:
+                    1. Show notification at exact time (SHOW_NOTIFICATION)
+                    2. Attempt opportunistic background run (ATTEMPT_BACKGROUND_RUN - not guaranteed)
+
+                    To fix this error, choose one of:
+
+                    Option 1: Show notification (user-facing events)
+                    Constraints(exactAlarmIOSBehavior = ExactAlarmIOSBehavior.SHOW_NOTIFICATION)
+
+                    Option 2: Best-effort background run (non-critical sync)
+                    Constraints(exactAlarmIOSBehavior = ExactAlarmIOSBehavior.ATTEMPT_BACKGROUND_RUN)
+
+                    Option 3: Platform-specific implementation
+                    if (Platform.isIOS) {
+                        // Use notification or rethink approach
+                    } else {
+                        // Use TaskTrigger.Exact on Android
+                    }
+
+                    See: ExactAlarmIOSBehavior documentation
+                """.trimIndent()
+
+                Logger.e(LogTags.ALARM, errorMessage)
+                throw UnsupportedOperationException(errorMessage)
+            }
+        }
+    }
+
+    /**
+     * Schedule exact notification using UNUserNotificationCenter.
+     * This is the default and recommended approach for exact alarms on iOS.
+     *
+     * v2.1.1+: Made private, called from scheduleExactAlarm
      */
     private fun scheduleExactNotification(
         id: String,
@@ -403,6 +526,56 @@ actual class NativeTaskScheduler(
     }
 
     /**
+     * Schedule background task to run around the exact time (best effort).
+     *
+     * **IMPORTANT**: iOS decides when to actually run the task. May be delayed by
+     * minutes to hours, or may not run at all.
+     *
+     * v2.1.1+: Added for ATTEMPT_BACKGROUND_RUN behavior
+     */
+    private fun scheduleExactBackgroundTask(
+        id: String,
+        trigger: TaskTrigger.Exact,
+        workerClassName: String,
+        constraints: Constraints,
+        inputJson: String?
+    ): ScheduleResult {
+        Logger.i(
+            LogTags.ALARM,
+            "Scheduling best-effort background task - ID: '$id', Target time: ${trigger.atEpochMillis}"
+        )
+
+        // Save metadata for task execution
+        val taskMetadata = mapOf(
+            "workerClassName" to workerClassName,
+            "inputJson" to (inputJson ?: ""),
+            "targetTime" to trigger.atEpochMillis.toString()
+        )
+        fileStorage.saveTaskMetadata(id, taskMetadata, periodic = false)
+
+        // Schedule BGAppRefreshTask with earliestBeginDate = exact time
+        val request = createBackgroundTaskRequest(id, constraints)
+
+        val unixTimestampInSeconds = trigger.atEpochMillis / 1000.0
+        val appleTimestamp = unixTimestampInSeconds - APPLE_TO_UNIX_EPOCH_OFFSET_SECONDS
+        val targetDate = NSDate(timeIntervalSinceReferenceDate = appleTimestamp)
+
+        request.earliestBeginDate = targetDate
+
+        Logger.w(
+            LogTags.ALARM,
+            """
+            ⚠️ Best-effort scheduling - iOS will ATTEMPT to run around ${targetDate}
+            - Timing is NOT guaranteed (may be delayed significantly)
+            - May not run if device is in Low Power Mode
+            - May not run if app exceeded background budget
+            """.trimIndent()
+        )
+
+        return submitTaskRequest(request, "best-effort background task '$id'")
+    }
+
+    /**
      * Reject unsupported trigger type with logging
      */
     private fun rejectUnsupportedTrigger(triggerName: String): ScheduleResult {
@@ -432,7 +605,8 @@ actual class NativeTaskScheduler(
         fileStorage.saveChainDefinition(chainId, steps)
 
         // 2. Add the chainId to the execution queue (atomic operation)
-        kotlinx.coroutines.MainScope().launch {
+        // v2.0.1+: Use background scope to avoid blocking Main thread with file I/O
+        backgroundScope.launch {
             try {
                 fileStorage.enqueueChain(chainId)
                 Logger.d(LogTags.CHAIN, "Added chain $chainId to execution queue. Queue size: ${fileStorage.getQueueSize()}")

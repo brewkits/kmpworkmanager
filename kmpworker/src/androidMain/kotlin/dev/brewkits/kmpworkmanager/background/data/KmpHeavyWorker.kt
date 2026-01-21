@@ -34,15 +34,115 @@ import org.koin.core.component.inject
  * )
  * ```
  *
+ * **v2.0.1+: Customize notification text (for localization):**
+ * ```kotlin
+ * val inputData = buildJsonObject {
+ *     put(KmpHeavyWorker.NOTIFICATION_TITLE_KEY, "處理中")
+ *     put(KmpHeavyWorker.NOTIFICATION_TEXT_KEY, "正在處理大型任務...")
+ * }.toString()
+ *
+ * scheduler.enqueue(
+ *     id = "heavy-processing",
+ *     trigger = TaskTrigger.OneTime(),
+ *     workerClassName = "ProcessVideoWorker",
+ *     constraints = Constraints(isHeavyTask = true),
+ *     inputJson = inputData  // ← Custom notification text
+ * )
+ * ```
+ *
+ * **v2.1.2+: Android 14+ Foreground Service Type (CRITICAL for location/media/camera apps):**
+ *
+ * Android 14+ requires explicit foregroundServiceType declaration. The default is DATA_SYNC,
+ * but if your app uses location tracking, media playback, or camera, you MUST specify the
+ * correct type to avoid SecurityException crashes.
+ *
+ * **Example 1: Location Tracking**
+ * ```kotlin
+ * val inputData = buildJsonObject {
+ *     put(KmpHeavyWorker.FOREGROUND_SERVICE_TYPE_KEY,
+ *         android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+ * }.toString()
+ *
+ * scheduler.enqueue(
+ *     id = "location-tracking",
+ *     trigger = TaskTrigger.OneTime(),
+ *     workerClassName = "LocationWorker",
+ *     constraints = Constraints(isHeavyTask = true),
+ *     inputJson = inputData
+ * )
+ * ```
+ *
+ * **Example 2: Media Playback**
+ * ```kotlin
+ * val inputData = buildJsonObject {
+ *     put(KmpHeavyWorker.FOREGROUND_SERVICE_TYPE_KEY,
+ *         android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
+ * }.toString()
+ *
+ * scheduler.enqueue(
+ *     id = "audio-processing",
+ *     trigger = TaskTrigger.OneTime(),
+ *     workerClassName = "AudioWorker",
+ *     constraints = Constraints(isHeavyTask = true),
+ *     inputJson = inputData
+ * )
+ * ```
+ *
+ * **Example 3: Multiple Types (Location + Data Sync)**
+ * ```kotlin
+ * val inputData = buildJsonObject {
+ *     put(KmpHeavyWorker.FOREGROUND_SERVICE_TYPE_KEY,
+ *         android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION or
+ *         android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+ * }.toString()
+ * ```
+ *
  * **Requirements:**
  * - Requires `FOREGROUND_SERVICE` permission in AndroidManifest.xml
  * - Shows persistent notification while running (Android requirement)
  * - Notification cannot be dismissed until task completes
  *
- * **AndroidManifest.xml:**
+ * **AndroidManifest.xml (Basic - Data Sync only):**
  * ```xml
  * <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+ * <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
  * <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+ *
+ * <application>
+ *     <service
+ *         android:name="androidx.work.impl.foreground.SystemForegroundService"
+ *         android:foregroundServiceType="dataSync"
+ *         tools:node="merge" />
+ * </application>
+ * ```
+ *
+ * **AndroidManifest.xml (Location Tracking):**
+ * ```xml
+ * <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+ * <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+ * <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+ * <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+ *
+ * <application>
+ *     <service
+ *         android:name="androidx.work.impl.foreground.SystemForegroundService"
+ *         android:foregroundServiceType="location|dataSync"
+ *         tools:node="merge" />
+ * </application>
+ * ```
+ *
+ * **AndroidManifest.xml (Media Playback):**
+ * ```xml
+ * <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+ * <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+ * <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+ *
+ * <application>
+ *     <service
+ *         android:name="androidx.work.impl.foreground.SystemForegroundService"
+ *         android:foregroundServiceType="mediaPlayback"
+ *         tools:node="merge" />
+ * </application>
  * ```
  *
  * **v3.0.0+**: Moved to library (previously in composeApp only)
@@ -64,6 +164,44 @@ class KmpHeavyWorker(
          */
         const val WORKER_CLASS_KEY = "workerClassName"
         const val INPUT_JSON_KEY = "inputJson"
+
+        /**
+         * v2.0.1+: Notification customization keys
+         * These can be passed via inputData to customize the foreground notification
+         */
+        const val NOTIFICATION_TITLE_KEY = "notificationTitle"
+        const val NOTIFICATION_TEXT_KEY = "notificationText"
+
+        /**
+         * v2.1.2+: Foreground service type key for Android 14+ (API 34)
+         * Pass this via inputData to specify the service type when using location/media/camera
+         *
+         * Example for location tracking:
+         * ```kotlin
+         * val inputData = buildJsonObject {
+         *     put(KmpHeavyWorker.FOREGROUND_SERVICE_TYPE_KEY,
+         *         ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+         * }.toString()
+         * ```
+         *
+         * Available types (API 34+):
+         * - FOREGROUND_SERVICE_TYPE_DATA_SYNC (default)
+         * - FOREGROUND_SERVICE_TYPE_LOCATION
+         * - FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+         * - FOREGROUND_SERVICE_TYPE_CAMERA
+         * - FOREGROUND_SERVICE_TYPE_MICROPHONE
+         * - FOREGROUND_SERVICE_TYPE_HEALTH
+         * - FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING
+         * - FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED
+         * - FOREGROUND_SERVICE_TYPE_SHORT_SERVICE
+         */
+        const val FOREGROUND_SERVICE_TYPE_KEY = "foregroundServiceType"
+
+        /**
+         * Default notification text (used if not provided via inputData)
+         */
+        private const val DEFAULT_NOTIFICATION_TITLE = "Background Task Running"
+        private const val DEFAULT_NOTIFICATION_TEXT = "Processing heavy task..."
     }
 
     override suspend fun doWork(): Result {
@@ -102,19 +240,67 @@ class KmpHeavyWorker(
 
     /**
      * Creates foreground notification info
+     * v2.0.1+: Now supports custom notification text via inputData
+     * v2.1.2+: CRITICAL FIX - Support configurable foregroundServiceType for Android 14+ (API 34)
+     *
+     * **Android 14+ Requirement:**
+     * The foregroundServiceType must match the type declared in AndroidManifest.xml:
+     * ```xml
+     * <service android:name="androidx.work.impl.foreground.SystemForegroundService"
+     *          android:foregroundServiceType="location|dataSync" />
+     * ```
+     *
+     * **How to specify custom type:**
+     * ```kotlin
+     * val inputData = buildJsonObject {
+     *     put(KmpHeavyWorker.FOREGROUND_SERVICE_TYPE_KEY,
+     *         ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+     * }.toString()
+     *
+     * scheduler.enqueue(
+     *     id = "location-tracking",
+     *     trigger = TaskTrigger.OneTime(),
+     *     workerClassName = "LocationWorker",
+     *     constraints = Constraints(isHeavyTask = true),
+     *     inputJson = inputData
+     * )
+     * ```
      */
     private fun createForegroundInfo(): ForegroundInfo {
         createNotificationChannel()
 
+        // v2.0.1+: Allow custom notification text for localization
+        val notificationTitle = inputData.getString(NOTIFICATION_TITLE_KEY) ?: DEFAULT_NOTIFICATION_TITLE
+        val notificationText = inputData.getString(NOTIFICATION_TEXT_KEY) ?: DEFAULT_NOTIFICATION_TEXT
+
         val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
-            .setContentTitle("Background Task Running")
-            .setContentText("Processing heavy task...")
+            .setContentTitle(notificationTitle)
+            .setContentText(notificationText)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setOngoing(true) // Cannot be dismissed
             .setPriority(NotificationCompat.PRIORITY_LOW) // Low priority for less intrusion
             .build()
 
-        return ForegroundInfo(NOTIFICATION_ID, notification)
+        // v2.1.2+: CRITICAL FIX - Android 14+ requires foregroundServiceType
+        // Now configurable via inputData to support location/media/camera use cases
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            // API 34+: Get service type from inputData or use DATA_SYNC as default
+            val serviceType = inputData.getInt(
+                FOREGROUND_SERVICE_TYPE_KEY,
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            )
+
+            Logger.d(LogTags.WORKER, "Creating ForegroundInfo with serviceType: $serviceType")
+
+            ForegroundInfo(
+                NOTIFICATION_ID,
+                notification,
+                serviceType
+            )
+        } else {
+            // API 33 and below: Standard constructor (service type not needed)
+            ForegroundInfo(NOTIFICATION_ID, notification)
+        }
     }
 
     /**

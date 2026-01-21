@@ -284,21 +284,30 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         // Get the KMP ChainExecutor from Koin
         let chainExecutor = koinIos.getChainExecutor()
 
-        // Check queue size before starting
-        let initialQueueSize = chainExecutor.getChainQueueSize()
-        print("📦 iOS BGTask: Chain queue size: \(initialQueueSize)")
-
-        // Define an expiration handler
+        // Define an expiration handler - CRITICAL: Call graceful shutdown to save progress
         task.expirationHandler = {
-            print("⏰ iOS BGTask: KMP Chain Executor Task expired - stopping batch processing")
+            print("⏰ iOS BGTask: KMP Chain Executor Task expired - initiating graceful shutdown")
+
+            // Graceful shutdown with 5s grace period for progress save
+            Task {
+                do {
+                    try await chainExecutor.requestShutdown()
+                    print("✅ iOS BGTask: Graceful shutdown completed")
+                } catch {
+                    print("❌ iOS BGTask: Graceful shutdown failed: \(error)")
+                }
+            }
+
             task.setTaskCompleted(success: false)
         }
 
         // Schedule the next task if queue still has items
-        let scheduleNext: () -> Void = {
-            let remainingChains = chainExecutor.getChainQueueSize()
-            if remainingChains > 0 {
-                print("📦 iOS BGTask: \(remainingChains) chain(s) remaining. Rescheduling executor task.")
+        // v2.1.2+: Now async to properly call suspend function
+        let scheduleNext: () async -> Void = {
+            let remainingChains = try? await chainExecutor.getChainQueueSize()
+            let count = remainingChains?.int32Value ?? 0
+            if count > 0 {
+                print("📦 iOS BGTask: \(count) chain(s) remaining. Rescheduling executor task.")
                 let request = BGProcessingTaskRequest(identifier: "kmp_chain_executor_task")
                 request.earliestBeginDate = Date(timeIntervalSinceNow: 1)
                 request.requiresNetworkConnectivity = true
@@ -312,19 +321,24 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         // This optimizes iOS BGTask usage and reduces latency
         Task {
             do {
+                // v2.1.2+: Check queue size asynchronously to avoid Main Thread blocking
+                let initialQueueSize = try await chainExecutor.getChainQueueSize()
+                let queueCount = initialQueueSize.int32Value
+                print("📦 iOS BGTask: Chain queue size: \(queueCount)")
+
                 let executedCount = try await chainExecutor.executeChainsInBatch(maxChains: 3, totalTimeoutMs: 50_000)
                 let count = executedCount.int32Value
-                print("✅ iOS BGTask: Batch execution completed - \(count) chain(s) executed out of \(initialQueueSize)")
+                print("✅ iOS BGTask: Batch execution completed - \(count) chain(s) executed out of \(queueCount)")
 
                 // Mark task as completed successfully
                 task.setTaskCompleted(success: true)
 
                 // Schedule next executor task if queue not empty
-                scheduleNext()
+                await scheduleNext()
             } catch {
                 print("❌ iOS BGTask: Batch execution failed with error: \(error.localizedDescription)")
                 task.setTaskCompleted(success: false)
-                scheduleNext() // Schedule next even if batch failed
+                await scheduleNext() // Schedule next even if batch failed
             }
         }
     }

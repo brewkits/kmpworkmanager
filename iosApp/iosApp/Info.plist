@@ -9,6 +9,8 @@
 		<string>heavy-task-1</string>
 		<string>periodic-sync-task</string>
 		<string>network-task</string>
+		<string>exact-reminder</string>
+		<string>demo-task</string>
 	</array>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
