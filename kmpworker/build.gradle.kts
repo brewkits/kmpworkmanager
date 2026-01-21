@@ -83,40 +83,48 @@ android {
     }
 }
 
-publishing {
-    publications {
-        // Configure all publications with common POM information
-        withType<MavenPublication> {
-            groupId = "dev.brewkits"
-            version = "2.1.2"
+afterEvaluate {
+    publishing {
+        publications {
+            // Configure all publications with common POM information
+            withType<MavenPublication> {
+                groupId = "dev.brewkits"
+                artifactId = artifactId.replace("kmpworker", "kmpworkmanager")
+                version = "2.1.2"
 
-            pom {
-                name.set("KMP WorkManager")
-                description.set("Enterprise-grade Kotlin Multiplatform background task scheduler for Android & iOS. Unified API for WorkManager (Android) and BGTaskScheduler (iOS) with progress tracking, task chains, and production-ready reliability.")
-                url.set("https://github.com/brewkits/kmpworkmanager")
-
-                licenses {
-                    license {
-                        name.set("The Apache License, Version 2.0")
-                        url.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
-                    }
-                }
-
-                developers {
-                    developer {
-                        id.set("brewkits")
-                        name.set("Brewkits Team")
-                        email.set("vietnguyentuan@gmail.com")
-                    }
-                }
-
-                scm {
-                    connection.set("scm:git:git://github.com/brewkits/kmpworkmanager.git")
-                    developerConnection.set("scm:git:ssh://github.com/brewkits/kmpworkmanager.git")
+                pom {
+                    name.set("KMP WorkManager")
+                    description.set("Enterprise-grade Kotlin Multiplatform background task scheduler for Android & iOS. Unified API for WorkManager (Android) and BGTaskScheduler (iOS) with progress tracking, task chains, and production-ready reliability.")
                     url.set("https://github.com/brewkits/kmpworkmanager")
+
+                    licenses {
+                        license {
+                            name.set("The Apache License, Version 2.0")
+                            url.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
+                        }
+                    }
+
+                    developers {
+                        developer {
+                            id.set("brewkits")
+                            name.set("Brewkits Team")
+                            email.set("vietnguyentuan@gmail.com")
+                        }
+                    }
+
+                    scm {
+                        connection.set("scm:git:git://github.com/brewkits/kmpworkmanager.git")
+                        developerConnection.set("scm:git:ssh://github.com/brewkits/kmpworkmanager.git")
+                        url.set("https://github.com/brewkits/kmpworkmanager")
+                    }
                 }
             }
         }
+    }
+}
+
+publishing {
+    publications {
     }
 
     repositories {
