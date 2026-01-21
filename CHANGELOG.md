@@ -9,6 +9,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.1.2] - 2026-01-21
 
+### 🔴 Critical Android Fix (BLOCKER)
+
+**Configurable Foreground Service Type for Android 14+ (API 34)**
+- Fixed hardcoded FOREGROUND_SERVICE_TYPE_DATA_SYNC in KmpHeavyWorker
+- **Issue**: Apps using location/media/camera would crash with SecurityException on Android 14+
+- **Previous behavior**: Always used DATA_SYNC type, incompatible with location/media apps
+- **New behavior**: Service type now configurable via inputData
+- **Impact**: Library now works for ALL use cases (location tracking, media playback, camera, etc.)
+- **Migration**: Backward compatible - defaults to DATA_SYNC if not specified
+
+**Example - Location Tracking:**
+```kotlin
+val inputData = buildJsonObject {
+    put(KmpHeavyWorker.FOREGROUND_SERVICE_TYPE_KEY,
+        ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+}.toString()
+
+scheduler.enqueue(
+    id = "location-tracking",
+    trigger = TaskTrigger.OneTime(),
+    workerClassName = "LocationWorker",
+    constraints = Constraints(isHeavyTask = true),
+    inputJson = inputData
+)
+```
+
+**AndroidManifest.xml (Location):**
+```xml
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+<service
+    android:name="androidx.work.impl.foreground.SystemForegroundService"
+    android:foregroundServiceType="location|dataSync"
+    tools:node="merge" />
+```
+
+Available types:
+- FOREGROUND_SERVICE_TYPE_DATA_SYNC (default)
+- FOREGROUND_SERVICE_TYPE_LOCATION
+- FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+- FOREGROUND_SERVICE_TYPE_CAMERA
+- FOREGROUND_SERVICE_TYPE_MICROPHONE
+- FOREGROUND_SERVICE_TYPE_HEALTH
+- And more...
+
+Files changed: `KmpHeavyWorker.kt`
+
+---
+
 ### 🩹 Critical iOS Stability Fixes
 
 **Eliminated Main Thread Blocking Risk (CRITICAL)**
