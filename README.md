@@ -432,6 +432,7 @@ Progress features:
 ## Documentation
 
 - [Quick Start Guide](docs/quickstart.md)
+- [Demo Guide](DEMO_GUIDE.md) - Interactive demo app walkthrough
 - [Platform Setup](docs/platform-setup.md)
 - [API Reference](docs/api-reference.md)
 - [Task Chains](docs/task-chains.md)
