@@ -98,7 +98,7 @@ Add to your `build.gradle.kts`:
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("dev.brewkits:kmpworkmanager:2.1.1")
+            implementation("dev.brewkits:kmpworkmanager:2.1.2")
         }
     }
 }
@@ -108,7 +108,7 @@ Or using version catalog:
 
 ```toml
 [versions]
-kmpworkmanager = "2.0.0"
+kmpworkmanager = "2.1.2"
 
 [libraries]
 kmpworkmanager = { module = "dev.brewkits:kmpworkmanager", version.ref = "kmpworkmanager" }
@@ -444,6 +444,22 @@ Progress features:
 
 KMP WorkManager is actively developed with a focus on reliability, developer experience, and enterprise features. Here's our planned development roadmap:
 
+### ✅ v2.1.2 - Production Enhancements (Released - January 2026)
+
+**Android Improvements**
+- Configurable Foreground Service Type for Android 14+ compliance
+- Enhanced Maven Central metadata for improved dependency resolution
+
+**iOS Stability**
+- Critical stability fixes for background task handling
+- Improved exact-reminder task registration in BGTaskScheduler
+- Enhanced task ID handling for better iOS compatibility
+
+**Documentation & Build**
+- Cleaned up internal documentation
+- Improved Maven Central publishing workflow
+- Enhanced POM file structure
+
 ### ✅ v2.1.1 - Critical Fixes & iOS Transparency (Released - January 2026)
 
 **Coroutine Lifecycle Management**
@@ -464,7 +480,7 @@ KMP WorkManager is actively developed with a focus on reliability, developer exp
 
 **Migration**: Backward compatible - existing code continues to work with default behavior. See [CHANGELOG.md](CHANGELOG.md) for details.
 
-### v2.1.0 - Performance & Graceful Shutdown (Released - January 2026)
+### ✅ v2.1.0 - Performance & Graceful Shutdown (Released - January 2026)
 
 **Performance Improvements**
 - iOS queue operations 13-40x faster with O(1) append-only queue
@@ -497,7 +513,7 @@ expect object PlatformCapabilities {
 }
 ```
 
-### v2.2.0 - Typed Results & Enhanced Observability (Q2 2026)
+### v2.3.0 - Typed Results & Enhanced Observability (Q2 2026)
 
 **Typed Result Data Passing**
 - Workers return structured results, not just Boolean
@@ -522,7 +538,7 @@ sealed class WorkResult {
 - Test utilities for simulating background task scenarios
 - Documentation with testing best practices
 
-### v2.3.0 - Developer Experience & Tooling (Q3 2026)
+### v2.4.0 - Developer Experience & Tooling (Q3 2026)
 
 **Annotation-Based Worker Discovery**
 - `@Worker` annotation for automatic registration
@@ -597,7 +613,23 @@ Priority is given to:
 
 ## Version History
 
-**v2.0.0** (Latest) - Package Namespace Migration
+**v2.1.2** (Latest) - Production Enhancements
+- Configurable foreground service type for Android 14+
+- Critical iOS stability fixes
+- Enhanced Maven Central metadata
+- Improved documentation and build process
+
+**v2.1.1** - Critical Fixes & iOS Transparency
+- Fixed coroutine lifecycle management
+- Thread safety improvements
+- iOS exact alarm transparency with `ExactAlarmIOSBehavior`
+
+**v2.1.0** - Performance & Graceful Shutdown
+- iOS queue operations 13-40x faster
+- Graceful shutdown for iOS BGTask expiration
+- Automatic compaction at 80% threshold
+
+**v2.0.0** - Package Namespace Migration
 
 **BREAKING CHANGE**: Group ID changed from `io.brewkits` to `dev.brewkits`
 - Maven artifact: `io.brewkits:kmpworkmanager` → `dev.brewkits:kmpworkmanager`
