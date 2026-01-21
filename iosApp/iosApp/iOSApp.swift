@@ -264,8 +264,13 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
                     let constraints = Constraints(requiresNetwork: requiresNetwork, requiresUnmeteredNetwork: false, requiresCharging: requiresCharging, allowWhileIdle: false, qos: .background, isHeavyTask: isHeavyTask, backoffPolicy: .exponential, backoffDelayMs: 30000)
                     let trigger = TaskTriggerPeriodic(intervalMs: intervalMs, flexMs: nil)
 
-                    scheduler.enqueue(id: taskId, trigger: trigger, workerClassName: workerName, constraints: constraints, inputJson: inputJson, policy: .replace) { _, _ in
-                        // The re-scheduling is best-effort.
+                    Task {
+                        do {
+                            _ = try await scheduler.enqueue(id: taskId, trigger: trigger, workerClassName: workerName, constraints: constraints, inputJson: inputJson, policy: .replace)
+                            print("iOS BGTask: Successfully re-scheduled periodic task \(taskId).")
+                        } catch {
+                            print("iOS BGTask: Failed to re-schedule periodic task \(taskId): \(error)")
+                        }
                     }
                 }
 
@@ -305,7 +310,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         // v2.1.2+: Now async to properly call suspend function
         let scheduleNext: () async -> Void = {
             let remainingChains = try? await chainExecutor.getChainQueueSize()
-            let count = remainingChains?.int32Value ?? 0
+            let count = remainingChains?.intValue ?? 0
             if count > 0 {
                 print("📦 iOS BGTask: \(count) chain(s) remaining. Rescheduling executor task.")
                 let request = BGProcessingTaskRequest(identifier: "kmp_chain_executor_task")
@@ -323,11 +328,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             do {
                 // v2.1.2+: Check queue size asynchronously to avoid Main Thread blocking
                 let initialQueueSize = try await chainExecutor.getChainQueueSize()
-                let queueCount = initialQueueSize.int32Value
+                let queueCount = initialQueueSize.intValue
                 print("📦 iOS BGTask: Chain queue size: \(queueCount)")
 
                 let executedCount = try await chainExecutor.executeChainsInBatch(maxChains: 3, totalTimeoutMs: 50_000)
-                let count = executedCount.int32Value
+                let count = executedCount.intValue
                 print("✅ iOS BGTask: Batch execution completed - \(count) chain(s) executed out of \(queueCount)")
 
                 // Mark task as completed successfully
