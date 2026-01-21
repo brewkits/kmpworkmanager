@@ -24,9 +24,13 @@ interface IosWorker : dev.brewkits.kmpworkmanager.background.domain.Worker {
      * Performs the background work.
      *
      * **Important**: This method has timeout protection:
-     * - Single tasks: 25 seconds (BGAppRefreshTask limit with safety margin)
-     * - Heavy tasks: 55 seconds (BGProcessingTask limit with safety margin)
-     * - Chain tasks: 20 seconds per task
+     * - Chain tasks: 20 seconds per task (ChainExecutor.TASK_TIMEOUT_MS)
+     * - Total chain execution: 50 seconds (ChainExecutor.CHAIN_TIMEOUT_MS)
+     *
+     * **Note**: iOS BGTask limits:
+     * - BGAppRefreshTask: ~30 seconds (actual limit, system-controlled)
+     * - BGProcessingTask: ~60 seconds (actual limit, system-controlled)
+     * - Both are subject to iOS expiration handler which may fire earlier
      *
      * @param input Optional input data passed from scheduler.enqueue()
      * @return true if work completed successfully, false otherwise
