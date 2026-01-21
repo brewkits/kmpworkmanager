@@ -11,6 +11,7 @@
 		<string>network-task</string>
 		<string>exact-reminder</string>
 		<string>demo-task</string>
+		<string>content-uri-task</string>
 	</array>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
