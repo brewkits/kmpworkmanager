@@ -309,16 +309,20 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         // Schedule the next task if queue still has items
         // v2.1.2+: Now async to properly call suspend function
         let scheduleNext: () async -> Void = {
-            let remainingChains = try? await chainExecutor.getChainQueueSize()
-            let count = remainingChains?.intValue ?? 0
-            if count > 0 {
-                print("📦 iOS BGTask: \(count) chain(s) remaining. Rescheduling executor task.")
-                let request = BGProcessingTaskRequest(identifier: "kmp_chain_executor_task")
-                request.earliestBeginDate = Date(timeIntervalSinceNow: 1)
-                request.requiresNetworkConnectivity = true
-                try? BGTaskScheduler.shared.submit(request)
-            } else {
-                print("✅ iOS BGTask: All chains processed. Queue is empty.")
+            do {
+                let remainingChains = try await chainExecutor.getChainQueueSize()
+                let count = Int(truncating: remainingChains as NSNumber)
+                if count > 0 {
+                    print("📦 iOS BGTask: \(count) chain(s) remaining. Rescheduling executor task.")
+                    let request = BGProcessingTaskRequest(identifier: "kmp_chain_executor_task")
+                    request.earliestBeginDate = Date(timeIntervalSinceNow: 1)
+                    request.requiresNetworkConnectivity = true
+                    try? BGTaskScheduler.shared.submit(request)
+                } else {
+                    print("✅ iOS BGTask: All chains processed. Queue is empty.")
+                }
+            } catch {
+                print("❌ iOS BGTask: Failed to get chain queue size: \(error)")
             }
         }
 
@@ -328,11 +332,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             do {
                 // v2.1.2+: Check queue size asynchronously to avoid Main Thread blocking
                 let initialQueueSize = try await chainExecutor.getChainQueueSize()
-                let queueCount = initialQueueSize.intValue
+                let queueCount = Int(truncating: initialQueueSize as NSNumber)
                 print("📦 iOS BGTask: Chain queue size: \(queueCount)")
 
                 let executedCount = try await chainExecutor.executeChainsInBatch(maxChains: 3, totalTimeoutMs: 50_000)
-                let count = executedCount.intValue
+                let count = Int(truncating: executedCount as NSNumber)
                 print("✅ iOS BGTask: Batch execution completed - \(count) chain(s) executed out of \(queueCount)")
 
                 // Mark task as completed successfully
