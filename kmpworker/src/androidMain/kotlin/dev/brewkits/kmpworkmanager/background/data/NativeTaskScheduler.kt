@@ -76,10 +76,15 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
                 scheduleContentUriWork(id, actualTrigger, workerClassName, updatedConstraints, inputJson, policy)
             }
 
-            // Deprecated triggers should have been converted by mapLegacyTrigger
+            // v2.1.1+: Deprecated triggers should have been converted by mapLegacyTrigger
+            // Will be removed in v3.0.0
+            @Suppress("DEPRECATION")
             TaskTrigger.StorageLow,
+            @Suppress("DEPRECATION")
             TaskTrigger.BatteryLow,
+            @Suppress("DEPRECATION")
             TaskTrigger.BatteryOkay,
+            @Suppress("DEPRECATION")
             TaskTrigger.DeviceIdle -> {
                 Logger.e(LogTags.SCHEDULER, "Deprecated trigger ${trigger::class.simpleName} reached unreachable code - this is a bug")
                 ScheduleResult.REJECTED_OS_POLICY
@@ -91,6 +96,7 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
      * Maps legacy deprecated triggers to SystemConstraints (v3.0.0+ backward compatibility)
      * @return Pair of (converted trigger, updated constraints)
      */
+    @Suppress("DEPRECATION")  // Keep backward compatibility for deprecated triggers until v3.0.0
     private fun mapLegacyTrigger(
         trigger: TaskTrigger,
         constraints: Constraints
