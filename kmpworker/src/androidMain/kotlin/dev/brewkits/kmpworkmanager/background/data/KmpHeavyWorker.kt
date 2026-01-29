@@ -1,9 +1,14 @@
 package dev.brewkits.kmpworkmanager.background.data
 
+import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.ComponentName
 import android.content.Context
+import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
@@ -34,7 +39,6 @@ import org.koin.core.component.inject
  * )
  * ```
  *
- * **v2.0.1+: Customize notification text (for localization):**
  * ```kotlin
  * val inputData = buildJsonObject {
  *     put(KmpHeavyWorker.NOTIFICATION_TITLE_KEY, "處理中")
@@ -50,7 +54,6 @@ import org.koin.core.component.inject
  * )
  * ```
  *
- * **v2.1.2+: Android 14+ Foreground Service Type (CRITICAL for location/media/camera apps):**
  *
  * Android 14+ requires explicit foregroundServiceType declaration. The default is DATA_SYNC,
  * but if your app uses location tracking, media playback, or camera, you MUST specify the
@@ -166,14 +169,12 @@ class KmpHeavyWorker(
         const val INPUT_JSON_KEY = "inputJson"
 
         /**
-         * v2.0.1+: Notification customization keys
          * These can be passed via inputData to customize the foreground notification
          */
         const val NOTIFICATION_TITLE_KEY = "notificationTitle"
         const val NOTIFICATION_TEXT_KEY = "notificationText"
 
         /**
-         * v2.1.2+: Foreground service type key for Android 14+ (API 34)
          * Pass this via inputData to specify the service type when using location/media/camera
          *
          * Example for location tracking:
@@ -208,7 +209,38 @@ class KmpHeavyWorker(
         Logger.i(LogTags.WORKER, "KmpHeavyWorker starting foreground service")
 
         // 1. Start foreground service with notification
-        setForeground(createForegroundInfo())
+        try {
+            setForeground(createForegroundInfo())
+        } catch (e: SecurityException) {
+            Logger.e(LogTags.WORKER, "Failed to start foreground service - SecurityException", e)
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                val serviceType = inputData.getInt(
+                    FOREGROUND_SERVICE_TYPE_KEY,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                )
+
+                Logger.e(LogTags.WORKER, """
+                    Android 14+ Foreground Service Configuration Error
+
+                    Required steps:
+                    1. Add to AndroidManifest.xml:
+                       <service android:name="androidx.work.impl.foreground.SystemForegroundService"
+                                android:foregroundServiceType="${getServiceTypeString(serviceType)}"
+                                android:exported="false" />
+
+                    2. Ensure required permissions are granted in manifest:
+                       ${getRequiredPermissions(serviceType)}
+
+                    3. Request runtime permissions if needed (for location/camera/microphone)
+
+                    Device: ${Build.MANUFACTURER} ${Build.MODEL}
+                    SDK: ${Build.VERSION.SDK_INT}
+                """.trimIndent())
+            }
+
+            return Result.failure()
+        }
 
         // 2. Get worker class name and input
         val workerClassName = inputData.getString(WORKER_CLASS_KEY)
@@ -240,8 +272,6 @@ class KmpHeavyWorker(
 
     /**
      * Creates foreground notification info
-     * v2.0.1+: Now supports custom notification text via inputData
-     * v2.1.2+: CRITICAL FIX - Support configurable foregroundServiceType for Android 14+ (API 34)
      *
      * **Android 14+ Requirement:**
      * The foregroundServiceType must match the type declared in AndroidManifest.xml:
@@ -269,7 +299,6 @@ class KmpHeavyWorker(
     private fun createForegroundInfo(): ForegroundInfo {
         createNotificationChannel()
 
-        // v2.0.1+: Allow custom notification text for localization
         val notificationTitle = inputData.getString(NOTIFICATION_TITLE_KEY) ?: DEFAULT_NOTIFICATION_TITLE
         val notificationText = inputData.getString(NOTIFICATION_TEXT_KEY) ?: DEFAULT_NOTIFICATION_TEXT
 
@@ -281,16 +310,28 @@ class KmpHeavyWorker(
             .setPriority(NotificationCompat.PRIORITY_LOW) // Low priority for less intrusion
             .build()
 
-        // v2.1.2+: CRITICAL FIX - Android 14+ requires foregroundServiceType
         // Now configurable via inputData to support location/media/camera use cases
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             // API 34+: Get service type from inputData or use DATA_SYNC as default
-            val serviceType = inputData.getInt(
+            var serviceType = inputData.getInt(
                 FOREGROUND_SERVICE_TYPE_KEY,
-                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
             )
 
-            Logger.d(LogTags.WORKER, "Creating ForegroundInfo with serviceType: $serviceType")
+            try {
+                validateForegroundServiceType(serviceType)
+                Logger.d(LogTags.WORKER, "Creating ForegroundInfo with serviceType: $serviceType")
+            } catch (e: SecurityException) {
+                Logger.e(LogTags.WORKER, "Service type validation failed - falling back to DATA_SYNC", e)
+                Logger.w(LogTags.WORKER, """
+                    Validation failed. Add to AndroidManifest.xml:
+                    <service android:name="androidx.work.impl.foreground.SystemForegroundService"
+                             android:foregroundServiceType="${getServiceTypeString(serviceType)}" />
+                """.trimIndent())
+
+                // Fallback to DATA_SYNC (most permissive type)
+                serviceType = ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            }
 
             ForegroundInfo(
                 NOTIFICATION_ID,
@@ -340,5 +381,163 @@ class KmpHeavyWorker(
         }
 
         return worker.doWork(inputJson)
+    }
+
+    /**
+     * Validate foreground service type for Android 14+ (API 34+)
+     *
+     * **FAIL OPEN Philosophy:**
+     * This method implements a "fail open" approach - if validation encounters unexpected
+     * errors (common on Chinese ROMs like Xiaomi, Oppo, Vivo), it allows the service to
+     * proceed rather than crashing. This prevents app crashes while still validating
+     * standard Android configurations.
+     *
+     * **Validation checks:**
+     * 1. Service type declared in AndroidManifest.xml
+     * 2. Required permissions granted (e.g., ACCESS_FINE_LOCATION for LOCATION type)
+     *
+     * @param serviceType The requested foreground service type
+     * @throws SecurityException if validation fails on standard Android (not on Chinese ROMs)
+     */
+    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+    private fun validateForegroundServiceType(serviceType: Int) {
+        try {
+            val packageManager = applicationContext.packageManager
+            val componentName = ComponentName(applicationContext, "androidx.work.impl.foreground.SystemForegroundService")
+
+            // Get service info - may throw NameNotFoundException or RuntimeException on Chinese ROMs
+            val serviceInfo = try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    packageManager.getServiceInfo(
+                        componentName,
+                        PackageManager.ComponentInfoFlags.of(0)
+                    )
+                } else {
+                    @Suppress("DEPRECATION")
+                    packageManager.getServiceInfo(componentName, 0)
+                }
+            } catch (e: PackageManager.NameNotFoundException) {
+                Logger.w(LogTags.WORKER, "SystemForegroundService not found in manifest - proceeding anyway (FAIL OPEN)")
+                return  // FAIL OPEN
+            } catch (e: Exception) {
+                // CRITICAL: Chinese ROMs may throw unexpected exceptions
+                Logger.e(LogTags.WORKER, "Unexpected ROM behavior during service lookup: ${e.javaClass.simpleName}", e)
+                Logger.w(LogTags.WORKER, "Device: ${Build.MANUFACTURER} ${Build.MODEL}, SDK: ${Build.VERSION.SDK_INT}")
+                return  // FAIL OPEN
+            }
+
+            // Check if service type is declared in manifest
+            val declaredTypes = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                serviceInfo.foregroundServiceType
+            } else {
+                0
+            }
+
+            // Verify requested type is included in declared types
+            if (declaredTypes != 0 && (declaredTypes and serviceType) == 0) {
+                val errorMsg = """
+                    Foreground service type mismatch!
+                    Requested type: $serviceType
+                    Declared types in manifest: $declaredTypes
+
+                    Add to AndroidManifest.xml:
+                    <service android:name="androidx.work.impl.foreground.SystemForegroundService"
+                             android:foregroundServiceType="${getServiceTypeString(serviceType)}" />
+                """.trimIndent()
+
+                Logger.e(LogTags.WORKER, errorMsg)
+                throw SecurityException(errorMsg)
+            }
+
+            // Check required permissions for specific service types
+            when {
+                (serviceType and ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION) != 0 -> {
+                    if (!hasPermission(Manifest.permission.ACCESS_FINE_LOCATION) &&
+                        !hasPermission(Manifest.permission.ACCESS_COARSE_LOCATION)) {
+                        throw SecurityException(
+                            "FOREGROUND_SERVICE_TYPE_LOCATION requires ACCESS_FINE_LOCATION or ACCESS_COARSE_LOCATION permission"
+                        )
+                    }
+                }
+                (serviceType and ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA) != 0 -> {
+                    if (!hasPermission(Manifest.permission.CAMERA)) {
+                        throw SecurityException(
+                            "FOREGROUND_SERVICE_TYPE_CAMERA requires CAMERA permission"
+                        )
+                    }
+                }
+                (serviceType and ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE) != 0 -> {
+                    if (!hasPermission(Manifest.permission.RECORD_AUDIO)) {
+                        throw SecurityException(
+                            "FOREGROUND_SERVICE_TYPE_MICROPHONE requires RECORD_AUDIO permission"
+                        )
+                    }
+                }
+            }
+
+            Logger.d(LogTags.WORKER, "Foreground service type validation passed: $serviceType")
+
+        } catch (e: SecurityException) {
+            // Re-throw expected SecurityException (validation failed)
+            throw e
+        } catch (e: Exception) {
+            // CRITICAL: Catch ALL other exceptions (Chinese ROM edge cases)
+            Logger.e(LogTags.WORKER, "Unknown validation error - failing open: ${e.javaClass.simpleName}", e)
+            Logger.w(LogTags.WORKER, "Device: ${Build.MANUFACTURER} ${Build.MODEL}, SDK: ${Build.VERSION.SDK_INT}")
+            // FAIL OPEN - allow service to proceed
+        }
+    }
+
+    /**
+     * Check if app has a specific permission
+     * v2.1.3+
+     */
+    private fun hasPermission(permission: String): Boolean {
+        return applicationContext.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
+    }
+
+    /**
+     * Convert service type constant to manifest string
+     */
+    private fun getServiceTypeString(serviceType: Int): String {
+        val types = mutableListOf<String>()
+
+        if ((serviceType and ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION) != 0) types.add("location")
+        if ((serviceType and ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA) != 0) types.add("camera")
+        if ((serviceType and ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE) != 0) types.add("microphone")
+        if ((serviceType and ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK) != 0) types.add("mediaPlayback")
+        if ((serviceType and ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL) != 0) types.add("phoneCall")
+        if ((serviceType and ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC) != 0) types.add("dataSync")
+
+        return types.joinToString("|").ifEmpty { "dataSync" }
+    }
+
+    /**
+     * Get required permissions for a service type
+     */
+    private fun getRequiredPermissions(serviceType: Int): String {
+        val permissions = mutableListOf<String>()
+
+        if ((serviceType and ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION) != 0) {
+            permissions.add("<uses-permission android:name=\"android.permission.ACCESS_FINE_LOCATION\" />")
+            permissions.add("<uses-permission android:name=\"android.permission.FOREGROUND_SERVICE_LOCATION\" />")
+        }
+        if ((serviceType and ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA) != 0) {
+            permissions.add("<uses-permission android:name=\"android.permission.CAMERA\" />")
+            permissions.add("<uses-permission android:name=\"android.permission.FOREGROUND_SERVICE_CAMERA\" />")
+        }
+        if ((serviceType and ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE) != 0) {
+            permissions.add("<uses-permission android:name=\"android.permission.RECORD_AUDIO\" />")
+            permissions.add("<uses-permission android:name=\"android.permission.FOREGROUND_SERVICE_MICROPHONE\" />")
+        }
+        if ((serviceType and ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK) != 0) {
+            permissions.add("<uses-permission android:name=\"android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK\" />")
+        }
+
+        return if (permissions.isNotEmpty()) {
+            permissions.joinToString("\n       ")
+        } else {
+            "No additional permissions required for DATA_SYNC"
+        }
     }
 }

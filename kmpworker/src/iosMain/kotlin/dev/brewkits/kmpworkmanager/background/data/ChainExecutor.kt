@@ -1,5 +1,6 @@
 package dev.brewkits.kmpworkmanager.background.data
 
+import dev.brewkits.kmpworkmanager.background.domain.BGTaskType
 import dev.brewkits.kmpworkmanager.background.domain.TaskCompletionEvent
 import dev.brewkits.kmpworkmanager.background.domain.TaskEventBus
 import dev.brewkits.kmpworkmanager.background.domain.TaskRequest
@@ -21,46 +22,83 @@ import platform.Foundation.timeIntervalSince1970
  * - Comprehensive error handling and logging
  * - Task completion event emission
  * - Memory-safe coroutine scope management
+ *
+ * **v2.2.1+ Usage with automatic cleanup:**
+ * ```kotlin
+ * ChainExecutor(factory, taskType).use { executor ->
+ *     executor.executeChainsInBatch()
+ * }
+ * // Automatically cleaned up after use
+ * ```
+ *
+ * @param workerFactory Factory for creating worker instances
+ * @param taskType Type of BGTask (APP_REFRESH or PROCESSING) - determines timeout limits
  */
-class ChainExecutor(private val workerFactory: IosWorkerFactory) {
+/**
+ * Closeable interface for resource cleanup
+ */
+interface Closeable {
+    fun close()
+}
+
+class ChainExecutor(
+    private val workerFactory: IosWorkerFactory,
+    private val taskType: BGTaskType = BGTaskType.PROCESSING
+) : Closeable {
+
+    private var isClosed = false
+    private val closeMutex = Mutex()
 
     private val fileStorage = IosFileStorage()
     private val job = SupervisorJob()
     private val coroutineScope = CoroutineScope(Dispatchers.Default + job)
 
     // Thread-safe set to track active chains (prevents duplicate execution)
-    // v2.0.1+: Replaced NSMutableSet with Kotlin mutable set + Mutex for thread safety
     private val activeChainsMutex = Mutex()
     private val activeChains = mutableSetOf<String>()
 
-    // v2.1.0+: Graceful shutdown support for BGTask expiration
     private val shutdownMutex = Mutex()
-    // v2.1.1+: CRITICAL - ALL reads/writes of isShuttingDown MUST be protected by shutdownMutex
     // to prevent race conditions
     private var isShuttingDown = false
 
+    /**
+     * Timeout for individual tasks within chain
+     * - APP_REFRESH: 20 seconds (tight time budget)
+     * - PROCESSING: 120 seconds (2 minutes - more generous)
+     */
+    private val taskTimeout: Long = when (taskType) {
+        BGTaskType.APP_REFRESH -> 20_000L
+        BGTaskType.PROCESSING -> 120_000L
+    }
+
+    /**
+     * Maximum time for chain execution
+     * - APP_REFRESH: 50 seconds (total ~30s limit, 20s safety margin)
+     * - PROCESSING: 300 seconds (5 minutes from typical 5-10 min window)
+     */
+    private val chainTimeout: Long = when (taskType) {
+        BGTaskType.APP_REFRESH -> 50_000L
+        BGTaskType.PROCESSING -> 300_000L
+    }
+
     companion object {
         /**
-         * Timeout for individual tasks within chain (20 seconds)
-         * Allows multiple tasks to execute within BGTask time limit
+         * Default timeout for individual tasks (20 seconds)
          */
         const val TASK_TIMEOUT_MS = 20_000L
 
         /**
-         * Maximum time for chain execution (50 seconds)
-         * Provides 10s safety margin for BGProcessingTask (60s limit)
+         * Default maximum time for chain execution (50 seconds)
          */
         const val CHAIN_TIMEOUT_MS = 50_000L
 
         /**
-         * v2.1.0+: Shutdown grace period (5 seconds)
          * Time allowed for saving progress after shutdown signal
          */
         const val SHUTDOWN_GRACE_PERIOD_MS = 5_000L
     }
 
     /**
-     * v2.1.0+: Request graceful shutdown of chain execution.
      * This should be called when iOS signals BGTask expiration.
      *
      * **What it does**:
@@ -80,6 +118,8 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
      * ```
      */
     suspend fun requestShutdown() {
+        checkNotClosed()
+
         shutdownMutex.withLock {
             if (isShuttingDown) {
                 Logger.w(LogTags.CHAIN, "Shutdown already in progress")
@@ -101,10 +141,11 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
     }
 
     /**
-     * v2.1.0+: Reset shutdown state (call on next BGTask launch)
      * Thread-safe version using mutex to prevent race conditions
      */
     suspend fun resetShutdownState() {
+        checkNotClosed()
+
         shutdownMutex.withLock {
             isShuttingDown = false
             Logger.d(LogTags.CHAIN, "Shutdown state reset")
@@ -113,26 +154,51 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
 
     /**
      * Returns the current number of chains waiting in the execution queue.
-     * v2.1.2+: Converted to suspend function to prevent Main Thread blocking
      */
     suspend fun getChainQueueSize(): Int {
+        checkNotClosed()
         return fileStorage.getQueueSize()
     }
+
+    /**
+     * Execution metrics for monitoring and telemetry
+     */
+    data class ExecutionMetrics(
+        val taskType: BGTaskType,
+        val startTime: Long,
+        val endTime: Long,
+        val duration: Long,
+        val chainsAttempted: Int,
+        val chainsSucceeded: Int,
+        val chainsFailed: Int,
+        val wasKilledBySystem: Boolean,
+        val timeUsagePercentage: Int,
+        val queueSizeRemaining: Int
+    )
 
     /**
      * Execute multiple chains from the queue in batch mode.
      * This optimizes iOS BGTask usage by processing as many chains as possible
      * before the OS time limit is reached.
      *
+     *
+     * **Time-slicing strategy:**
+     * - Uses only 85% of available time (15% buffer for cleanup)
+     * - Checks minimum time before each chain
+     * - Stops early to prevent system kills
+     * - Schedules continuation if queue not empty
+     *
      * @param maxChains Maximum number of chains to process (default: 3)
-     * @param totalTimeoutMs Total timeout for batch processing (default: 50s)
+     * @param totalTimeoutMs Total timeout for batch processing (default: dynamic based on taskType)
      * @return Number of successfully executed chains
+     * @throws IllegalStateException if executor is closed
      */
     suspend fun executeChainsInBatch(
         maxChains: Int = 3,
-        totalTimeoutMs: Long = CHAIN_TIMEOUT_MS
+        totalTimeoutMs: Long = chainTimeout
     ): Int {
-        // v2.1.0+: Check shutdown flag
+        checkNotClosed()
+
         shutdownMutex.withLock {
             if (isShuttingDown) {
                 Logger.w(LogTags.CHAIN, "Batch execution skipped - shutdown in progress")
@@ -143,61 +209,126 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
         // Reset shutdown state on new execution
         resetShutdownState()
 
-        Logger.i(LogTags.CHAIN, "Starting batch chain execution (max: $maxChains, timeout: ${totalTimeoutMs}ms)")
+        val conservativeTimeout = (totalTimeoutMs * 0.85).toLong()
+        val minTimePerChain = taskTimeout // Minimum time needed per chain
 
-        var executedCount = 0
+        Logger.i(LogTags.CHAIN, """
+            Starting batch chain execution:
+            - Max chains: $maxChains
+            - Total timeout: ${totalTimeoutMs}ms
+            - Conservative timeout: ${conservativeTimeout}ms (85%)
+            - Min time per chain: ${minTimePerChain}ms
+            - Task type: $taskType
+        """.trimIndent())
+
         val startTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
+        var chainsAttempted = 0
+        var chainsSucceeded = 0
+        var chainsFailed = 0
+        var wasKilledBySystem = false
 
         try {
-            withTimeout(totalTimeoutMs) {
+            withTimeout(conservativeTimeout) {
                 repeat(maxChains) {
-                    // v2.1.1+: Check shutdown flag before each chain (thread-safe with mutex)
                     val shouldStop = shutdownMutex.withLock { isShuttingDown }
                     if (shouldStop) {
                         Logger.w(LogTags.CHAIN, "Stopping batch execution - shutdown requested")
                         return@repeat
                     }
 
-                    // Check remaining time
                     val elapsedTime = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime
-                    val remainingTime = totalTimeoutMs - elapsedTime
+                    val remainingTime = conservativeTimeout - elapsedTime
 
-                    if (remainingTime < 10_000L) {
-                        Logger.w(LogTags.CHAIN, "Insufficient time remaining (${remainingTime}ms), stopping batch")
+                    if (remainingTime < minTimePerChain) {
+                        Logger.w(LogTags.CHAIN, "⏱️ Time-slicing: Insufficient time remaining (${remainingTime}ms < ${minTimePerChain}ms), stopping early to preserve iOS credit score")
                         return@repeat
                     }
 
                     // Execute next chain
+                    chainsAttempted++
                     val success = executeNextChainFromQueue()
-                    if (success && getChainQueueSize() > 0) {
-                        executedCount++
+
+                    if (success) {
+                        chainsSucceeded++
+
+                        // Check if more chains in queue
+                        if (getChainQueueSize() == 0) {
+                            Logger.i(LogTags.CHAIN, "Queue empty after ${chainsSucceeded} chains")
+                            return@repeat
+                        }
                     } else {
-                        // Queue empty or chain failed
-                        return@repeat
+                        chainsFailed++
+                        Logger.w(LogTags.CHAIN, "Chain execution failed, continuing to next")
                     }
                 }
             }
         } catch (e: TimeoutCancellationException) {
-            Logger.e(LogTags.CHAIN, "Batch execution timed out after ${totalTimeoutMs}ms")
+            Logger.e(LogTags.CHAIN, "Batch execution timed out after ${conservativeTimeout}ms")
+            wasKilledBySystem = false // We timed out, but controlled
         } catch (e: CancellationException) {
-            // v2.1.0+: Graceful shutdown triggered
             Logger.w(LogTags.CHAIN, "Batch execution cancelled - graceful shutdown in progress")
+            wasKilledBySystem = true
             throw e // Re-throw to propagate cancellation
         }
 
-        Logger.i(LogTags.CHAIN, "Batch execution completed: $executedCount chains executed")
-        return executedCount
+        // Calculate metrics
+        val endTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
+        val duration = endTime - startTime
+        val timeUsagePercentage = ((duration * 100) / totalTimeoutMs).toInt()
+        val queueSizeRemaining = getChainQueueSize()
+
+        val metrics = ExecutionMetrics(
+            taskType = taskType,
+            startTime = startTime,
+            endTime = endTime,
+            duration = duration,
+            chainsAttempted = chainsAttempted,
+            chainsSucceeded = chainsSucceeded,
+            chainsFailed = chainsFailed,
+            wasKilledBySystem = wasKilledBySystem,
+            timeUsagePercentage = timeUsagePercentage,
+            queueSizeRemaining = queueSizeRemaining
+        )
+
+        // Emit metrics event
+        emitMetricsEvent(metrics)
+
+        if (queueSizeRemaining > 0 && !wasKilledBySystem) {
+            Logger.i(LogTags.CHAIN, "Queue has $queueSizeRemaining chains remaining - continuation needed")
+            scheduleNextBGTask()
+        }
+
+        Logger.i(LogTags.CHAIN, """
+            ✅ Batch execution completed:
+            - Attempted: $chainsAttempted
+            - Succeeded: $chainsSucceeded
+            - Failed: $chainsFailed
+            - Duration: ${duration}ms (${timeUsagePercentage}% of ${totalTimeoutMs}ms)
+            - Remaining in queue: $queueSizeRemaining
+        """.trimIndent())
+
+        return chainsSucceeded
     }
 
     /**
      * Retrieves the next chain ID from the queue and executes it.
+     *
      * @return `true` if the chain was executed successfully or if the queue was empty, `false` otherwise.
+     * @throws IllegalStateException if executor is closed
      */
     suspend fun executeNextChainFromQueue(): Boolean {
+        checkNotClosed()
+
         // 1. Retrieve and remove the next chain ID from the queue (atomic operation)
         val chainId = fileStorage.dequeueChain() ?: run {
             Logger.d(LogTags.CHAIN, "Chain queue is empty, nothing to execute")
             return true // Considered success as there's no work to do
+        }
+
+        if (fileStorage.isChainDeleted(chainId)) {
+            Logger.i(LogTags.CHAIN, "Chain $chainId was deleted (REPLACE policy). Skipping execution...")
+            fileStorage.clearDeletedMarker(chainId)
+            return true // Success - continue to next chain
         }
 
         Logger.i(LogTags.CHAIN, "Dequeued chain $chainId for execution (Remaining: ${fileStorage.getQueueSize()})")
@@ -330,7 +461,6 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
 
                 return false
             } catch (e: CancellationException) {
-                // v2.1.0+: Graceful shutdown - save progress and exit cleanly
                 Logger.w(LogTags.CHAIN, "🛑 Chain $chainId cancelled due to graceful shutdown")
 
                 // Progress is already saved after each step, so current progress is persisted
@@ -390,7 +520,7 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
      * Execute a single task with timeout protection and detailed logging
      */
     private suspend fun executeTask(task: TaskRequest): Boolean {
-        Logger.d(LogTags.CHAIN, "▶️ Starting task: ${task.workerClassName}")
+        Logger.d(LogTags.CHAIN, "▶️ Starting task: ${task.workerClassName} (timeout: ${taskTimeout}ms)")
 
         val worker = workerFactory.createWorker(task.workerClassName)
         if (worker == null) {
@@ -401,14 +531,14 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
         val startTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
 
         return try {
-            withTimeout(TASK_TIMEOUT_MS) {
+            withTimeout(taskTimeout) {
                 val result = worker.doWork(task.inputJson)
                 val duration = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime
-                val percentage = (duration * 100 / TASK_TIMEOUT_MS).toInt()
+                val percentage = (duration * 100 / taskTimeout).toInt()
 
                 // Warn if task used > 80% of timeout
-                if (duration > TASK_TIMEOUT_MS * 0.8) {
-                    Logger.w(LogTags.CHAIN, "⚠️ Task ${task.workerClassName} used ${duration}ms / ${TASK_TIMEOUT_MS}ms (${percentage}%) - approaching timeout!")
+                if (duration > taskTimeout * 0.8) {
+                    Logger.w(LogTags.CHAIN, "⚠️ Task ${task.workerClassName} used ${duration}ms / ${taskTimeout}ms (${percentage}%) - approaching timeout!")
                 }
 
                 if (result) {
@@ -420,7 +550,7 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
             }
         } catch (e: TimeoutCancellationException) {
             val duration = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime
-            Logger.e(LogTags.CHAIN, "⏱️ Task ${task.workerClassName} timed out after ${duration}ms (limit: ${TASK_TIMEOUT_MS}ms)")
+            Logger.e(LogTags.CHAIN, "⏱️ Task ${task.workerClassName} timed out after ${duration}ms (limit: ${taskTimeout}ms)")
 
             // Emit failure event with timeout details
             TaskEventBus.emit(
@@ -449,10 +579,8 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
 
     /**
      * Emit chain failure event to UI
-     * v2.1.1+: Uses existing coroutineScope instead of creating new scope to prevent memory leak
      */
     private fun emitChainFailureEvent(chainId: String) {
-        // v2.1.1+: Use existing managed coroutineScope instead of creating new CoroutineScope
         // This prevents unbounded scope creation and ensures proper lifecycle management
         coroutineScope.launch(Dispatchers.Main) {
             TaskEventBus.emit(
@@ -466,10 +594,132 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
     }
 
     /**
-     * Cleanup coroutine scope (call when executor is no longer needed)
+     * Emit execution metrics event for monitoring
      */
+    private fun emitMetricsEvent(metrics: ExecutionMetrics) {
+        coroutineScope.launch(Dispatchers.Main) {
+            TaskEventBus.emit(
+                TaskCompletionEvent(
+                    taskName = "BatchExecution-${metrics.taskType}",
+                    success = !metrics.wasKilledBySystem,
+                    message = """
+                        Completed: ${metrics.chainsSucceeded}/${metrics.chainsAttempted}
+                        Duration: ${metrics.duration}ms (${metrics.timeUsagePercentage}%)
+                        Remaining: ${metrics.queueSizeRemaining}
+                    """.trimIndent()
+                )
+            )
+        }
+
+        // TODO: Add analytics/telemetry integration here
+        // Analytics.track("batch_execution", metrics)
+    }
+
+    /**
+     * Schedule next BGTask for continuation
+     *
+     * Note: This is a placeholder. Actual implementation requires access to
+     * NativeTaskScheduler or BGTaskScheduler. In production, this should be
+     * called from the BGTask handler after receiving metrics.
+     */
+    private fun scheduleNextBGTask() {
+        Logger.i(LogTags.CHAIN, """
+            📅 Continuation needed: Queue has remaining chains
+
+            Implementation note: The BGTask handler should call NativeTaskScheduler
+            to schedule the next execution:
+
+            Swift example:
+            if executor.getChainQueueSize() > 0 {
+                let request = BGProcessingTaskRequest(identifier: "chain_executor")
+                request.earliestBeginDate = Date(timeIntervalSinceNow: 1)
+                try? BGTaskScheduler.shared.submit(request)
+            }
+        """.trimIndent())
+
+        // Emit event to notify that continuation is needed
+        coroutineScope.launch(Dispatchers.Main) {
+            TaskEventBus.emit(
+                TaskCompletionEvent(
+                    taskName = "ContinuationNeeded",
+                    success = true,
+                    message = "Queue has remaining chains - schedule next BGTask"
+                )
+            )
+        }
+    }
+
+    /**
+     * Implement Closeable interface
+     *
+     * This method ensures that:
+     * - Coroutine scope is cancelled
+     * - Resources are properly released
+     * - Subsequent calls are no-ops
+     * - Thread-safe with mutex protection
+     */
+    override fun close() {
+        // Use runBlocking to handle suspend function in close()
+        kotlinx.coroutines.runBlocking {
+            closeMutex.withLock {
+                if (isClosed) {
+                    Logger.d(LogTags.CHAIN, "ChainExecutor already closed")
+                    return@runBlocking
+                }
+
+                isClosed = true
+                Logger.d(LogTags.CHAIN, "Closing ChainExecutor")
+
+                // Cancel all running coroutines
+                job.cancel()
+
+                Logger.i(LogTags.CHAIN, "ChainExecutor closed successfully")
+            }
+        }
+    }
+
+    /**
+     * Check if executor is closed, throw if it is
+     */
+    private fun checkNotClosed() {
+        if (isClosed) {
+            throw IllegalStateException("ChainExecutor is closed and cannot be used")
+        }
+    }
+
+    /**
+     * Cleanup coroutine scope (call when executor is no longer needed)
+     *
+     * @deprecated Use close() or .use {} pattern instead
+     */
+    @Deprecated(
+        message = "Use close() or .use {} pattern instead",
+        replaceWith = ReplaceWith("close()"),
+        level = DeprecationLevel.WARNING
+    )
     fun cleanup() {
-        Logger.d(LogTags.CHAIN, "Cleaning up ChainExecutor")
-        job.cancel()
+        close()
+    }
+}
+
+/**
+ * Extension function for using Closeable with automatic cleanup
+ */
+inline fun <T : Closeable, R> T.use(block: (T) -> R): R {
+    var exception: Throwable? = null
+    try {
+        return block(this)
+    } catch (e: Throwable) {
+        exception = e
+        throw e
+    } finally {
+        when (exception) {
+            null -> close()
+            else -> try {
+                close()
+            } catch (closeException: Throwable) {
+                // Suppressed exception
+            }
+        }
     }
 }

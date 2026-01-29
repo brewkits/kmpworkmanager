@@ -8,7 +8,6 @@ import kotlin.test.*
 import kotlin.time.TimeSource
 
 /**
- * v2.1.0+: Unit tests for AppendOnlyQueue implementation
  * Tests O(1) performance, correctness, and migration
  */
 @OptIn(ExperimentalForeignApi::class)

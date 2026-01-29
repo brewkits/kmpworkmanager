@@ -62,10 +62,12 @@ The library handles platform-specific details automatically.
 ### For Enterprise Applications
 
 **Production-Ready Reliability**
-- Comprehensive test coverage (236 tests) including iOS-specific integration tests
-- Chain state restoration ensures no work is lost on iOS interruptions
-- Retry logic with configurable limits prevents infinite failure loops
-- File-based storage with O(1) queue operations and atomic operations for data integrity
+- **Self-Healing Architecture**: Automatic recovery from file corruption and race conditions
+- **Data Integrity Protection**: CRC32 validation prevents silent data corruption
+- **High Performance**: O(1) queue operations handle high-throughput workloads efficiently
+- **Comprehensive Testing**: 60+ tests including integration, stress, and concurrency scenarios
+- **Chain State Restoration**: Resume from last completed step after iOS interruptions
+- **Smart Retry Logic**: Configurable limits prevent infinite failure loops
 
 **Real-Time Monitoring**
 - Built-in progress tracking for long-running operations (downloads, uploads, data processing)
@@ -74,10 +76,11 @@ The library handles platform-specific details automatically.
 - Human-readable status messages for user feedback
 
 **Platform Expertise**
-- Deep understanding of iOS background limitations (documented in detail)
-- Smart fallbacks for Android exact alarm permissions
-- Batch processing optimization for iOS BGTask quotas
-- Platform-specific best practices and migration guides
+- **iOS Background Optimization**: Time-slicing strategy preserves system credit score
+- **Android 14+ Support**: Compatible with all Android variants including Chinese ROMs
+- **Smart Fallbacks**: Automatic degradation when permissions denied
+- **Batch Processing**: Optimized for iOS BGTask quotas
+- **Comprehensive Documentation**: Platform limitations, best practices, and migration guides
 
 **Developer Experience**
 - Single API for both platforms reduces maintenance
@@ -90,10 +93,15 @@ The library handles platform-specific details automatically.
 | Feature | KMP WorkManager | WorkManager (Android only) | Raw BGTaskScheduler (iOS only) |
 |---------|-----------|---------------------------|-------------------------------|
 | Multiplatform Support | ✅ Android + iOS | ❌ Android only | ❌ iOS only |
+| Data Integrity (CRC32) | ✅ Built-in | ❌ Not available | ❌ Not available |
+| Self-Healing | ✅ Automatic | ❌ Not available | ❌ Not available |
+| Queue Performance | ✅ O(1) Operations | ⚠️ O(N) in some cases | ❌ No queue |
 | Progress Tracking | ✅ Built-in | ⚠️ Manual setup | ❌ Not available |
 | Chain State Restoration | ✅ Automatic | ✅ Yes | ❌ Manual implementation |
 | Type-Safe Input | ✅ Yes | ⚠️ Limited | ❌ No |
-| Test Coverage | ✅ Comprehensive | ✅ Yes | ❌ Manual testing |
+| Test Coverage | ✅ 60+ Tests | ✅ Yes | ❌ Manual testing |
+| Android 14+ Support | ✅ FAIL OPEN | ⚠️ Requires manual config | ❌ N/A |
+| iOS Credit Score | ✅ Time-slicing | ❌ N/A | ⚠️ Manual management |
 | Enterprise Documentation | ✅ Extensive | ⚠️ Basic | ❌ Apple docs only |
 
 ## Installation
@@ -104,7 +112,7 @@ Add to your `build.gradle.kts`:
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("dev.brewkits:kmpworkmanager:2.1.2")
+            implementation("dev.brewkits:kmpworkmanager:2.2.0")
         }
     }
 }
@@ -114,7 +122,7 @@ Or using version catalog:
 
 ```toml
 [versions]
-kmpworkmanager = "2.1.2"
+kmpworkmanager = "2.2.0"
 
 [libraries]
 kmpworkmanager = { module = "dev.brewkits:kmpworkmanager", version.ref = "kmpworkmanager" }
@@ -306,6 +314,28 @@ scheduler.beginWith(listOf(
     .enqueue()
 ```
 
+### Chain ExistingPolicy (v2.1.3+)
+
+Control how duplicate chain IDs are handled:
+
+```kotlin
+// KEEP policy: Skip if chain ID already exists
+scheduler.beginWith(TaskRequest("SyncWorker"))
+    .then(TaskRequest("ProcessWorker"))
+    .withId("daily-sync", ExistingPolicy.KEEP)
+    .enqueue()
+
+// REPLACE policy: Delete old chain, enqueue new one (default)
+scheduler.beginWith(TaskRequest("UpdatedSyncWorker"))
+    .then(TaskRequest("NewProcessWorker"))
+    .withId("daily-sync", ExistingPolicy.REPLACE)
+    .enqueue()
+```
+
+**KEEP Policy**: Prevents duplicate chains from being enqueued. Useful for periodic tasks where you only want one instance in the queue at a time.
+
+**REPLACE Policy** (default): Replaces the existing chain with the new definition. The old chain is marked as deleted and skipped during execution.
+
 ### Type-Safe Input
 
 Pass typed data to workers:
@@ -376,6 +406,130 @@ Progress features:
 - Step-based tracking (e.g., "Step 3/5")
 - Real-time updates via SharedFlow
 - Works across Android and iOS
+
+### Binary Queue Format with CRC32 (v2.2.0+)
+
+**Automatic Data Integrity Protection**
+
+Starting with v2.2.0, iOS queue storage uses a binary format with CRC32 checksums for data integrity:
+
+**Features**:
+- Automatic migration from text JSONL to binary format on first launch
+- CRC32 validation on every read (detects corrupted data)
+- Safe migration with rollback on failure
+- No manual intervention required
+
+**Migration Details**:
+- Queue file format: `[magic][version][length][data][crc32][\n]`
+- Magic number: `KMPQ` (0x4B4D5051)
+- Legacy files automatically renamed to `.legacy`
+- Migration performance: <5s for 1000 items
+- Supports Unicode, Emoji, large data
+
+**Benefits**:
+- Prevents silent data corruption
+- Automatic corruption recovery
+- No performance degradation
+- Transparent to application code
+
+> **Note**: Migration happens automatically on upgrade from v2.1.x to v2.2.0+. Your queue data is preserved.
+
+### Android 14+ Foreground Service Configuration (v2.1.3+)
+
+**Required Configuration for Heavy Tasks**
+
+Android 14+ (API 34) requires explicit foreground service type declaration. Configure in your AndroidManifest.xml:
+
+**Example - Data Sync (Default)**:
+```xml
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
+<service
+    android:name="androidx.work.impl.foreground.SystemForegroundService"
+    android:foregroundServiceType="dataSync"
+    tools:node="merge" />
+```
+
+**Example - Location Tracking**:
+```xml
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+
+<service
+    android:name="androidx.work.impl.foreground.SystemForegroundService"
+    android:foregroundServiceType="location|dataSync"
+    tools:node="merge" />
+```
+
+**Specify Service Type in Code**:
+```kotlin
+import android.content.pm.ServiceInfo
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+
+val inputData = buildJsonObject {
+    put(KmpHeavyWorker.FOREGROUND_SERVICE_TYPE_KEY,
+        ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+}.toString()
+
+scheduler.enqueue(
+    id = "location-tracking",
+    trigger = TaskTrigger.OneTime(),
+    workerClassName = "LocationWorker",
+    constraints = Constraints(isHeavyTask = true),
+    inputJson = inputData
+)
+```
+
+**Available Service Types**:
+- `FOREGROUND_SERVICE_TYPE_DATA_SYNC` (default)
+- `FOREGROUND_SERVICE_TYPE_LOCATION`
+- `FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK`
+- `FOREGROUND_SERVICE_TYPE_CAMERA`
+- `FOREGROUND_SERVICE_TYPE_MICROPHONE`
+- `FOREGROUND_SERVICE_TYPE_HEALTH`
+
+**Validation & Fallback**:
+- Automatic validation on Android 14+ with FAIL OPEN strategy
+- Falls back to DATA_SYNC if validation fails
+- Compatible with Chinese ROMs (Xiaomi, Oppo, Vivo)
+- Clear error messages with manifest requirements
+
+### iOS Time-Slicing for Credit Score
+
+**Intelligent BGTask Time Management**
+
+KMP WorkManager uses conservative time-slicing to preserve iOS credit score:
+
+**How It Works**:
+- Uses 85% of available BGTask time
+- 15% buffer reserved for cleanup and progress saving
+- Early stop when remaining time insufficient
+- Automatic continuation scheduling for large queues
+
+**Time Limits**:
+- `BGAppRefreshTask`: 50s chain timeout (from 30s system limit)
+- `BGProcessingTask`: 300s chain timeout (from 5-10min system limit)
+
+**Benefits**:
+- Prevents iOS system kills
+- Preserves credit score for future task execution
+- Automatic batch resumption
+- Detailed execution metrics via TaskEventBus
+
+**ExecutionMetrics Event**:
+```kotlin
+TaskEventBus.events
+    .filterIsInstance<TaskCompletionEvent>()
+    .filter { it.taskName.startsWith("BatchExecution") }
+    .collect { event ->
+        // Monitor time usage, chains processed, system kills
+        println("Chains: ${event.chainsSucceeded}/${event.chainsAttempted}")
+        println("Time usage: ${event.timeUsagePercentage}%")
+    }
+```
 
 ## Platform-Specific Features
 
@@ -450,52 +604,11 @@ Progress features:
 
 KMP WorkManager is actively developed with a focus on reliability, developer experience, and enterprise features. Here's our planned development roadmap:
 
-### ✅ v2.1.2 - Production Enhancements (Released - January 2026)
+### ✅ v2.2.0 - Production-Ready Release (Released - January 2026)
 
-**Android Improvements**
-- Configurable Foreground Service Type for Android 14+ compliance
-- Enhanced Maven Central metadata for improved dependency resolution
+Production-ready library with comprehensive testing, self-healing architecture, and optimized performance for both Android and iOS platforms.
 
-**iOS Stability**
-- Critical stability fixes for background task handling
-- Improved exact-reminder task registration in BGTaskScheduler
-- Enhanced task ID handling for better iOS compatibility
-
-**Documentation & Build**
-- Cleaned up internal documentation
-- Improved Maven Central publishing workflow
-- Enhanced POM file structure
-
-### ✅ v2.1.1 - Critical Fixes & iOS Transparency (Released - January 2026)
-
-**Coroutine Lifecycle Management**
-- Fixed `GlobalScope` usage in queue compaction (now uses injected `CoroutineScope`)
-- Better lifecycle management and testability
-- Proper resource cleanup
-
-**Thread Safety Improvements**
-- Fixed race condition in `ChainExecutor.isShuttingDown` access
-- All reads/writes now consistently protected by mutex
-- Eliminated potential crashes during shutdown
-
-**iOS Exact Alarm Transparency** ⭐
-- New `ExactAlarmIOSBehavior` enum for explicit iOS exact alarm handling
-- Three options: `SHOW_NOTIFICATION` (default), `ATTEMPT_BACKGROUND_RUN`, `THROW_ERROR`
-- Addresses platform parity issues - iOS cannot execute background code at exact times
-- Fail-fast option for development safety
-
-**Migration**: Backward compatible - existing code continues to work with default behavior. See [CHANGELOG.md](CHANGELOG.md) for details.
-
-### ✅ v2.1.0 - Performance & Graceful Shutdown (Released - January 2026)
-
-**Performance Improvements**
-- iOS queue operations 13-40x faster with O(1) append-only queue
-- Automatic compaction at 80% threshold
-- Graceful shutdown for iOS BGTask expiration with 5-second grace period
-
-**See**: [CHANGELOG.md](CHANGELOG.md) for complete details.
-
-### v2.2.0 - Event Persistence & Smart Retries (Q1 2026)
+### v2.3.0 - Event Persistence & Smart Retries (Q2 2026)
 
 **Event Persistence System**
 - Persistent storage for TaskCompletionEvents (survives app kills and force-quit)
@@ -519,7 +632,7 @@ expect object PlatformCapabilities {
 }
 ```
 
-### v2.3.0 - Typed Results & Enhanced Observability (Q2 2026)
+### v2.4.0 - Typed Results & Enhanced Observability (Q3 2026)
 
 **Typed Result Data Passing**
 - Workers return structured results, not just Boolean
@@ -544,7 +657,7 @@ sealed class WorkResult {
 - Test utilities for simulating background task scenarios
 - Documentation with testing best practices
 
-### v2.4.0 - Developer Experience & Tooling (Q3 2026)
+### v2.5.0 - Developer Experience & Tooling (Q3 2026)
 
 **Annotation-Based Worker Discovery**
 - `@Worker` annotation for automatic registration
@@ -619,21 +732,13 @@ Priority is given to:
 
 ## Version History
 
-**v2.1.2** (Latest) - Production Enhancements
-- Configurable foreground service type for Android 14+
-- Critical iOS stability fixes
-- Enhanced Maven Central metadata
-- Improved documentation and build process
-
-**v2.1.1** - Critical Fixes & iOS Transparency
-- Fixed coroutine lifecycle management
-- Thread safety improvements
-- iOS exact alarm transparency with `ExactAlarmIOSBehavior`
-
-**v2.1.0** - Performance & Graceful Shutdown
-- iOS queue operations 13-40x faster
-- Graceful shutdown for iOS BGTask expiration
-- Automatic compaction at 80% threshold
+**v2.2.0** (Latest) - Production-Ready Release
+- Self-healing architecture with automatic corruption recovery
+- Data integrity protection with CRC32 validation
+- High-performance O(1) queue operations
+- Comprehensive test coverage (60+ tests)
+- iOS time-slicing for credit score preservation
+- Android 14+ compatibility with all ROM variants
 
 **v2.0.0** - Package Namespace Migration
 
