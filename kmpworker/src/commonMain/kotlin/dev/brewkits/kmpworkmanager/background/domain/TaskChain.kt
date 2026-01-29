@@ -35,11 +35,13 @@ class TaskChain internal constructor(
 
     /**
      */
+    @Suppress("UNUSED_PARAMETER")
     private constructor(
         scheduler: BackgroundTaskScheduler,
         steps: MutableList<List<TaskRequest>>,
         chainId: String?,
-        existingPolicy: ExistingPolicy
+        existingPolicy: ExistingPolicy,
+        @Suppress("UNUSED_PARAMETER") dummy: Unit = Unit
     ) : this(scheduler, steps.firstOrNull() ?: emptyList(), chainId, existingPolicy) {
         // Replace the single-item steps with the full steps list
         this.steps.clear()
@@ -78,7 +80,7 @@ class TaskChain internal constructor(
      * @return A new [TaskChain] instance with the specified ID and policy
      */
     fun withId(id: String, policy: ExistingPolicy = ExistingPolicy.REPLACE): TaskChain {
-        return TaskChain(scheduler, steps.toMutableList(), id, policy)
+        return TaskChain(scheduler, steps.toMutableList(), id, policy, Unit)
     }
 
     /**
