@@ -10,9 +10,9 @@ import kotlinx.coroutines.launch
 import platform.Foundation.*
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.utils.LogTags
+import dev.brewkits.kmpworkmanager.utils.crc32
 
 /**
- * v2.1.0+: High-performance append-only queue implementation
  *
  * **Performance**: O(1) for enqueue and dequeue operations
  * - Previous implementation: O(N) - read entire file, modify, write entire file
@@ -54,6 +54,13 @@ internal class AppendOnlyQueue(
     private val queueMutex = Mutex()
     private val fileManager = NSFileManager.defaultManager
 
+    // Corruption handling
+    private var isQueueCorrupt = false
+    private val corruptionMutex = Mutex()
+
+    private var fileFormat: UInt? = null
+    private val formatMutex = Mutex()
+
     // File paths
     private val queueFileURL = baseDirectoryURL.URLByAppendingPathComponent("queue.jsonl")!!
     private val headPointerURL = baseDirectoryURL.URLByAppendingPathComponent("head_pointer.txt")!!
@@ -71,20 +78,25 @@ internal class AppendOnlyQueue(
     private val MAX_QUEUE_SIZE = 10_000
 
     // Compaction state tracking
-    // v2.1.1+: Protected by compactionMutex to prevent race conditions
     private val compactionMutex = Mutex()
     private var isCompacting = false
 
     companion object {
         private const val QUEUE_FILENAME = "queue.jsonl"
         private const val HEAD_POINTER_FILENAME = "head_pointer.txt"
+
+        private const val MAGIC_NUMBER: UInt = 0x4B4D5051u  // "KMPQ" in ASCII
+        private const val FORMAT_VERSION: UInt = 0x00000001u  // Version 1
+        private const val FORMAT_VERSION_LEGACY: UInt = 0x00000000u  // Text format
     }
 
     init {
         // Ensure base directory exists
         ensureDirectoryExists(baseDirectoryURL)
 
-        // Auto-migrate from old format if needed
+        detectAndMigrateIfNeeded()
+
+        // Auto-migrate from old format if needed (v2.1.0 migration)
         migrateQueueIfNeeded()
     }
 
@@ -94,9 +106,12 @@ internal class AppendOnlyQueue(
      *
      * @param item Item ID to enqueue
      * @throws IllegalStateException if queue size limit exceeded
+     * @throws InsufficientDiskSpaceException if disk space unavailable
      */
     suspend fun enqueue(item: String) {
         queueMutex.withLock {
+            checkDiskSpace(item.length.toLong())
+
             coordinated(queueFileURL, write = true) {
                 // Append single line to queue file (O(1) operation)
                 // Note: We removed size check here to maintain O(1) performance
@@ -106,7 +121,7 @@ internal class AppendOnlyQueue(
                 // Invalidate cache since file changed
                 cacheValid = false
 
-                Logger.d(LogTags.CHAIN, "Enqueued $item")
+                Logger.v(LogTags.QUEUE, "Enqueued $item")
             }
         }
     }
@@ -118,6 +133,25 @@ internal class AppendOnlyQueue(
      * @return Item ID or null if queue is empty
      */
     suspend fun dequeue(): String? {
+        // Fast check without lock (CRITICAL: prevents race condition)
+        if (isQueueCorrupt) {
+            // Double mutex pattern to prevent race condition
+            // CRITICAL: Must acquire in order: corruptionMutex → queueMutex
+            corruptionMutex.withLock {
+                queueMutex.withLock {
+                    // Double-check inside lock (prevents TOCTOU issues)
+                    if (isQueueCorrupt) {
+                        coordinated(queueFileURL, write = true) {
+                            Logger.w(LogTags.QUEUE, "Queue corruption detected during dequeue. Resetting...")
+                            resetQueueInternal()  // Safe: queueMutex already held
+                            isQueueCorrupt = false
+                        }
+                    }
+                }
+            }
+            return null
+        }
+
         return queueMutex.withLock {
             coordinated(headPointerURL, write = true) {
                 val headIndex = readHeadPointer()
@@ -126,17 +160,17 @@ internal class AppendOnlyQueue(
                 if (item != null) {
                     // Increment head pointer (O(1) operation)
                     writeHeadPointer(headIndex + 1)
-                    Logger.d(LogTags.CHAIN, "Dequeued $item. New head index: ${headIndex + 1}")
+
+                    Logger.v(LogTags.QUEUE, "Dequeued $item. New head index: ${headIndex + 1}")
 
                     // Check if compaction is needed (non-blocking)
-                    // v2.1.1+: Removed !isCompacting check here - scheduleCompaction() handles it thread-safely
                     if (shouldCompact()) {
-                        Logger.i(LogTags.CHAIN, "Compaction threshold reached. Scheduling compaction...")
+                        Logger.i(LogTags.QUEUE, "Compaction threshold reached. Scheduling compaction...")
                         // Launch compaction in background (non-blocking)
                         scheduleCompaction()
                     }
                 } else {
-                    Logger.d(LogTags.CHAIN, "Queue is empty")
+                    Logger.v(LogTags.QUEUE, "Queue is empty")
                 }
 
                 item
@@ -161,7 +195,6 @@ internal class AppendOnlyQueue(
     /**
      * Append a single line to the queue file
      * **Performance**: O(1) - seek to end and write
-     * v2.1.1+: Ensures NSFileHandle is always closed via try-finally immediately after acquisition
      */
     private fun appendToQueueFile(item: String) {
         val path = queueFileURL.path ?: throw IllegalStateException("Queue file path is null")
@@ -169,29 +202,50 @@ internal class AppendOnlyQueue(
         // Create file if it doesn't exist
         if (!fileManager.fileExistsAtPath(path)) {
             fileManager.createFileAtPath(path, null, null)
+
+            if (fileFormat == null || fileFormat == FORMAT_VERSION) {
+                memScoped {
+                    val errorPtr = alloc<ObjCObjectVar<NSError?>>()
+                    val fileHandle = NSFileHandle.fileHandleForWritingToURL(queueFileURL, errorPtr.ptr)
+
+                    if (fileHandle != null) {
+                        try {
+                            writeFileHeader(fileHandle)
+                            fileFormat = FORMAT_VERSION
+                        } finally {
+                            fileHandle.closeFile()
+                        }
+                    }
+                }
+            }
         }
 
         memScoped {
             val errorPtr = alloc<ObjCObjectVar<NSError?>>()
 
-            // v2.1.1+: Open file handle and IMMEDIATELY wrap in try-finally for guaranteed cleanup
             val fileHandle = NSFileHandle.fileHandleForWritingToURL(queueFileURL, errorPtr.ptr)
 
             if (fileHandle == null) {
                 throw IllegalStateException("Failed to open queue file: ${errorPtr.value?.localizedDescription}")
             }
 
-            // v2.1.1+: try-finally starts IMMEDIATELY after successful handle acquisition
             try {
                 // Seek to end of file (O(1))
                 fileHandle.seekToEndOfFile()
 
-                // Write single line (O(1))
-                val line = "$item\n"
-                val data = line.toNSData()
-                fileHandle.writeData(data)
+                when (fileFormat) {
+                    FORMAT_VERSION -> {
+                        // Binary format with CRC32
+                        appendToQueueFileBinary(fileHandle, item)
+                    }
+                    else -> {
+                        // Legacy text format
+                        val line = "$item\n"
+                        val data = line.toNSData()
+                        fileHandle.writeData(data)
+                    }
+                }
             } finally {
-                // v2.1.1+: Guaranteed to execute, preventing resource leaks
                 fileHandle.closeFile()
             }
         }
@@ -215,13 +269,22 @@ internal class AppendOnlyQueue(
                 ?: return null
 
             try {
+                if (fileFormat == FORMAT_VERSION && index == 0) {
+                    // Skip 8-byte header (magic + version)
+                    fileHandle.seekToFileOffset(8u)
+                }
+
                 // Check if we have cached position
                 val cachedOffset = if (cacheValid) linePositionCache[index] else null
 
                 if (cachedOffset != null) {
                     // Fast path: Use cached offset (O(1))
                     fileHandle.seekToFileOffset(cachedOffset)
-                    return readSingleLine(fileHandle)
+
+                    return when (fileFormat) {
+                        FORMAT_VERSION -> readSingleRecordWithValidation(fileHandle)
+                        else -> readSingleLine(fileHandle)
+                    }
                 } else {
                     // Slow path: Build cache by scanning (O(N) but only first time)
                     return buildCacheAndReadLine(fileHandle, index)
@@ -241,11 +304,20 @@ internal class AppendOnlyQueue(
         var currentIndex = 0
         var currentOffset = 0UL
 
-        fileHandle.seekToFileOffset(0u)
+        if (fileFormat == FORMAT_VERSION) {
+            fileHandle.seekToFileOffset(8u) // Skip 8-byte header
+            currentOffset = 8UL
+        } else {
+            fileHandle.seekToFileOffset(0u)
+        }
 
         while (true) {
             val startOffset = currentOffset
-            val line = readSingleLine(fileHandle) ?: break
+
+            val line = when (fileFormat) {
+                FORMAT_VERSION -> readSingleRecordWithValidation(fileHandle)
+                else -> readSingleLine(fileHandle)
+            } ?: break
 
             // Cache this line's position
             linePositionCache[currentIndex] = startOffset
@@ -267,27 +339,39 @@ internal class AppendOnlyQueue(
      * Read a single line from file handle at current position
      */
     private fun readSingleLine(fileHandle: NSFileHandle): String? {
-        val buffer = StringBuilder()
+        return try {
+            val buffer = StringBuilder()
 
-        while (true) {
-            val data = fileHandle.readDataOfLength(1u)
+            while (true) {
+                val data = fileHandle.readDataOfLength(1u)
 
-            if (data.length == 0UL) {
-                // EOF
-                return if (buffer.isEmpty()) null else buffer.toString()
+                if (data.length == 0UL) {
+                    // EOF
+                    return if (buffer.isEmpty()) null else buffer.toString()
+                }
+
+                val byte = data.bytes?.reinterpret<ByteVar>()?.pointed?.value
+                if (byte == null) {
+                    Logger.w(LogTags.QUEUE, "Null byte detected - possible corruption")
+                    throw CorruptQueueException("Invalid byte in queue file")
+                }
+
+                val char = byte.toInt().toChar()
+
+                if (char == '\n') {
+                    return buffer.toString()
+                }
+
+                // NO validation - trust JSON parser to validate later
+                buffer.append(char)
             }
 
-            val byte = data.bytes?.reinterpret<ByteVar>()?.pointed?.value ?: break
-            val char = byte.toInt().toChar()
-
-            if (char == '\n') {
-                return buffer.toString()
-            }
-
-            buffer.append(char)
+            if (buffer.isEmpty()) null else buffer.toString()
+        } catch (e: Exception) {
+            Logger.e(LogTags.QUEUE, "Corrupt queue line detected", e)
+            isQueueCorrupt = true
+            return null
         }
-
-        return if (buffer.isEmpty()) null else buffer.toString()
     }
 
     /**
@@ -388,8 +472,6 @@ internal class AppendOnlyQueue(
      * Schedule background compaction (non-blocking)
      * Compaction runs in a separate coroutine to avoid blocking dequeue operations
      *
-     * v2.1.1+: Uses injected CoroutineScope instead of GlobalScope for better lifecycle management
-     * v2.1.1+: Thread-safe check-and-set using compactionMutex to prevent duplicate compaction
      */
     private fun scheduleCompaction() {
         // Launch in compactionScope to perform async mutex check
@@ -434,7 +516,6 @@ internal class AppendOnlyQueue(
      *
      * **Thread-safety**: Uses queueMutex to ensure exclusive access
      * **Crash-safety**: Uses atomic file replacement (write to temp, then move)
-     * v2.1.1+: Invalidates cache immediately to prevent stale reads during compaction
      */
     private suspend fun compactQueue() {
         queueMutex.withLock {
@@ -447,7 +528,6 @@ internal class AppendOnlyQueue(
 
                 if (unprocessedCount <= 0) {
                     Logger.i(LogTags.CHAIN, "Queue is empty. No compaction needed.")
-                    // v2.1.1+: Still invalidate cache even if queue is empty
                     cacheValid = false
                     linePositionCache.clear()
                     return@coordinated
@@ -493,7 +573,6 @@ internal class AppendOnlyQueue(
                 writeHeadPointer(0)
 
                 // Step 5: Invalidate cache AFTER file replacement (Fix #3 - prevent stale reads)
-                // v2.1.1+: Moved to AFTER replacement to ensure consistency
                 linePositionCache.clear()
                 cacheValid = false
 
@@ -504,7 +583,6 @@ internal class AppendOnlyQueue(
 
     /**
      * Write items to a file (helper for compaction)
-     * v2.1.1+: Ensures NSFileHandle is always closed via try-finally immediately after acquisition
      */
     private fun writeItemsToFile(fileURL: NSURL, items: List<String>) {
         val path = fileURL.path ?: throw IllegalStateException("File path is null")
@@ -521,26 +599,230 @@ internal class AppendOnlyQueue(
             // Create new file
             fileManager.createFileAtPath(path, null, null)
 
-            // v2.1.1+: Open file handle and IMMEDIATELY wrap in try-finally for guaranteed cleanup
             val fileHandle = NSFileHandle.fileHandleForWritingToURL(fileURL, errorPtr.ptr)
 
             if (fileHandle == null) {
                 throw IllegalStateException("Failed to open file for writing: ${errorPtr.value?.localizedDescription}")
             }
 
-            // v2.1.1+: try-finally starts IMMEDIATELY after successful handle acquisition
             try {
+                if (fileFormat == FORMAT_VERSION) {
+                    writeFileHeader(fileHandle)
+                }
+
                 // Write all items
                 items.forEach { item ->
-                    val line = "$item\n"
-                    val data = line.toNSData()
-                    fileHandle.writeData(data)
+                    when (fileFormat) {
+                        FORMAT_VERSION -> {
+                            // Binary format with CRC32
+                            appendToQueueFileBinary(fileHandle, item)
+                        }
+                        else -> {
+                            // Legacy text format
+                            val line = "$item\n"
+                            val data = line.toNSData()
+                            fileHandle.writeData(data)
+                        }
+                    }
                 }
             } finally {
-                // v2.1.1+: Guaranteed to execute, preventing resource leaks
                 fileHandle.closeFile()
             }
         }
+    }
+
+    /**
+     * Detect file format and migrate to binary if needed
+     */
+    private fun detectAndMigrateIfNeeded() {
+        val queuePath = queueFileURL.path ?: return
+
+        // If queue file doesn't exist, create new binary format
+        if (!fileManager.fileExistsAtPath(queuePath)) {
+            fileFormat = FORMAT_VERSION
+            Logger.d(LogTags.QUEUE, "New queue - using binary format v$FORMAT_VERSION")
+            return
+        }
+
+        // Read first 4 bytes to check for magic number
+        memScoped {
+            val errorPtr = alloc<ObjCObjectVar<NSError?>>()
+            val fileHandle = NSFileHandle.fileHandleForReadingFromURL(queueFileURL, errorPtr.ptr)
+
+            if (fileHandle == null) {
+                Logger.w(LogTags.QUEUE, "Cannot open queue file for format detection")
+                fileFormat = FORMAT_VERSION_LEGACY
+                return
+            }
+
+            try {
+                val data = fileHandle.readDataOfLength(4u)
+
+                if (data.length < 4UL) {
+                    // Empty or very small file - treat as legacy
+                    fileFormat = FORMAT_VERSION_LEGACY
+                    Logger.d(LogTags.QUEUE, "Empty/small queue - legacy format")
+                    return
+                }
+
+                // Check for magic number
+                val bytes = data.bytes?.reinterpret<ByteVar>()
+                if (bytes != null) {
+                    val magic = readUIntFromBytes(bytes)
+
+                    if (magic == MAGIC_NUMBER) {
+                        // Binary format - read version
+                        val versionData = fileHandle.readDataOfLength(4u)
+                        if (versionData.length == 4UL) {
+                            val versionBytes = versionData.bytes?.reinterpret<ByteVar>()
+                            fileFormat = if (versionBytes != null) readUIntFromBytes(versionBytes) else FORMAT_VERSION
+                            Logger.i(LogTags.QUEUE, "Detected binary format v$fileFormat")
+                        }
+                    } else {
+                        // No magic number - legacy text format
+                        fileFormat = FORMAT_VERSION_LEGACY
+                        Logger.i(LogTags.QUEUE, "Detected legacy text format - migration needed")
+
+                        // Trigger migration
+                        fileHandle.closeFile()
+                        migrateFromTextToBinary()
+                        return
+                    }
+                }
+            } finally {
+                fileHandle.closeFile()
+            }
+        }
+    }
+
+    /**
+     * Migrate from text (JSONL) to binary format with CRC32
+     *
+     * Steps:
+     * 1. Rename queue.jsonl → queue.jsonl.legacy
+     * 2. Read legacy file (text format)
+     * 3. Create new binary file with magic header
+     * 4. Write each item in binary format with CRC32
+     * 5. Reset head pointer
+     * 6. Delete legacy file
+     * 7. Verify migration succeeded
+     */
+    private fun migrateFromTextToBinary() {
+        val queuePath = queueFileURL.path ?: throw IllegalStateException("Queue path is null")
+        val legacyPath = "$queuePath.legacy"
+
+        Logger.i(LogTags.QUEUE, "Starting text → binary migration...")
+
+        try {
+            // Step 1: Rename to .legacy
+            memScoped {
+                val errorPtr = alloc<ObjCObjectVar<NSError?>>()
+                val success = fileManager.moveItemAtPath(queuePath, toPath = legacyPath, error = errorPtr.ptr)
+
+                if (!success) {
+                    throw IllegalStateException("Failed to rename queue file: ${errorPtr.value?.localizedDescription}")
+                }
+            }
+
+            // Step 2: Read all items from legacy file
+            val items = mutableListOf<String>()
+            memScoped {
+                val errorPtr = alloc<ObjCObjectVar<NSError?>>()
+                val content = NSString.stringWithContentsOfFile(
+                    legacyPath,
+                    encoding = NSUTF8StringEncoding,
+                    error = errorPtr.ptr
+                )
+
+                if (content != null) {
+                    content.split("\n").forEach { line ->
+                        val trimmed = line.trim()
+                        if (trimmed.isNotEmpty()) {
+                            items.add(trimmed)
+                        }
+                    }
+                }
+            }
+
+            Logger.i(LogTags.QUEUE, "Read ${items.size} items from legacy queue")
+
+            // Step 3: Create new binary file with header
+            fileManager.createFileAtPath(queuePath, null, null)
+
+            memScoped {
+                val errorPtr = alloc<ObjCObjectVar<NSError?>>()
+                val fileHandle = NSFileHandle.fileHandleForWritingToURL(queueFileURL, errorPtr.ptr)
+
+                if (fileHandle == null) {
+                    throw IllegalStateException("Failed to create binary queue file: ${errorPtr.value?.localizedDescription}")
+                }
+
+                try {
+                    // Write magic number and version
+                    writeFileHeader(fileHandle)
+
+                    // Step 4: Write each item in binary format
+                    items.forEach { item ->
+                        appendToQueueFileBinary(fileHandle, item)
+                    }
+
+                    Logger.i(LogTags.QUEUE, "Wrote ${items.size} items in binary format")
+                } finally {
+                    fileHandle.closeFile()
+                }
+            }
+
+            // Step 5: Reset head pointer to 0
+            writeHeadPointer(0)
+
+            // Step 6: Delete legacy file
+            memScoped {
+                val errorPtr = alloc<ObjCObjectVar<NSError?>>()
+                fileManager.removeItemAtPath(legacyPath, errorPtr.ptr)
+            }
+
+            // Step 7: Update format version
+            fileFormat = FORMAT_VERSION
+            cacheValid = false
+            linePositionCache.clear()
+
+            Logger.i(LogTags.QUEUE, "✅ Migration complete: ${items.size} items migrated to binary format")
+
+        } catch (e: Exception) {
+            Logger.e(LogTags.QUEUE, "Migration failed - attempting rollback", e)
+
+            // Rollback: restore legacy file if it exists
+            if (fileManager.fileExistsAtPath(legacyPath)) {
+                memScoped {
+                    val errorPtr = alloc<ObjCObjectVar<NSError?>>()
+
+                    // Delete failed binary file
+                    if (fileManager.fileExistsAtPath(queuePath)) {
+                        fileManager.removeItemAtPath(queuePath, errorPtr.ptr)
+                    }
+
+                    // Restore legacy file
+                    fileManager.moveItemAtPath(legacyPath, toPath = queuePath, error = errorPtr.ptr)
+                }
+
+                fileFormat = FORMAT_VERSION_LEGACY
+                Logger.w(LogTags.QUEUE, "Rollback complete - reverted to legacy format")
+            }
+
+            throw e
+        }
+    }
+
+    /**
+     * Write binary file header (magic number + version)
+     * v2.1.3+
+     */
+    private fun writeFileHeader(fileHandle: NSFileHandle) {
+        // Write magic number (4 bytes)
+        fileHandle.writeData(MAGIC_NUMBER.toByteArray().toNSData())
+
+        // Write format version (4 bytes)
+        fileHandle.writeData(FORMAT_VERSION.toByteArray().toNSData())
     }
 
     /**
@@ -594,6 +876,117 @@ internal class AppendOnlyQueue(
     }
 
     /**
+     * Check if sufficient disk space is available
+     *
+     * @param requiredBytes Minimum bytes needed for the operation
+     * @throws InsufficientDiskSpaceException if space unavailable
+     */
+    private fun checkDiskSpace(requiredBytes: Long) {
+        memScoped {
+            val errorPtr = alloc<ObjCObjectVar<NSError?>>()
+
+            // Get filesystem attributes for base directory
+            val basePath = baseDirectoryURL.path ?: return
+            val attributes = fileManager.attributesOfFileSystemForPath(
+                basePath,
+                error = errorPtr.ptr
+            ) as? Map<*, *>
+
+            if (attributes == null) {
+                // Cannot read attributes - skip check rather than fail
+                Logger.w(LogTags.QUEUE, "Cannot read filesystem attributes - skipping disk space check")
+                return
+            }
+
+            // Get free space
+            val freeSpace = (attributes[NSFileSystemFreeSize] as? NSNumber)?.longValue ?: 0L
+
+            // Require 100MB buffer + actual size
+            val requiredWithBuffer = requiredBytes + 100_000_000L // 100MB buffer
+
+            if (freeSpace < requiredWithBuffer) {
+                val freeMB = freeSpace / 1024 / 1024
+                val requiredMB = requiredWithBuffer / 1024 / 1024
+
+                Logger.e(LogTags.QUEUE, "Insufficient disk space: ${freeMB}MB available, ${requiredMB}MB required")
+                throw InsufficientDiskSpaceException(requiredWithBuffer, freeSpace)
+            }
+        }
+    }
+
+    /**
+     * Reset queue due to corruption (internal version - assumes queueMutex already held)
+     *
+     * CRITICAL: This method assumes the caller already holds queueMutex
+     * It will NOT acquire the mutex itself to prevent deadlock
+     */
+    private fun resetQueueInternal() {
+        Logger.w(LogTags.QUEUE, "Resetting corrupted queue...")
+
+        try {
+            val queuePath = queueFileURL.path
+            val headPath = headPointerURL.path
+
+            // Delete queue files safely
+            if (queuePath != null && fileManager.fileExistsAtPath(queuePath)) {
+                memScoped {
+                    val errorPtr = alloc<ObjCObjectVar<NSError?>>()
+                    fileManager.removeItemAtPath(queuePath, errorPtr.ptr)
+                }
+            }
+
+            if (headPath != null && fileManager.fileExistsAtPath(headPath)) {
+                memScoped {
+                    val errorPtr = alloc<ObjCObjectVar<NSError?>>()
+                    fileManager.removeItemAtPath(headPath, errorPtr.ptr)
+                }
+            }
+
+            // Recreate empty files with binary format
+            if (queuePath != null) {
+                fileManager.createFileAtPath(queuePath, null, null)
+
+                memScoped {
+                    val errorPtr = alloc<ObjCObjectVar<NSError?>>()
+                    val fileHandle = NSFileHandle.fileHandleForWritingToURL(queueFileURL, errorPtr.ptr)
+
+                    if (fileHandle != null) {
+                        try {
+                            writeFileHeader(fileHandle)
+                        } finally {
+                            fileHandle.closeFile()
+                        }
+                    }
+                }
+            }
+
+            writeHeadPointer(0)
+
+            // Clear cache and reset format
+            linePositionCache.clear()
+            cacheValid = false
+
+            Logger.i(LogTags.QUEUE, "Queue reset complete. All data cleared (binary format).")
+        } catch (e: Exception) {
+            Logger.e(LogTags.QUEUE, "Failed to reset queue", e)
+            throw e
+        }
+    }
+
+    /**
+     * Public API to reset corrupted queue
+     *
+     * This is the public-facing reset method that handles mutex acquisition
+     */
+    suspend fun resetQueue() {
+        queueMutex.withLock {
+            coordinated(queueFileURL, write = true) {
+                resetQueueInternal()
+            }
+        }
+    }
+
+    /**
      * String to NSData conversion helper
      */
     private fun String.toNSData(): NSData {
@@ -601,4 +994,136 @@ internal class AppendOnlyQueue(
             NSData.create(bytes = pinned.addressOf(0), length = pinned.get().size.toULong())
         }
     }
+
+    // ==================== Binary Format Helpers (v2.1.3+) ====================
+
+    /**
+     * Append item to queue file in binary format with CRC32
+     * Format: [length:4][data:length][crc32:4][\n:1]
+     * v2.1.3+
+     */
+    private fun appendToQueueFileBinary(fileHandle: NSFileHandle, item: String) {
+        val jsonBytes = item.encodeToByteArray()
+        val length = jsonBytes.size.toUInt()
+        val crc = jsonBytes.crc32()
+
+        // Write: [length][data][crc32][\n]
+        fileHandle.writeData(length.toByteArray().toNSData())
+        fileHandle.writeData(jsonBytes.toNSData())
+        fileHandle.writeData(crc.toByteArray().toNSData())
+        fileHandle.writeData("\n".encodeToByteArray().toNSData())
+    }
+
+    /**
+     * Read single record from binary format with CRC32 validation
+     * Format: [length:4][data:length][crc32:4][\n:1]
+     * v2.1.3+
+     *
+     * @return JSON string or null if EOF/corrupt
+     */
+    private fun readSingleRecordWithValidation(fileHandle: NSFileHandle): String? {
+        return try {
+            // Read length (4 bytes)
+            val lengthData = fileHandle.readDataOfLength(4u)
+            if (lengthData.length < 4UL) {
+                return null // EOF
+            }
+
+            val lengthBytes = lengthData.bytes?.reinterpret<ByteVar>()
+                ?: throw CorruptQueueException("Cannot read length bytes")
+            val length = readUIntFromBytes(lengthBytes)
+
+            if (length == 0u || length > 10_000_000u) { // Sanity check: max 10MB per record
+                throw CorruptQueueException("Invalid record length: $length")
+            }
+
+            // Read data (length bytes)
+            val jsonData = fileHandle.readDataOfLength(length.toULong())
+            if (jsonData.length < length.toULong()) {
+                throw CorruptQueueException("Incomplete data read: expected $length, got ${jsonData.length}")
+            }
+
+            // Read CRC32 (4 bytes)
+            val crcData = fileHandle.readDataOfLength(4u)
+            if (crcData.length < 4UL) {
+                throw CorruptQueueException("Cannot read CRC32")
+            }
+
+            val crcBytes = crcData.bytes?.reinterpret<ByteVar>()
+                ?: throw CorruptQueueException("Cannot read CRC32 bytes")
+            val expectedCrc = readUIntFromBytes(crcBytes)
+
+            // Read newline (1 byte)
+            val newlineData = fileHandle.readDataOfLength(1u)
+            if (newlineData.length < 1UL) {
+                throw CorruptQueueException("Cannot read newline")
+            }
+
+            // Convert NSData to ByteArray for CRC validation
+            val jsonBytes = ByteArray(jsonData.length.toInt()) { i ->
+                jsonData.bytes?.reinterpret<ByteVar>()?.get(i)?.toByte() ?: 0
+            }
+
+            // Validate CRC
+            val actualCrc = jsonBytes.crc32()
+            if (expectedCrc != actualCrc) {
+                Logger.e(LogTags.QUEUE, "CRC mismatch! Expected: ${expectedCrc.toString(16)}, Actual: ${actualCrc.toString(16)}")
+                throw CorruptQueueException("CRC32 validation failed")
+            }
+
+            // Return JSON string
+            jsonBytes.decodeToString()
+
+        } catch (e: CorruptQueueException) {
+            Logger.e(LogTags.QUEUE, "Corrupt binary record detected", e)
+            isQueueCorrupt = true
+            return null
+        } catch (e: Exception) {
+            Logger.e(LogTags.QUEUE, "Error reading binary record", e)
+            isQueueCorrupt = true
+            return null
+        }
+    }
+
+    /**
+     * Convert UInt to ByteArray (Little Endian)
+     * v2.1.3+
+     */
+    private fun UInt.toByteArray(): ByteArray {
+        return byteArrayOf(
+            (this and 0xFFu).toByte(),
+            ((this shr 8) and 0xFFu).toByte(),
+            ((this shr 16) and 0xFFu).toByte(),
+            ((this shr 24) and 0xFFu).toByte()
+        )
+    }
+
+    /**
+     * Convert ByteArray to NSData
+     * v2.1.3+
+     */
+    private fun ByteArray.toNSData(): NSData {
+        return this.usePinned { pinned ->
+            NSData.create(bytes = pinned.addressOf(0), length = this.size.toULong())
+        }
+    }
+
+    /**
+     * Read UInt from bytes (Little Endian)
+     * v2.1.3+
+     */
+    private fun readUIntFromBytes(bytes: CPointer<ByteVar>): UInt {
+        val b0 = bytes[0].toUByte().toUInt()
+        val b1 = bytes[1].toUByte().toUInt()
+        val b2 = bytes[2].toUByte().toUInt()
+        val b3 = bytes[3].toUByte().toUInt()
+
+        return b0 or (b1 shl 8) or (b2 shl 16) or (b3 shl 24)
+    }
 }
+
+/**
+ * Custom exception for queue corruption
+ * v2.1.3+
+ */
+class CorruptQueueException(message: String) : Exception(message)

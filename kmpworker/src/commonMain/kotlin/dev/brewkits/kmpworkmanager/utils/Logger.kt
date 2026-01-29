@@ -3,14 +3,25 @@ package dev.brewkits.kmpworkmanager.utils
 /**
  * Professional logging utility for KMP WorkManager.
  * Provides structured logging with levels, tags, and platform-specific formatting.
+ *
  */
 object Logger {
 
     enum class Level {
-        DEBUG_LEVEL,
-        INFO,
-        WARN,
-        ERROR
+        VERBOSE,      // High-frequency operational details
+        DEBUG_LEVEL,  // Development-time debugging information
+        INFO,         // General informational messages
+        WARN,         // Potentially harmful situations
+        ERROR         // Error events that might still allow the app to continue
+    }
+
+    /**
+     * Log verbose message - high-frequency operational details
+     *
+     * Examples: Individual enqueue/dequeue operations, byte-level I/O
+     */
+    fun v(tag: String, message: String, throwable: Throwable? = null) {
+        log(Level.VERBOSE, tag, message, throwable)
     }
 
     /**
@@ -54,10 +65,11 @@ object Logger {
      */
     private fun formatMessage(level: Level, tag: String, message: String, throwable: Throwable?): String {
         val levelIcon = when (level) {
-            Level.DEBUG_LEVEL -> "🔍"
-            Level.INFO -> "ℹ️"
-            Level.WARN -> "⚠️"
-            Level.ERROR -> "❌"
+            Level.VERBOSE -> "💬"        // Verbose operational details
+            Level.DEBUG_LEVEL -> "🔍"   // Debug information
+            Level.INFO -> "ℹ️"           // Informational
+            Level.WARN -> "⚠️"           // Warning
+            Level.ERROR -> "❌"          // Error
         }
 
         val baseMessage = "$levelIcon [$tag] $message"
@@ -91,6 +103,7 @@ object LogTags {
     const val SCHEDULER = "TaskScheduler"
     const val WORKER = "TaskWorker"
     const val CHAIN = "TaskChain"
+    const val QUEUE = "Queue"
     const val ALARM = "ExactAlarm"
     const val PERMISSION = "Permission"
     const val PUSH = "PushNotification"
