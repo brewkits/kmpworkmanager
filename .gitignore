@@ -51,6 +51,12 @@ RELEASE_v*_NOTES.md
 NOTES.md
 TODO.md
 PERSONAL_*.md
+IMPLEMENTATION_*.md
+CRITICAL_WARNINGS.md
+SIGNING_SETUP.md
+HUONG_DAN_*.md
+MAVEN_ARTIFACTS_*.md
+sign-and-publish.sh
 
 # Internal docs/ files (uppercase filenames)
 docs/ROADMAP_*.md

@@ -228,6 +228,6 @@ class EdgeCasesTest {
             return TaskChain(this, tasks)
         }
 
-        override fun enqueueChain(chain: TaskChain) {}
+        override fun enqueueChain(chain: TaskChain, id: String?, policy: ExistingPolicy) {}
     }
 }

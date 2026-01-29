@@ -37,6 +37,30 @@ import platform.UserNotifications.UNUserNotificationCenter
  * - ExistingPolicy support (KEEP/REPLACE)
  * - Task ID validation against Info.plist
  * - Proper error handling with NSError
+ *
+ * **v2.2.0+ ChainExecutor Usage:**
+ *
+ * When registering BGTask handlers in Swift/Objective-C, specify the correct BGTaskType:
+ *
+ * ```swift
+ * // For BGAppRefreshTask (30s limit)
+ * BGTaskScheduler.shared.register(forTaskWithIdentifier: "app.refresh") { task in
+ *     let executor = ChainExecutor(
+ *         workerFactory: factory,
+ *         taskType: BGTaskType.appRefresh  // ← 20s task timeout, 50s chain timeout
+ *     )
+ *     // ... execute chains ...
+ * }
+ *
+ * // For BGProcessingTask (5-10 min limit)
+ * BGTaskScheduler.shared.register(forTaskWithIdentifier: "chain.processor") { task in
+ *     let executor = ChainExecutor(
+ *         workerFactory: factory,
+ *         taskType: BGTaskType.processing  // ← 120s task timeout, 300s chain timeout
+ *     )
+ *     // ... execute chains ...
+ * }
+ * ```
  */
 @OptIn(ExperimentalForeignApi::class)
 actual class NativeTaskScheduler(
@@ -131,7 +155,6 @@ actual class NativeTaskScheduler(
             is TaskTrigger.Exact -> scheduleExactAlarm(id, trigger, workerClassName, constraints, inputJson)
             is TaskTrigger.Windowed -> scheduleWindowedTask(id, trigger, workerClassName, constraints, inputJson, policy)
             is TaskTrigger.ContentUri -> rejectUnsupportedTrigger("ContentUri")
-            // v2.1.1+: These triggers are deprecated (use SystemConstraint instead), but kept for backward compatibility
             // Will be removed in v3.0.0
             TaskTrigger.StorageLow -> rejectUnsupportedTrigger("StorageLow (deprecated - use Constraints.systemConstraints)")
             TaskTrigger.BatteryLow -> rejectUnsupportedTrigger("BatteryLow (deprecated - use Constraints.systemConstraints)")
@@ -169,7 +192,6 @@ actual class NativeTaskScheduler(
 
     /**
      * Schedule a periodic task with automatic re-scheduling
-     * v2.0.1+: Now suspend to support improved ExistingPolicy.KEEP logic
      */
     private suspend fun schedulePeriodicTask(
         id: String,
@@ -207,7 +229,6 @@ actual class NativeTaskScheduler(
 
     /**
      * Schedule a one-time task
-     * v2.0.1+: Now suspend to support improved ExistingPolicy.KEEP logic
      */
     private suspend fun scheduleOneTimeTask(
         id: String,
@@ -251,7 +272,6 @@ actual class NativeTaskScheduler(
      * **Best Practice**: Design your app logic to not depend on the task
      * running before the `latest` time. Use exact alarms if strict timing is required.
      *
-     * v2.0.1+: Now suspend to support improved ExistingPolicy.KEEP logic
      *
      * @param id Unique task identifier
      * @param trigger Windowed trigger with earliest and latest times
@@ -302,7 +322,6 @@ actual class NativeTaskScheduler(
 
     /**
      * Handle ExistingPolicy - returns true if should proceed with scheduling, false if should skip
-     * v2.0.1+: Enhanced KEEP logic to query actual pending tasks, preventing stale metadata issues
      */
     private suspend fun handleExistingPolicy(id: String, policy: ExistingPolicy, isPeriodicMetadata: Boolean): Boolean {
         val existingMetadata = fileStorage.loadTaskMetadata(id, periodic = isPeriodicMetadata)
@@ -312,7 +331,6 @@ actual class NativeTaskScheduler(
 
             when (policy) {
                 ExistingPolicy.KEEP -> {
-                    // v2.0.1+: Query BGTaskScheduler to verify task is actually pending
                     // This prevents issues with stale metadata after crashes
                     val isPending = isTaskPending(id)
 
@@ -337,12 +355,9 @@ actual class NativeTaskScheduler(
 
     /**
      * Check if a task is actually pending in BGTaskScheduler.
-     * v2.0.1+: Added to support reliable ExistingPolicy.KEEP logic
-     * v2.1.1+: Uses suspendCancellableCoroutine to prevent crash if cancelled before callback executes
      */
     private suspend fun isTaskPending(taskId: String): Boolean = suspendCancellableCoroutine { continuation ->
         BGTaskScheduler.sharedScheduler.getPendingTaskRequestsWithCompletionHandler { requests ->
-            // v2.1.1+: Check if continuation is still active before resuming
             if (continuation.isActive) {
                 val taskList = requests?.filterIsInstance<BGTaskRequest>() ?: emptyList()
                 val isPending = taskList.any { it.identifier == taskId }
@@ -352,7 +367,6 @@ actual class NativeTaskScheduler(
             }
         }
 
-        // v2.1.1+: Cleanup on cancellation
         continuation.invokeOnCancellation {
             Logger.d(LogTags.SCHEDULER, "isTaskPending cancelled for $taskId")
         }
@@ -483,7 +497,6 @@ actual class NativeTaskScheduler(
      * Schedule exact notification using UNUserNotificationCenter.
      * This is the default and recommended approach for exact alarms on iOS.
      *
-     * v2.1.1+: Made private, called from scheduleExactAlarm
      */
     private fun scheduleExactNotification(
         id: String,
@@ -531,7 +544,6 @@ actual class NativeTaskScheduler(
      * **IMPORTANT**: iOS decides when to actually run the task. May be delayed by
      * minutes to hours, or may not run at all.
      *
-     * v2.1.1+: Added for ATTEMPT_BACKGROUND_RUN behavior
      */
     private fun scheduleExactBackgroundTask(
         id: String,
@@ -591,21 +603,38 @@ actual class NativeTaskScheduler(
         return TaskChain(this, tasks)
     }
 
-    actual override fun enqueueChain(chain: TaskChain) {
+    actual override fun enqueueChain(chain: TaskChain, id: String?, policy: ExistingPolicy) {
         val steps = chain.getSteps()
         if (steps.isEmpty()) {
             Logger.w(LogTags.CHAIN, "Attempted to enqueue empty chain, ignoring")
             return
         }
 
-        val chainId = NSUUID.UUID().UUIDString()
-        Logger.i(LogTags.CHAIN, "Enqueuing chain - ID: $chainId, Steps: ${steps.size}")
+        val chainId = id ?: NSUUID.UUID().UUIDString()
+        Logger.i(LogTags.CHAIN, "Enqueuing chain - ID: $chainId, Steps: ${steps.size}, Policy: $policy")
+
+        if (fileStorage.chainExists(chainId)) {
+            when (policy) {
+                ExistingPolicy.KEEP -> {
+                    Logger.i(LogTags.CHAIN, "Chain $chainId already exists, KEEP policy - skipping")
+                    return
+                }
+                ExistingPolicy.REPLACE -> {
+                    Logger.i(LogTags.CHAIN, "Chain $chainId exists, REPLACE policy - replacing...")
+                    // Mark old chain as deleted (prevents execution if already in queue)
+                    fileStorage.markChainAsDeleted(chainId)
+                    // Delete old chain definition
+                    fileStorage.deleteChainDefinition(chainId)
+                    fileStorage.deleteChainProgress(chainId)
+                    // Note: Old chain ID may still be in queue but will be skipped via deleted marker
+                }
+            }
+        }
 
         // 1. Save the chain definition
         fileStorage.saveChainDefinition(chainId, steps)
 
         // 2. Add the chainId to the execution queue (atomic operation)
-        // v2.0.1+: Use background scope to avoid blocking Main thread with file I/O
         backgroundScope.launch {
             try {
                 fileStorage.enqueueChain(chainId)
@@ -617,6 +646,7 @@ actual class NativeTaskScheduler(
         }
 
         // 3. Schedule the generic chain executor task
+        // ChainExecutor should be created with BGTaskType.PROCESSING in the handler
         val request = BGProcessingTaskRequest(identifier = CHAIN_EXECUTOR_IDENTIFIER).apply {
             earliestBeginDate = NSDate().dateByAddingTimeInterval(1.0)
             requiresNetworkConnectivity = true

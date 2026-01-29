@@ -55,13 +55,17 @@ startKoin {
 
 ✅ **Unified API** - Single interface for both platforms
 ✅ **Multiple Trigger Types** - OneTime, Periodic, Exact, ContentUri, Battery, Storage, DeviceIdle
-✅ **Task Chains** - Sequential and parallel task execution
+✅ **Task Chains** - Sequential and parallel task execution with state restoration
 ✅ **Constraints** - Network, charging, battery, storage requirements
 ✅ **ExistingPolicy** - KEEP or REPLACE duplicate tasks
 ✅ **Type-Safe Serialization** - Reified inline extensions for automatic JSON conversion
-✅ **Professional Logging** - 4-level structured logging system
-✅ **Timeout Protection** - Automatic timeout handling on iOS
-✅ **Production Ready** - Comprehensive error handling and documentation
+✅ **Professional Logging** - 5-level structured logging (VERBOSE, DEBUG, INFO, WARN, ERROR)
+✅ **Data Integrity** - CRC32 validation with automatic corruption recovery (v2.1.3+)
+✅ **Self-Healing Architecture** - Automatic recovery from file corruption and race conditions (v2.2.0+)
+✅ **O(1) Queue Performance** - 13-40x faster than v2.0 with intelligent compaction (v2.0.2+)
+✅ **Optimized Maintenance** - Smart scheduling runs immediately if overdue (v2.2.0+)
+✅ **Timeout Protection** - Automatic timeout handling with iOS time-slicing (v2.1.4+)
+✅ **Production Ready** - 60+ tests including integration and stress tests (v2.2.0+)
 
 ## Installation
 
@@ -69,7 +73,7 @@ startKoin {
 
 ```kotlin
 commonMain.dependencies {
-    implementation("dev.brewkits:kmpworkmanager:1.1.0")
+    implementation("dev.brewkits:kmpworkmanager:2.2.0")
 }
 ```
 
@@ -77,7 +81,7 @@ commonMain.dependencies {
 
 ```toml
 [versions]
-kmpworkmanager = "1.1.0"
+kmpworkmanager = "2.2.0"
 
 [libraries]
 kmpworkmanager = { module = "dev.brewkits:kmpworkmanager", version.ref = "kmpworkmanager" }

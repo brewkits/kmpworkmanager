@@ -76,7 +76,6 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
                 scheduleContentUriWork(id, actualTrigger, workerClassName, updatedConstraints, inputJson, policy)
             }
 
-            // v2.1.1+: Deprecated triggers should have been converted by mapLegacyTrigger
             // Will be removed in v3.0.0
             @Suppress("DEPRECATION")
             TaskTrigger.StorageLow,
@@ -676,7 +675,14 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
         return dev.brewkits.kmpworkmanager.background.domain.TaskChain(this, tasks)
     }
 
-    actual override fun enqueueChain(chain: dev.brewkits.kmpworkmanager.background.domain.TaskChain) {
+    actual override fun enqueueChain(
+        chain: dev.brewkits.kmpworkmanager.background.domain.TaskChain,
+        id: String?,
+        policy: dev.brewkits.kmpworkmanager.background.domain.ExistingPolicy
+    ) {
+        // Note: WorkManager handles existing work policy natively
+        // id and policy parameters are included for cross-platform compatibility
+
         val steps = chain.getSteps()
         if (steps.isEmpty()) return
 

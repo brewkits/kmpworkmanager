@@ -94,7 +94,6 @@ abstract class AlarmReceiver : BroadcastReceiver() {
      * Final onReceive - extracts alarm data and delegates to [handleAlarm]
      * Do NOT override this method - override [handleAlarm] instead
      *
-     * v2.0.1+: Added goAsync() support to prevent process kill during async operations
      */
     final override fun onReceive(context: Context, intent: Intent) {
         val taskId = intent.getStringExtra(EXTRA_TASK_ID)
@@ -108,7 +107,6 @@ abstract class AlarmReceiver : BroadcastReceiver() {
 
         Logger.i(LogTags.ALARM, "Alarm received - Task: '$taskId', Worker: '$workerClassName'")
 
-        // v2.0.1+: Use goAsync() to prevent Android from killing the process
         // before async work completes. The PendingResult keeps the receiver alive.
         val pendingResult = goAsync()
 
