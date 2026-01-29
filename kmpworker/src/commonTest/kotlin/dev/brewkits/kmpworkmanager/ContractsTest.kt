@@ -345,7 +345,7 @@ class QosTest {
     }
 }
 
-class ExistingPolicyTest {
+class ExistingPolicyEnumTest {
 
     @Test
     fun `ExistingPolicy should have KEEP and REPLACE values`() {

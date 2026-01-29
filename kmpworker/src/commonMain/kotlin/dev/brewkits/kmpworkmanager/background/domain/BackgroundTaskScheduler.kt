@@ -47,6 +47,14 @@ interface BackgroundTaskScheduler {
     /**
      * Enqueues a constructed [TaskChain] for execution.
      * This method is intended to be called from `TaskChain.enqueue()`.
+     *
+     * @param chain The task chain to enqueue
+     * @param id Unique identifier for the chain (optional, auto-generated if not provided)
+     * @param policy How to handle if a chain with the same ID already exists
      */
-    fun enqueueChain(chain: TaskChain)
+    fun enqueueChain(
+        chain: TaskChain,
+        id: String? = null,
+        policy: ExistingPolicy = ExistingPolicy.REPLACE
+    )
 }

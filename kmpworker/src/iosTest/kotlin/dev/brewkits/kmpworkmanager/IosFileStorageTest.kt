@@ -23,7 +23,6 @@ class IosFileStorageTest {
     fun setup() = runTest {
         storage = IosFileStorage()
 
-        // v2.0.1+: Clear queue to ensure test isolation
         // Previous tests may have left data in filesystem
         while (storage.dequeueChain() != null) {
             // Clear all items
@@ -39,7 +38,6 @@ class IosFileStorageTest {
         storage.enqueueChain("chain-2")
         storage.enqueueChain("chain-3")
 
-        // v2.1.2+: getQueueSize is now suspend
         assertEquals(3, storage.getQueueSize())
 
         // Dequeue in FIFO order
@@ -57,13 +55,11 @@ class IosFileStorageTest {
 
     @Test
     fun `getQueueSize should return zero for empty queue`() = runTest {
-        // v2.1.2+: getQueueSize is now suspend
         assertEquals(0, storage.getQueueSize())
     }
 
     @Test
     fun `enqueue should increase queue size` () = runTest {
-        // v2.1.2+: getQueueSize is now suspend
         assertEquals(0, storage.getQueueSize())
 
         storage.enqueueChain("test-1")
@@ -325,7 +321,6 @@ class IosFileStorageTest {
         // Enqueue all chains
         chainIds.forEach { storage.enqueueChain(it) }
 
-        // Verify all were enqueued (v2.1.2+: getQueueSize is now suspend)
         assertEquals(10, storage.getQueueSize())
 
         // Dequeue all and verify order
