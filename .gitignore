@@ -57,6 +57,9 @@ SIGNING_SETUP.md
 HUONG_DAN_*.md
 MAVEN_ARTIFACTS_*.md
 sign-and-publish.sh
+devto-article.md
+rebuild-with-signing.sh
+create-maven-bundle*.sh
 
 # Internal docs/ files (uppercase filenames)
 docs/ROADMAP_*.md
@@ -69,6 +72,8 @@ docs/CODE_REVIEW_*.md
 # Deployment bundles
 *-bundle.zip
 *.bundle.zip
+*-bundle.jar
+maven-central-artifacts/
 
 # Temporary files
 *.log
