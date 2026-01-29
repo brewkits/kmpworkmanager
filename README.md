@@ -3,7 +3,7 @@
 **Production-ready** Kotlin Multiplatform library for scheduling and managing background tasks on Android and iOS with a unified API. Built for enterprise applications requiring reliability, stability, and comprehensive monitoring.
 
 <div align="center">
-  <img src="kmpworkmanager.png" alt="KMP WorkManager - Enterprise-Grade Background Tasks for Kotlin Multiplatform" width="100%" />
+  <img src="kmpworkmanager.png?v=2" alt="KMP WorkManager - Enterprise-Grade Background Tasks for Kotlin Multiplatform" width="100%" />
 </div>
 
 <br/>
