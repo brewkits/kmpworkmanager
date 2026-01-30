@@ -22,19 +22,19 @@ jobs:
       run: chmod +x gradlew
 
     - name: Build library
-      run: ./gradlew :kmptaskmanager:build
+      run: ./gradlew :kmpworker:build
 
     - name: Publish to GitHub Packages
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         GITHUB_ACTOR: ${{ github.actor }}
-      run: ./gradlew :kmptaskmanager:publish
+      run: ./gradlew :kmpworker:publish
 
     - name: Create release artifacts
       run: |
         mkdir -p release-artifacts
-        cp kmptaskmanager/build/libs/*.jar release-artifacts/ 2>/dev/null || true
-        cp kmptaskmanager/build/outputs/aar/*.aar release-artifacts/ 2>/dev/null || true
+        cp kmpworker/build/libs/*.jar release-artifacts/ 2>/dev/null || true
+        cp kmpworker/build/outputs/aar/*.aar release-artifacts/ 2>/dev/null || true
 
     - name: Upload release artifacts
       uses: actions/upload-artifact@v4
