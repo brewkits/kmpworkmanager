@@ -24,18 +24,18 @@ jobs:
       run: chmod +x gradlew
 
     - name: Build library
-      run: ./gradlew :kmptaskmanager:build
+      run: ./gradlew :kmpworker:build
 
     - name: Build demo app (Android)
       run: ./gradlew :composeApp:assembleDebug
 
     - name: Run tests
-      run: ./gradlew :kmptaskmanager:test
+      run: ./gradlew :kmpworker:test
 
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
         name: build-artifacts
         path: |
-          kmptaskmanager/build/libs/
-          kmptaskmanager/build/outputs/aar/
+          kmpworker/build/libs/
+          kmpworker/build/outputs/aar/
