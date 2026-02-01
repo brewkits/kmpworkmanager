@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.ui.graphics.Color
@@ -211,7 +212,7 @@ fun DashboardScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(Icons.Default.Article, contentDescription = null)
+                    Icon(Icons.AutoMirrored.Filled.Article, contentDescription = null)
                     Text("View Logs", style = MaterialTheme.typography.labelMedium, textAlign = TextAlign.Center)
                 }
             }

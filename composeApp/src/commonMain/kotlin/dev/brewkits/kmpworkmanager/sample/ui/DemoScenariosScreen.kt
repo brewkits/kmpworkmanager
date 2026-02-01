@@ -1,6 +1,7 @@
 package dev.brewkits.kmpworkmanager.sample.ui
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -164,7 +165,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                 DemoCard(
                     title = "Sequential: Download \u2192 Process \u2192 Upload",
                     description = "Three tasks in sequence",
-                    icon = Icons.Default.ArrowForward,
+                    icon = Icons.AutoMirrored.Filled.ArrowForward,
                     onClick = {
                         coroutineScope.launch {
                             scheduler.beginWith(TaskRequest(workerClassName = WorkerTypes.SYNC_WORKER))
@@ -285,7 +286,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     }
                 )
                 DemoCard(
-                    title = "Battery Not Low",
+                    title = "Battery Not Low (Android)",
                     description = "Defers when battery is low",
                     icon = Icons.Default.BatteryFull,
                     onClick = {

@@ -484,7 +484,8 @@ class KmpHeavyWorker(
             // CRITICAL: Catch ALL other exceptions (Chinese ROM edge cases)
             Logger.e(LogTags.WORKER, "Unknown validation error - failing open: ${e.javaClass.simpleName}", e)
             Logger.w(LogTags.WORKER, "Device: ${Build.MANUFACTURER} ${Build.MODEL}, SDK: ${Build.VERSION.SDK_INT}")
-            // FAIL OPEN - allow service to proceed
+            // FAIL OPEN — setForeground() in doWork() remains the authoritative enforcement point;
+            // any real misconfiguration will still surface as SecurityException there.
         }
     }
 

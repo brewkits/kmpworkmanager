@@ -112,7 +112,7 @@ Add to your `build.gradle.kts`:
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("dev.brewkits:kmpworkmanager:2.2.0")
+            implementation("dev.brewkits:kmpworkmanager:2.2.1")
         }
     }
 }
@@ -122,7 +122,7 @@ Or using version catalog:
 
 ```toml
 [versions]
-kmpworkmanager = "2.2.0"
+kmpworkmanager = "2.2.1"
 
 [libraries]
 kmpworkmanager = { module = "dev.brewkits:kmpworkmanager", version.ref = "kmpworkmanager" }
@@ -508,6 +508,7 @@ KMP WorkManager uses conservative time-slicing to preserve iOS credit score:
 - 15% buffer reserved for cleanup and progress saving
 - Early stop when remaining time insufficient
 - Automatic continuation scheduling for large queues
+- Callers can pass an absolute `deadlineEpochMs` (e.g., from the BGTask `expirationHandler`) to let the executor compute the effective timeout dynamically — avoids hard-coding and handles cold-start overhead accurately (v2.2.1+)
 
 **Time Limits**:
 - `BGAppRefreshTask`: 50s chain timeout (from 30s system limit)
@@ -544,7 +545,7 @@ TaskEventBus.events
 ### iOS
 
 - BGTaskScheduler integration
-- **Chain state restoration**: Resume interrupted chains from last completed step
+- **Chain state restoration**: Resume interrupted chains from last completed step; parallel steps track per-task completion so only failed tasks re-execute on retry (v2.2.1+)
 - Automatic re-scheduling of periodic tasks
 - File-based storage for better performance and thread safety
 - Thread-safe task execution with NSFileCoordinator
@@ -604,11 +605,19 @@ TaskEventBus.events
 
 KMP WorkManager is actively developed with a focus on reliability, developer experience, and enterprise features. Here's our planned development roadmap:
 
+### ✅ v2.2.1 - Parallel Retry Idempotency & Corruption Recovery (Released - February 2026)
+
+Per-task retry tracking for parallel chain steps, truncation-based corruption recovery, buffered legacy reads, expired-deadline crash fix, and correct BGProcessingTask timeout.
+
 ### ✅ v2.2.0 - Production-Ready Release (Released - January 2026)
 
 Production-ready library with comprehensive testing, self-healing architecture, and optimized performance for both Android and iOS platforms.
 
-### v2.3.0 - Event Persistence & Smart Retries (Q2 2026)
+### v2.3.0 - FileCoordinationStrategy & BGTaskHelper (Q1 2026)
+
+Clean DX improvements: strategy-pattern file coordination to replace magic-string test detection, and a BGTaskHelper wrapper that reduces Swift `expirationHandler` boilerplate from 10+ lines to 1.
+
+### v2.4.0 - Event Persistence & Smart Retries (Q2 2026)
 
 **Event Persistence System**
 - Persistent storage for TaskCompletionEvents (survives app kills and force-quit)
@@ -632,7 +641,7 @@ expect object PlatformCapabilities {
 }
 ```
 
-### v2.4.0 - Typed Results & Enhanced Observability (Q3 2026)
+### v2.5.0 - Typed Results & Enhanced Observability (Q3 2026)
 
 **Typed Result Data Passing**
 - Workers return structured results, not just Boolean
@@ -732,7 +741,16 @@ Priority is given to:
 
 ## Version History
 
-**v2.2.0** (Latest) - Production-Ready Release
+**v2.2.1** (Latest) - Parallel Retry Idempotency & Corruption Recovery
+- Per-task completion tracking in parallel chain steps — only failed tasks re-execute on retry
+- Queue corruption recovery via truncation preserves all valid records
+- Buffered legacy queue reads (4 KB chunks) reduce system calls during text-format migration
+- Expired-deadline early return prevents crash; `deadlineEpochMs` for accurate time-slicing
+- Correct 300 s chain timeout for BGProcessingTask
+- All persisted-data deserialization uses `ignoreUnknownKeys` for schema-evolution safety
+- 15 new tests (ChainProgressTest now 38 total, all passing)
+
+**v2.2.0** - Production-Ready Release
 - Self-healing architecture with automatic corruption recovery
 - Data integrity protection with CRC32 validation
 - High-performance O(1) queue operations

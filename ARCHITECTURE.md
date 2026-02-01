@@ -257,7 +257,8 @@ scheduler.beginWith(TaskRequest("Step1"))
 **iOS Implementation:**
 - Custom chain serialization to UserDefaults
 - ChainExecutor processes chains step-by-step
-- Parallel tasks use `coroutineScope { launch { } }`
+- Parallel tasks use `coroutineScope { async { } }.awaitAll()` — each task's result is collected to determine per-task success
+- Per-task completion tracked in `ChainProgress.completedTasksInSteps`; on retry only failed tasks re-execute, already-succeeded tasks are skipped (v2.2.1+)
 - Limited by 30s/60s execution windows
 
 ### 4. Logger System
@@ -370,10 +371,12 @@ class MyWorkerFactory : IosWorkerFactory {
 - **No native retry**: Must manually reschedule on failure
 
 **Solutions:**
-- Timeout protection with `withTimeout()`
+- Timeout protection with `withTimeout()` — callers can pass `deadlineEpochMs` for dynamic time-slicing against the actual BGTask deadline (v2.2.1+)
 - Metadata storage in UserDefaults for task tracking
 - Chain batching (execute up to 3 chains per invocation)
 - ExistingPolicy support with KEEP/REPLACE
+- Queue corruption recovery via truncation at the first bad record — preserves all valid data before the corruption point (v2.2.1+)
+- All persisted JSON uses `ignoreUnknownKeys = true` for forward/backward schema compatibility (v2.2.1+)
 
 ## 🧪 Testing Strategy
 
@@ -561,5 +564,5 @@ scheduler.beginWith(task1)
 
 ---
 
-**Last Updated:** January 2026
-**Version:** 1.0.0
+**Last Updated:** February 2026
+**Version:** 2.2.1

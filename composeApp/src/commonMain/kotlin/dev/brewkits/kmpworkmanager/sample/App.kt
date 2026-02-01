@@ -107,7 +107,7 @@ fun App(
                 .padding(WindowInsets.systemBars.asPaddingValues())
         ) {
             // Tab bar for navigation - Enhanced with new screens
-            ScrollableTabRow(selectedTabIndex = pagerState.currentPage) {
+            PrimaryScrollableTabRow(selectedTabIndex = pagerState.currentPage) {
                 Tab(selected = pagerState.currentPage == 0, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(0) } }) { Text("Dashboard", modifier = Modifier.padding(12.dp)) }
                 Tab(selected = pagerState.currentPage == 1, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(1) } }) { Text("Demos", modifier = Modifier.padding(12.dp)) }
                 Tab(selected = pagerState.currentPage == 2, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(2) } }) { Text("Tasks", modifier = Modifier.padding(12.dp)) }

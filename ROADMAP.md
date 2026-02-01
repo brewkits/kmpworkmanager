@@ -4,6 +4,49 @@ This document outlines the development roadmap for KMP WorkManager, focusing on 
 
 ## Released Versions
 
+### ✅ v2.2.1 - Parallel Retry Idempotency & Corruption Recovery (February 1, 2026)
+
+**Status**: Released
+
+**Key Changes**:
+- Per-task completion tracking in parallel chain steps — only failed tasks re-execute on retry
+- Queue corruption recovery via truncation instead of full wipe — preserves valid records
+- Buffered legacy queue reads (4 KB chunks) for migration performance
+- Expired-deadline early return prevents `withTimeout(0)` crash
+- Correct chain timeout for BGProcessingTask (300 s instead of hard-coded 50 s)
+- All persisted-data deserialization uses `ignoreUnknownKeys` for schema-evolution safety
+- 15 new tests in `ChainProgressTest` (total 38, all passing)
+
+**Impact**:
+- Parallel chains are now safe to retry after partial failure without redundant work
+- Queue files survive corruption without total data loss
+- BGProcessingTask chains get their full 5-minute budget
+- Library survives future schema changes and app rollbacks without crash
+
+**Documentation**: See [CHANGELOG.md](CHANGELOG.md#221---2026-02-01)
+
+---
+
+### ✅ v2.2.0 - Production-Ready Release (January 29, 2026)
+
+**Status**: Released
+
+**Key Changes**:
+- Binary queue format with CRC32 validation
+- Automatic migration from text JSONL
+- VERBOSE log level for high-frequency operations
+- Optimized maintenance task scheduling
+- 13 integration tests + 11 stress tests
+
+**Impact**:
+- Data integrity protection against silent corruption
+- Comprehensive test coverage (60+ tests)
+- Better observability with granular log levels
+
+**Documentation**: See [CHANGELOG.md](CHANGELOG.md#220---2026-01-29)
+
+---
+
 ### ✅ v2.1.1 - Critical Fixes & iOS Transparency (January 20, 2026)
 
 **Status**: Released
@@ -64,11 +107,11 @@ This document outlines the development roadmap for KMP WorkManager, focusing on 
 
 ## Upcoming Versions
 
-### v2.2.0 - FileCoordinationStrategy & BGTaskHelper (Q1 2026)
+### v2.3.0 - FileCoordinationStrategy & BGTaskHelper (Q1 2026)
 
 **Status**: Planned
 **Priority**: Medium
-**Estimated Release**: February 2026
+**Estimated Release**: March 2026
 
 **Goals**:
 1. Professional test environment detection
@@ -146,11 +189,11 @@ task.expirationHandler = {
 
 ---
 
-### v2.3.0 - Event Persistence & Smart Retries (Q2 2026)
+### v2.4.0 - Event Persistence & Smart Retries (Q2 2026)
 
 **Status**: Planned
 **Priority**: High
-**Estimated Release**: March 2026
+**Estimated Release**: April 2026
 
 **Event Persistence System**:
 - Persistent storage for `TaskCompletionEvent` (survives app kills)
@@ -185,11 +228,11 @@ expect object PlatformCapabilities {
 
 ---
 
-### v2.4.0 - Typed Results & Enhanced Observability (Q3 2026)
+### v2.5.0 - Typed Results & Enhanced Observability (Q3 2026)
 
 **Status**: Planning
 **Priority**: Medium
-**Estimated Release**: May 2026
+**Estimated Release**: June 2026
 
 **Typed Result Data Passing**:
 ```kotlin

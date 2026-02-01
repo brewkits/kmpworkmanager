@@ -15,16 +15,15 @@ import dev.brewkits.kmpworkmanager.sample.background.domain.BackgroundTaskSchedu
 import dev.brewkits.kmpworkmanager.sample.background.domain.Constraints
 import dev.brewkits.kmpworkmanager.sample.background.domain.TaskTrigger
 import kotlinx.coroutines.launch
-import kotlin.time.Clock
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.hours
 
-@OptIn(ExperimentalMaterial3Api::class, kotlin.time.ExperimentalTime::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TaskBuilderScreen(scheduler: BackgroundTaskScheduler) {
     var selectedWorker by remember { mutableStateOf(WorkerTypes.SYNC_WORKER) }
-    var taskId by remember { mutableStateOf("custom-task-${Clock.System.now().toEpochMilliseconds()}") }
+    var taskId by remember { mutableStateOf("demo-task") }
     var triggerType by remember { mutableStateOf(TriggerType.ONE_TIME) }
     var delayAmount by remember { mutableStateOf("5") }
     var delayUnit by remember { mutableStateOf(TimeUnit.SECONDS) }
@@ -117,6 +116,11 @@ fun TaskBuilderScreen(scheduler: BackgroundTaskScheduler) {
                         modifier = Modifier.fillMaxWidth(),
                         placeholder = { Text("Enter unique task ID") }
                     )
+                    Text(
+                        "iOS requires task IDs to be pre-registered in Info.plist. Use 'demo-task' or any ID from the Demo Scenarios tab. Android accepts any ID.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
 
@@ -206,7 +210,7 @@ fun TaskBuilderScreen(scheduler: BackgroundTaskScheduler) {
             ) {
                 OutlinedButton(
                     onClick = {
-                        taskId = "custom-task-${Clock.System.now().toEpochMilliseconds()}"
+                        taskId = "demo-task"
                         triggerType = TriggerType.ONE_TIME
                         delayAmount = "5"
                         delayUnit = TimeUnit.SECONDS

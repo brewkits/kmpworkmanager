@@ -6,6 +6,7 @@ import dev.brewkits.kmpworkmanager.sample.utils.Logger
 import dev.brewkits.kmpworkmanager.sample.utils.LogTags
 import kotlinx.cinterop.*
 import kotlinx.cinterop.BetaInteropApi
+import kotlinx.coroutines.*
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import platform.BackgroundTasks.BGAppRefreshTaskRequest
@@ -13,6 +14,7 @@ import platform.BackgroundTasks.BGProcessingTaskRequest
 import platform.BackgroundTasks.BGTaskRequest
 import platform.BackgroundTasks.BGTaskScheduler
 import platform.Foundation.*
+import platform.posix.getenv
 import platform.UserNotifications.UNCalendarNotificationTrigger
 import platform.UserNotifications.UNMutableNotificationContent
 import platform.UserNotifications.UNNotificationRequest
@@ -31,7 +33,22 @@ import platform.UserNotifications.UNUserNotificationCenter
  * - Proper error handling with NSError
  */
 @OptIn(ExperimentalForeignApi::class)
-actual class NativeTaskScheduler : BackgroundTaskScheduler {
+actual class NativeTaskScheduler(
+    private val singleTaskExecutor: SingleTaskExecutor? = null,
+    private val chainExecutor: ChainExecutor? = null
+) : BackgroundTaskScheduler {
+
+    /**
+     * On iOS Simulator, BGTaskScheduler.submitTaskRequest always fails (error 1).
+     * When running on simulator, single tasks and chains are executed directly
+     * in-process so the demo app remains interactive.
+     *
+     * Detection relies on an env var set by AppDelegate before Koin init,
+     * guarded by Swift's compile-time `#if targetEnvironment(simulator)`.
+     * This is the only reliable simulator detection available on iOS.
+     */
+    private val isSimulator: Boolean =
+        getenv("KMP_IS_SIMULATOR") != null
 
     private val userDefaults = NSUserDefaults.standardUserDefaults
 
@@ -131,6 +148,12 @@ actual class NativeTaskScheduler : BackgroundTaskScheduler {
         )
         userDefaults.setObject(periodicMetadata, forKey = "$PERIODIC_META_PREFIX$id")
 
+        if (isSimulator) {
+            // On simulator, execute once immediately (no re-scheduling — simulator only)
+            simulatorExecuteSingle(id, workerClassName, inputJson, 0L)
+            return ScheduleResult.ACCEPTED
+        }
+
         val request = createBackgroundTaskRequest(id, constraints)
         request.earliestBeginDate = NSDate().dateByAddingTimeInterval(trigger.intervalMs / 1000.0)
 
@@ -161,6 +184,11 @@ actual class NativeTaskScheduler : BackgroundTaskScheduler {
             "inputJson" to (inputJson ?: "")
         )
         userDefaults.setObject(taskMetadata, forKey = "$TASK_META_PREFIX$id")
+
+        if (isSimulator) {
+            simulatorExecuteSingle(id, workerClassName, inputJson, trigger.initialDelayMs)
+            return ScheduleResult.ACCEPTED
+        }
 
         val request = createBackgroundTaskRequest(id, constraints)
         request.earliestBeginDate = NSDate().dateByAddingTimeInterval(trigger.initialDelayMs / 1000.0)
@@ -283,6 +311,32 @@ actual class NativeTaskScheduler : BackgroundTaskScheduler {
         return ScheduleResult.REJECTED_OS_POLICY
     }
 
+    // ---------------------------------------------------------------
+    // Simulator fallback — executes tasks in-process so the demo app
+    // remains interactive without requiring Xcode BGTask simulation.
+    // ---------------------------------------------------------------
+
+    private fun simulatorExecuteSingle(id: String, workerClassName: String, inputJson: String?, delayMs: Long) {
+        CoroutineScope(Dispatchers.Default).launch {
+            Logger.i(LogTags.SCHEDULER, "[Simulator] Waiting ${delayMs}ms then executing '$id' directly")
+            delay(delayMs)
+            val success = singleTaskExecutor?.executeTask(workerClassName, inputJson) ?: false
+            Logger.i(LogTags.SCHEDULER, "[Simulator] Task '$id' completed directly, success=$success")
+        }
+    }
+
+    private fun simulatorExecuteChains() {
+        CoroutineScope(Dispatchers.Default).launch {
+            Logger.i(LogTags.CHAIN, "[Simulator] Executing queued chains directly")
+            try {
+                val count = chainExecutor?.executeChainsInBatch(maxChains = 3, totalTimeoutMs = 50_000) ?: 0
+                Logger.i(LogTags.CHAIN, "[Simulator] Executed $count chain(s) directly")
+            } catch (e: Exception) {
+                Logger.e(LogTags.CHAIN, "[Simulator] Chain execution failed: ${e.message}")
+            }
+        }
+    }
+
     actual override fun beginWith(task: TaskRequest): TaskChain {
         return TaskChain(this, listOf(task))
     }
@@ -314,7 +368,12 @@ actual class NativeTaskScheduler : BackgroundTaskScheduler {
 
         Logger.d(LogTags.CHAIN, "Added chain $chainId to execution queue. Queue size: ${queue.size}")
 
-        // 3. Schedule the generic chain executor task
+        // 3. Schedule the generic chain executor task (or run directly on simulator)
+        if (isSimulator) {
+            simulatorExecuteChains()
+            return
+        }
+
         val request = BGProcessingTaskRequest(identifier = CHAIN_EXECUTOR_IDENTIFIER).apply {
             earliestBeginDate = NSDate().dateByAddingTimeInterval(1.0)
             requiresNetworkConnectivity = true
