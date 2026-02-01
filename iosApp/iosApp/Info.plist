@@ -12,6 +12,23 @@
 		<string>exact-reminder</string>
 		<string>demo-task</string>
 		<string>content-uri-task</string>
+		<string>demo-quick-sync</string>
+		<string>demo-file-upload</string>
+		<string>demo-database</string>
+		<string>demo-hourly-sync</string>
+		<string>demo-daily-cleanup</string>
+		<string>demo-location-sync</string>
+		<string>demo-network-required</string>
+		<string>demo-unmetered</string>
+		<string>demo-charging</string>
+		<string>demo-battery-ok</string>
+		<string>demo-storage-low</string>
+		<string>demo-device-idle</string>
+		<string>demo-retry</string>
+		<string>demo-db-fail</string>
+		<string>demo-heavy</string>
+		<string>demo-batch-upload</string>
+		<string>demo-image-proc</string>
 	</array>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>

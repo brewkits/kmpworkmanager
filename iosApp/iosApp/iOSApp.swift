@@ -16,6 +16,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     override init() {
         super.init()
 
+        // Bridge Swift's compile-time simulator check to Kotlin/Native via env var.
+        // Must run BEFORE Koin init so NativeTaskScheduler reads it at construction time.
+        #if targetEnvironment(simulator)
+        setenv("KMP_IS_SIMULATOR", "1", 1)
+        #endif
+
         // Initialize Koin AFTER super.init()
         KoinInitializerKt.doInitKoin(platformModule: IOSModuleKt.iosModule)
         koinIos = KoinIOS()
@@ -195,12 +201,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
      * This code runs when the app launches to tell the system what to do when a task is triggered.
      */
     private func registerBackgroundTasks() {
-        let taskIds = ["kmp_chain_executor_task", "periodic-sync-task", "one-time-upload", "heavy-task-1", "network-task"]
+        guard let taskIds = Bundle.main.infoDictionary?["BGTaskSchedulerPermittedIdentifiers"] as? [String] else {
+            print("iOS BGTask: No BGTaskSchedulerPermittedIdentifiers found in Info.plist")
+            return
+        }
 
         taskIds.forEach { taskId in
             BGTaskScheduler.shared.register(forTaskWithIdentifier: taskId, using: nil) { task in
                 print("iOS BGTask: Generic handler received task: \(task.identifier)")
-                if (taskId == "kmp_chain_executor_task") {
+                if taskId == "kmp_chain_executor_task" {
                     self.handleChainExecutorTask(task: task)
                 } else {
                     self.handleSingleTask(task: task)

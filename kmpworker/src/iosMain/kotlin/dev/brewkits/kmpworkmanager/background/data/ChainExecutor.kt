@@ -190,12 +190,18 @@ class ChainExecutor(
      *
      * @param maxChains Maximum number of chains to process (default: 3)
      * @param totalTimeoutMs Total timeout for batch processing (default: dynamic based on taskType)
+     * @param deadlineEpochMs Absolute BGTask expiration time in epoch milliseconds.
+     *   When provided, the effective timeout is clamped so execution stops before this deadline
+     *   (minus a grace period for progress saving).  This correctly accounts for cold-start time
+     *   already consumed before this method was invoked.  Prefer this over relying solely on
+     *   totalTimeoutMs when calling from an iOS BGTask handler.
      * @return Number of successfully executed chains
      * @throws IllegalStateException if executor is closed
      */
     suspend fun executeChainsInBatch(
         maxChains: Int = 3,
-        totalTimeoutMs: Long = chainTimeout
+        totalTimeoutMs: Long = chainTimeout,
+        deadlineEpochMs: Long? = null
     ): Int {
         checkNotClosed()
 
@@ -209,19 +215,35 @@ class ChainExecutor(
         // Reset shutdown state on new execution
         resetShutdownState()
 
-        val conservativeTimeout = (totalTimeoutMs * 0.85).toLong()
+        val startTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
+
+        // If an absolute deadline is provided (e.g. BGTask expiration time), use it to
+        // compute remaining time.  This naturally accounts for any cold-start overhead
+        // already consumed before this method was called.
+        val conservativeTimeout = if (deadlineEpochMs != null) {
+            val remaining = deadlineEpochMs - startTime - SHUTDOWN_GRACE_PERIOD_MS
+            Logger.i(LogTags.CHAIN, "Absolute deadline provided: ${remaining}ms remaining (deadline epoch: $deadlineEpochMs)")
+            minOf(remaining, (totalTimeoutMs * 0.85).toLong()).coerceAtLeast(0L)
+        } else {
+            (totalTimeoutMs * 0.85).toLong()
+        }
         val minTimePerChain = taskTimeout // Minimum time needed per chain
 
         Logger.i(LogTags.CHAIN, """
             Starting batch chain execution:
             - Max chains: $maxChains
             - Total timeout: ${totalTimeoutMs}ms
-            - Conservative timeout: ${conservativeTimeout}ms (85%)
+            - Conservative timeout: ${conservativeTimeout}ms
             - Min time per chain: ${minTimePerChain}ms
             - Task type: $taskType
         """.trimIndent())
+        // If the deadline has already passed (e.g. cold start consumed all available time),
+        // bail out immediately rather than calling withTimeout(0) which would throw.
+        if (conservativeTimeout <= 0L) {
+            Logger.w(LogTags.CHAIN, "⏱️ BGTask deadline already expired (conservativeTimeout=${conservativeTimeout}ms). No chains executed.")
+            return 0
+        }
 
-        val startTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
         var chainsAttempted = 0
         var chainsSucceeded = 0
         var chainsFailed = 0
@@ -409,7 +431,7 @@ class ChainExecutor(
 
             // 7. Execute steps sequentially with timeout protection
             try {
-                withTimeout(CHAIN_TIMEOUT_MS) {
+                withTimeout(chainTimeout) {
                     for ((index, step) in steps.withIndex()) {
                         // Skip already completed steps
                         if (progress.isStepCompleted(index)) {
@@ -419,7 +441,8 @@ class ChainExecutor(
 
                         Logger.i(LogTags.CHAIN, "Executing step ${index + 1}/${steps.size} for chain $chainId (${step.size} tasks)")
 
-                        val stepSuccess = executeStep(step)
+                        val (stepSuccess, updatedProgress) = executeStep(step, index, progress)
+                        progress = updatedProgress
                         if (!stepSuccess) {
                             Logger.e(LogTags.CHAIN, "Step ${index + 1} failed. Updating progress for chain $chainId")
 
@@ -450,7 +473,7 @@ class ChainExecutor(
                     }
                 }
             } catch (e: TimeoutCancellationException) {
-                Logger.e(LogTags.CHAIN, "Chain $chainId timed out after ${CHAIN_TIMEOUT_MS}ms")
+                Logger.e(LogTags.CHAIN, "Chain $chainId timed out after ${chainTimeout}ms")
 
                 // Save current progress (don't delete - allow resume)
                 // Progress already saved after last successful step
@@ -494,26 +517,60 @@ class ChainExecutor(
     }
 
     /**
-     * Execute all tasks in a step (parallel execution)
+     * Execute all tasks in a step (parallel execution).
+     *
+     * Tasks that already completed in a previous attempt (recorded in progress)
+     * are skipped, making retry of partially-failed parallel steps idempotent.
+     * Each task's completion is persisted individually so that a crash mid-step
+     * still preserves the already-succeeded tasks.
+     *
+     * @return Pair of (stepSucceeded, updatedProgress)
      */
-    private suspend fun executeStep(tasks: List<TaskRequest>): Boolean {
-        if (tasks.isEmpty()) return true
+    private suspend fun executeStep(
+        tasks: List<TaskRequest>,
+        stepIndex: Int,
+        progress: ChainProgress
+    ): Pair<Boolean, ChainProgress> {
+        if (tasks.isEmpty()) return Pair(true, progress)
 
-        // Execute tasks in the step in parallel with individual timeouts
+        var currentProgress = progress
+        // Shared across all async blocks launched below — do not extract into a separate function.
+        val progressMutex = Mutex()
+
         val results = coroutineScope {
-            tasks.map { task ->
+            tasks.mapIndexed { taskIndex, task ->
                 async {
-                    executeTask(task)
+                    // Skip tasks that already succeeded in a previous attempt.
+                    // Safety: this read of `currentProgress` is intentionally unguarded.
+                    // Each block checks only its OWN taskIndex; a sibling's in-flight completion
+                    // cannot make this block's taskIndex appear completed.  The only source of
+                    // a true positive here is a completion persisted in a *previous* run, which
+                    // is already present in the initial `progress` value before any sibling runs.
+                    if (currentProgress.isTaskInStepCompleted(stepIndex, taskIndex)) {
+                        Logger.d(
+                            LogTags.CHAIN,
+                            "Skipping already-completed task $taskIndex in step $stepIndex (${task.workerClassName})"
+                        )
+                        return@async true
+                    }
+
+                    val result = executeTask(task)
+                    if (result) {
+                        progressMutex.withLock {
+                            currentProgress = currentProgress.withCompletedTaskInStep(stepIndex, taskIndex)
+                            fileStorage.saveChainProgress(currentProgress)
+                        }
+                    }
+                    result
                 }
             }.awaitAll()
         }
 
-        // The step is successful only if all parallel tasks succeeded
         val allSucceeded = results.all { it }
         if (!allSucceeded) {
-            Logger.w(LogTags.CHAIN, "Step had ${results.count { !it }} failed task(s) out of ${tasks.size}")
+            Logger.w(LogTags.CHAIN, "Step $stepIndex had ${results.count { !it }} failed task(s) out of ${tasks.size}")
         }
-        return allSucceeded
+        return Pair(allSucceeded, currentProgress)
     }
 
     /**

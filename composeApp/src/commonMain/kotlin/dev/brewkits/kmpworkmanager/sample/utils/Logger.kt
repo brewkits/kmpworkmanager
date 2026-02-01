@@ -1,10 +1,21 @@
 package dev.brewkits.kmpworkmanager.sample.utils
 
+import dev.brewkits.kmpworkmanager.sample.logs.LogEntry
+import dev.brewkits.kmpworkmanager.sample.logs.LogStore
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlin.time.Clock
+
 /**
  * Professional logging utility for KMP WorkManager.
  * Provides structured logging with levels, tags, and platform-specific formatting.
+ * Emits all logs to LogStore for UI display.
  */
+@OptIn(kotlin.time.ExperimentalTime::class)
 object Logger {
+    private val loggerScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     enum class Level {
         DEBUG_LEVEL,
@@ -43,10 +54,27 @@ object Logger {
 
     /**
      * Platform-specific logging implementation
+     * Also emits to LogStore for UI display
      */
     private fun log(level: Level, tag: String, message: String, throwable: Throwable?) {
         val formattedMessage = formatMessage(level, tag, message, throwable)
         platformLog(level, formattedMessage)
+
+        // Emit to LogStore asynchronously (non-blocking)
+        loggerScope.launch {
+            LogStore.add(
+                LogEntry(
+                    timestamp = Clock.System.now().toEpochMilliseconds(),
+                    level = level,
+                    tag = tag,
+                    message = if (throwable != null) {
+                        "$message\n${throwable.stackTraceToString()}"
+                    } else {
+                        message
+                    }
+                )
+            )
+        }
     }
 
     /**
@@ -96,4 +124,7 @@ object LogTags {
     const val PUSH = "PushNotification"
     const val TAG_DEBUG = "Debug"
     const val ERROR = "Error"
+    const val QUEUE = "TaskQueue"
+    const val UI = "UI"
+    const val PLATFORM = "Platform"
 }

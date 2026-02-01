@@ -56,6 +56,7 @@ internal class AppendOnlyQueue(
 
     // Corruption handling
     private var isQueueCorrupt = false
+    private var corruptionOffset: ULong = 0UL  // Byte offset of the first corrupt record
     private val corruptionMutex = Mutex()
 
     private var fileFormat: UInt? = null
@@ -88,6 +89,7 @@ internal class AppendOnlyQueue(
         private const val MAGIC_NUMBER: UInt = 0x4B4D5051u  // "KMPQ" in ASCII
         private const val FORMAT_VERSION: UInt = 0x00000001u  // Version 1
         private const val FORMAT_VERSION_LEGACY: UInt = 0x00000000u  // Text format
+        private const val LEGACY_READ_CHUNK_SIZE: Int = 4096  // Bytes per read in legacy text-format path
     }
 
     init {
@@ -142,9 +144,10 @@ internal class AppendOnlyQueue(
                     // Double-check inside lock (prevents TOCTOU issues)
                     if (isQueueCorrupt) {
                         coordinated(queueFileURL, write = true) {
-                            Logger.w(LogTags.QUEUE, "Queue corruption detected during dequeue. Resetting...")
-                            resetQueueInternal()  // Safe: queueMutex already held
+                            Logger.w(LogTags.QUEUE, "Queue corruption detected during dequeue. Truncating at offset $corruptionOffset...")
+                            truncateAtCorruptionPoint()  // Safe: queueMutex already held
                             isQueueCorrupt = false
+                            corruptionOffset = 0UL
                         }
                     }
                 }
@@ -339,37 +342,50 @@ internal class AppendOnlyQueue(
      * Read a single line from file handle at current position
      */
     private fun readSingleLine(fileHandle: NSFileHandle): String? {
+        val lineStartOffset = fileHandle.offsetInFile
         return try {
-            val buffer = StringBuilder()
+            val result = StringBuilder()
 
             while (true) {
-                val data = fileHandle.readDataOfLength(1u)
+                val chunkStartOffset = fileHandle.offsetInFile
+                val data = fileHandle.readDataOfLength(LEGACY_READ_CHUNK_SIZE.toULong())
 
                 if (data.length == 0UL) {
-                    // EOF
-                    return if (buffer.isEmpty()) null else buffer.toString()
+                    return if (result.isEmpty()) null else result.toString()
                 }
 
-                val byte = data.bytes?.reinterpret<ByteVar>()?.pointed?.value
-                if (byte == null) {
-                    Logger.w(LogTags.QUEUE, "Null byte detected - possible corruption")
-                    throw CorruptQueueException("Invalid byte in queue file")
+                val bytes = data.bytes?.reinterpret<ByteVar>()
+                    ?: throw CorruptQueueException("Cannot read chunk bytes")
+
+                val len = data.length.toInt()
+                var newlineIndex = -1
+                for (i in 0 until len) {
+                    if (bytes[i].toInt().toChar() == '\n') {
+                        newlineIndex = i
+                        break
+                    }
                 }
 
-                val char = byte.toInt().toChar()
-
-                if (char == '\n') {
-                    return buffer.toString()
+                if (newlineIndex >= 0) {
+                    // Append bytes before the newline, then seek past it
+                    for (i in 0 until newlineIndex) {
+                        result.append(bytes[i].toInt().toChar())
+                    }
+                    fileHandle.seekToFileOffset(chunkStartOffset + (newlineIndex + 1).toULong())
+                    return result.toString()
+                } else {
+                    // No newline in this chunk — append all and continue
+                    for (i in 0 until len) {
+                        result.append(bytes[i].toInt().toChar())
+                    }
                 }
-
-                // NO validation - trust JSON parser to validate later
-                buffer.append(char)
             }
 
-            if (buffer.isEmpty()) null else buffer.toString()
+            if (result.isEmpty()) null else result.toString()
         } catch (e: Exception) {
-            Logger.e(LogTags.QUEUE, "Corrupt queue line detected", e)
+            Logger.e(LogTags.QUEUE, "Corrupt queue line detected at offset $lineStartOffset", e)
             isQueueCorrupt = true
+            corruptionOffset = lineStartOffset
             return null
         }
     }
@@ -915,6 +931,57 @@ internal class AppendOnlyQueue(
     }
 
     /**
+     * Truncate the queue file at the first corrupt record, preserving all valid
+     * records that precede it.  Falls back to full reset only when corruption is
+     * at or before the file header (nothing salvageable).
+     *
+     * CRITICAL: Assumes queueMutex already held by caller.
+     */
+    private fun truncateAtCorruptionPoint() {
+        val headerSize = if (fileFormat == FORMAT_VERSION) 8UL else 0UL
+
+        if (corruptionOffset <= headerSize) {
+            Logger.w(LogTags.QUEUE, "Corruption at offset $corruptionOffset (header region). Performing full reset.")
+            resetQueueInternal()
+            return
+        }
+
+        Logger.w(
+            LogTags.QUEUE,
+            "Truncating queue at corruption offset $corruptionOffset, " +
+                    "preserving ${corruptionOffset - headerSize} bytes of valid data"
+        )
+
+        val path = queueFileURL.path
+        if (path == null) {
+            resetQueueInternal()
+            return
+        }
+
+        memScoped {
+            val errorPtr = alloc<ObjCObjectVar<NSError?>>()
+            val fileHandle = NSFileHandle.fileHandleForWritingToURL(queueFileURL, errorPtr.ptr)
+            if (fileHandle != null) {
+                try {
+                    fileHandle.truncateFileAtOffset(corruptionOffset)
+                } finally {
+                    fileHandle.closeFile()
+                }
+            } else {
+                Logger.e(LogTags.QUEUE, "Cannot open queue for truncation. Performing full reset.")
+                resetQueueInternal()
+                return
+            }
+        }
+
+        // Invalidate cache — record boundaries after the truncation point are gone
+        linePositionCache.clear()
+        cacheValid = false
+
+        Logger.i(LogTags.QUEUE, "Queue truncated successfully. Valid records preserved up to offset $corruptionOffset.")
+    }
+
+    /**
      * Reset queue due to corruption (internal version - assumes queueMutex already held)
      *
      * CRITICAL: This method assumes the caller already holds queueMutex
@@ -1022,6 +1089,7 @@ internal class AppendOnlyQueue(
      * @return JSON string or null if EOF/corrupt
      */
     private fun readSingleRecordWithValidation(fileHandle: NSFileHandle): String? {
+        val recordStartOffset = fileHandle.offsetInFile
         return try {
             // Read length (4 bytes)
             val lengthData = fileHandle.readDataOfLength(4u)
@@ -1075,12 +1143,14 @@ internal class AppendOnlyQueue(
             jsonBytes.decodeToString()
 
         } catch (e: CorruptQueueException) {
-            Logger.e(LogTags.QUEUE, "Corrupt binary record detected", e)
+            Logger.e(LogTags.QUEUE, "Corrupt binary record detected at offset $recordStartOffset", e)
             isQueueCorrupt = true
+            corruptionOffset = recordStartOffset
             return null
         } catch (e: Exception) {
-            Logger.e(LogTags.QUEUE, "Error reading binary record", e)
+            Logger.e(LogTags.QUEUE, "Error reading binary record at offset $recordStartOffset", e)
             isQueueCorrupt = true
+            corruptionOffset = recordStartOffset
             return null
         }
     }

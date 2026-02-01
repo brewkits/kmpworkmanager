@@ -2,6 +2,7 @@ package dev.brewkits.kmpworkmanager.sample.background.data
 
 import dev.brewkits.kmpworkmanager.sample.background.domain.TaskCompletionEvent
 import dev.brewkits.kmpworkmanager.sample.background.domain.TaskEventBus
+import dev.brewkits.kmpworkmanager.sample.stats.TaskStatsManager
 import dev.brewkits.kmpworkmanager.sample.utils.Logger
 import dev.brewkits.kmpworkmanager.sample.utils.LogTags
 import kotlinx.coroutines.*
@@ -52,11 +53,17 @@ class SingleTaskExecutor(private val workerFactory: IosWorkerFactory) {
             return false
         }
 
+        val taskName = workerClassName.substringAfterLast('.')
+        val taskId = "$taskName-${(NSDate().timeIntervalSince1970 * 1000).toLong()}"
+        TaskStatsManager.recordTaskStart(taskId, taskName)
+
         return try {
             withTimeout(timeoutMs) {
                 val startTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
                 val result = worker.doWork(input)
                 val duration = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime
+
+                TaskStatsManager.recordTaskComplete(taskId, result, duration)
 
                 if (result) {
                     Logger.i(LogTags.WORKER, "Task completed successfully: $workerClassName (${duration}ms)")
@@ -68,10 +75,12 @@ class SingleTaskExecutor(private val workerFactory: IosWorkerFactory) {
             }
         } catch (e: TimeoutCancellationException) {
             Logger.e(LogTags.WORKER, "Task timed out after ${timeoutMs}ms: $workerClassName")
+            TaskStatsManager.recordTaskComplete(taskId, false, timeoutMs)
             emitFailureEvent(workerClassName, "Timed out after ${timeoutMs}ms")
             false
         } catch (e: Exception) {
             Logger.e(LogTags.WORKER, "Task threw exception: $workerClassName", e)
+            TaskStatsManager.recordTaskComplete(taskId, false, 0L)
             emitFailureEvent(workerClassName, "Exception: ${e.message}")
             false
         }
