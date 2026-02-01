@@ -11,9 +11,19 @@ import dev.brewkits.kmpworkmanager.sample.background.domain.TaskTrigger
  * These unique strings are used to map a task ID to the actual worker/job class on each platform.
  */
 object WorkerTypes {
+    // Original workers
     const val HEAVY_PROCESSING_WORKER = "dev.brewkits.kmpworkmanager.sample.background.workers.HeavyProcessingWorker"
     const val SYNC_WORKER = "dev.brewkits.kmpworkmanager.sample.background.workers.SyncWorker"
     const val UPLOAD_WORKER = "dev.brewkits.kmpworkmanager.sample.background.workers.UploadWorker"
+
+    // New workers - Phase 2
+    const val DATABASE_WORKER = "dev.brewkits.kmpworkmanager.sample.background.workers.DatabaseWorker"
+    const val NETWORK_RETRY_WORKER = "dev.brewkits.kmpworkmanager.sample.background.workers.NetworkRetryWorker"
+    const val IMAGE_PROCESSING_WORKER = "dev.brewkits.kmpworkmanager.sample.background.workers.ImageProcessingWorker"
+    const val LOCATION_SYNC_WORKER = "dev.brewkits.kmpworkmanager.sample.background.workers.LocationSyncWorker"
+    const val CLEANUP_WORKER = "dev.brewkits.kmpworkmanager.sample.background.workers.CleanupWorker"
+    const val BATCH_UPLOAD_WORKER = "dev.brewkits.kmpworkmanager.sample.background.workers.BatchUploadWorker"
+    const val ANALYTICS_WORKER = "dev.brewkits.kmpworkmanager.sample.background.workers.AnalyticsWorker"
 }
 
 

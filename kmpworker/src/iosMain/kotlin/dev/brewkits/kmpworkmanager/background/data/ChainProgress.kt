@@ -25,6 +25,9 @@ import kotlinx.serialization.Serializable
  * @property chainId Unique identifier for the chain
  * @property totalSteps Total number of steps in the chain
  * @property completedSteps Indices of successfully completed steps (e.g., [0, 1])
+ * @property completedTasksInSteps Per-step tracking of which parallel task indices
+ *   completed successfully. Keyed by step index; values are sorted task indices.
+ *   Cleared for a step once that step is marked fully completed.
  * @property lastFailedStep Index of the step that last failed, if any
  * @property retryCount Number of times this chain has been retried
  * @property maxRetries Maximum retry attempts before abandoning (default: 3)
@@ -34,6 +37,7 @@ data class ChainProgress(
     val chainId: String,
     val totalSteps: Int,
     val completedSteps: List<Int> = emptyList(),
+    val completedTasksInSteps: Map<Int, List<Int>> = emptyMap(),
     val lastFailedStep: Int? = null,
     val retryCount: Int = 0,
     val maxRetries: Int = 3
@@ -43,6 +47,25 @@ data class ChainProgress(
      */
     fun isStepCompleted(stepIndex: Int): Boolean {
         return stepIndex in completedSteps
+    }
+
+    /**
+     * Check if a specific task within a parallel step has already completed.
+     * Used to skip succeeded tasks when retrying a partially-failed step.
+     */
+    fun isTaskInStepCompleted(stepIndex: Int, taskIndex: Int): Boolean {
+        return taskIndex in (completedTasksInSteps[stepIndex] ?: emptyList())
+    }
+
+    /**
+     * Record that a single task within a parallel step completed successfully.
+     */
+    fun withCompletedTaskInStep(stepIndex: Int, taskIndex: Int): ChainProgress {
+        val currentTasks = completedTasksInSteps[stepIndex] ?: emptyList()
+        if (taskIndex in currentTasks) return this
+        return copy(
+            completedTasksInSteps = completedTasksInSteps + (stepIndex to (currentTasks + taskIndex).sorted())
+        )
     }
 
     /**
@@ -68,6 +91,7 @@ data class ChainProgress(
 
         return copy(
             completedSteps = (completedSteps + stepIndex).sorted(),
+            completedTasksInSteps = completedTasksInSteps - stepIndex, // Per-task data no longer needed
             lastFailedStep = null // Clear failure on success
         )
     }

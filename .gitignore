@@ -38,6 +38,9 @@ gpg-revocation-cert.asc
 DEPLOYMENT.md
 DEPLOYMENT_GUIDE.md
 
+# Internal working docs (not shipped with the library)
+internal-docs/
+
 # Internal documentation (notes for development only)
 FIXES_SUMMARY.md
 RESEARCH.md

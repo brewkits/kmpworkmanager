@@ -7,6 +7,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.1] - 2026-02-01
+
+### 🔴 Critical Fixes
+
+**Parallel Chain Retry Idempotency (iOS)**
+- Per-task completion tracking within parallel steps prevents redundant re-execution on retry
+- New field `completedTasksInSteps: Map<Int, List<Int>>` in `ChainProgress` records which tasks within each parallel step succeeded
+- On retry after partial failure only tasks that actually failed are re-executed; already-succeeded tasks are skipped
+- Each task completion persisted atomically via a local `Mutex` inside `executeStep`, ensuring crash-safe progress
+- Backward compatible: legacy persisted `ChainProgress` JSON without `completedTasksInSteps` deserializes to an empty map
+- Files changed: `ChainProgress.kt`, `ChainExecutor.kt`
+- Tests added: 15 new test cases in `ChainProgressTest.kt` (per-task tracking, serialization round-trip, legacy compat, parallel retry scenario) — total now 38 tests, all passing
+
+**Deserialization Resilience for Persisted Data (iOS)**
+- All JSON deserialization in `IosFileStorage` now uses `Json { ignoreUnknownKeys = true }`
+- Prevents crash on schema evolution (new fields added in future releases) or app rollback (old app reading new data)
+- Applies to chain definitions, chain progress, and task metadata
+- Files changed: `IosFileStorage.kt`
+
+### ⚡ Performance Optimizations
+
+**Buffered Legacy Queue Reads (iOS)**
+- Replaced byte-by-byte `readDataOfLength(1)` loop in `readSingleLine()` with 4 KB chunk reads
+- Reduces system calls from N (one per byte) to N/4096 for legacy text-format queue files during migration
+- Files changed: `AppendOnlyQueue.kt`
+
+### 🐛 Bug Fixes
+
+**Queue Corruption Recovery Preserves Valid Data (iOS)**
+- Corruption handler now truncates the queue file at the first corrupt record instead of wiping the entire file
+- All valid records before the corruption point are preserved; only the corrupt record and everything after it are discarded
+- Falls back to full reset only when corruption is detected in the file header itself
+- Files changed: `AppendOnlyQueue.kt`
+
+**Expired-Deadline Crash Prevention (iOS)**
+- `executeChainsInBatch()` now returns early when the computed conservative timeout is ≤ 0 ms (deadline already passed)
+- Prevents `withTimeout(0)` which would throw `TimeoutCancellationException` immediately
+- New `deadlineEpochMs` parameter allows callers (e.g., BGTask `expirationHandler`) to pass the absolute system deadline for accurate time-slicing
+- Files changed: `ChainExecutor.kt`
+
+**Correct Chain Timeout for BGProcessingTask (iOS)**
+- `executeChain()` now uses the instance-level `chainTimeout` field (50 s for APP_REFRESH, 300 s for PROCESSING) instead of the hard-coded companion constant `CHAIN_TIMEOUT_MS` (always 50 s)
+- Chains running inside a BGProcessingTask now correctly receive the full 5-minute budget
+- Files changed: `ChainExecutor.kt`
+
+### 📖 Documentation
+
+- Clarified FAIL OPEN comment in `KmpHeavyWorker.validateForegroundServiceType()`: the catch-all is intentional for Chinese ROM compatibility; `setForeground()` in `doWork()` remains the authoritative enforcement
+- Documented the concurrency safety assumption in `executeStep`: each async block only checks its own `taskIndex` in `completedTasksInSteps`, so the unguarded read of `currentProgress` is safe without holding `progressMutex`
+- Files changed: `KmpHeavyWorker.kt`, `ChainExecutor.kt`
+
+### 🎯 Test Coverage
+
+- **ChainProgressTest**: 38 tests (23 existing + 15 new), all passing on iosSimulatorArm64
+- New test categories:
+  - `completedTasksInSteps` basics — 5 tests for `isTaskInStepCompleted`
+  - `withCompletedTaskInStep` — 5 tests (add, append, sort, idempotent, multi-step independence)
+  - `withCompletedStep` cleanup — 2 tests (clears per-task data for completed step, leaves other steps untouched)
+  - Parallel retry scenario — 1 end-to-end test verifying only failed tasks re-execute
+  - Serialization round-trip — 1 test verifying `completedTasksInSteps` survives encode/decode
+  - Legacy JSON backward compat — 1 test verifying deserialization of old JSON without the new field
+
+### 📝 Files Changed
+- Modified: `ChainProgress.kt`, `ChainExecutor.kt`, `AppendOnlyQueue.kt`, `IosFileStorage.kt`, `KmpHeavyWorker.kt`
+- Modified (tests): `ChainProgressTest.kt`
+
+---
+
 ## [2.2.0] - 2026-01-29
 
 ### ⚡ Production-Ready Optimizations

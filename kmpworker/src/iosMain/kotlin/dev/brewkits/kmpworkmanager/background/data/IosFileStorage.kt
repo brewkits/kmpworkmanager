@@ -46,6 +46,10 @@ internal class IosFileStorage {
     private val fileManager = NSFileManager.defaultManager
     private val fileCoordinator = NSFileCoordinator(filePresenter = null)
 
+    // Tolerant Json for all persisted data: ignores unknown keys so that data written by a
+    // newer schema version does not crash on rollback or when consumed by an older class.
+    private val persistenceJson = Json { ignoreUnknownKeys = true }
+
     private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private val queue: AppendOnlyQueue by lazy {
@@ -219,7 +223,7 @@ internal class IosFileStorage {
             val json = readStringFromFile(safeUrl) ?: return@coordinated null
 
             try {
-                Json.decodeFromString<List<List<TaskRequest>>>(json)
+                persistenceJson.decodeFromString<List<List<TaskRequest>>>(json)
             } catch (e: Exception) {
                 Logger.e(LogTags.CHAIN, "🩹 Self-healing: Corrupt chain definition detected for $id. Deleting corrupt file...", e)
 
@@ -439,7 +443,7 @@ internal class IosFileStorage {
             val json = readStringFromFile(safeUrl) ?: return@coordinated null
 
             try {
-                Json.decodeFromString<ChainProgress>(json)
+                persistenceJson.decodeFromString<ChainProgress>(json)
             } catch (e: Exception) {
                 Logger.e(LogTags.CHAIN, "🩹 Self-healing: Corrupt chain progress detected for $chainId. Deleting corrupt file...", e)
 
@@ -496,7 +500,7 @@ internal class IosFileStorage {
             val json = readStringFromFile(safeUrl) ?: return@coordinated null
 
             try {
-                Json.decodeFromString<Map<String, String>>(json)
+                persistenceJson.decodeFromString<Map<String, String>>(json)
             } catch (e: Exception) {
                 val metadataType = if (periodic) "periodic" else "task"
                 Logger.e(LogTags.SCHEDULER, "🩹 Self-healing: Corrupt $metadataType metadata detected for $id. Deleting corrupt file...", e)
