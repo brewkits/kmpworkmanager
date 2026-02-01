@@ -25,6 +25,8 @@ import dev.brewkits.kmpworkmanager.sample.background.domain.ScheduleResult
 import dev.brewkits.kmpworkmanager.sample.debug.DebugScreen
 import dev.brewkits.kmpworkmanager.sample.push.FakePushNotificationHandler
 import dev.brewkits.kmpworkmanager.sample.push.PushNotificationHandler
+import dev.brewkits.kmpworkmanager.sample.ui.*
+import dev.brewkits.kmpworkmanager.sample.debug.DebugSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.ui.tooling.preview.Preview
@@ -47,7 +49,8 @@ import kotlin.time.ExperimentalTime
 fun App(
     // Dependencies are injected, defaulting to Koin lookup if not provided (for production code)
     scheduler: BackgroundTaskScheduler = getKoin().get(),
-    pushHandler: PushNotificationHandler = getKoin().get()
+    pushHandler: PushNotificationHandler = getKoin().get(),
+    debugSource: DebugSource = getKoin().get()
 ) {
     // State for holding the status text to be displayed on the UI.
     var statusText by remember { mutableStateOf("Requesting permissions...") }
@@ -65,7 +68,7 @@ fun App(
     val exactAlarmPermissionState = rememberExactAlarmPermissionState()
 
     // State for managing the horizontal pager (tab view).
-    val pagerState = rememberPagerState(pageCount = { 6 })
+    val pagerState = rememberPagerState(pageCount = { 10 })
 
     // Snackbar host state for showing toast messages
     val snackbarHostState = remember { SnackbarHostState() }
@@ -103,25 +106,37 @@ fun App(
                 // Apply padding for system bars (e.g., status bar, navigation bar)
                 .padding(WindowInsets.systemBars.asPaddingValues())
         ) {
-            // Tab bar for navigation
-            PrimaryTabRow(selectedTabIndex = pagerState.currentPage) {
-                Tab(selected = pagerState.currentPage == 0, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(0) } }) { Text("Test & Demo", modifier = Modifier.padding(16.dp)) }
-                Tab(selected = pagerState.currentPage == 1, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(1) } }) { Text("Tasks", modifier = Modifier.padding(16.dp)) }
-                Tab(selected = pagerState.currentPage == 2, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(2) } }) { Text("Chains", modifier = Modifier.padding(16.dp)) }
-                Tab(selected = pagerState.currentPage == 3, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(3) } }) { Text("Alarms", modifier = Modifier.padding(16.dp)) }
-                Tab(selected = pagerState.currentPage == 4, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(4) } }) { Text("Permissions", modifier = Modifier.padding(16.dp)) }
-                Tab(selected = pagerState.currentPage == 5, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(5) } }) { Text("Debug", modifier = Modifier.padding(16.dp)) }
+            // Tab bar for navigation - Enhanced with new screens
+            ScrollableTabRow(selectedTabIndex = pagerState.currentPage) {
+                Tab(selected = pagerState.currentPage == 0, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(0) } }) { Text("Dashboard", modifier = Modifier.padding(12.dp)) }
+                Tab(selected = pagerState.currentPage == 1, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(1) } }) { Text("Demos", modifier = Modifier.padding(12.dp)) }
+                Tab(selected = pagerState.currentPage == 2, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(2) } }) { Text("Tasks", modifier = Modifier.padding(12.dp)) }
+                Tab(selected = pagerState.currentPage == 3, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(3) } }) { Text("Builder", modifier = Modifier.padding(12.dp)) }
+                Tab(selected = pagerState.currentPage == 4, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(4) } }) { Text("Chains", modifier = Modifier.padding(12.dp)) }
+                Tab(selected = pagerState.currentPage == 5, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(5) } }) { Text("Monitor", modifier = Modifier.padding(12.dp)) }
+                Tab(selected = pagerState.currentPage == 6, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(6) } }) { Text("Logs", modifier = Modifier.padding(12.dp)) }
+                Tab(selected = pagerState.currentPage == 7, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(7) } }) { Text("Timeline", modifier = Modifier.padding(12.dp)) }
+                Tab(selected = pagerState.currentPage == 8, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(8) } }) { Text("Alarms", modifier = Modifier.padding(12.dp)) }
+                Tab(selected = pagerState.currentPage == 9, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(9) } }) { Text("Debug", modifier = Modifier.padding(12.dp)) }
             }
 
             // Horizontal pager to host the different tab screens
             HorizontalPager(state = pagerState) {
                 when (it) {
-                    0 -> TestDemoTab(scheduler, coroutineScope, snackbarHostState)
-                    1 -> TasksTab(scheduler, coroutineScope, statusText, snackbarHostState)
-                    2 -> TaskChainsTab(scheduler, coroutineScope, snackbarHostState)
-                    3 -> AlarmsAndPushTab(scheduler, coroutineScope, statusText, exactAlarmPermissionState, snackbarHostState)
-                    4 -> PermissionsAndInfoTab(notificationPermissionState, exactAlarmPermissionState)
-                    5 -> DebugScreen()
+                    0 -> DashboardScreen(
+                        onNavigateToScenarios = { coroutineScope.launch { pagerState.animateScrollToPage(1) } },
+                        onNavigateToBuilder = { coroutineScope.launch { pagerState.animateScrollToPage(3) } },
+                        onNavigateToLogs = { coroutineScope.launch { pagerState.animateScrollToPage(6) } }
+                    )
+                    1 -> DemoScenariosScreen(scheduler)
+                    2 -> TasksTab(scheduler, coroutineScope, statusText, snackbarHostState)
+                    3 -> TaskBuilderScreen(scheduler)
+                    4 -> TaskChainsTab(scheduler, coroutineScope, snackbarHostState)
+                    5 -> LiveMonitorScreen(debugSource, scheduler)
+                    6 -> LogViewerScreen()
+                    7 -> TimelineScreen()
+                    8 -> AlarmsAndPushTab(scheduler, coroutineScope, statusText, exactAlarmPermissionState, snackbarHostState)
+                    9 -> DebugScreen()
                 }
             }
         }
@@ -872,5 +887,11 @@ fun InfoBox(text: String) {
 @Preview
 @Composable
 fun AppPreview() {
-    App(scheduler = FakeBackgroundTaskScheduler(), pushHandler = FakePushNotificationHandler())
+    App(
+        scheduler = FakeBackgroundTaskScheduler(),
+        pushHandler = FakePushNotificationHandler(),
+        debugSource = object : DebugSource {
+            override suspend fun getTasks() = emptyList<dev.brewkits.kmpworkmanager.sample.debug.DebugTaskInfo>()
+        }
+    )
 }

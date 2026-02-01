@@ -56,6 +56,8 @@ kotlin {
             implementation(compose.runtime)
             implementation(compose.foundation)
             implementation(compose.material3)
+            // material-icons-extended is data-only (ImageVector defs), compatible across CMP versions
+            implementation("org.jetbrains.compose.material:material-icons-extended:1.6.2")
             implementation(compose.ui)
             implementation(compose.components.resources)
             implementation(compose.components.uiToolingPreview)
