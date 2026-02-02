@@ -601,141 +601,28 @@ TaskEventBus.events
 - [iOS Migration Guide](docs/ios-migration.md)
 - [Architecture Overview](ARCHITECTURE.md)
 
-## Roadmap
+## Production Stability
 
-KMP WorkManager is actively developed with a focus on reliability, developer experience, and enterprise features. Here's our planned development roadmap:
+**KMP WorkManager v2.2.1 is now production-stable** with comprehensive testing, self-healing architecture, and battle-tested reliability improvements:
 
-### ✅ v2.2.1 - Parallel Retry Idempotency & Corruption Recovery (Released - February 2026)
+**Proven Stability Features**:
+- **60+ Comprehensive Tests**: Including integration, stress, concurrency, and real-world scenarios
+- **Self-Healing Architecture**: Automatic recovery from file corruption and race conditions
+- **Data Integrity Protection**: CRC32 validation prevents silent data corruption
+- **Per-Task Retry Tracking**: Idempotent parallel chain execution - only failed tasks re-execute
+- **Queue Corruption Recovery**: Truncation-based recovery preserves all valid records
+- **Expired-Deadline Protection**: Prevents crashes when BGTask time budget exhausted
+- **iOS Time-Slicing**: Conservative credit score preservation for reliable background execution
 
-Per-task retry tracking for parallel chain steps, truncation-based corruption recovery, buffered legacy reads, expired-deadline crash fix, and correct BGProcessingTask timeout.
+**Enterprise-Grade Reliability**:
+- Binary queue format with automatic migration from legacy text format
+- Buffered I/O for optimized performance during migration
+- Schema-evolution safety with `ignoreUnknownKeys` on all deserialization
+- Correct BGProcessingTask timeout (300s) for extended background work
+- Thread-safe file operations with NSFileCoordinator on iOS
+- Robust error handling across all platforms
 
-### ✅ v2.2.0 - Production-Ready Release (Released - January 2026)
-
-Production-ready library with comprehensive testing, self-healing architecture, and optimized performance for both Android and iOS platforms.
-
-### v2.3.0 - FileCoordinationStrategy & BGTaskHelper (Q1 2026)
-
-Clean DX improvements: strategy-pattern file coordination to replace magic-string test detection, and a BGTaskHelper wrapper that reduces Swift `expirationHandler` boilerplate from 10+ lines to 1.
-
-### v2.4.0 - Event Persistence & Smart Retries (Q2 2026)
-
-**Event Persistence System**
-- Persistent storage for TaskCompletionEvents (survives app kills and force-quit)
-- Automatic event replay on app launch
-- Zero event loss even when UI isn't actively listening
-- SQLDelight on Android, file-based storage on iOS
-
-**Smart Retry Policies**
-- Error-aware retry strategies (network failures vs. business logic errors)
-- Exponential backoff with jitter and circuit breaker patterns
-- Configurable max retry limits per task type
-- Retry predicates based on error classification
-
-**Platform Capabilities API**
-```kotlin
-expect object PlatformCapabilities {
-    val supportsExactTiming: Boolean
-    val supportsChargingConstraint: Boolean
-    val maxTaskDuration: Duration
-    val maxChainLength: Int
-}
-```
-
-### v2.5.0 - Typed Results & Enhanced Observability (Q3 2026)
-
-**Typed Result Data Passing**
-- Workers return structured results, not just Boolean
-- Type-safe data flow between chained tasks
-- Automatic serialization with kotlinx.serialization
-```kotlin
-sealed class WorkResult {
-    data class Success(val data: JsonElement?) : WorkResult()
-    data class Failure(val error: WorkError, val shouldRetry: Boolean) : WorkResult()
-}
-```
-
-**Task Execution History & Analytics**
-- Query past task executions and their results
-- Task statistics: success rate, average duration, failure patterns
-- Optional SQLDelight persistence with configurable retention
-- Useful for debugging and monitoring in production
-
-**Advanced Testing Support**
-- TestTaskScheduler for unit testing without actual execution
-- Mock worker factories
-- Test utilities for simulating background task scenarios
-- Documentation with testing best practices
-
-### v2.5.0 - Developer Experience & Tooling (Q3 2026)
-
-**Annotation-Based Worker Discovery**
-- `@Worker` annotation for automatic registration
-- KSP plugin for compile-time worker factory generation
-- Reduces boilerplate and human error
-
-**Gradle Plugin**
-- Validate iOS Info.plist configuration at build time
-- Detect missing BGTaskSchedulerPermittedIdentifiers
-- Generate platform capability reports
-
-**Enhanced Debugging**
-- Built-in task monitoring UI for development builds
-- Real-time visualization of scheduled, running, and completed tasks
-- Export task history for analysis
-
-**Batch Operations API**
-```kotlin
-scheduler.enqueueBatch(
-    listOf(
-        TaskRequest("Worker1"),
-        TaskRequest("Worker2"),
-        TaskRequest("Worker3")
-    )
-)
-```
-
-### v3.0.0 - Advanced Features & Platform Expansion (Q4 2026)
-
-**Desktop Support (JVM)**
-- Windows, macOS, Linux support
-- Use native OS schedulers (Task Scheduler, launchd, systemd)
-- Shared codebase with mobile platforms
-
-**Web/JS Support (Experimental)**
-- Service Worker integration
-- Background Sync API support
-- Progressive Web App (PWA) compatibility
-
-**Cloud Integration**
-- Optional Firebase Cloud Messaging integration for iOS background wakeup
-- Remote task scheduling via push notifications
-- Server-driven configuration
-
-**iOS 17+ Features**
-- Background Assets framework integration for large downloads
-- Extended background time under optimal conditions
-- Better Low Power Mode handling with adaptive intervals
-
-### Future Considerations
-
-**Features Under Research:**
-- Background data sync with conflict resolution
-- Distributed task orchestration across devices
-- ML-based optimal scheduling prediction
-- Integration with Kotlin/Wasm for web workers
-
-### Contributing to the Roadmap
-
-Have a feature request or idea? We welcome community input:
-- Open a [GitHub Issue](https://github.com/brewkits/kmp_worker/issues) with the `enhancement` label
-- Join discussions on existing feature proposals
-- Contribute PRs for planned features
-
-Priority is given to:
-1. Features solving real developer pain points
-2. Cross-platform capabilities (not single-platform)
-3. Improvements to reliability and resilience
-4. Better developer experience and testing
+KMP WorkManager is actively used in production applications and continuously improved based on real-world feedback. The v2.2.x series focuses on stability, reliability, and developer experience.
 
 ---
 
