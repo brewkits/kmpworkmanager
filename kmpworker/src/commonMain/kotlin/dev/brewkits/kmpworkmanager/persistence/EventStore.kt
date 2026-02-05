@@ -116,5 +116,20 @@ data class EventStoreConfig(
      * Whether to auto-cleanup on each write operation.
      * If false, cleanup must be triggered manually.
      */
-    val autoCleanup: Boolean = true
+    val autoCleanup: Boolean = true,
+
+    /**
+     * FIX: Deterministic cleanup interval (v2.2.2+)
+     * Minimum time between cleanup runs (in milliseconds).
+     * Default: 5 minutes (300000ms)
+     * Replaces probabilistic 10% cleanup with time-based strategy.
+     */
+    val cleanupIntervalMs: Long = 300_000L, // 5 minutes
+
+    /**
+     * FIX: File size threshold for cleanup (v2.2.2+)
+     * Trigger cleanup when file size exceeds this threshold (in bytes).
+     * Default: 1MB (1048576 bytes)
+     */
+    val cleanupFileSizeThresholdBytes: Long = 1_048_576L // 1MB
 )

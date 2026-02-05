@@ -62,6 +62,12 @@ class ChainExecutor(
     private var isShuttingDown = false
 
     /**
+     * Measured cleanup duration from previous batch execution
+     * Used for adaptive time budget calculation (v2.2.2+)
+     */
+    private var lastCleanupDurationMs: Long = 0L
+
+    /**
      * Timeout for individual tasks within chain
      * - APP_REFRESH: 20 seconds (tight time budget)
      * - PROCESSING: 120 seconds (2 minutes - more generous)
@@ -137,6 +143,10 @@ class ChainExecutor(
         Logger.i(LogTags.CHAIN, "Waiting ${SHUTDOWN_GRACE_PERIOD_MS}ms for progress to be saved...")
         kotlinx.coroutines.delay(SHUTDOWN_GRACE_PERIOD_MS)
 
+        // v2.2.2+: Flush buffered progress before shutdown
+        fileStorage.flushNow()
+        Logger.d(LogTags.CHAIN, "Progress buffer flushed during shutdown")
+
         Logger.i(LogTags.CHAIN, "Graceful shutdown complete. Active chains: ${activeChains.size}")
     }
 
@@ -177,13 +187,63 @@ class ChainExecutor(
     )
 
     /**
+     * Calculate adaptive time budget based on measured cleanup duration
+     *
+     * **v2.2.2+ Adaptive Strategy:**
+     * - Base: 85% of total time (15% buffer)
+     * - If cleanup history available: Reserve measured cleanup time + 20% safety buffer
+     * - Floor: Never go below 70% to ensure meaningful work time
+     *
+     * **Why Adaptive?**
+     * - Hardcoded 85% doesn't account for cleanup variance across devices
+     * - iPhone 8: Cleanup may take 2-3s
+     * - iPhone 15 Pro: Cleanup may take 200-300ms
+     * - This adapts to device capability automatically
+     *
+     * @param totalTimeout Total available time
+     * @return Conservative time budget for execution (excluding cleanup buffer)
+     */
+    private fun calculateAdaptiveBudget(totalTimeout: Long): Long {
+        // Base budget: 85% of time (backward compatible)
+        val baseBudget = (totalTimeout * 0.85).toLong()
+
+        // If we have cleanup history, use measured duration + 20% safety buffer
+        if (lastCleanupDurationMs > 0L) {
+            val safetyBuffer = (lastCleanupDurationMs * 1.2).toLong()
+            val adaptiveBudget = totalTimeout - safetyBuffer
+
+            // Floor: Never go below 70% (ensure meaningful work time)
+            val minBudget = (totalTimeout * 0.70).toLong()
+
+            val finalBudget = maxOf(minBudget, adaptiveBudget)
+
+            Logger.d(LogTags.CHAIN, """
+                Adaptive budget calculation:
+                - Total timeout: ${totalTimeout}ms
+                - Last cleanup: ${lastCleanupDurationMs}ms
+                - Safety buffer: ${safetyBuffer}ms (120%)
+                - Base budget (85%): ${baseBudget}ms
+                - Adaptive budget: ${adaptiveBudget}ms
+                - Floor (70%): ${minBudget}ms
+                - Final budget: ${finalBudget}ms
+            """.trimIndent())
+
+            return finalBudget
+        }
+
+        // No history: Use base budget
+        Logger.d(LogTags.CHAIN, "No cleanup history - using base budget (85%): ${baseBudget}ms")
+        return baseBudget
+    }
+
+    /**
      * Execute multiple chains from the queue in batch mode.
      * This optimizes iOS BGTask usage by processing as many chains as possible
      * before the OS time limit is reached.
      *
      *
-     * **Time-slicing strategy:**
-     * - Uses only 85% of available time (15% buffer for cleanup)
+     * **Time-slicing strategy (v2.2.2+ Adaptive):**
+     * - Uses adaptive time budget based on measured cleanup duration
      * - Checks minimum time before each chain
      * - Stops early to prevent system kills
      * - Schedules continuation if queue not empty
@@ -205,15 +265,16 @@ class ChainExecutor(
     ): Int {
         checkNotClosed()
 
+        // FIX: Atomic check-and-reset to prevent TOCTOU race
         shutdownMutex.withLock {
             if (isShuttingDown) {
                 Logger.w(LogTags.CHAIN, "Batch execution skipped - shutdown in progress")
                 return 0
             }
+            // Reset shutdown state inside lock (was outside, causing TOCTOU)
+            isShuttingDown = false
+            Logger.d(LogTags.CHAIN, "Shutdown state reset (atomic with check)")
         }
-
-        // Reset shutdown state on new execution
-        resetShutdownState()
 
         val startTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
 
@@ -223,9 +284,9 @@ class ChainExecutor(
         val conservativeTimeout = if (deadlineEpochMs != null) {
             val remaining = deadlineEpochMs - startTime - SHUTDOWN_GRACE_PERIOD_MS
             Logger.i(LogTags.CHAIN, "Absolute deadline provided: ${remaining}ms remaining (deadline epoch: $deadlineEpochMs)")
-            minOf(remaining, (totalTimeoutMs * 0.85).toLong()).coerceAtLeast(0L)
+            minOf(remaining, calculateAdaptiveBudget(totalTimeoutMs)).coerceAtLeast(0L)
         } else {
-            (totalTimeoutMs * 0.85).toLong()
+            calculateAdaptiveBudget(totalTimeoutMs)
         }
         val minTimePerChain = taskTimeout // Minimum time needed per chain
 
@@ -293,6 +354,9 @@ class ChainExecutor(
             throw e // Re-throw to propagate cancellation
         }
 
+        // Measure cleanup time for adaptive budget (v2.2.2+)
+        val cleanupStartTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
+
         // Calculate metrics
         val endTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
         val duration = endTime - startTime
@@ -320,12 +384,17 @@ class ChainExecutor(
             scheduleNextBGTask()
         }
 
+        // Record cleanup duration for next run (v2.2.2+)
+        val cleanupEndTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
+        lastCleanupDurationMs = cleanupEndTime - cleanupStartTime
+
         Logger.i(LogTags.CHAIN, """
             ✅ Batch execution completed:
             - Attempted: $chainsAttempted
             - Succeeded: $chainsSucceeded
             - Failed: $chainsFailed
             - Duration: ${duration}ms (${timeUsagePercentage}% of ${totalTimeoutMs}ms)
+            - Cleanup time: ${lastCleanupDurationMs}ms (will be used for adaptive budget next run)
             - Remaining in queue: $queueSizeRemaining
         """.trimIndent())
 
@@ -447,8 +516,11 @@ class ChainExecutor(
                             Logger.e(LogTags.CHAIN, "Step ${index + 1} failed. Updating progress for chain $chainId")
 
                             // Update progress with failure and increment retry count
-                            progress = progress.withFailure(index)
-                            fileStorage.saveChainProgress(progress)
+                            // v2.2.2+: Protect progress save from cancellation
+                            withContext(NonCancellable) {
+                                progress = progress.withFailure(index)
+                                fileStorage.saveChainProgress(progress)
+                            }
 
                             // Check if we should abandon this chain
                             if (progress.hasExceededRetries()) {
@@ -464,8 +536,11 @@ class ChainExecutor(
                         }
 
                         // Step succeeded - update progress
-                        progress = progress.withCompletedStep(index)
-                        fileStorage.saveChainProgress(progress)
+                        // v2.2.2+: Protect progress save from cancellation
+                        withContext(NonCancellable) {
+                            progress = progress.withCompletedStep(index)
+                            fileStorage.saveChainProgress(progress)
+                        }
                         Logger.d(
                             LogTags.CHAIN,
                             "Step ${index + 1}/${steps.size} completed for chain $chainId (${progress.getCompletionPercentage()}% complete)"
@@ -502,6 +577,9 @@ class ChainExecutor(
             }
 
             // 8. Clean up the chain definition and progress upon successful completion
+            // v2.2.2+: Flush buffered progress before cleanup
+            fileStorage.flushNow()
+
             fileStorage.deleteChainDefinition(chainId)
             fileStorage.deleteChainProgress(chainId)
             Logger.i(LogTags.CHAIN, "Chain $chainId completed all ${steps.size} steps successfully")
@@ -509,6 +587,16 @@ class ChainExecutor(
 
         } finally {
             // 9. Always remove from active set (even on failure/timeout) - thread-safe
+            // v2.2.2+: Flush buffered progress before removing from active set
+            // CRITICAL FIX: Wrap flushNow() in try-catch to guarantee cleanup
+            try {
+                fileStorage.flushNow()
+            } catch (e: Exception) {
+                Logger.e(LogTags.CHAIN, "Failed to flush progress in finally block for chain $chainId", e)
+                // Continue to cleanup even if flush fails
+            }
+
+            // MUST execute even if flushNow() fails - prevents chain leak
             activeChainsMutex.withLock {
                 activeChains.remove(chainId)
                 Logger.d(LogTags.CHAIN, "Removed chain $chainId from active set (Remaining active: ${activeChains.size})")
@@ -556,9 +644,12 @@ class ChainExecutor(
 
                     val result = executeTask(task)
                     if (result) {
-                        progressMutex.withLock {
-                            currentProgress = currentProgress.withCompletedTaskInStep(stepIndex, taskIndex)
-                            fileStorage.saveChainProgress(currentProgress)
+                        // v2.2.2+: Protect progress save from cancellation
+                        withContext(NonCancellable) {
+                            progressMutex.withLock {
+                                currentProgress = currentProgress.withCompletedTaskInStep(stepIndex, taskIndex)
+                                fileStorage.saveChainProgress(currentProgress)
+                            }
                         }
                     }
                     result
@@ -726,6 +817,10 @@ class ChainExecutor(
 
                 isClosed = true
                 Logger.d(LogTags.CHAIN, "Closing ChainExecutor")
+
+                // v2.2.2+: Flush buffered progress before closing
+                fileStorage.flushNow()
+                Logger.d(LogTags.CHAIN, "Progress buffer flushed during close")
 
                 // Cancel all running coroutines
                 job.cancel()

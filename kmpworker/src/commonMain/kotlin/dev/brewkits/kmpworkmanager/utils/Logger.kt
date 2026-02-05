@@ -16,6 +16,62 @@ object Logger {
     }
 
     /**
+     * Minimum log level to output. Logs below this level are filtered out.
+     * Default: VERBOSE (log everything) for backward compatibility.
+     * @Volatile ensures visibility across threads
+     */
+    @Volatile
+    private var minLevel: Level = Level.VERBOSE
+
+    /**
+     * Custom logger implementation. If set, delegates all logging to this instance.
+     * @Volatile ensures visibility across threads
+     */
+    @Volatile
+    private var customLogger: CustomLogger? = null
+
+    /**
+     * Lock object for thread-safe configuration changes
+     */
+    private val configLock = Any()
+
+    /**
+     * Set the minimum log level (thread-safe). Logs below this level will be filtered out.
+     *
+     * Example:
+     * ```
+     * Logger.setMinLevel(Logger.Level.INFO)  // Only log INFO, WARN, ERROR
+     * ```
+     */
+    fun setMinLevel(level: Level) {
+        synchronized(configLock) {
+            minLevel = level
+            i(LogTags.TAG_DEBUG, "Logger minimum level set to: $level")
+        }
+    }
+
+    /**
+     * Set a custom logger implementation (thread-safe). All logs will be delegated to this logger.
+     *
+     * Example:
+     * ```
+     * Logger.setCustomLogger(object : CustomLogger {
+     *     override fun log(level: Logger.Level, tag: String, message: String, throwable: Throwable?) {
+     *         // Send to analytics service
+     *     }
+     * })
+     * ```
+     */
+    fun setCustomLogger(logger: CustomLogger?) {
+        synchronized(configLock) {
+            customLogger = logger
+            logger?.let {
+                i(LogTags.TAG_DEBUG, "Custom logger set: ${logger::class.simpleName}")
+            }
+        }
+    }
+
+    /**
      * Log verbose message - high-frequency operational details
      *
      * Examples: Individual enqueue/dequeue operations, byte-level I/O
@@ -53,9 +109,21 @@ object Logger {
     }
 
     /**
-     * Platform-specific logging implementation
+     * Platform-specific logging implementation with filtering
      */
     private fun log(level: Level, tag: String, message: String, throwable: Throwable?) {
+        // Filter by minimum level
+        if (level.ordinal < minLevel.ordinal) {
+            return  // Skip logs below minimum level
+        }
+
+        // Delegate to custom logger if set
+        customLogger?.let {
+            it.log(level, tag, message, throwable)
+            return
+        }
+
+        // Default: platform-specific logging
         val formattedMessage = formatMessage(level, tag, message, throwable)
         platformLog(level, formattedMessage)
     }
@@ -94,6 +162,36 @@ object Logger {
  */
 internal expect object LoggerPlatform {
     fun log(level: Logger.Level, message: String)
+}
+
+/**
+ * Custom logger interface for delegating log output.
+ * Implement this interface to send logs to custom destinations (analytics, crash reporting, etc.)
+ *
+ * Example:
+ * ```
+ * class FirebaseLogger : CustomLogger {
+ *     override fun log(level: Logger.Level, tag: String, message: String, throwable: Throwable?) {
+ *         when (level) {
+ *             Logger.Level.ERROR -> FirebaseCrashlytics.log("ERROR: [$tag] $message")
+ *             Logger.Level.WARN -> FirebaseCrashlytics.log("WARN: [$tag] $message")
+ *             else -> println("[$tag] $message")
+ *         }
+ *         throwable?.let { FirebaseCrashlytics.recordException(it) }
+ *     }
+ * }
+ * ```
+ */
+interface CustomLogger {
+    /**
+     * Log a message with the specified level, tag, and optional throwable.
+     *
+     * @param level The log level (VERBOSE, DEBUG_LEVEL, INFO, WARN, ERROR)
+     * @param tag The log tag for categorization
+     * @param message The log message
+     * @param throwable Optional exception to log
+     */
+    fun log(level: Logger.Level, tag: String, message: String, throwable: Throwable?)
 }
 
 /**

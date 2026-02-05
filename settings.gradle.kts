@@ -30,4 +30,6 @@ dependencyResolutionManagement {
 }
 
 include(":kmpworker")
+include(":kmpworker-annotations")
+include(":kmpworker-ksp")
 include(":composeApp")
