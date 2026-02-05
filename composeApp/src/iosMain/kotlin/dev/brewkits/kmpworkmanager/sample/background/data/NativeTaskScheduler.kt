@@ -69,7 +69,27 @@ actual class NativeTaskScheduler(
             "one-time-upload",
             "heavy-task-1",
             "periodic-sync-task",
-            "network-task"
+            "network-task",
+            "exact-reminder",
+            "demo-task",
+            "content-uri-task",
+            "demo-quick-sync",
+            "demo-file-upload",
+            "demo-database",
+            "demo-hourly-sync",
+            "demo-daily-cleanup",
+            "demo-location-sync",
+            "demo-network-required",
+            "demo-unmetered",
+            "demo-charging",
+            "demo-battery-ok",
+            "demo-storage-low",
+            "demo-device-idle",
+            "demo-retry",
+            "demo-db-fail",
+            "demo-heavy",
+            "demo-batch-upload",
+            "demo-image-proc"
         )
     }
 
