@@ -65,6 +65,13 @@ class AndroidEventStore(
      */
     private val fileLock = Any()
 
+    /**
+     * FIX: Track last cleanup time for deterministic cleanup (v2.2.2+)
+     * Replaces probabilistic 10% cleanup with time-based strategy
+     */
+    @Volatile
+    private var lastCleanupTimeMs: Long = 0L
+
     override suspend fun saveEvent(event: TaskCompletionEvent): String = withContext(Dispatchers.IO) {
         val eventId = UUID.randomUUID().toString()
         val storedEvent = StoredEvent(
@@ -82,9 +89,10 @@ class AndroidEventStore(
 
                 Logger.d(LogTags.SCHEDULER, "AndroidEventStore: Saved event $eventId for task ${event.taskName}")
 
-                // Auto-cleanup if enabled (probabilistic - 10% of writes)
-                if (config.autoCleanup && Math.random() < 0.1) {
+                // FIX: Deterministic cleanup (v2.2.2+) - time-based or size-based
+                if (config.autoCleanup && shouldPerformCleanup()) {
                     performCleanup()
+                    lastCleanupTimeMs = System.currentTimeMillis()
                 }
 
                 eventId
@@ -102,16 +110,20 @@ class AndroidEventStore(
                     return@withContext emptyList()
                 }
 
-                val allEvents = eventsFile.readLines()
-                    .filter { it.isNotBlank() }
-                    .mapNotNull { line ->
-                        try {
-                            json.decodeFromString<StoredEvent>(line)
-                        } catch (e: Exception) {
-                            Logger.w(LogTags.SCHEDULER, "AndroidEventStore: Failed to parse event, skipping: ${e.message}")
-                            null // Skip corrupted lines
+                // FIX: Use streaming reader instead of readLines() to prevent OOM
+                val allEvents = mutableListOf<StoredEvent>()
+                eventsFile.bufferedReader().use { reader ->
+                    reader.forEachLine { line ->
+                        if (line.isNotBlank()) {
+                            try {
+                                allEvents.add(json.decodeFromString<StoredEvent>(line))
+                            } catch (e: Exception) {
+                                Logger.w(LogTags.SCHEDULER, "AndroidEventStore: Failed to parse event, skipping: ${e.message}")
+                                // Skip corrupted lines
+                            }
                         }
                     }
+                }
 
                 // Filter unconsumed events and sort by timestamp
                 val unconsumed = allEvents
@@ -133,15 +145,19 @@ class AndroidEventStore(
             try {
                 if (!eventsFile.exists()) return@withContext
 
-                val allEvents = eventsFile.readLines()
-                    .filter { it.isNotBlank() }
-                    .mapNotNull { line ->
-                        try {
-                            json.decodeFromString<StoredEvent>(line)
-                        } catch (e: Exception) {
-                            null
+                // FIX: Use streaming reader instead of readLines() to prevent OOM
+                val allEvents = mutableListOf<StoredEvent>()
+                eventsFile.bufferedReader().use { reader ->
+                    reader.forEachLine { line ->
+                        if (line.isNotBlank()) {
+                            try {
+                                allEvents.add(json.decodeFromString<StoredEvent>(line))
+                            } catch (e: Exception) {
+                                // Skip corrupted lines
+                            }
                         }
                     }
+                }
 
                 // Mark event as consumed
                 val updatedEvents = allEvents.map { event ->
@@ -167,15 +183,19 @@ class AndroidEventStore(
             try {
                 if (!eventsFile.exists()) return@withContext 0
 
-                val allEvents = eventsFile.readLines()
-                    .filter { it.isNotBlank() }
-                    .mapNotNull { line ->
-                        try {
-                            json.decodeFromString<StoredEvent>(line)
-                        } catch (e: Exception) {
-                            null
+                // FIX: Use streaming reader instead of readLines() to prevent OOM
+                val allEvents = mutableListOf<StoredEvent>()
+                eventsFile.bufferedReader().use { reader ->
+                    reader.forEachLine { line ->
+                        if (line.isNotBlank()) {
+                            try {
+                                allEvents.add(json.decodeFromString<StoredEvent>(line))
+                            } catch (e: Exception) {
+                                // Skip corrupted lines
+                            }
                         }
                     }
+                }
 
                 val cutoffTime = System.currentTimeMillis() - olderThanMs
                 val eventsToKeep = allEvents.filter { it.timestamp > cutoffTime }
@@ -215,7 +235,16 @@ class AndroidEventStore(
                     return@withContext 0
                 }
 
-                eventsFile.readLines().count { it.isNotBlank() }
+                // FIX: Use streaming reader instead of readLines() to prevent OOM
+                var count = 0
+                eventsFile.bufferedReader().use { reader ->
+                    reader.forEachLine { line ->
+                        if (line.isNotBlank()) {
+                            count++
+                        }
+                    }
+                }
+                count
             } catch (e: Exception) {
                 Logger.e(LogTags.SCHEDULER, "AndroidEventStore: Failed to get event count", e)
                 0
@@ -224,22 +253,58 @@ class AndroidEventStore(
     }
 
     /**
+     * FIX: Deterministic cleanup check (v2.2.2+)
+     * Replaces probabilistic 10% cleanup with time-based + size-based strategy
+     *
+     * Triggers cleanup if:
+     * 1. Cleanup interval has elapsed (default: 5 minutes), OR
+     * 2. File size exceeds threshold (default: 1MB)
+     *
+     * @return true if cleanup should be performed
+     */
+    private fun shouldPerformCleanup(): Boolean {
+        val now = System.currentTimeMillis()
+
+        // Check 1: Time-based (cleanup interval elapsed)
+        val timeSinceLastCleanup = now - lastCleanupTimeMs
+        if (timeSinceLastCleanup >= config.cleanupIntervalMs) {
+            Logger.d(LogTags.SCHEDULER, "AndroidEventStore: Cleanup triggered by time (${timeSinceLastCleanup}ms since last cleanup)")
+            return true
+        }
+
+        // Check 2: Size-based (file exceeds threshold)
+        if (eventsFile.exists()) {
+            val fileSize = eventsFile.length()
+            if (fileSize >= config.cleanupFileSizeThresholdBytes) {
+                Logger.d(LogTags.SCHEDULER, "AndroidEventStore: Cleanup triggered by file size (${fileSize / 1024}KB)")
+                return true
+            }
+        }
+
+        return false
+    }
+
+    /**
      * Performs cleanup of consumed and old events.
-     * Called probabilistically during writes (10% chance).
+     * FIX: Now called deterministically based on time or file size (was probabilistic 10%).
      */
     private fun performCleanup() {
         try {
             if (!eventsFile.exists()) return
 
-            val allEvents = eventsFile.readLines()
-                .filter { it.isNotBlank() }
-                .mapNotNull { line ->
-                    try {
-                        json.decodeFromString<StoredEvent>(line)
-                    } catch (e: Exception) {
-                        null
+            // FIX: Use streaming reader instead of readLines() to prevent OOM
+            val allEvents = mutableListOf<StoredEvent>()
+            eventsFile.bufferedReader().use { reader ->
+                reader.forEachLine { line ->
+                    if (line.isNotBlank()) {
+                        try {
+                            allEvents.add(json.decodeFromString<StoredEvent>(line))
+                        } catch (e: Exception) {
+                            // Skip corrupted lines
+                        }
                     }
                 }
+            }
 
             val now = System.currentTimeMillis()
             val eventsToKeep = allEvents.filter { event ->
