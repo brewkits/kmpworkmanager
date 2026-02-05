@@ -620,13 +620,18 @@ actual class NativeTaskScheduler(
                     return
                 }
                 ExistingPolicy.REPLACE -> {
-                    Logger.i(LogTags.CHAIN, "Chain $chainId exists, REPLACE policy - replacing...")
-                    // Mark old chain as deleted (prevents execution if already in queue)
-                    fileStorage.markChainAsDeleted(chainId)
-                    // Delete old chain definition
-                    fileStorage.deleteChainDefinition(chainId)
-                    fileStorage.deleteChainProgress(chainId)
-                    // Note: Old chain ID may still be in queue but will be skipped via deleted marker
+                    Logger.i(LogTags.CHAIN, "Chain $chainId exists, REPLACE policy - using atomic replace...")
+                    // v2.2.2+ Use atomic transaction to fix TOCTOU race condition
+                    try {
+                        kotlinx.coroutines.runBlocking {
+                            fileStorage.replaceChainAtomic(chainId, steps)
+                        }
+                        Logger.i(LogTags.CHAIN, "✅ Chain $chainId replaced atomically")
+                        return // Early return - atomic operation already enqueued
+                    } catch (e: Exception) {
+                        Logger.e(LogTags.CHAIN, "Failed to replace chain $chainId atomically", e)
+                        throw e
+                    }
                 }
             }
         }
@@ -634,15 +639,16 @@ actual class NativeTaskScheduler(
         // 1. Save the chain definition
         fileStorage.saveChainDefinition(chainId, steps)
 
-        // 2. Add the chainId to the execution queue (atomic operation)
-        backgroundScope.launch {
-            try {
+        // 2. Add the chainId to the execution queue (synchronous for KEEP/APPEND)
+        // v2.2.2+ Changed from async to synchronous to prevent race conditions
+        try {
+            kotlinx.coroutines.runBlocking {
                 fileStorage.enqueueChain(chainId)
                 Logger.d(LogTags.CHAIN, "Added chain $chainId to execution queue. Queue size: ${fileStorage.getQueueSize()}")
-            } catch (e: Exception) {
-                Logger.e(LogTags.CHAIN, "Failed to enqueue chain $chainId", e)
-                return@launch
             }
+        } catch (e: Exception) {
+            Logger.e(LogTags.CHAIN, "Failed to enqueue chain $chainId", e)
+            throw e
         }
 
         // 3. Schedule the generic chain executor task

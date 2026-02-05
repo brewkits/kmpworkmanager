@@ -63,6 +63,7 @@ sign-and-publish.sh
 devto-article.md
 rebuild-with-signing.sh
 create-maven-bundle*.sh
+docs/V2.2.2_TECHNICAL_GUIDE.md
 
 # Internal docs/ files (uppercase filenames)
 docs/ROADMAP_*.md

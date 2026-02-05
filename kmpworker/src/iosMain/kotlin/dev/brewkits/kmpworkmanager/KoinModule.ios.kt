@@ -7,12 +7,14 @@ import dev.brewkits.kmpworkmanager.background.domain.TaskEventManager
 import dev.brewkits.kmpworkmanager.background.domain.WorkerFactory
 import dev.brewkits.kmpworkmanager.persistence.EventStore
 import dev.brewkits.kmpworkmanager.persistence.IosEventStore
+import dev.brewkits.kmpworkmanager.utils.Logger
 import org.koin.dsl.module
 
 /**
  * iOS implementation of the Koin module.
  *
  * v4.0.0+ Breaking Change: Now requires WorkerFactory parameter
+ * v2.2.2+ New: Optional config parameter for logging configuration
  *
  * Usage:
  * ```kotlin
@@ -20,7 +22,8 @@ import org.koin.dsl.module
  * fun initKoinIos() {
  *     startKoin {
  *         modules(kmpWorkerModule(
- *             workerFactory = MyWorkerFactory()
+ *             workerFactory = MyWorkerFactory(),
+ *             config = KmpWorkManagerConfig(logLevel = Logger.Level.INFO)
  *         ))
  *     }
  * }
@@ -30,6 +33,7 @@ import org.koin.dsl.module
  *     startKoin {
  *         modules(kmpWorkerModule(
  *             workerFactory = MyWorkerFactory(),
+ *             config = KmpWorkManagerConfig(logLevel = Logger.Level.INFO),
  *             iosTaskIds = setOf("my-sync-task", "my-upload-task")
  *         ))
  *     }
@@ -37,12 +41,17 @@ import org.koin.dsl.module
  * ```
  *
  * @param workerFactory User-provided factory implementing IosWorkerFactory
+ * @param config Configuration for logging and other settings
  * @param iosTaskIds Additional iOS task IDs (optional, Info.plist is primary source)
  */
 actual fun kmpWorkerModule(
     workerFactory: WorkerFactory,
+    config: KmpWorkManagerConfig,
     iosTaskIds: Set<String>
 ) = module {
+    // Initialize logger with config
+    Logger.setMinLevel(config.logLevel)
+    config.customLogger?.let { Logger.setCustomLogger(it) }
     // Validate factory type early (fail-fast on iOS)
     require(workerFactory is IosWorkerFactory) {
         """
