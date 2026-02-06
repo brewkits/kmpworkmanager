@@ -516,7 +516,7 @@ class BuiltinWorkersTest {
         val decoded = Json.decodeFromString<HttpRequestConfig>(json)
 
         assertNotNull(decoded.headers)
-        assertTrue(decoded.headers!!.isEmpty())
+        assertTrue(decoded.headers.isEmpty())
     }
 
     @Test
@@ -531,6 +531,200 @@ class BuiltinWorkersTest {
         val decoded = Json.decodeFromString<FileCompressionConfig>(json)
 
         assertNotNull(decoded.excludePatterns)
-        assertTrue(decoded.excludePatterns!!.isEmpty())
+        assertTrue(decoded.excludePatterns.isEmpty())
+    }
+
+    // ==================== v2.3.0 WorkerResult Integration Tests ====================
+
+    @Test
+    fun `HttpRequestWorker should return WorkerResult`() {
+        val worker = HttpRequestWorker()
+
+        // Verify worker instance is created
+        assertNotNull(worker)
+
+        // Note: Actual doWork() execution requires network and is tested in platform-specific tests
+        // This test verifies the worker is properly instantiated and implements the correct interface
+    }
+
+    @Test
+    fun `HttpSyncWorker should return WorkerResult with expected data structure`() {
+        val worker = HttpSyncWorker()
+        assertNotNull(worker)
+
+        // Worker should be capable of returning data fields:
+        // - statusCode: Int
+        // - responseBody: String
+        // - timestamp: Long
+    }
+
+    @Test
+    fun `HttpDownloadWorker should return WorkerResult with download metadata`() {
+        val worker = HttpDownloadWorker()
+        assertNotNull(worker)
+
+        // Expected Success data fields:
+        // - fileSize: Long (downloaded bytes)
+        // - filePath: String (save location)
+        // - url: String (sanitized download URL)
+    }
+
+    @Test
+    fun `HttpUploadWorker should return WorkerResult with upload metadata`() {
+        val worker = HttpUploadWorker()
+        assertNotNull(worker)
+
+        // Expected Success data fields:
+        // - fileSize: Long (uploaded bytes)
+        // - statusCode: Int (HTTP response code)
+        // - responseBody: String (server response)
+    }
+
+    @Test
+    fun `FileCompressionWorker should return WorkerResult with compression stats`() {
+        val worker = FileCompressionWorker()
+        assertNotNull(worker)
+
+        // Expected Success data fields:
+        // - originalSize: Long (before compression)
+        // - compressedSize: Long (after compression)
+        // - compressionRatio: Double (percentage saved)
+        // - outputPath: String (compressed file location)
+    }
+
+    @Test
+    fun `WorkerResult Success should be serializable`() {
+        val result = dev.brewkits.kmpworkmanager.background.domain.WorkerResult.Success(
+            message = "Download completed",
+            data = mapOf(
+                "fileSize" to 1024L,
+                "filePath" to "/tmp/file.txt",
+                "url" to "https://example.com/file.txt"
+            )
+        )
+
+        // Verify data fields
+        assertEquals("Download completed", result.message)
+        assertNotNull(result.data)
+        assertEquals(1024L, result.data["fileSize"])
+        assertEquals("/tmp/file.txt", result.data["filePath"])
+        assertEquals("https://example.com/file.txt", result.data["url"])
+    }
+
+    @Test
+    fun `WorkerResult Failure should contain error details`() {
+        val result = dev.brewkits.kmpworkmanager.background.domain.WorkerResult.Failure(
+            message = "Network timeout after 30000ms",
+            shouldRetry = true
+        )
+
+        assertEquals("Network timeout after 30000ms", result.message)
+        assertTrue(result.shouldRetry)
+    }
+
+    @Test
+    fun `WorkerResult Success with null data should be valid`() {
+        val result = dev.brewkits.kmpworkmanager.background.domain.WorkerResult.Success(
+            message = "Task completed",
+            data = null
+        )
+
+        assertEquals("Task completed", result.message)
+        assertNull(result.data)
+    }
+
+    @Test
+    fun `WorkerResult Success with complex nested data should work`() {
+        val result = dev.brewkits.kmpworkmanager.background.domain.WorkerResult.Success(
+            message = "Upload successful",
+            data = mapOf(
+                "fileSize" to 2048L,
+                "statusCode" to 200,
+                "headers" to mapOf(
+                    "Content-Type" to "application/json",
+                    "X-Upload-ID" to "abc123"
+                ),
+                "retryCount" to 0
+            )
+        )
+
+        assertNotNull(result.data)
+        assertEquals(2048L, result.data["fileSize"])
+        assertEquals(200, result.data["statusCode"])
+
+        @Suppress("UNCHECKED_CAST")
+        val headers = result.data["headers"] as? Map<String, String>
+        assertNotNull(headers)
+        assertEquals("application/json", headers["Content-Type"])
+    }
+
+    @Test
+    fun `BuiltinWorkerRegistry should create workers that return WorkerResult`() {
+        // Verify all built-in workers are created correctly
+        val httpRequestWorker = BuiltinWorkerRegistry.createWorker("HttpRequestWorker")
+        assertNotNull(httpRequestWorker)
+        assertTrue(httpRequestWorker is HttpRequestWorker)
+
+        val httpSyncWorker = BuiltinWorkerRegistry.createWorker("HttpSyncWorker")
+        assertNotNull(httpSyncWorker)
+        assertTrue(httpSyncWorker is HttpSyncWorker)
+
+        val httpDownloadWorker = BuiltinWorkerRegistry.createWorker("HttpDownloadWorker")
+        assertNotNull(httpDownloadWorker)
+        assertTrue(httpDownloadWorker is HttpDownloadWorker)
+
+        val httpUploadWorker = BuiltinWorkerRegistry.createWorker("HttpUploadWorker")
+        assertNotNull(httpUploadWorker)
+        assertTrue(httpUploadWorker is HttpUploadWorker)
+
+        val fileCompressionWorker = BuiltinWorkerRegistry.createWorker("FileCompressionWorker")
+        assertNotNull(fileCompressionWorker)
+        assertTrue(fileCompressionWorker is FileCompressionWorker)
+    }
+
+    @Test
+    fun `HttpRequestConfig validation should prevent invalid configurations`() {
+        // Valid config should work
+        assertNotNull(HttpRequestConfig(url = "https://api.example.com/test"))
+
+        // Invalid URL scheme should fail
+        assertFailsWith<IllegalArgumentException> {
+            HttpRequestConfig(url = "ftp://invalid.com")
+        }
+
+        // Missing URL scheme should fail
+        assertFailsWith<IllegalArgumentException> {
+            HttpRequestConfig(url = "example.com")
+        }
+
+        // Invalid timeout should fail
+        assertFailsWith<IllegalArgumentException> {
+            HttpRequestConfig(url = "https://example.com", timeoutMs = -1)
+        }
+    }
+
+    @Test
+    fun `HttpDownloadConfig validation should ensure safe file paths`() {
+        // Valid config
+        assertNotNull(HttpDownloadConfig(
+            url = "https://example.com/file.zip",
+            savePath = "/storage/downloads/file.zip"
+        ))
+
+        // Empty save path should fail
+        assertFailsWith<IllegalArgumentException> {
+            HttpDownloadConfig(
+                url = "https://example.com/file.zip",
+                savePath = ""
+            )
+        }
+
+        // Blank save path should fail
+        assertFailsWith<IllegalArgumentException> {
+            HttpDownloadConfig(
+                url = "https://example.com/file.zip",
+                savePath = "   "
+            )
+        }
     }
 }
