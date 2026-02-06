@@ -3,7 +3,6 @@ package dev.brewkits.kmpworkmanager.sample.ui
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -433,6 +432,237 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                                 workerClassName = WorkerTypes.IMAGE_PROCESSING_WORKER
                             )
                             snackbarHostState.showSnackbar("Image processing started (15 operations)")
+                        }
+                    }
+                )
+            }
+
+            // Built-in Worker Chains Section (v2.3.0 Feature)
+            DemoSection(
+                title = "Built-in Worker Chains (v2.3.0)",
+                icon = Icons.Default.AccountTree,
+                containerColor = MaterialTheme.colorScheme.primaryContainer
+            ) {
+                DemoCard(
+                    title = "Download \u2192 Compress \u2192 Upload Chain",
+                    description = "Complete workflow: Download file, compress it, then upload (v2.3.0 data passing)",
+                    icon = Icons.Default.CloudSync,
+                    onClick = {
+                        coroutineScope.launch {
+                            // Step 1: Download file
+                            val downloadConfig = HttpDownloadConfig(
+                                url = "https://speed.hetzner.de/10MB.bin",
+                                savePath = getDummyDownloadPath(context)
+                            )
+
+                            // Step 2: Compress downloaded file
+                            val compressionConfig = FileCompressionConfig(
+                                inputPath = getDummyDownloadPath(context),
+                                outputPath = getDummyCompressionOutputPath(context),
+                                compressionLevel = "high"
+                            )
+
+                            // Step 3: Upload compressed file
+                            val uploadConfig = HttpUploadConfig(
+                                url = "https://httpbin.org/post",
+                                filePath = getDummyCompressionOutputPath(context),
+                                fileFieldName = "compressed_file",
+                                fileName = "compressed_download.zip"
+                            )
+
+                            scheduler.beginWith(
+                                TaskRequest(
+                                    workerClassName = WorkerTypes.HTTP_DOWNLOAD_WORKER,
+                                    inputJson = Json.encodeToString(HttpDownloadConfig.serializer(), downloadConfig),
+                                    constraints = Constraints(requiresNetwork = true)
+                                )
+                            )
+                                .then(
+                                    TaskRequest(
+                                        workerClassName = WorkerTypes.FILE_COMPRESSION_WORKER,
+                                        inputJson = Json.encodeToString(FileCompressionConfig.serializer(), compressionConfig)
+                                    )
+                                )
+                                .then(
+                                    TaskRequest(
+                                        workerClassName = WorkerTypes.HTTP_UPLOAD_WORKER,
+                                        inputJson = Json.encodeToString(HttpUploadConfig.serializer(), uploadConfig),
+                                        constraints = Constraints(requiresNetwork = true)
+                                    )
+                                )
+                                .enqueue()
+
+                            snackbarHostState.showSnackbar("Download→Compress→Upload chain started! Check logs for data passing.")
+                        }
+                    }
+                )
+
+                DemoCard(
+                    title = "Parallel HTTP Sync \u2192 Compress Results",
+                    description = "Fetch 3 APIs in parallel, then compress all results together",
+                    icon = Icons.Default.DynamicFeed,
+                    onClick = {
+                        coroutineScope.launch {
+                            val syncConfigs = listOf(
+                                HttpSyncConfig(
+                                    url = "https://jsonplaceholder.typicode.com/posts/1",
+                                    method = "GET"
+                                ),
+                                HttpSyncConfig(
+                                    url = "https://jsonplaceholder.typicode.com/users/1",
+                                    method = "GET"
+                                ),
+                                HttpSyncConfig(
+                                    url = "https://jsonplaceholder.typicode.com/comments/1",
+                                    method = "GET"
+                                )
+                            )
+
+                            val compressionConfig = FileCompressionConfig(
+                                inputPath = getDummyCompressionInputPath(context),
+                                outputPath = getDummyCompressionOutputPath(context),
+                                compressionLevel = "medium"
+                            )
+
+                            scheduler.beginWith(
+                                syncConfigs.map { config ->
+                                    TaskRequest(
+                                        workerClassName = WorkerTypes.HTTP_SYNC_WORKER,
+                                        inputJson = Json.encodeToString(HttpSyncConfig.serializer(), config),
+                                        constraints = Constraints(requiresNetwork = true)
+                                    )
+                                }
+                            )
+                                .then(
+                                    TaskRequest(
+                                        workerClassName = WorkerTypes.FILE_COMPRESSION_WORKER,
+                                        inputJson = Json.encodeToString(FileCompressionConfig.serializer(), compressionConfig)
+                                    )
+                                )
+                                .enqueue()
+
+                            snackbarHostState.showSnackbar("Parallel HTTP→Compress chain started! Watch data flow in logs.")
+                        }
+                    }
+                )
+
+                DemoCard(
+                    title = "HTTP Request \u2192 Sync \u2192 Upload Pipeline",
+                    description = "POST data, sync response, then upload result file",
+                    icon = Icons.Default.SwapHoriz,
+                    onClick = {
+                        coroutineScope.launch {
+                            val requestConfig = HttpRequestConfig(
+                                url = "https://jsonplaceholder.typicode.com/posts",
+                                method = "POST",
+                                body = """{"title":"Chain Demo","body":"v2.3.0 test","userId":1}""",
+                                headers = mapOf("Content-Type" to "application/json")
+                            )
+
+                            val syncConfig = HttpSyncConfig(
+                                url = "https://jsonplaceholder.typicode.com/posts/1",
+                                method = "GET"
+                            )
+
+                            val uploadConfig = HttpUploadConfig(
+                                url = "https://httpbin.org/post",
+                                filePath = getDummyUploadPath(context),
+                                fileFieldName = "result",
+                                fileName = "sync_result.json"
+                            )
+
+                            scheduler.beginWith(
+                                TaskRequest(
+                                    workerClassName = WorkerTypes.HTTP_REQUEST_WORKER,
+                                    inputJson = Json.encodeToString(HttpRequestConfig.serializer(), requestConfig),
+                                    constraints = Constraints(requiresNetwork = true)
+                                )
+                            )
+                                .then(
+                                    TaskRequest(
+                                        workerClassName = WorkerTypes.HTTP_SYNC_WORKER,
+                                        inputJson = Json.encodeToString(HttpSyncConfig.serializer(), syncConfig),
+                                        constraints = Constraints(requiresNetwork = true)
+                                    )
+                                )
+                                .then(
+                                    TaskRequest(
+                                        workerClassName = WorkerTypes.HTTP_UPLOAD_WORKER,
+                                        inputJson = Json.encodeToString(HttpUploadConfig.serializer(), uploadConfig),
+                                        constraints = Constraints(requiresNetwork = true)
+                                    )
+                                )
+                                .enqueue()
+
+                            snackbarHostState.showSnackbar("Request→Sync→Upload pipeline started!")
+                        }
+                    }
+                )
+
+                DemoCard(
+                    title = "Long Chain: Download \u2192 Process \u2192 Compress \u2192 Sync \u2192 Upload",
+                    description = "5-step workflow showcasing complete built-in worker integration",
+                    icon = Icons.Default.LinearScale,
+                    onClick = {
+                        coroutineScope.launch {
+                            val downloadConfig = HttpDownloadConfig(
+                                url = "https://speed.hetzner.de/1MB.bin",
+                                savePath = getDummyDownloadPath(context)
+                            )
+
+                            val compressionConfig = FileCompressionConfig(
+                                inputPath = getDummyDownloadPath(context),
+                                outputPath = getDummyCompressionOutputPath(context),
+                                compressionLevel = "high"
+                            )
+
+                            val syncConfig = HttpSyncConfig(
+                                url = "https://jsonplaceholder.typicode.com/posts/1",
+                                method = "GET"
+                            )
+
+                            val uploadConfig = HttpUploadConfig(
+                                url = "https://httpbin.org/post",
+                                filePath = getDummyCompressionOutputPath(context),
+                                fileFieldName = "final_result",
+                                fileName = "final.zip"
+                            )
+
+                            scheduler.beginWith(
+                                TaskRequest(
+                                    workerClassName = WorkerTypes.HTTP_DOWNLOAD_WORKER,
+                                    inputJson = Json.encodeToString(HttpDownloadConfig.serializer(), downloadConfig),
+                                    constraints = Constraints(requiresNetwork = true)
+                                )
+                            )
+                                .then(
+                                    TaskRequest(
+                                        workerClassName = WorkerTypes.IMAGE_PROCESSING_WORKER // Simulate processing
+                                    )
+                                )
+                                .then(
+                                    TaskRequest(
+                                        workerClassName = WorkerTypes.FILE_COMPRESSION_WORKER,
+                                        inputJson = Json.encodeToString(FileCompressionConfig.serializer(), compressionConfig)
+                                    )
+                                )
+                                .then(
+                                    TaskRequest(
+                                        workerClassName = WorkerTypes.HTTP_SYNC_WORKER,
+                                        inputJson = Json.encodeToString(HttpSyncConfig.serializer(), syncConfig),
+                                        constraints = Constraints(requiresNetwork = true)
+                                    )
+                                )
+                                .then(
+                                    TaskRequest(
+                                        workerClassName = WorkerTypes.HTTP_UPLOAD_WORKER,
+                                        inputJson = Json.encodeToString(HttpUploadConfig.serializer(), uploadConfig),
+                                        constraints = Constraints(requiresNetwork = true)
+                                    )
+                                )
+                                .enqueue()
+
+                            snackbarHostState.showSnackbar("5-step long chain started! This demonstrates complete workflow.")
                         }
                     }
                 )
