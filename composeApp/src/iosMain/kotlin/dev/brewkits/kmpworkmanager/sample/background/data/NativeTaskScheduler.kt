@@ -89,7 +89,12 @@ actual class NativeTaskScheduler(
             "demo-db-fail",
             "demo-heavy",
             "demo-batch-upload",
-            "demo-image-proc"
+            "demo-image-proc",
+            "demo-builtin-httprequest",
+            "demo-builtin-httpsync",
+            "demo-builtin-httpdownload",
+            "demo-builtin-httpupload",
+            "demo-builtin-filecompression"
         )
     }
 

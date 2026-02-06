@@ -24,6 +24,13 @@ object WorkerTypes {
     const val CLEANUP_WORKER = "dev.brewkits.kmpworkmanager.sample.background.workers.CleanupWorker"
     const val BATCH_UPLOAD_WORKER = "dev.brewkits.kmpworkmanager.sample.background.workers.BatchUploadWorker"
     const val ANALYTICS_WORKER = "dev.brewkits.kmpworkmanager.sample.background.workers.AnalyticsWorker"
+
+    // Built-in workers
+    const val HTTP_REQUEST_WORKER = "dev.brewkits.kmpworkmanager.workers.builtins.HttpRequestWorker"
+    const val HTTP_SYNC_WORKER = "dev.brewkits.kmpworkmanager.workers.builtins.HttpSyncWorker"
+    const val HTTP_DOWNLOAD_WORKER = "dev.brewkits.kmpworkmanager.workers.builtins.HttpDownloadWorker"
+    const val HTTP_UPLOAD_WORKER = "dev.brewkits.kmpworkmanager.workers.builtins.HttpUploadWorker"
+    const val FILE_COMPRESSION_WORKER = "dev.brewkits.kmpworkmanager.workers.builtins.FileCompressionWorker"
 }
 
 

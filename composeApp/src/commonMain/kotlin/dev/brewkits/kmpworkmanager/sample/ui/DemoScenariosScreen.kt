@@ -3,6 +3,7 @@ package dev.brewkits.kmpworkmanager.sample.ui
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -23,10 +24,23 @@ import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import dev.brewkits.kmpworkmanager.sample.utils.*
+import dev.brewkits.kmpworkmanager.workers.config.FileCompressionConfig
+import dev.brewkits.kmpworkmanager.workers.config.HttpDownloadConfig
+import dev.brewkits.kmpworkmanager.workers.config.HttpRequestConfig
+import dev.brewkits.kmpworkmanager.workers.config.HttpSyncConfig
+import dev.brewkits.kmpworkmanager.workers.config.HttpUploadConfig
+import kotlin.time.TimeSource
+
 @Composable
 fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    val context = getPlatformContext()
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) }
@@ -424,12 +438,151 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                 )
             }
 
+            // Built-in Workers Section
+            DemoSection(
+                title = "Built-in Workers",
+                icon = Icons.Default.Build
+            ) {
+                DemoCard(
+                    title = "HTTP Request Worker",
+                    description = "Fire-and-forget HTTP POST request",
+                    icon = Icons.Default.Http,
+                    onClick = {
+                        coroutineScope.launch {
+                            val config = HttpRequestConfig(
+                                url = "https://jsonplaceholder.typicode.com/posts",
+                                method = "POST",
+                                body = """{"title": "foo", "body": "bar", "userId": 1}""",
+                                headers = mapOf("Content-Type" to "application/json")
+                            )
+                            scheduler.enqueue(
+                                id = "demo-builtin-httprequest",
+                                trigger = TaskTrigger.OneTime(initialDelayMs = 1.seconds.inWholeMilliseconds),
+                                workerClassName = WorkerTypes.HTTP_REQUEST_WORKER,
+                                inputJson = Json.encodeToString(HttpRequestConfig.serializer(), config),
+                                constraints = Constraints(requiresNetwork = true)
+                            )
+                            snackbarHostState.showSnackbar("HttpRequestWorker scheduled")
+                        }
+                    }
+                )
+                DemoCard(
+                    title = "HTTP Sync Worker",
+                    description = "JSON POST/GET with response logging",
+                    icon = Icons.Default.SyncAlt,
+                    onClick = {
+                        coroutineScope.launch {
+                            val requestBody = buildJsonObject {
+                                put("syncTime", TimeSource.Monotonic.markNow().elapsedNow().inWholeMilliseconds)
+                                put("data", "sample")
+                            }
+                            val config = HttpSyncConfig(
+                                url = "https://jsonplaceholder.typicode.com/posts",
+                                method = "POST",
+                                requestBody = requestBody,
+                                headers = mapOf("Content-Type" to "application/json")
+                            )
+                            scheduler.enqueue(
+                                id = "demo-builtin-httpsync",
+                                trigger = TaskTrigger.OneTime(initialDelayMs = 1.seconds.inWholeMilliseconds),
+                                workerClassName = WorkerTypes.HTTP_SYNC_WORKER,
+                                inputJson = Json.encodeToString(HttpSyncConfig.serializer(), config),
+                                constraints = Constraints(requiresNetwork = true)
+                            )
+                            snackbarHostState.showSnackbar("HttpSyncWorker scheduled")
+                        }
+                    }
+                )
+                DemoCard(
+                    title = "HTTP Download Worker",
+                    description = "Download a file (dummy URL)",
+                    icon = Icons.Default.Download,
+                    onClick = {
+                        coroutineScope.launch {
+                            val config = HttpDownloadConfig(
+                                url = "https://speed.hetzner.de/100MB.bin", // A public test file
+                                savePath = getDummyDownloadPath(context)
+                            )
+                            scheduler.enqueue(
+                                id = "demo-builtin-httpdownload",
+                                trigger = TaskTrigger.OneTime(initialDelayMs = 1.seconds.inWholeMilliseconds),
+                                workerClassName = WorkerTypes.HTTP_DOWNLOAD_WORKER,
+                                inputJson = Json.encodeToString(HttpDownloadConfig.serializer(), config),
+                                constraints = Constraints(requiresNetwork = true)
+                            )
+                            snackbarHostState.showSnackbar("HttpDownloadWorker scheduled")
+                        }
+                    }
+                )
+                DemoCard(
+                    title = "HTTP Upload Worker",
+                    description = "Upload a dummy file (POST)",
+                    icon = Icons.Default.UploadFile,
+                    onClick = {
+                        coroutineScope.launch {
+                            // This requires a dummy file to exist for the demo to work
+                            // For a real demo, you'd create this file first
+                            val config = HttpUploadConfig(
+                                url = "https://httpbin.org/post", // A public echo service
+                                filePath = getDummyUploadPath(context),
+                                fileFieldName = "file",
+                                fileName = "upload_test.txt",
+                                mimeType = "text/plain"
+                            )
+                            scheduler.enqueue(
+                                id = "demo-builtin-httpupload",
+                                trigger = TaskTrigger.OneTime(initialDelayMs = 1.seconds.inWholeMilliseconds),
+                                workerClassName = WorkerTypes.HTTP_UPLOAD_WORKER,
+                                inputJson = Json.encodeToString(HttpUploadConfig.serializer(), config),
+                                constraints = Constraints(requiresNetwork = true)
+                            )
+                            snackbarHostState.showSnackbar("HttpUploadWorker scheduled. (Requires dummy file)")
+                        }
+                    }
+                )
+                DemoCard(
+                    title = "File Compression Worker",
+                    description = "Compress a dummy folder into a zip",
+                    icon = Icons.Default.FolderZip,
+                    onClick = {
+                        coroutineScope.launch {
+                            // This requires a dummy folder/files to exist
+                            val config = FileCompressionConfig(
+                                inputPath = getDummyCompressionInputPath(context),
+                                outputPath = getDummyCompressionOutputPath(context),
+                                compressionLevel = "medium"
+                            )
+                            scheduler.enqueue(
+                                id = "demo-builtin-filecompression",
+                                trigger = TaskTrigger.OneTime(initialDelayMs = 1.seconds.inWholeMilliseconds),
+                                workerClassName = WorkerTypes.FILE_COMPRESSION_WORKER,
+                                inputJson = Json.encodeToString(FileCompressionConfig.serializer(), config)
+                            )
+                            snackbarHostState.showSnackbar("FileCompressionWorker scheduled. (Requires dummy folder)")
+                        }
+                    }
+                )
+            }
+
             // Quick Actions
             HorizontalDivider()
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                OutlinedButton(
+                    onClick = {
+                        coroutineScope.launch {
+                            val (uploadedFilePath, compressedFolderPath) = createDummyFiles(context)
+                            snackbarHostState.showSnackbar("Dummy files created. Upload path: $uploadedFilePath, Compression folder: $compressedFolderPath")
+                        }
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Default.CreateNewFolder, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Setup Dummy Files", style = MaterialTheme.typography.labelMedium)
+                }
                 OutlinedButton(
                     onClick = {
                         coroutineScope.launch {

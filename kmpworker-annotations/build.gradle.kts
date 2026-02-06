@@ -1,3 +1,5 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     kotlin("multiplatform")
     id("com.android.library")
@@ -7,8 +9,10 @@ kotlin {
     // Android target
     androidTarget {
         compilations.all {
-            kotlinOptions {
-                jvmTarget = "1.8"
+            compileTaskProvider.configure {
+                compilerOptions {
+                    jvmTarget.set(JvmTarget.JVM_1_8)
+                }
             }
         }
     }
@@ -36,7 +40,7 @@ kotlin {
 
 android {
     namespace = "dev.brewkits.kmpworkmanager.annotations"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         minSdk = 24
