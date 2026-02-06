@@ -1,5 +1,6 @@
 package dev.brewkits.kmpworkmanager.sample.background.workers
 
+import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.sample.background.data.IosWorker
 import dev.brewkits.kmpworkmanager.sample.background.domain.TaskCompletionEvent
 import dev.brewkits.kmpworkmanager.sample.background.domain.TaskEventBus
@@ -8,11 +9,11 @@ import kotlin.math.sqrt
 import kotlin.time.measureTime
 
 class HeavyProcessingWorker : IosWorker {
-    override suspend fun doWork(input: String?): Boolean {
+    override suspend fun doWork(input: String?): WorkerResult {
         println(" KMP_BG_TASK_iOS: Starting HeavyProcessingWorker...")
         println(" KMP_BG_TASK_iOS: Input: $input")
 
-        try {
+        return try {
             println(" KMP_BG_TASK_iOS: 🔥 Starting heavy computation...")
 
             // Real heavy computation: Calculate prime numbers
@@ -41,7 +42,15 @@ class HeavyProcessingWorker : IosWorker {
                 )
             )
 
-            return true
+            WorkerResult.Success(
+                message = "Calculated ${primes.size} primes in ${duration.inWholeMilliseconds}ms",
+                data = mapOf(
+                    "primeCount" to primes.size,
+                    "durationMs" to duration.inWholeMilliseconds,
+                    "firstPrimes" to primes.take(10).toString(),
+                    "lastPrimes" to primes.takeLast(10).toString()
+                )
+            )
         } catch (e: Exception) {
             println(" KMP_BG_TASK_iOS: HeavyProcessingWorker failed: ${e.message}")
             TaskEventBus.emit(
@@ -51,7 +60,7 @@ class HeavyProcessingWorker : IosWorker {
                     message = "❌ Task failed: ${e.message}"
                 )
             )
-            return false
+            WorkerResult.Failure("Heavy processing failed: ${e.message}")
         }
     }
 

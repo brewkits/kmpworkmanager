@@ -1,5 +1,6 @@
 package dev.brewkits.kmpworkmanager.sample.background.workers
 
+import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.sample.background.data.IosWorker
 import dev.brewkits.kmpworkmanager.sample.background.domain.TaskCompletionEvent
 import dev.brewkits.kmpworkmanager.sample.background.domain.TaskEventBus
@@ -11,10 +12,10 @@ import kotlinx.coroutines.delay
  * Background analytics sync that batches events and compresses payload
  */
 class AnalyticsWorker : IosWorker {
-    override suspend fun doWork(input: String?): Boolean {
+    override suspend fun doWork(input: String?): WorkerResult {
         Logger.i(LogTags.WORKER, "AnalyticsWorker started")
 
-        try {
+        return try {
             // Phase 1: Collect pending events
             Logger.i(LogTags.WORKER, "Collecting pending analytics events...")
             delay(500)
@@ -50,7 +51,16 @@ class AnalyticsWorker : IosWorker {
                 )
             )
 
-            return true
+            WorkerResult.Success(
+                message = "Synced $eventCount events (${compressedSize}KB)",
+                data = mapOf(
+                    "eventCount" to eventCount,
+                    "batchCount" to batchCount,
+                    "originalSizeKB" to originalSize,
+                    "compressedSizeKB" to compressedSize,
+                    "compressionRatio" to "70%"
+                )
+            )
         } catch (e: Exception) {
             Logger.e(LogTags.WORKER, "AnalyticsWorker failed: ${e.message}", e)
             TaskEventBus.emit(
@@ -60,7 +70,7 @@ class AnalyticsWorker : IosWorker {
                     message = "❌ Analytics sync failed: ${e.message}"
                 )
             )
-            return false
+            WorkerResult.Failure("Analytics sync failed: ${e.message}")
         }
     }
 }

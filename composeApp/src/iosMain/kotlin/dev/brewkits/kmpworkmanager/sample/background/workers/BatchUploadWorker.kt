@@ -1,5 +1,6 @@
 package dev.brewkits.kmpworkmanager.sample.background.workers
 
+import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.sample.background.data.IosWorker
 import dev.brewkits.kmpworkmanager.sample.background.domain.TaskCompletionEvent
 import dev.brewkits.kmpworkmanager.sample.background.domain.TaskEventBus
@@ -11,10 +12,10 @@ import kotlinx.coroutines.delay
  * Uploads multiple files sequentially with per-file and overall progress
  */
 class BatchUploadWorker : IosWorker {
-    override suspend fun doWork(input: String?): Boolean {
+    override suspend fun doWork(input: String?): WorkerResult {
         Logger.i(LogTags.WORKER, "BatchUploadWorker started")
 
-        try {
+        return try {
             val fileNames = listOf("document.pdf", "photo.jpg", "video.mp4", "report.xlsx", "backup.zip")
             val fileSizes = listOf(2, 5, 15, 1, 8) // MB
 
@@ -48,7 +49,14 @@ class BatchUploadWorker : IosWorker {
                 )
             )
 
-            return true
+            WorkerResult.Success(
+                message = "Uploaded ${fileNames.size} files (${totalSize}MB total)",
+                data = mapOf(
+                    "fileCount" to fileNames.size,
+                    "totalSizeMB" to totalSize,
+                    "files" to fileNames.joinToString(", ")
+                )
+            )
         } catch (e: Exception) {
             Logger.e(LogTags.WORKER, "BatchUploadWorker failed: ${e.message}", e)
             TaskEventBus.emit(
@@ -58,7 +66,7 @@ class BatchUploadWorker : IosWorker {
                     message = "❌ Batch upload failed: ${e.message}"
                 )
             )
-            return false
+            WorkerResult.Failure("Batch upload failed: ${e.message}")
         }
     }
 }

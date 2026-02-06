@@ -1,5 +1,6 @@
 package dev.brewkits.kmpworkmanager.sample.background.data
 
+import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.sample.background.domain.TaskCompletionEvent
 import dev.brewkits.kmpworkmanager.sample.background.domain.TaskEventBus
 import dev.brewkits.kmpworkmanager.sample.stats.TaskStatsManager
@@ -34,23 +35,27 @@ class SingleTaskExecutor(private val workerFactory: IosWorkerFactory) {
 
     /**
      * Creates and runs a worker based on its class name with timeout protection.
+     *
+     * v2.3.0+: Returns WorkerResult with data instead of Boolean
+     *
      * @param workerClassName The fully qualified name of the worker class.
      * @param input Optional input data for the worker.
      * @param timeoutMs Maximum execution time in milliseconds (default: 25s)
-     * @return `true` if the work succeeded, `false` otherwise.
+     * @return WorkerResult with success/failure status and optional data
      */
     suspend fun executeTask(
         workerClassName: String,
         input: String?,
         timeoutMs: Long = DEFAULT_TIMEOUT_MS
-    ): Boolean {
+    ): WorkerResult {
         Logger.i(LogTags.WORKER, "Executing task: $workerClassName (timeout: ${timeoutMs}ms)")
 
         val worker = workerFactory.createWorker(workerClassName)
         if (worker == null) {
             Logger.e(LogTags.WORKER, "Failed to create worker: $workerClassName")
-            emitFailureEvent(workerClassName, "Worker factory returned null")
-            return false
+            val result = WorkerResult.Failure("Worker factory returned null")
+            emitEvent(workerClassName, result)
+            return result
         }
 
         val taskName = workerClassName.substringAfterLast('.')
@@ -63,41 +68,63 @@ class SingleTaskExecutor(private val workerFactory: IosWorkerFactory) {
                 val result = worker.doWork(input)
                 val duration = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime
 
-                TaskStatsManager.recordTaskComplete(taskId, result, duration)
+                val success = result is WorkerResult.Success
+                TaskStatsManager.recordTaskComplete(taskId, success, duration)
 
-                if (result) {
-                    Logger.i(LogTags.WORKER, "Task completed successfully: $workerClassName (${duration}ms)")
-                } else {
-                    Logger.w(LogTags.WORKER, "Task completed with failure: $workerClassName (${duration}ms)")
+                when (result) {
+                    is WorkerResult.Success -> {
+                        Logger.i(LogTags.WORKER, "Task completed successfully: $workerClassName (${duration}ms)")
+                    }
+                    is WorkerResult.Failure -> {
+                        Logger.w(LogTags.WORKER, "Task completed with failure: $workerClassName (${duration}ms)")
+                    }
                 }
 
+                // Emit event with result data
+                emitEvent(workerClassName, result)
                 result
             }
         } catch (e: TimeoutCancellationException) {
             Logger.e(LogTags.WORKER, "Task timed out after ${timeoutMs}ms: $workerClassName")
             TaskStatsManager.recordTaskComplete(taskId, false, timeoutMs)
-            emitFailureEvent(workerClassName, "Timed out after ${timeoutMs}ms")
-            false
+            val result = WorkerResult.Failure("Timed out after ${timeoutMs}ms")
+            emitEvent(workerClassName, result)
+            result
         } catch (e: Exception) {
             Logger.e(LogTags.WORKER, "Task threw exception: $workerClassName", e)
             TaskStatsManager.recordTaskComplete(taskId, false, 0L)
-            emitFailureEvent(workerClassName, "Exception: ${e.message}")
-            false
+            val result = WorkerResult.Failure("Exception: ${e.message}")
+            emitEvent(workerClassName, result)
+            result
         }
     }
 
     /**
-     * Emit failure event to TaskEventBus for UI notification
+     * Emit task completion event to TaskEventBus for UI notification
+     *
+     * v2.3.0+: Emits both success and failure events with outputData
      */
-    private fun emitFailureEvent(workerClassName: String, reason: String) {
+    private fun emitEvent(workerClassName: String, result: WorkerResult) {
         CoroutineScope(Dispatchers.Main).launch {
-            TaskEventBus.emit(
-                TaskCompletionEvent(
-                    taskName = workerClassName.substringAfterLast('.'),
-                    success = false,
-                    message = "❌ Failed: $reason"
-                )
-            )
+            val event = when (result) {
+                is WorkerResult.Success -> {
+                    TaskCompletionEvent(
+                        taskName = workerClassName.substringAfterLast('.'),
+                        success = true,
+                        message = result.message ?: "Task completed successfully",
+                        outputData = result.data
+                    )
+                }
+                is WorkerResult.Failure -> {
+                    TaskCompletionEvent(
+                        taskName = workerClassName.substringAfterLast('.'),
+                        success = false,
+                        message = result.message,
+                        outputData = null
+                    )
+                }
+            }
+            TaskEventBus.emit(event)
         }
     }
 
