@@ -29,6 +29,11 @@
 		<string>demo-heavy</string>
 		<string>demo-batch-upload</string>
 		<string>demo-image-proc</string>
+		<string>demo-builtin-httprequest</string>
+		<string>demo-builtin-httpsync</string>
+		<string>demo-builtin-httpdownload</string>
+		<string>demo-builtin-httpupload</string>
+		<string>demo-builtin-filecompression</string>
 	</array>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>

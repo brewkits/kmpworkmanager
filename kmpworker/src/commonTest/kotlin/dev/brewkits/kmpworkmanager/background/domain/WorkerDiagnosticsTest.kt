@@ -26,7 +26,8 @@ class WorkerDiagnosticsTest {
                 isReady = true,
                 totalPendingTasks = 0,
                 queueSize = 0,
-                platform = "test"
+                platform = "test",
+                timestamp = System.currentTimeMillis()
             )
         }
 
@@ -111,7 +112,8 @@ class WorkerDiagnosticsTest {
             isReady = true,
             totalPendingTasks = 5,
             queueSize = 3,
-            platform = "iOS"
+            platform = "iOS",
+            timestamp = System.currentTimeMillis()
         )
 
         assertTrue(status.isReady)
@@ -126,7 +128,8 @@ class WorkerDiagnosticsTest {
             isReady = false,
             totalPendingTasks = 0,
             queueSize = 0,
-            platform = "Android"
+            platform = "Android",
+            timestamp = System.currentTimeMillis()
         )
 
         assertFalse(status.isReady, "Scheduler should not be ready")
@@ -200,7 +203,8 @@ class WorkerDiagnosticsTest {
                 isReady = true,
                 totalPendingTasks = 10,
                 queueSize = 5,
-                platform = "iOS"
+                platform = "iOS",
+                timestamp = System.currentTimeMillis()
             )
         )
 
@@ -277,7 +281,8 @@ class WorkerDiagnosticsTest {
                 isReady = false, // Scheduler not ready!
                 totalPendingTasks = 1,
                 queueSize = 1,
-                platform = "iOS"
+                platform = "iOS",
+                timestamp = System.currentTimeMillis()
             ),
             mockHealth = SystemHealthReport(
                 timestamp = System.currentTimeMillis(),

@@ -71,6 +71,7 @@ kotlin {
             implementation(libs.kotlinx.datetime)
             // Kotlinx Serialization for JSON processing
             implementation(libs.kotlinx.serialization.json)
+            api(project(":kmpworker"))
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

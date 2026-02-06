@@ -4,7 +4,15 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import dev.brewkits.kmpworkmanager.background.domain.AndroidWorker
 import dev.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
+import dev.brewkits.kmpworkmanager.background.domain.Constraints
+import dev.brewkits.kmpworkmanager.background.domain.ExistingPolicy
+import dev.brewkits.kmpworkmanager.background.domain.ScheduleResult
+import dev.brewkits.kmpworkmanager.background.domain.TaskChain
+import dev.brewkits.kmpworkmanager.background.domain.TaskRequest
+import dev.brewkits.kmpworkmanager.background.domain.TaskTrigger
 import dev.brewkits.kmpworkmanager.background.domain.WorkerFactory
+import dev.brewkits.kmpworkmanager.utils.CustomLogger
+import dev.brewkits.kmpworkmanager.utils.Logger
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -13,7 +21,11 @@ import org.koin.core.context.GlobalContext
 import org.koin.core.context.startKoin
 import org.koin.core.context.stopKoin
 import org.koin.dsl.module
-import kotlin.test.*
+import kotlin.test.assertFalse
+import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
+import kotlin.test.fail
 
 /**
  * Comprehensive tests for Koin Isolation (Task #8)
@@ -253,7 +265,7 @@ class KoinIsolationTest {
             context = context,
             workerFactory = TestWorkerFactory(),
             config = KmpWorkManagerConfig(
-                logLevel = Logger.Level.DEBUG,
+                logLevel = Logger.Level.DEBUG_LEVEL,
                 customLogger = customLogger
             )
         )
@@ -308,16 +320,33 @@ class KoinIsolationTest {
     }
 
     private class MockScheduler : BackgroundTaskScheduler {
-        override fun enqueue(
+        override suspend fun enqueue(
             id: String,
-            trigger: dev.brewkits.kmpworkmanager.background.domain.TaskTrigger,
+            trigger: TaskTrigger,
             workerClassName: String,
-            constraints: dev.brewkits.kmpworkmanager.background.domain.Constraints,
+            constraints: Constraints,
             inputJson: String?,
-            retryCount: Int
-        ) {}
+            policy: ExistingPolicy
+        ): ScheduleResult {
+            TODO("Not yet implemented")
+        }
 
         override fun cancel(id: String) {}
         override fun cancelAll() {}
+        override fun beginWith(task: TaskRequest): TaskChain {
+            TODO("Not yet implemented")
+        }
+
+        override fun beginWith(tasks: List<TaskRequest>): TaskChain {
+            TODO("Not yet implemented")
+        }
+
+        override fun enqueueChain(
+            chain: TaskChain,
+            id: String?,
+            policy: ExistingPolicy
+        ) {
+            TODO("Not yet implemented")
+        }
     }
 }

@@ -154,7 +154,7 @@ class LoggerTest {
     fun testLevelOrdering() {
         val levels = listOf(
             Logger.Level.VERBOSE,
-            Logger.Level.DEBUG,
+            Logger.Level.DEBUG_LEVEL,
             Logger.Level.INFO,
             Logger.Level.WARN,
             Logger.Level.ERROR

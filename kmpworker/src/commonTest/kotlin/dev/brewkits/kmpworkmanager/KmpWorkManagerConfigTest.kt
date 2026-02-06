@@ -22,7 +22,7 @@ class KmpWorkManagerConfigTest {
     fun testCustomLogLevel() {
         val levels = listOf(
             Logger.Level.VERBOSE,
-            Logger.Level.DEBUG,
+            Logger.Level.DEBUG_LEVEL,
             Logger.Level.INFO,
             Logger.Level.WARN,
             Logger.Level.ERROR
@@ -43,11 +43,11 @@ class KmpWorkManagerConfigTest {
         }
 
         val config = KmpWorkManagerConfig(
-            logLevel = Logger.Level.DEBUG,
+            logLevel = Logger.Level.DEBUG_LEVEL,
             customLogger = customLogger
         )
 
-        assertEquals(Logger.Level.DEBUG, config.logLevel)
+        assertEquals(Logger.Level.DEBUG_LEVEL, config.logLevel)
         assertSame(customLogger, config.customLogger)
     }
 
@@ -88,7 +88,7 @@ class KmpWorkManagerConfigTest {
         }
 
         val original = KmpWorkManagerConfig(
-            logLevel = Logger.Level.DEBUG,
+            logLevel = Logger.Level.DEBUG_LEVEL,
             customLogger = originalLogger
         )
 
@@ -106,7 +106,7 @@ class KmpWorkManagerConfigTest {
         }
 
         val original = KmpWorkManagerConfig(
-            logLevel = Logger.Level.DEBUG,
+            logLevel = Logger.Level.DEBUG_LEVEL,
             customLogger = logger1
         )
 
@@ -120,7 +120,7 @@ class KmpWorkManagerConfigTest {
             override fun log(level: Logger.Level, tag: String, message: String, throwable: Throwable?) {}
         }
         val copy2 = original.copy(customLogger = logger2)
-        assertEquals(Logger.Level.DEBUG, copy2.logLevel)
+        assertEquals(Logger.Level.DEBUG_LEVEL, copy2.logLevel)
         assertSame(logger2, copy2.customLogger)
 
         // Copy with all changes
@@ -162,14 +162,14 @@ class KmpWorkManagerConfigTest {
     @Test
     fun testConfigToString() {
         val config = KmpWorkManagerConfig(
-            logLevel = Logger.Level.DEBUG,
+            logLevel = Logger.Level.DEBUG_LEVEL,
             customLogger = null
         )
 
         val string = config.toString()
 
         assertTrue(string.contains("logLevel"), "toString should include logLevel")
-        assertTrue(string.contains("DEBUG"), "toString should include log level value")
+        assertTrue(string.contains(Logger.Level.DEBUG_LEVEL.name), "toString should include log level value")
     }
 
     @Test
@@ -252,11 +252,11 @@ class KmpWorkManagerConfigTest {
             }
         }
 
-        val config1 = KmpWorkManagerConfig(logLevel = Logger.Level.DEBUG, customLogger = logger1)
+        val config1 = KmpWorkManagerConfig(logLevel = Logger.Level.DEBUG_LEVEL, customLogger = logger1)
         val config2 = KmpWorkManagerConfig(logLevel = Logger.Level.INFO, customLogger = logger2)
 
         // Verify configs are independent
-        assertEquals(Logger.Level.DEBUG, config1.logLevel)
+        assertEquals(Logger.Level.DEBUG_LEVEL, config1.logLevel)
         assertEquals(Logger.Level.INFO, config2.logLevel)
         assertSame(logger1, config1.customLogger)
         assertSame(logger2, config2.customLogger)
@@ -272,7 +272,7 @@ class KmpWorkManagerConfigTest {
         }
 
         val config = KmpWorkManagerConfig(
-            logLevel = Logger.Level.DEBUG,
+            logLevel = Logger.Level.DEBUG_LEVEL,
             customLogger = testLogger
         )
 
@@ -322,13 +322,13 @@ class KmpWorkManagerConfigTest {
     @Test
     fun testConfigDestructuring() {
         val config = KmpWorkManagerConfig(
-            logLevel = Logger.Level.DEBUG,
+            logLevel = Logger.Level.DEBUG_LEVEL,
             customLogger = null
         )
 
         val (logLevel, customLogger) = config
 
-        assertEquals(Logger.Level.DEBUG, logLevel)
+        assertEquals(Logger.Level.DEBUG_LEVEL, logLevel)
         assertNull(customLogger)
     }
 

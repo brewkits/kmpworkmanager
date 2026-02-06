@@ -8,7 +8,6 @@ plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidLibrary)
     alias(libs.plugins.kotlinx.serialization)
-    alias(libs.plugins.kotlinx.atomicfu)
     id("maven-publish")
     id("signing")
 }
@@ -17,6 +16,8 @@ group = "dev.brewkits"
 version = "2.2.2"
 
 kotlin {
+    androidTarget()
+
     androidTarget {
         publishLibraryVariants("release")
 
@@ -50,6 +51,8 @@ kotlin {
             implementation(libs.kotlinx.coroutines.guava)
             // Koin for Android
             implementation(libs.koin.android)
+            // Ktor Client - OkHttp engine for Android
+            implementation(libs.ktor.client.okhttp)
         }
 
         commonMain.dependencies {
@@ -60,14 +63,29 @@ kotlin {
             // Kotlinx Serialization for JSON processing
             implementation(libs.kotlinx.serialization.json)
             // Kotlinx Coroutines
-            implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0")
-            // Kotlinx AtomicFU for thread-safe operations
-            implementation(libs.kotlinx.atomicfu)
+            implementation(libs.kotlinx.coroutines.core)
+            // Ktor Client for HTTP operations (built-in workers)
+            implementation(libs.ktor.client.core)
+            implementation(libs.ktor.client.content.negotiation)
+            implementation(libs.ktor.serialization.kotlinx.json)
+            // Okio for cross-platform file I/O
+            implementation(libs.okio)
+        }
+
+        iosMain.dependencies {
+            // Ktor Client - Darwin engine for iOS
+            implementation(libs.ktor.client.darwin)
         }
 
         commonTest.dependencies {
             implementation(libs.kotlin.test)
-            implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.0")
+            implementation(libs.kotlinx.coroutines.test)
+        }
+
+        androidInstrumentedTest.dependencies {
+            implementation(libs.kotlin.test)
+            implementation(libs.kotlin.test.junit.common)
+            implementation(libs.androidx.test.core)
         }
     }
 }
@@ -148,7 +166,7 @@ publishing {
         // Sonatype OSSRH (Maven Central)
         maven {
             name = "OSSRH"
-            val releasesRepoUrl = uri("https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/")
+            val releasesRepoUrl = uri("https.s01.oss.sonatype.org/service/local/staging/deploy/maven2/")
             val snapshotsRepoUrl = uri("https://s01.oss.sonatype.org/content/repositories/snapshots/")
             url = if (version.toString().endsWith("SNAPSHOT")) snapshotsRepoUrl else releasesRepoUrl
 
@@ -228,7 +246,7 @@ tasks.register("publishAndroidWithChecksums") {
 
         var checksumCount = 0
         stagingDir.walk().forEach { file ->
-            if (file.isFile && !file.name.endsWith(".md5") && !file.name.endsWith(".sha1")
+            if (file.isFile && !file.name.endsWith(".md5") && !file.name.endsWith("sha1")
                 && !file.name.endsWith(".sha256") && !file.name.endsWith(".sha512")
                 && !file.name.endsWith(".asc")) {
 
