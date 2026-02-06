@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -16,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import dev.brewkits.kmpworkmanager.sample.background.data.WorkerTypes
 import dev.brewkits.kmpworkmanager.sample.background.domain.BackgroundTaskScheduler
 import dev.brewkits.kmpworkmanager.sample.background.domain.Constraints
+import dev.brewkits.kmpworkmanager.sample.background.domain.ExistingPolicy
 import dev.brewkits.kmpworkmanager.sample.background.domain.TaskRequest
 import dev.brewkits.kmpworkmanager.sample.background.domain.TaskTrigger
 import kotlinx.coroutines.launch
@@ -41,6 +43,34 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
     val snackbarHostState = remember { SnackbarHostState() }
     val context = getPlatformContext()
 
+    // Track running tasks to disable other buttons
+    var isAnyTaskRunning by remember { mutableStateOf(false) }
+    var runningTaskName by remember { mutableStateOf("") }
+
+    // Listen to task completion events
+    LaunchedEffect(Unit) {
+        dev.brewkits.kmpworkmanager.sample.background.domain.TaskEventBus.events.collect { event ->
+            // Reset running state when any task completes
+            isAnyTaskRunning = false
+            runningTaskName = ""
+        }
+    }
+
+    // Helper function to run tasks with state tracking
+    fun runTask(taskName: String, action: suspend () -> Unit) {
+        if (isAnyTaskRunning) return
+        isAnyTaskRunning = true
+        runningTaskName = taskName
+        coroutineScope.launch {
+            try {
+                action()
+            } catch (e: Exception) {
+                isAnyTaskRunning = false
+                runningTaskName = ""
+            }
+        }
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { paddingValues ->
@@ -63,6 +93,50 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
+            // Running Task Indicator
+            if (isAnyTaskRunning) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp),
+                            strokeWidth = 3.dp
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Task Running",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Text(
+                                runningTaskName,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                        Button(
+                            onClick = {
+                                isAnyTaskRunning = false
+                                runningTaskName = ""
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.error
+                            )
+                        ) {
+                            Text("Stop")
+                        }
+                    }
+                }
+            }
+
             // Basic Tasks Section
             DemoSection(
                 title = "Basic Tasks",
@@ -72,14 +146,15 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Quick Sync",
                     description = "OneTime task with no constraints",
                     icon = Icons.Default.Sync,
+                    enabled = !isAnyTaskRunning,
                     onClick = {
-                        coroutineScope.launch {
+                        runTask("Quick Sync") {
                             scheduler.enqueue(
                                 id = "demo-quick-sync",
                                 trigger = TaskTrigger.OneTime(initialDelayMs = 2.seconds.inWholeMilliseconds),
                                 workerClassName = WorkerTypes.SYNC_WORKER
                             )
-                            snackbarHostState.showSnackbar("Quick Sync scheduled (2s delay)")
+                            snackbarHostState.showSnackbar(message = "Quick Sync scheduled (2s delay)", duration = SnackbarDuration.Short)
                         }
                     }
                 )
@@ -87,15 +162,16 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "File Upload",
                     description = "OneTime with network required",
                     icon = Icons.Default.Upload,
+                    enabled = !isAnyTaskRunning,
                     onClick = {
-                        coroutineScope.launch {
+                        runTask("File Upload") {
                             scheduler.enqueue(
                                 id = "demo-file-upload",
                                 trigger = TaskTrigger.OneTime(initialDelayMs = 5.seconds.inWholeMilliseconds),
                                 workerClassName = WorkerTypes.UPLOAD_WORKER,
                                 constraints = Constraints(requiresNetwork = true)
                             )
-                            snackbarHostState.showSnackbar("File Upload scheduled (5s, network required)")
+                            snackbarHostState.showSnackbar(message = "File Upload scheduled (5s, network required)", duration = SnackbarDuration.Short)
                         }
                     }
                 )
@@ -103,14 +179,15 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Database Operation",
                     description = "Batch inserts with progress",
                     icon = Icons.Default.Storage,
+                    enabled = !isAnyTaskRunning,
                     onClick = {
-                        coroutineScope.launch {
+                        runTask("Database Operation") {
                             scheduler.enqueue(
                                 id = "demo-database",
                                 trigger = TaskTrigger.OneTime(initialDelayMs = 3.seconds.inWholeMilliseconds),
                                 workerClassName = WorkerTypes.DATABASE_WORKER
                             )
-                            snackbarHostState.showSnackbar("Database Worker scheduled (3s delay)")
+                            snackbarHostState.showSnackbar(message = "Database Worker scheduled (3s delay)", duration = SnackbarDuration.Short)
                         }
                     }
                 )
@@ -125,15 +202,16 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Hourly Sync",
                     description = "Repeats every hour with network constraints",
                     icon = Icons.Default.Schedule,
+                    enabled = !isAnyTaskRunning,
                     onClick = {
-                        coroutineScope.launch {
+                        runTask("Hourly Sync") {
                             scheduler.enqueue(
                                 id = "demo-hourly-sync",
                                 trigger = TaskTrigger.Periodic(intervalMs = 1.hours.inWholeMilliseconds),
                                 workerClassName = WorkerTypes.SYNC_WORKER,
                                 constraints = Constraints(requiresNetwork = true, requiresUnmeteredNetwork = true)
                             )
-                            snackbarHostState.showSnackbar("Hourly Sync scheduled (1h interval)")
+                            snackbarHostState.showSnackbar(message = "Hourly Sync scheduled (1h interval)", duration = SnackbarDuration.Short)
                         }
                     }
                 )
@@ -141,15 +219,16 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Daily Cleanup",
                     description = "Runs every 24 hours while charging",
                     icon = Icons.Default.CleaningServices,
+                    enabled = !isAnyTaskRunning,
                     onClick = {
-                        coroutineScope.launch {
+                        runTask("Daily Cleanup") {
                             scheduler.enqueue(
                                 id = "demo-daily-cleanup",
                                 trigger = TaskTrigger.Periodic(intervalMs = 24.hours.inWholeMilliseconds),
                                 workerClassName = WorkerTypes.CLEANUP_WORKER,
                                 constraints = Constraints(requiresCharging = true)
                             )
-                            snackbarHostState.showSnackbar("Daily Cleanup scheduled (24h, charging)")
+                            snackbarHostState.showSnackbar(message = "Daily Cleanup scheduled (24h, charging)", duration = SnackbarDuration.Short)
                         }
                     }
                 )
@@ -157,14 +236,15 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Location Sync",
                     description = "Periodic 15min location upload",
                     icon = Icons.Default.LocationOn,
+                    enabled = !isAnyTaskRunning,
                     onClick = {
-                        coroutineScope.launch {
+                        runTask("Location Sync") {
                             scheduler.enqueue(
                                 id = "demo-location-sync",
                                 trigger = TaskTrigger.Periodic(intervalMs = 15.minutes.inWholeMilliseconds),
                                 workerClassName = WorkerTypes.LOCATION_SYNC_WORKER
                             )
-                            snackbarHostState.showSnackbar("Location Sync scheduled (15min)")
+                            snackbarHostState.showSnackbar(message = "Location Sync scheduled (15min)", duration = SnackbarDuration.Short)
                         }
                     }
                 )
@@ -179,13 +259,14 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Sequential: Download \u2192 Process \u2192 Upload",
                     description = "Three tasks in sequence",
                     icon = Icons.AutoMirrored.Filled.ArrowForward,
+                    enabled = !isAnyTaskRunning,
                     onClick = {
-                        coroutineScope.launch {
+                        runTask("Sequential: Download \u2192 Process \u2192 Upload") {
                             scheduler.beginWith(TaskRequest(workerClassName = WorkerTypes.SYNC_WORKER))
                                 .then(TaskRequest(workerClassName = WorkerTypes.IMAGE_PROCESSING_WORKER))
                                 .then(TaskRequest(workerClassName = WorkerTypes.UPLOAD_WORKER))
                                 .enqueue()
-                            snackbarHostState.showSnackbar("Sequential chain started")
+                            snackbarHostState.showSnackbar(message = "Sequential chain started", duration = SnackbarDuration.Short)
                         }
                     }
                 )
@@ -193,8 +274,9 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Parallel: Process 3 Images \u2192 Upload",
                     description = "Parallel processing then upload",
                     icon = Icons.Default.DynamicFeed,
+                    enabled = !isAnyTaskRunning,
                     onClick = {
-                        coroutineScope.launch {
+                        runTask("Parallel: Process 3 Images \u2192 Upload") {
                             scheduler.beginWith(
                                 listOf(
                                     TaskRequest(workerClassName = WorkerTypes.IMAGE_PROCESSING_WORKER),
@@ -203,7 +285,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                             )
                                 .then(TaskRequest(workerClassName = WorkerTypes.BATCH_UPLOAD_WORKER))
                                 .enqueue()
-                            snackbarHostState.showSnackbar("Parallel chain started")
+                            snackbarHostState.showSnackbar(message = "Parallel chain started", duration = SnackbarDuration.Short)
                         }
                     }
                 )
@@ -211,8 +293,9 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Mixed: Fetch \u2192 [Process \u2225 Analyze \u2225 Compress] \u2192 Upload",
                     description = "Sequential + parallel combination",
                     icon = Icons.Default.AccountTree,
+                    enabled = !isAnyTaskRunning,
                     onClick = {
-                        coroutineScope.launch {
+                        runTask("Mixed: Fetch \u2192 [Process \u2225 Analyze \u2225 Compress] \u2192 Upload") {
                             scheduler.beginWith(TaskRequest(workerClassName = WorkerTypes.SYNC_WORKER))
                                 .then(
                                     listOf(
@@ -223,7 +306,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                                 )
                                 .then(TaskRequest(workerClassName = WorkerTypes.UPLOAD_WORKER))
                                 .enqueue()
-                            snackbarHostState.showSnackbar("Mixed chain started")
+                            snackbarHostState.showSnackbar(message = "Mixed chain started", duration = SnackbarDuration.Short)
                         }
                     }
                 )
@@ -231,15 +314,16 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Long Chain: 5 Sequential Steps",
                     description = "Extended workflow demonstration",
                     icon = Icons.Default.LinearScale,
+                    enabled = !isAnyTaskRunning,
                     onClick = {
-                        coroutineScope.launch {
+                        runTask("Long Chain: 5 Sequential Steps") {
                             scheduler.beginWith(TaskRequest(workerClassName = WorkerTypes.SYNC_WORKER))
                                 .then(TaskRequest(workerClassName = WorkerTypes.IMAGE_PROCESSING_WORKER))
                                 .then(TaskRequest(workerClassName = WorkerTypes.DATABASE_WORKER))
                                 .then(TaskRequest(workerClassName = WorkerTypes.ANALYTICS_WORKER))
                                 .then(TaskRequest(workerClassName = WorkerTypes.UPLOAD_WORKER))
                                 .enqueue()
-                            snackbarHostState.showSnackbar("Long chain started (5 steps)")
+                            snackbarHostState.showSnackbar(message = "Long chain started (5 steps)", duration = SnackbarDuration.Short)
                         }
                     }
                 )
@@ -254,15 +338,16 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Network Required",
                     description = "Only runs when network available",
                     icon = Icons.Default.Wifi,
+                    enabled = !isAnyTaskRunning,
                     onClick = {
-                        coroutineScope.launch {
+                        runTask("Network Required") {
                             scheduler.enqueue(
                                 id = "demo-network-required",
                                 trigger = TaskTrigger.OneTime(initialDelayMs = 3.seconds.inWholeMilliseconds),
                                 workerClassName = WorkerTypes.SYNC_WORKER,
                                 constraints = Constraints(requiresNetwork = true)
                             )
-                            snackbarHostState.showSnackbar("Network-constrained task scheduled")
+                            snackbarHostState.showSnackbar(message = "Network-constrained task scheduled", duration = SnackbarDuration.Short)
                         }
                     }
                 )
@@ -270,15 +355,16 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Unmetered Network (WiFi Only)",
                     description = "Only runs on WiFi/unmetered",
                     icon = Icons.Default.WifiTethering,
+                    enabled = !isAnyTaskRunning,
                     onClick = {
-                        coroutineScope.launch {
+                        runTask("Unmetered Network (WiFi Only)") {
                             scheduler.enqueue(
                                 id = "demo-unmetered",
                                 trigger = TaskTrigger.OneTime(initialDelayMs = 3.seconds.inWholeMilliseconds),
                                 workerClassName = WorkerTypes.BATCH_UPLOAD_WORKER,
                                 constraints = Constraints(requiresNetwork = true, requiresUnmeteredNetwork = true)
                             )
-                            snackbarHostState.showSnackbar("WiFi-only task scheduled")
+                            snackbarHostState.showSnackbar(message = "WiFi-only task scheduled", duration = SnackbarDuration.Short)
                         }
                     }
                 )
@@ -286,15 +372,16 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Charging Required",
                     description = "Runs only while device is charging",
                     icon = Icons.Default.BatteryChargingFull,
+                    enabled = !isAnyTaskRunning,
                     onClick = {
-                        coroutineScope.launch {
+                        runTask("Charging Required") {
                             scheduler.enqueue(
                                 id = "demo-charging",
                                 trigger = TaskTrigger.OneTime(initialDelayMs = 3.seconds.inWholeMilliseconds),
                                 workerClassName = WorkerTypes.HEAVY_PROCESSING_WORKER,
                                 constraints = Constraints(requiresCharging = true, isHeavyTask = true)
                             )
-                            snackbarHostState.showSnackbar("Charging-constrained task scheduled")
+                            snackbarHostState.showSnackbar(message = "Charging-constrained task scheduled", duration = SnackbarDuration.Short)
                         }
                     }
                 )
@@ -302,14 +389,15 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Battery Not Low (Android)",
                     description = "Defers when battery is low",
                     icon = Icons.Default.BatteryFull,
+                    enabled = !isAnyTaskRunning,
                     onClick = {
-                        coroutineScope.launch {
+                        runTask("Battery Not Low (Android)") {
                             scheduler.enqueue(
                                 id = "demo-battery-ok",
                                 trigger = TaskTrigger.BatteryOkay,
                                 workerClassName = WorkerTypes.IMAGE_PROCESSING_WORKER
                             )
-                            snackbarHostState.showSnackbar("Battery-OK task scheduled")
+                            snackbarHostState.showSnackbar(message = "Battery-OK task scheduled", duration = SnackbarDuration.Short)
                         }
                     }
                 )
@@ -317,14 +405,15 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Storage Low Cleanup (Android)",
                     description = "Cleanup task for low storage scenarios",
                     icon = Icons.Default.SdCard,
+                    enabled = !isAnyTaskRunning,
                     onClick = {
-                        coroutineScope.launch {
+                        runTask("Storage Low Cleanup (Android)") {
                             scheduler.enqueue(
                                 id = "demo-storage-low",
                                 trigger = TaskTrigger.StorageLow,
                                 workerClassName = WorkerTypes.CLEANUP_WORKER
                             )
-                            snackbarHostState.showSnackbar("Storage-low task scheduled (Android only)")
+                            snackbarHostState.showSnackbar(message = "Storage-low task scheduled (Android only)", duration = SnackbarDuration.Short)
                         }
                     }
                 )
@@ -332,15 +421,16 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Device Idle (Android)",
                     description = "Runs when device is idle/sleeping",
                     icon = Icons.Default.NightsStay,
+                    enabled = !isAnyTaskRunning,
                     onClick = {
-                        coroutineScope.launch {
+                        runTask("Device Idle (Android)") {
                             scheduler.enqueue(
                                 id = "demo-device-idle",
                                 trigger = TaskTrigger.DeviceIdle,
                                 workerClassName = WorkerTypes.HEAVY_PROCESSING_WORKER,
                                 constraints = Constraints(isHeavyTask = true)
                             )
-                            snackbarHostState.showSnackbar("Device-idle task scheduled (Android only)")
+                            snackbarHostState.showSnackbar(message = "Device-idle task scheduled (Android only)", duration = SnackbarDuration.Short)
                         }
                     }
                 )
@@ -356,14 +446,15 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Network Retry with Backoff",
                     description = "Demonstrates exponential backoff (fails 2x, succeeds 3rd)",
                     icon = Icons.Default.Refresh,
+                    enabled = !isAnyTaskRunning,
                     onClick = {
-                        coroutineScope.launch {
+                        runTask("Network Retry with Backoff") {
                             scheduler.enqueue(
                                 id = "demo-retry",
                                 trigger = TaskTrigger.OneTime(initialDelayMs = 2.seconds.inWholeMilliseconds),
                                 workerClassName = WorkerTypes.NETWORK_RETRY_WORKER
                             )
-                            snackbarHostState.showSnackbar("Retry demo started (watch logs)")
+                            snackbarHostState.showSnackbar(message = "Retry demo started (watch logs)", duration = SnackbarDuration.Short)
                         }
                     }
                 )
@@ -371,14 +462,15 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Random Database Failure",
                     description = "10% chance of transaction failure",
                     icon = Icons.Default.Error,
+                    enabled = !isAnyTaskRunning,
                     onClick = {
-                        coroutineScope.launch {
+                        runTask("Random Database Failure") {
                             scheduler.enqueue(
                                 id = "demo-db-fail",
                                 trigger = TaskTrigger.OneTime(initialDelayMs = 2.seconds.inWholeMilliseconds),
                                 workerClassName = WorkerTypes.DATABASE_WORKER
                             )
-                            snackbarHostState.showSnackbar("Database worker scheduled (may fail)")
+                            snackbarHostState.showSnackbar(message = "Database worker scheduled (may fail)", duration = SnackbarDuration.Short)
                         }
                     }
                 )
@@ -393,15 +485,16 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Heavy Processing",
                     description = "Long-running CPU-intensive task (30s)",
                     icon = Icons.Default.Memory,
+                    enabled = !isAnyTaskRunning,
                     onClick = {
-                        coroutineScope.launch {
+                        runTask("Heavy Processing") {
                             scheduler.enqueue(
                                 id = "demo-heavy",
                                 trigger = TaskTrigger.OneTime(initialDelayMs = 3.seconds.inWholeMilliseconds),
                                 workerClassName = WorkerTypes.HEAVY_PROCESSING_WORKER,
                                 constraints = Constraints(isHeavyTask = true)
                             )
-                            snackbarHostState.showSnackbar("Heavy task scheduled (ForegroundService/BGProcessingTask)")
+                            snackbarHostState.showSnackbar(message = "Heavy task scheduled (ForegroundService/BGProcessingTask)", duration = SnackbarDuration.Short)
                         }
                     }
                 )
@@ -409,14 +502,15 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Batch Upload (5 Files)",
                     description = "Multiple file uploads with progress",
                     icon = Icons.Default.CloudUpload,
+                    enabled = !isAnyTaskRunning,
                     onClick = {
-                        coroutineScope.launch {
+                        runTask("Batch Upload (5 Files)") {
                             scheduler.enqueue(
                                 id = "demo-batch-upload",
                                 trigger = TaskTrigger.OneTime(initialDelayMs = 2.seconds.inWholeMilliseconds),
                                 workerClassName = WorkerTypes.BATCH_UPLOAD_WORKER
                             )
-                            snackbarHostState.showSnackbar("Batch upload started (5 files)")
+                            snackbarHostState.showSnackbar(message = "Batch upload started (5 files)", duration = SnackbarDuration.Short)
                         }
                     }
                 )
@@ -424,14 +518,15 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Image Processing (5 Images x 3 Sizes)",
                     description = "CPU-intensive image resizing",
                     icon = Icons.Default.Image,
+                    enabled = !isAnyTaskRunning,
                     onClick = {
-                        coroutineScope.launch {
+                        runTask("Image Processing (5 Images x 3 Sizes)") {
                             scheduler.enqueue(
                                 id = "demo-image-proc",
                                 trigger = TaskTrigger.OneTime(initialDelayMs = 2.seconds.inWholeMilliseconds),
                                 workerClassName = WorkerTypes.IMAGE_PROCESSING_WORKER
                             )
-                            snackbarHostState.showSnackbar("Image processing started (15 operations)")
+                            snackbarHostState.showSnackbar(message = "Image processing started (15 operations)", duration = SnackbarDuration.Short)
                         }
                     }
                 )
@@ -447,11 +542,13 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Download \u2192 Compress \u2192 Upload Chain",
                     description = "Complete workflow: Download file, compress it, then upload (v2.3.0 data passing)",
                     icon = Icons.Default.CloudSync,
+                    enabled = !isAnyTaskRunning,
                     onClick = {
-                        coroutineScope.launch {
+                        runTask("Download \u2192 Compress \u2192 Upload Chain") {
                             // Step 1: Download file
+                            // Note: Using httpbin.org for demo (works reliably on iOS simulator)
                             val downloadConfig = HttpDownloadConfig(
-                                url = "https://speed.hetzner.de/10MB.bin",
+                                url = "https://httpbin.org/bytes/10240",
                                 savePath = getDummyDownloadPath(context)
                             )
 
@@ -490,9 +587,10 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                                         constraints = Constraints(requiresNetwork = true)
                                     )
                                 )
+                                .withId("demo-download-compress-upload-chain", policy = ExistingPolicy.KEEP)
                                 .enqueue()
 
-                            snackbarHostState.showSnackbar("Download→Compress→Upload chain started! Check logs for data passing.")
+                            snackbarHostState.showSnackbar(message = "Download→Compress→Upload chain started! Check logs for data passing.", duration = SnackbarDuration.Short)
                         }
                     }
                 )
@@ -501,8 +599,12 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Parallel HTTP Sync \u2192 Compress Results",
                     description = "Fetch 3 APIs in parallel, then compress all results together",
                     icon = Icons.Default.DynamicFeed,
+                    enabled = !isAnyTaskRunning,
                     onClick = {
-                        coroutineScope.launch {
+                        runTask("Parallel HTTP Sync \u2192 Compress Results") {
+                            // Create dummy files first
+                            val (uploadFilePath, compressInputPath) = createDummyFiles(context)
+
                             val syncConfigs = listOf(
                                 HttpSyncConfig(
                                     url = "https://jsonplaceholder.typicode.com/posts/1",
@@ -519,7 +621,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                             )
 
                             val compressionConfig = FileCompressionConfig(
-                                inputPath = getDummyCompressionInputPath(context),
+                                inputPath = compressInputPath,
                                 outputPath = getDummyCompressionOutputPath(context),
                                 compressionLevel = "medium"
                             )
@@ -539,9 +641,10 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                                         inputJson = Json.encodeToString(FileCompressionConfig.serializer(), compressionConfig)
                                     )
                                 )
+                                .withId("demo-parallel-http-sync-compress", policy = ExistingPolicy.KEEP)
                                 .enqueue()
 
-                            snackbarHostState.showSnackbar("Parallel HTTP→Compress chain started! Watch data flow in logs.")
+                            snackbarHostState.showSnackbar(message = "Parallel HTTP→Compress chain started! Watch data flow in logs.", duration = SnackbarDuration.Short)
                         }
                     }
                 )
@@ -550,8 +653,13 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "HTTP Request \u2192 Sync \u2192 Upload Pipeline",
                     description = "POST data, sync response, then upload result file",
                     icon = Icons.Default.SwapHoriz,
+                    enabled = !isAnyTaskRunning,
                     onClick = {
-                        coroutineScope.launch {
+                        runTask("HTTP Request \u2192 Sync \u2192 Upload Pipeline") {
+                            // Create dummy files first
+                            val (uploadFilePath, compressInputPath) = createDummyFiles(context)
+
+
                             val requestConfig = HttpRequestConfig(
                                 url = "https://jsonplaceholder.typicode.com/posts",
                                 method = "POST",
@@ -566,7 +674,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
 
                             val uploadConfig = HttpUploadConfig(
                                 url = "https://httpbin.org/post",
-                                filePath = getDummyUploadPath(context),
+                                filePath = uploadFilePath,
                                 fileFieldName = "result",
                                 fileName = "sync_result.json"
                             )
@@ -592,9 +700,10 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                                         constraints = Constraints(requiresNetwork = true)
                                     )
                                 )
+                                .withId("demo-request-sync-upload-pipeline", policy = ExistingPolicy.KEEP)
                                 .enqueue()
 
-                            snackbarHostState.showSnackbar("Request→Sync→Upload pipeline started!")
+                            snackbarHostState.showSnackbar(message = "Request→Sync→Upload pipeline started!", duration = SnackbarDuration.Short)
                         }
                     }
                 )
@@ -603,10 +712,11 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Long Chain: Download \u2192 Process \u2192 Compress \u2192 Sync \u2192 Upload",
                     description = "5-step workflow showcasing complete built-in worker integration",
                     icon = Icons.Default.LinearScale,
+                    enabled = !isAnyTaskRunning,
                     onClick = {
-                        coroutineScope.launch {
+                        runTask("Long Chain: Download \u2192 Process \u2192 Compress \u2192 Sync \u2192 Upload") {
                             val downloadConfig = HttpDownloadConfig(
-                                url = "https://speed.hetzner.de/1MB.bin",
+                                url = "https://httpbin.org/bytes/1024",
                                 savePath = getDummyDownloadPath(context)
                             )
 
@@ -660,9 +770,10 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                                         constraints = Constraints(requiresNetwork = true)
                                     )
                                 )
+                                .withId("demo-long-5-step-chain", policy = ExistingPolicy.KEEP)
                                 .enqueue()
 
-                            snackbarHostState.showSnackbar("5-step long chain started! This demonstrates complete workflow.")
+                            snackbarHostState.showSnackbar(message = "5-step long chain started! This demonstrates complete workflow.", duration = SnackbarDuration.Short)
                         }
                     }
                 )
@@ -677,8 +788,9 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "HTTP Request Worker",
                     description = "Fire-and-forget HTTP POST request",
                     icon = Icons.Default.Http,
+                    enabled = !isAnyTaskRunning,
                     onClick = {
-                        coroutineScope.launch {
+                        runTask("HTTP Request Worker") {
                             val config = HttpRequestConfig(
                                 url = "https://jsonplaceholder.typicode.com/posts",
                                 method = "POST",
@@ -692,7 +804,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                                 inputJson = Json.encodeToString(HttpRequestConfig.serializer(), config),
                                 constraints = Constraints(requiresNetwork = true)
                             )
-                            snackbarHostState.showSnackbar("HttpRequestWorker scheduled")
+                            snackbarHostState.showSnackbar(message = "HttpRequestWorker scheduled", duration = SnackbarDuration.Short)
                         }
                     }
                 )
@@ -700,8 +812,9 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "HTTP Sync Worker",
                     description = "JSON POST/GET with response logging",
                     icon = Icons.Default.SyncAlt,
+                    enabled = !isAnyTaskRunning,
                     onClick = {
-                        coroutineScope.launch {
+                        runTask("HTTP Sync Worker") {
                             val requestBody = buildJsonObject {
                                 put("syncTime", TimeSource.Monotonic.markNow().elapsedNow().inWholeMilliseconds)
                                 put("data", "sample")
@@ -719,7 +832,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                                 inputJson = Json.encodeToString(HttpSyncConfig.serializer(), config),
                                 constraints = Constraints(requiresNetwork = true)
                             )
-                            snackbarHostState.showSnackbar("HttpSyncWorker scheduled")
+                            snackbarHostState.showSnackbar(message = "HttpSyncWorker scheduled", duration = SnackbarDuration.Short)
                         }
                     }
                 )
@@ -727,10 +840,11 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "HTTP Download Worker",
                     description = "Download a file (dummy URL)",
                     icon = Icons.Default.Download,
+                    enabled = !isAnyTaskRunning,
                     onClick = {
-                        coroutineScope.launch {
+                        runTask("HTTP Download Worker") {
                             val config = HttpDownloadConfig(
-                                url = "https://speed.hetzner.de/100MB.bin", // A public test file
+                                url = "https://httpbin.org/bytes/10240", // 10KB test file (works on iOS simulator)
                                 savePath = getDummyDownloadPath(context)
                             )
                             scheduler.enqueue(
@@ -740,16 +854,17 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                                 inputJson = Json.encodeToString(HttpDownloadConfig.serializer(), config),
                                 constraints = Constraints(requiresNetwork = true)
                             )
-                            snackbarHostState.showSnackbar("HttpDownloadWorker scheduled")
+                            snackbarHostState.showSnackbar(message = "HttpDownloadWorker scheduled", duration = SnackbarDuration.Short)
                         }
                     }
                 )
                 DemoCard(
                     title = "HTTP Upload Worker",
-                    description = "Upload a dummy file (POST)",
+                    description = "Upload a dummy file (POST) - ⚠️ Requires file creation first",
                     icon = Icons.Default.UploadFile,
+                    enabled = !isAnyTaskRunning,
                     onClick = {
-                        coroutineScope.launch {
+                        runTask("HTTP Upload Worker") {
                             // This requires a dummy file to exist for the demo to work
                             // For a real demo, you'd create this file first
                             val config = HttpUploadConfig(
@@ -766,16 +881,17 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                                 inputJson = Json.encodeToString(HttpUploadConfig.serializer(), config),
                                 constraints = Constraints(requiresNetwork = true)
                             )
-                            snackbarHostState.showSnackbar("HttpUploadWorker scheduled. (Requires dummy file)")
+                            snackbarHostState.showSnackbar(message = "HttpUploadWorker scheduled. (Requires dummy file)", duration = SnackbarDuration.Short)
                         }
                     }
                 )
                 DemoCard(
                     title = "File Compression Worker",
-                    description = "Compress a dummy folder into a zip",
+                    description = "Compress a dummy folder into a zip - ⚠️ Requires folder/file creation first",
                     icon = Icons.Default.FolderZip,
+                    enabled = !isAnyTaskRunning,
                     onClick = {
-                        coroutineScope.launch {
+                        runTask("File Compression Worker") {
                             // This requires a dummy folder/files to exist
                             val config = FileCompressionConfig(
                                 inputPath = getDummyCompressionInputPath(context),
@@ -788,7 +904,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                                 workerClassName = WorkerTypes.FILE_COMPRESSION_WORKER,
                                 inputJson = Json.encodeToString(FileCompressionConfig.serializer(), config)
                             )
-                            snackbarHostState.showSnackbar("FileCompressionWorker scheduled. (Requires dummy folder)")
+                            snackbarHostState.showSnackbar(message = "FileCompressionWorker scheduled. (Requires dummy folder)", duration = SnackbarDuration.Short)
                         }
                     }
                 )
@@ -802,9 +918,9 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
             ) {
                 OutlinedButton(
                     onClick = {
-                        coroutineScope.launch {
+                        runTask("File Compression Worker") {
                             val (uploadedFilePath, compressedFolderPath) = createDummyFiles(context)
-                            snackbarHostState.showSnackbar("Dummy files created. Upload path: $uploadedFilePath, Compression folder: $compressedFolderPath")
+                            snackbarHostState.showSnackbar(message = "Dummy files created. Upload path: $uploadedFilePath, Compression folder: $compressedFolderPath", duration = SnackbarDuration.Short)
                         }
                     },
                     modifier = Modifier.weight(1f)
@@ -815,9 +931,9 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                 }
                 OutlinedButton(
                     onClick = {
-                        coroutineScope.launch {
+                        runTask("File Compression Worker") {
                             scheduler.cancelAll()
-                            snackbarHostState.showSnackbar("All tasks cancelled")
+                            snackbarHostState.showSnackbar(message = "All tasks cancelled", duration = SnackbarDuration.Short)
                         }
                     },
                     modifier = Modifier.weight(1f),
@@ -881,11 +997,13 @@ private fun DemoCard(
     title: String,
     description: String,
     icon: ImageVector,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    enabled: Boolean = true
 ) {
     OutlinedCard(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxWidth(),
+        enabled = enabled
     ) {
         Row(
             modifier = Modifier.padding(12.dp),

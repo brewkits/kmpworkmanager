@@ -208,7 +208,7 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
         Logger.d(LogTags.CHAIN, "Executing chain $chainId with ${steps.size} steps")
 
         // 3. Execute steps sequentially with timeout protection
-        try {
+        val chainSuccess = try {
             withTimeout(CHAIN_TIMEOUT_MS) {
                 for ((index, step) in steps.withIndex()) {
                     Logger.i(LogTags.CHAIN, "Executing step ${index + 1}/${steps.size} for chain $chainId (${step.size} tasks)")
@@ -220,17 +220,22 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
                         return@withTimeout false
                     }
                 }
+                true // All steps completed successfully
             }
         } catch (e: TimeoutCancellationException) {
             Logger.e(LogTags.CHAIN, "Chain $chainId timed out after ${CHAIN_TIMEOUT_MS}ms")
             userDefaults.removeObjectForKey(chainDefinitionKey)
-            return false
+            false
         }
 
-        // 4. Clean up the chain definition upon successful completion
+        // 4. Clean up the chain definition and log appropriate message
         userDefaults.removeObjectForKey(chainDefinitionKey)
-        Logger.i(LogTags.CHAIN, "Chain $chainId completed all steps successfully")
-        return true
+        if (chainSuccess) {
+            Logger.i(LogTags.CHAIN, "Chain $chainId completed all steps successfully")
+        } else {
+            Logger.w(LogTags.CHAIN, "Chain $chainId aborted due to step failure")
+        }
+        return chainSuccess
     }
 
     /**

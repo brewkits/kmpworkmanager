@@ -5,6 +5,7 @@ Complete API documentation for KMP WorkManager.
 ## Table of Contents
 
 - [BackgroundTaskScheduler](#backgroundtaskscheduler)
+- [WorkerResult (v2.3.0+)](#workerresult-v230)
 - [Task Triggers](#task-triggers)
 - [Constraints](#constraints)
 - [TaskChain](#taskchain)
@@ -126,6 +127,134 @@ suspend fun cancelAll()
 ```kotlin
 scheduler.cancelAll()
 ```
+
+---
+
+## WorkerResult (v2.3.0+)
+
+**New in v2.3.0:** Workers can now return structured results instead of just boolean.
+
+### WorkerResult Sealed Class
+
+```kotlin
+sealed class WorkerResult {
+    data class Success(
+        val message: String? = null,
+        val data: Map<String, Any?>? = null
+    ) : WorkerResult()
+
+    data class Failure(
+        val message: String
+    ) : WorkerResult()
+}
+```
+
+### Worker Interface
+
+**Common Worker:**
+
+```kotlin
+interface CommonWorker {
+    suspend fun doWork(input: String?): WorkerResult
+}
+```
+
+**Backward Compatibility:**
+
+Workers returning `Boolean` are automatically converted to `WorkerResult`:
+- `true` → `WorkerResult.Success()`
+- `false` → `WorkerResult.Failure("Task failed")`
+
+### Examples
+
+#### Basic Success/Failure
+
+```kotlin
+class SyncWorker : CommonWorker {
+    override suspend fun doWork(input: String?): WorkerResult {
+        return try {
+            syncData()
+            WorkerResult.Success(message = "Sync completed")
+        } catch (e: Exception) {
+            WorkerResult.Failure("Sync failed: ${e.message}")
+        }
+    }
+}
+```
+
+#### Returning Data
+
+```kotlin
+class DownloadWorker : CommonWorker {
+    override suspend fun doWork(input: String?): WorkerResult {
+        val config = Json.decodeFromString<DownloadConfig>(input!!)
+        val file = downloadFile(config.url, config.savePath)
+
+        return WorkerResult.Success(
+            message = "Downloaded ${file.length()} bytes in 5s",
+            data = mapOf(
+                "filePath" to config.savePath,
+                "fileSize" to file.length(),
+                "url" to config.url,
+                "duration" to 5000L
+            )
+        )
+    }
+}
+```
+
+#### Handling Results
+
+```kotlin
+// In your application code
+when (val result = worker.doWork(input)) {
+    is WorkerResult.Success -> {
+        println("Success: ${result.message}")
+        val fileSize = result.data?.get("fileSize") as? Long
+        println("File size: $fileSize bytes")
+    }
+    is WorkerResult.Failure -> {
+        println("Failed: ${result.message}")
+    }
+}
+```
+
+#### Data Passing in Chains
+
+```kotlin
+// Worker 1: Download file and return metadata
+class DownloadWorker : CommonWorker {
+    override suspend fun doWork(input: String?): WorkerResult {
+        val file = download(url)
+        return WorkerResult.Success(
+            data = mapOf("filePath" to file.path, "size" to file.size)
+        )
+    }
+}
+
+// Worker 2: Process downloaded file
+class ProcessWorker : CommonWorker {
+    override suspend fun doWork(input: String?): WorkerResult {
+        // In v2.3.0: Access previous worker data via event bus or custom implementation
+        // In v2.4.0: Automatic data passing will be supported
+        return WorkerResult.Success(message = "Processed file")
+    }
+}
+
+// Chain them together
+scheduler.beginWith(TaskRequest("DownloadWorker"))
+    .then(TaskRequest("ProcessWorker"))
+    .withId("download-process-chain", policy = ExistingPolicy.KEEP)
+    .enqueue()
+```
+
+### Benefits
+
+✅ **Structured Data Return**: Return any data from workers
+✅ **Better Error Messages**: Detailed failure messages
+✅ **Type Safety**: Explicit success/failure handling
+✅ **Backward Compatible**: Boolean returns still work
+✅ **Built-in Workers**: All 5 built-in workers return meaningful data
 
 ---
 
@@ -555,15 +684,54 @@ fun then(requests: List<TaskRequest>): TaskChain
 
 ---
 
+#### `withId()` (v2.3.0+)
+
+Set a unique ID for the chain and specify the ExistingPolicy.
+
+```kotlin
+fun withId(
+    id: String,
+    policy: ExistingPolicy = ExistingPolicy.REPLACE
+): TaskChain
+```
+
+**Parameters:**
+
+- `id: String` - Unique identifier for the chain
+- `policy: ExistingPolicy` - How to handle if a chain with this ID already exists
+  - `ExistingPolicy.KEEP` - Skip if chain already running
+  - `ExistingPolicy.REPLACE` - Cancel old chain and start new one
+
+**Returns:** `TaskChain` - New chain instance with the specified ID and policy
+
+**Example:**
+
+```kotlin
+// Prevent duplicate chain execution
+scheduler.beginWith(TaskRequest("DownloadWorker"))
+    .then(TaskRequest("ProcessWorker"))
+    .withId("download-process-workflow", policy = ExistingPolicy.KEEP)
+    .enqueue()
+
+// Click button multiple times - only runs once
+button.onClick {
+    scheduler.beginWith(TaskRequest("SyncWorker"))
+        .withId("sync-chain", policy = ExistingPolicy.KEEP)
+        .enqueue()
+}
+```
+
+---
+
 #### `enqueue()`
 
 Execute the constructed task chain.
 
 ```kotlin
-suspend fun enqueue(): ScheduleResult
+fun enqueue()
 ```
 
-**Returns:** `ScheduleResult` - Result of the chain scheduling operation
+**Note:** No return value in v2.3.0. The chain is enqueued asynchronously.
 
 ---
 
