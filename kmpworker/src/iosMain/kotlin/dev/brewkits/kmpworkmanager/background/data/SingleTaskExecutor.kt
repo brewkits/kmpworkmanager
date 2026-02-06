@@ -2,6 +2,7 @@ package dev.brewkits.kmpworkmanager.background.data
 
 import dev.brewkits.kmpworkmanager.background.domain.TaskCompletionEvent
 import dev.brewkits.kmpworkmanager.background.domain.TaskEventBus
+import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.utils.LogTags
 import kotlinx.coroutines.*
@@ -57,14 +58,15 @@ class SingleTaskExecutor(private val workerFactory: IosWorkerFactory) {
                 val startTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
                 val result = worker.doWork(input)
                 val duration = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime
+                val success = result is WorkerResult.Success
 
-                if (result) {
+                if (success) {
                     Logger.i(LogTags.WORKER, "Task completed successfully: $workerClassName (${duration}ms)")
                 } else {
                     Logger.w(LogTags.WORKER, "Task completed with failure: $workerClassName (${duration}ms)")
                 }
 
-                result
+                success
             }
         } catch (e: TimeoutCancellationException) {
             Logger.e(LogTags.WORKER, "Task timed out after ${timeoutMs}ms: $workerClassName")

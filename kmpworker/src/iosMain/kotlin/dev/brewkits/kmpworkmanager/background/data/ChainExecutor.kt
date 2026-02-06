@@ -644,7 +644,8 @@ class ChainExecutor(
                     }
 
                     val result = executeTask(task)
-                    if (result) {
+                    val success = result is WorkerResult.Success
+                    if (success) {
                         // v2.2.2+: Protect progress save from cancellation
                         withContext(NonCancellable) {
                             progressMutex.withLock {
@@ -653,7 +654,7 @@ class ChainExecutor(
                             }
                         }
                     }
-                    result
+                    success  // Return Boolean instead of WorkerResult
                 }
             }.awaitAll()
         }
@@ -668,13 +669,13 @@ class ChainExecutor(
     /**
      * Execute a single task with timeout protection and detailed logging
      */
-    private suspend fun executeTask(task: TaskRequest): Boolean {
+    private suspend fun executeTask(task: TaskRequest): WorkerResult {
         Logger.d(LogTags.CHAIN, "▶️ Starting task: ${task.workerClassName} (timeout: ${taskTimeout}ms)")
 
         val worker = workerFactory.createWorker(task.workerClassName)
         if (worker == null) {
             Logger.e(LogTags.CHAIN, "❌ Could not create worker for ${task.workerClassName}")
-            return false
+            return WorkerResult.Failure("Worker not found: ${task.workerClassName}")
         }
 
         val startTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
@@ -703,7 +704,7 @@ class ChainExecutor(
                                 outputData = result.data
                             )
                         )
-                        true
+                        result  // Return the WorkerResult
                     }
                     is WorkerResult.Failure -> {
                         Logger.w(LogTags.CHAIN, "❌ Task ${task.workerClassName} failed: ${result.message} (${duration}ms)")
@@ -716,7 +717,7 @@ class ChainExecutor(
                                 outputData = null
                             )
                         )
-                        false
+                        result  // Return the WorkerResult
                     }
                 }
             }
@@ -733,7 +734,7 @@ class ChainExecutor(
                     outputData = null
                 )
             )
-            false
+            WorkerResult.Failure("Timeout after ${duration}ms")
         } catch (e: Exception) {
             val duration = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime
             Logger.e(LogTags.CHAIN, "💥 Task ${task.workerClassName} threw exception after ${duration}ms", e)
@@ -747,7 +748,7 @@ class ChainExecutor(
                     outputData = null
                 )
             )
-            false
+            WorkerResult.Failure("Exception: ${e.message}")
         }
     }
 

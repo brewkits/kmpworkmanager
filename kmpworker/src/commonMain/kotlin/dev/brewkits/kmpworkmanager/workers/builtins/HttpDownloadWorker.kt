@@ -87,7 +87,6 @@ class HttpDownloadWorker(
     private suspend fun downloadFile(config: HttpDownloadConfig): WorkerResult {
         val savePath = config.savePath.toPath()
         val tempPath = "${config.savePath}.tmp".toPath()
-        val startTime = System.currentTimeMillis()
 
         return try {
             // Ensure parent directory exists
@@ -150,18 +149,13 @@ class HttpDownloadWorker(
             }
             fileSystem.atomicMove(tempPath, savePath)
 
-            val duration = System.currentTimeMillis() - startTime
-            val speedKbps = if (duration > 0) (downloadedBytes / duration) else 0L
-
             Logger.i("HttpDownloadWorker", "Download completed successfully: $savePath")
 
             WorkerResult.Success(
-                message = "Downloaded ${SecurityValidator.formatByteSize(downloadedBytes)} in ${duration}ms",
+                message = "Downloaded ${SecurityValidator.formatByteSize(downloadedBytes)}",
                 data = mapOf(
                     "fileSize" to downloadedBytes,
                     "filePath" to config.savePath,
-                    "durationMs" to duration,
-                    "speedKBps" to speedKbps,
                     "url" to SecurityValidator.sanitizedURL(config.url)
                 )
             )

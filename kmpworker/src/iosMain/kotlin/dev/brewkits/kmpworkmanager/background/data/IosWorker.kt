@@ -1,5 +1,7 @@
 package dev.brewkits.kmpworkmanager.background.data
 
+import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
+
 /**
  * iOS Worker interface for background task execution.
  *

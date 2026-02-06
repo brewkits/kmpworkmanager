@@ -3,6 +3,7 @@ package dev.brewkits.kmpworkmanager.background.domain
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.serialization.Contextual
 import kotlinx.serialization.Serializable
 
 /**
