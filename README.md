@@ -40,13 +40,17 @@ KMP WorkManager gives you **one unified API** for both platforms with:
 
 ```kotlin
 // 1. Add dependency
-implementation("dev.brewkits:kmpworkmanager:2.2.2")
+implementation("dev.brewkits:kmpworkmanager:2.3.0")
 
 // 2. Define your worker (shared code!)
 class SyncWorker : CommonWorker {
-    override suspend fun doWork(input: String?): Boolean {
+    override suspend fun doWork(input: String?): WorkerResult {
         // Your logic runs on BOTH platforms
-        return true
+        // NEW in v2.3.0: Return structured data!
+        return WorkerResult.Success(
+            message = "Synced 150 items",
+            data = mapOf("itemCount" to 150)
+        )
     }
 }
 
@@ -70,7 +74,7 @@ Add to your `build.gradle.kts`:
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("dev.brewkits:kmpworkmanager:2.2.2")
+            implementation("dev.brewkits:kmpworkmanager:2.3.0")
         }
     }
 }
@@ -112,13 +116,33 @@ Write background task logic once, run on both platforms:
 - **Windowed**: Run within time window
 - **Exact**: Precise timing (Android only)
 
-### Task Chains
-Execute tasks sequentially or in parallel:
+### WorkerResult API (v2.3.0+)
+Return structured data from workers instead of just boolean:
 ```kotlin
-// Sequential
+class DownloadWorker : CommonWorker {
+    override suspend fun doWork(input: String?): WorkerResult {
+        val file = downloadFile(url)
+
+        return WorkerResult.Success(
+            message = "Downloaded ${file.size} bytes in 5s",
+            data = mapOf(
+                "filePath" to file.path,
+                "fileSize" to file.size,
+                "url" to url
+            )
+        )
+    }
+}
+```
+
+### Task Chains
+Execute tasks sequentially or in parallel with optional chain IDs:
+```kotlin
+// Sequential with ID to prevent duplicates (v2.3.0+)
 scheduler.beginWith(TaskRequest("Download"))
     .then(TaskRequest("Process"))
     .then(TaskRequest("Upload"))
+    .withId("sync-workflow", policy = ExistingPolicy.KEEP)
     .enqueue()
 
 // Parallel
@@ -143,17 +167,34 @@ Constraints(
 )
 ```
 
+### Built-in Workers (v2.3.0+)
+5 production-ready workers with data return support:
+```kotlin
+// HTTP Request Worker
+val config = HttpRequestConfig(
+    url = "https://api.example.com/data",
+    method = "POST",
+    body = """{"key":"value"}"""
+)
+// Returns: response status, body, headers
+
+// HTTP Download Worker - downloads files
+// HTTP Upload Worker - uploads files
+// HTTP Sync Worker - bidirectional sync
+// File Compression Worker - compress/decompress files
+```
+
 ### Progress Tracking
 Real-time worker progress updates:
 ```kotlin
 class DownloadWorker(
     private val progressListener: ProgressListener?
 ) : Worker {
-    override suspend fun doWork(input: String?): Boolean {
+    override suspend fun doWork(input: String?): WorkerResult {
         progressListener?.onProgressUpdate(
             WorkerProgress(progress = 50, message = "Downloading...")
         )
-        return true
+        return WorkerResult.Success(message = "Download complete")
     }
 }
 ```
@@ -208,31 +249,34 @@ Perfect for apps that need reliable background execution:
 - [Platform Setup](docs/platform-setup.md)
 - [API Reference](docs/api-reference.md)
 - [Task Chains](docs/task-chains.md)
+- [Built-in Workers Guide](docs/BUILTIN_WORKERS_GUIDE.md) 🆕
 - [iOS Best Practices](docs/ios-best-practices.md) ⚠️ **Important**
-- [Release Notes](docs/V2.2.2_RELEASE_NOTES.md)
-- [Migration Guide](docs/MIGRATION_V2.2.2.md)
+- [Release Notes v2.3.0](docs/V2.3.0_RELEASE_NOTES.md) 🆕
+- [Migration Guide v2.3.0](docs/MIGRATION_V2.3.0.md) 🆕
 - [Architecture](docs/ARCHITECTURE.md)
 
 ## Production Track Record
 
-**Latest: v2.2.2** (February 2026) - 16 bug fixes for ultimate stability:
-- ✅ Zero thread safety issues
-- ✅ No OOM on low-memory devices
-- ✅ 100% backward compatible
-- ✅ 40+ new integration tests
+**Latest: v2.3.0** (February 2026) - WorkerResult API & Enhanced Chains:
+- ✅ **WorkerResult API**: Return structured data from workers
+- ✅ **Built-in Workers Data**: All 5 built-in workers return meaningful data
+- ✅ **Chain ID Support**: Prevent duplicate chain execution with explicit IDs
+- ✅ **100% backward compatible**: Existing Boolean returns still work
+- ✅ 14+ new integration tests
 
 **Previous Milestones:**
+- **v2.2.2** (February 2026) - 16 bug fixes for ultimate stability
 - **v2.2.0** - Production-ready release with self-healing architecture
 - **v2.0.0** - Maven Central publication (`dev.brewkits`)
 - **v1.0.0** - Initial stable release
 
-See [Release Notes](docs/V2.2.2_RELEASE_NOTES.md) | [Full Changelog](CHANGELOG.md) | [Roadmap](docs/ROADMAP.md)
+See [Release Notes v2.3.0](docs/V2.3.0_RELEASE_NOTES.md) | [Migration Guide v2.3.0](docs/MIGRATION_V2.3.0.md) | [Full Changelog](CHANGELOG.md) | [Roadmap](docs/ROADMAP.md)
 
 ## Ready to Simplify Your Background Tasks?
 
 **Start building in minutes:**
 
-1. Add dependency: `implementation("dev.brewkits:kmpworkmanager:2.2.2")`
+1. Add dependency: `implementation("dev.brewkits:kmpworkmanager:2.3.0")`
 2. Read [Quick Start Guide](docs/quickstart.md)
 3. Check [Sample App](https://github.com/brewkits/kmp_worker) for examples
 

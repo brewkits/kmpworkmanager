@@ -565,32 +565,72 @@ actual class NativeTaskScheduler(private val context: Context) : BackgroundTaskS
         return dev.brewkits.kmpworkmanager.sample.background.domain.TaskChain(this, tasks)
     }
 
-    actual override fun enqueueChain(chain: dev.brewkits.kmpworkmanager.sample.background.domain.TaskChain) {
+    actual override fun enqueueChain(
+        chain: dev.brewkits.kmpworkmanager.sample.background.domain.TaskChain,
+        id: String?,
+        policy: dev.brewkits.kmpworkmanager.sample.background.domain.ExistingPolicy
+    ) {
         val steps = chain.getSteps()
         if (steps.isEmpty()) return
 
-        // Create a list of WorkRequests for the first step
-        val firstStepWorkRequests = steps.first().map { taskRequest ->
-            createWorkRequest(taskRequest)
+        val chainId = id ?: java.util.UUID.randomUUID().toString()
+        Logger.i(LogTags.CHAIN, "Enqueuing chain - ID: $chainId, Steps: ${steps.size}, Policy: $policy")
+
+        // Apply ExistingPolicy if ID is provided
+        if (id != null) {
+            val existingWork = workManager.getWorkInfosByTag(chainId).get()
+            val hasRunningWork = existingWork.any {
+                it.state == androidx.work.WorkInfo.State.RUNNING ||
+                it.state == androidx.work.WorkInfo.State.ENQUEUED
+            }
+
+            if (hasRunningWork) {
+                when (policy) {
+                    dev.brewkits.kmpworkmanager.sample.background.domain.ExistingPolicy.KEEP -> {
+                        Logger.i(LogTags.CHAIN, "Chain $chainId already exists, KEEP policy - skipping")
+                        return
+                    }
+                    dev.brewkits.kmpworkmanager.sample.background.domain.ExistingPolicy.REPLACE -> {
+                        Logger.i(LogTags.CHAIN, "Chain $chainId exists, REPLACE policy - cancelling existing")
+                        workManager.cancelAllWorkByTag(chainId)
+                    }
+                }
+            }
         }
 
-        // Begin the chain
-        var workContinuation = workManager.beginWith(firstStepWorkRequests)
+        // Create a list of WorkRequests for the first step
+        val firstStepWorkRequests = steps.first().map { taskRequest ->
+            createWorkRequest(taskRequest, chainId)
+        }
+
+        // Begin the chain with unique name if ID provided
+        var workContinuation = if (id != null) {
+            workManager.beginUniqueWork(
+                id,
+                androidx.work.ExistingWorkPolicy.REPLACE,
+                firstStepWorkRequests
+            )
+        } else {
+            workManager.beginWith(firstStepWorkRequests)
+        }
 
         // Chain the subsequent steps
         steps.drop(1).forEach { parallelTasks ->
             val nextStepWorkRequests = parallelTasks.map { taskRequest ->
-                createWorkRequest(taskRequest)
+                createWorkRequest(taskRequest, chainId)
             }
             workContinuation = workContinuation.then(nextStepWorkRequests)
         }
 
         // Enqueue the entire chain
         workContinuation.enqueue()
-        Logger.i(LogTags.CHAIN, "Successfully enqueued task chain with ${steps.size} steps")
+        Logger.i(LogTags.CHAIN, "Successfully enqueued task chain $chainId with ${steps.size} steps")
     }
 
-    private fun createWorkRequest(task: dev.brewkits.kmpworkmanager.sample.background.domain.TaskRequest): OneTimeWorkRequest {
+    private fun createWorkRequest(
+        task: dev.brewkits.kmpworkmanager.sample.background.domain.TaskRequest,
+        chainId: String? = null
+    ): OneTimeWorkRequest {
         val workData = Data.Builder()
             .putString("workerClassName", task.workerClassName)
             .apply { task.inputJson?.let { putString("inputJson", it) } }
@@ -626,6 +666,9 @@ actual class NativeTaskScheduler(private val context: Context) : BackgroundTaskS
             .addTag(TAG_KMP_TASK)
             .addTag("type-chain-member")
             .addTag("worker-${task.workerClassName}")
+            .apply {
+                chainId?.let { addTag(it) }
+            }
             .build()
     }
 }

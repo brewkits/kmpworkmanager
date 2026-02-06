@@ -59,5 +59,9 @@ expect class NativeTaskScheduler : BackgroundTaskScheduler {
 
     override fun beginWith(tasks: List<dev.brewkits.kmpworkmanager.sample.background.domain.TaskRequest>): dev.brewkits.kmpworkmanager.sample.background.domain.TaskChain
 
-    override fun enqueueChain(chain: dev.brewkits.kmpworkmanager.sample.background.domain.TaskChain)
+    override fun enqueueChain(
+        chain: dev.brewkits.kmpworkmanager.sample.background.domain.TaskChain,
+        id: String?,
+        policy: ExistingPolicy
+    )
 }

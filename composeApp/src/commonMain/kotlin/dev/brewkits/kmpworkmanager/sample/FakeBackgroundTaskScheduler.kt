@@ -39,7 +39,7 @@ class FakeBackgroundTaskScheduler : BackgroundTaskScheduler {
         return TaskChain(this, tasks)
     }
 
-    override fun enqueueChain(chain: TaskChain) {
-        println("FakeBackgroundTaskScheduler: enqueueChain called")
+    override fun enqueueChain(chain: TaskChain, id: String?, policy: ExistingPolicy) {
+        println("FakeBackgroundTaskScheduler: enqueueChain called with id=$id, policy=$policy")
     }
 }

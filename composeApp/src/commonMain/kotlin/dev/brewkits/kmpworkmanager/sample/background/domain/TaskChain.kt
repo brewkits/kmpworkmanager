@@ -27,9 +27,27 @@ data class TaskRequest(
  */
 class TaskChain internal constructor(
     private val scheduler: BackgroundTaskScheduler,
-    initialTasks: List<TaskRequest>
+    initialTasks: List<TaskRequest>,
+    internal val chainId: String? = null,
+    internal val existingPolicy: ExistingPolicy = ExistingPolicy.REPLACE
 ) {
     private val steps: MutableList<List<TaskRequest>> = mutableListOf(initialTasks)
+
+    /**
+     * Secondary constructor for withId() method
+     */
+    @Suppress("UNUSED_PARAMETER")
+    private constructor(
+        scheduler: BackgroundTaskScheduler,
+        steps: MutableList<List<TaskRequest>>,
+        chainId: String?,
+        existingPolicy: ExistingPolicy,
+        @Suppress("UNUSED_PARAMETER") dummy: Unit = Unit
+    ) : this(scheduler, steps.firstOrNull() ?: emptyList(), chainId, existingPolicy) {
+        // Replace the single-item steps with the full steps list
+        this.steps.clear()
+        this.steps.addAll(steps)
+    }
 
     /**
      * Appends a single task to be executed sequentially after all previous tasks in the chain have completed.
@@ -56,11 +74,22 @@ class TaskChain internal constructor(
     }
 
     /**
+     * Sets a unique ID for this chain and specifies the ExistingPolicy.
+     *
+     * @param id Unique identifier for the chain
+     * @param policy How to handle if a chain with this ID already exists
+     * @return A new [TaskChain] instance with the specified ID and policy
+     */
+    fun withId(id: String, policy: ExistingPolicy = ExistingPolicy.REPLACE): TaskChain {
+        return TaskChain(scheduler, steps.toMutableList(), id, policy, Unit)
+    }
+
+    /**
      * Enqueues the constructed task chain for execution.
      * The actual scheduling is delegated to the `BackgroundTaskScheduler`.
      */
     fun enqueue() {
-        scheduler.enqueueChain(this)
+        scheduler.enqueueChain(this, chainId, existingPolicy)
     }
 
     /**
