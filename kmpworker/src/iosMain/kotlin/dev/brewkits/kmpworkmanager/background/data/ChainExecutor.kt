@@ -4,6 +4,7 @@ import dev.brewkits.kmpworkmanager.background.domain.BGTaskType
 import dev.brewkits.kmpworkmanager.background.domain.TaskCompletionEvent
 import dev.brewkits.kmpworkmanager.background.domain.TaskEventBus
 import dev.brewkits.kmpworkmanager.background.domain.TaskRequest
+import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.utils.LogTags
 import kotlinx.coroutines.*
@@ -689,12 +690,35 @@ class ChainExecutor(
                     Logger.w(LogTags.CHAIN, "⚠️ Task ${task.workerClassName} used ${duration}ms / ${taskTimeout}ms (${percentage}%) - approaching timeout!")
                 }
 
-                if (result) {
-                    Logger.d(LogTags.CHAIN, "✅ Task ${task.workerClassName} succeeded in ${duration}ms (${percentage}%)")
-                } else {
-                    Logger.w(LogTags.CHAIN, "❌ Task ${task.workerClassName} failed after ${duration}ms")
+                when (result) {
+                    is WorkerResult.Success -> {
+                        val message = result.message ?: "Task succeeded in ${duration}ms"
+                        Logger.d(LogTags.CHAIN, "✅ Task ${task.workerClassName} - $message (${percentage}%)")
+
+                        TaskEventBus.emit(
+                            TaskCompletionEvent(
+                                taskName = task.workerClassName,
+                                success = true,
+                                message = message,
+                                outputData = result.data
+                            )
+                        )
+                        true
+                    }
+                    is WorkerResult.Failure -> {
+                        Logger.w(LogTags.CHAIN, "❌ Task ${task.workerClassName} failed: ${result.message} (${duration}ms)")
+
+                        TaskEventBus.emit(
+                            TaskCompletionEvent(
+                                taskName = task.workerClassName,
+                                success = false,
+                                message = result.message,
+                                outputData = null
+                            )
+                        )
+                        false
+                    }
                 }
-                result
             }
         } catch (e: TimeoutCancellationException) {
             val duration = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime
@@ -705,7 +729,8 @@ class ChainExecutor(
                 TaskCompletionEvent(
                     taskName = task.workerClassName,
                     success = false,
-                    message = "⏱️ Timeout after ${duration}ms"
+                    message = "⏱️ Timeout after ${duration}ms",
+                    outputData = null
                 )
             )
             false
@@ -718,7 +743,8 @@ class ChainExecutor(
                 TaskCompletionEvent(
                     taskName = task.workerClassName,
                     success = false,
-                    message = "💥 Exception: ${e.message}"
+                    message = "💥 Exception: ${e.message}",
+                    outputData = null
                 )
             )
             false

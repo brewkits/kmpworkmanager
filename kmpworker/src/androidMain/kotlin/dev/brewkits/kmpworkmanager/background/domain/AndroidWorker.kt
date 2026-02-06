@@ -9,14 +9,22 @@ package dev.brewkits.kmpworkmanager.background.domain
  * - KmpHeavyWorker: Foreground service tasks (isHeavyTask = true)
  * - AlarmReceiver: Exact alarms
  *
+ * v2.3.0+: Changed return type from Boolean to WorkerResult
+ *
  * Example:
  * ```kotlin
  * class SyncWorker : AndroidWorker {
- *     override suspend fun doWork(input: String?): Boolean {
- *         // Your sync logic here
- *         delay(2000)
- *         TaskEventBus.emit(TaskCompletionEvent("Sync", true, "✅ Synced"))
- *         return true
+ *     override suspend fun doWork(input: String?): WorkerResult {
+ *         return try {
+ *             // Your sync logic here
+ *             delay(2000)
+ *             WorkerResult.Success(
+ *                 message = "✅ Synced",
+ *                 data = mapOf("itemCount" to 42)
+ *             )
+ *         } catch (e: Exception) {
+ *             WorkerResult.Failure("Sync failed: ${e.message}")
+ *         }
  *     }
  * }
  * ```
@@ -27,8 +35,10 @@ interface AndroidWorker : dev.brewkits.kmpworkmanager.background.domain.Worker {
     /**
      * Performs the background work.
      *
+     * v2.3.0+: Return type changed from Boolean to WorkerResult
+     *
      * @param input Optional input data passed from scheduler.enqueue()
-     * @return true if work completed successfully, false otherwise
+     * @return WorkerResult indicating success/failure with optional data and message
      */
-    override suspend fun doWork(input: String?): Boolean
+    override suspend fun doWork(input: String?): WorkerResult
 }

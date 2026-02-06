@@ -1,5 +1,6 @@
 package dev.brewkits.kmpworkmanager.workers.builtins
 
+import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.workers.config.CompressionLevel
 import dev.brewkits.kmpworkmanager.workers.config.FileCompressionConfig
@@ -13,20 +14,22 @@ import java.util.zip.ZipOutputStream
 
 /**
  * Android implementation of file compression using java.util.zip.
+ *
+ * v2.3.0+: Returns WorkerResult with compression statistics
  */
-internal actual suspend fun platformCompress(config: FileCompressionConfig): Boolean {
+internal actual suspend fun platformCompress(config: FileCompressionConfig): WorkerResult {
     val inputFile = File(config.inputPath)
     val outputFile = File(config.outputPath)
 
     if (!inputFile.exists()) {
         Logger.e("FileCompressionWorker", "Input file/directory does not exist: ${config.inputPath}")
-        return false
+        return WorkerResult.Failure("Input file/directory does not exist: ${config.inputPath}")
     }
 
     // Validate output path
     if (!SecurityValidator.validateFilePath(config.outputPath)) {
         Logger.e("FileCompressionWorker", "Invalid output path: ${config.outputPath}")
-        return false
+        return WorkerResult.Failure("Invalid output path: ${config.outputPath}")
     }
 
     // Create parent directory if needed
@@ -86,14 +89,23 @@ internal actual suspend fun platformCompress(config: FileCompressionConfig): Boo
             }
         }
 
-        true
+        WorkerResult.Success(
+            message = "Compressed ${SecurityValidator.formatByteSize(originalSize)} to ${SecurityValidator.formatByteSize(compressedSize)} ($compressionRatio%)",
+            data = mapOf(
+                "originalSize" to originalSize,
+                "compressedSize" to compressedSize,
+                "compressionRatio" to compressionRatio,
+                "outputPath" to config.outputPath,
+                "deletedOriginal" to config.deleteOriginal
+            )
+        )
     } catch (e: Exception) {
         Logger.e("FileCompressionWorker", "Compression failed", e)
         // Cleanup partial zip file
         if (outputFile.exists()) {
             outputFile.delete()
         }
-        false
+        WorkerResult.Failure("Compression failed: ${e.message}")
     }
 }
 

@@ -1,6 +1,7 @@
 package dev.brewkits.kmpworkmanager.workers.builtins
 
 import dev.brewkits.kmpworkmanager.background.domain.Worker
+import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.workers.config.FileCompressionConfig
 import kotlinx.serialization.json.Json
@@ -49,12 +50,12 @@ import kotlinx.serialization.json.Json
  */
 class FileCompressionWorker : Worker {
 
-    override suspend fun doWork(input: String?): Boolean {
+    override suspend fun doWork(input: String?): WorkerResult {
         Logger.i("FileCompressionWorker", "Starting file compression worker...")
 
         if (input == null) {
             Logger.e("FileCompressionWorker", "Input configuration is null")
-            return false
+            return WorkerResult.Failure("Input configuration is null")
         }
 
         return try {
@@ -64,7 +65,7 @@ class FileCompressionWorker : Worker {
             compressFile(config)
         } catch (e: Exception) {
             Logger.e("FileCompressionWorker", "Failed to compress file", e)
-            false
+            WorkerResult.Failure("Compression failed: ${e.message}")
         }
     }
 
@@ -72,7 +73,7 @@ class FileCompressionWorker : Worker {
      * Platform-specific compression implementation.
      * Implemented in androidMain and iosMain source sets.
      */
-    private suspend fun compressFile(config: FileCompressionConfig): Boolean {
+    private suspend fun compressFile(config: FileCompressionConfig): WorkerResult {
         return platformCompress(config)
     }
 }
@@ -81,7 +82,9 @@ class FileCompressionWorker : Worker {
  * Platform-specific compression function.
  * Must be implemented in androidMain and iosMain source sets.
  *
+ * v2.3.0+: Returns WorkerResult with compression statistics
+ *
  * @param config Compression configuration
- * @return true if compression succeeded, false otherwise
+ * @return WorkerResult with compression details (original size, compressed size, compression ratio)
  */
-internal expect suspend fun platformCompress(config: FileCompressionConfig): Boolean
+internal expect suspend fun platformCompress(config: FileCompressionConfig): WorkerResult
