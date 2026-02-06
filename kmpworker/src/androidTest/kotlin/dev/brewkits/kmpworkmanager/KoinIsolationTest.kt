@@ -316,7 +316,8 @@ class KoinIsolationTest {
     }
 
     private class TestWorker : AndroidWorker {
-        override suspend fun doWork(input: String?): Boolean = true
+        override suspend fun doWork(input: String?) =
+            dev.brewkits.kmpworkmanager.background.domain.WorkerResult.Success()
     }
 
     private class MockScheduler : BackgroundTaskScheduler {

@@ -15,29 +15,36 @@ import kotlinx.serialization.Serializable
  * - Batch operations
  * - Image compression
  *
- * **Usage in Worker:**
+ * **Usage in Worker (v2.3.0+):**
  * ```kotlin
  * class FileDownloadWorker(
  *     private val progressListener: ProgressListener?
  * ) : Worker {
- *     override suspend fun doWork(input: String?): Boolean {
- *         val totalBytes = getTotalFileSize()
- *         var downloaded = 0L
+ *     override suspend fun doWork(input: String?): WorkerResult {
+ *         return try {
+ *             val totalBytes = getTotalFileSize()
+ *             var downloaded = 0L
  *
- *         while (downloaded < totalBytes) {
- *             val chunk = downloadChunk()
- *             downloaded += chunk.size
+ *             while (downloaded < totalBytes) {
+ *                 val chunk = downloadChunk()
+ *                 downloaded += chunk.size
  *
- *             val progress = (downloaded * 100 / totalBytes).toInt()
- *             progressListener?.onProgressUpdate(
- *                 WorkerProgress(
- *                     progress = progress,
- *                     message = "Downloaded $downloaded / $totalBytes bytes"
+ *                 val progress = (downloaded * 100 / totalBytes).toInt()
+ *                 progressListener?.onProgressUpdate(
+ *                     WorkerProgress(
+ *                         progress = progress,
+ *                         message = "Downloaded $downloaded / $totalBytes bytes"
+ *                     )
  *                 )
- *             )
- *         }
+ *             }
  *
- *         return true
+ *             WorkerResult.Success(
+ *                 message = "Downloaded $totalBytes bytes",
+ *                 data = mapOf("fileSize" to totalBytes)
+ *             )
+ *         } catch (e: Exception) {
+ *             WorkerResult.Failure("Download failed: ${e.message}")
+ *         }
  *     }
  * }
  * ```
