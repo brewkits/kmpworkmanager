@@ -257,8 +257,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         let executor = koinIos.getSingleTaskExecutor()
         Task {
             do {
-                let success = try await executor.executeTask(workerClassName: workerName, input: inputJson, timeoutMs: 25000)
-                let result = success.boolValue
+                let workerResult = try await executor.executeTask(workerClassName: workerName, input: inputJson, timeoutMs: 25000)
+                // Check if result is Success by attempting to cast
+                let result: Bool
+                if let _ = workerResult as? WorkerResult.Success {
+                    result = true
+                } else {
+                    result = false
+                }
                 print("iOS BGTask: Task \(taskId) finished with success: \(result)")
 
                 // If it was a periodic task, re-schedule it.
