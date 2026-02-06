@@ -8,6 +8,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -110,7 +112,6 @@ internal class IosFileStorage(
     private val progressBuffer = mutableMapOf<String, ChainProgress>()
     private val progressMutex = Mutex()
     private var flushJob: kotlinx.coroutines.Job? = null
-    @Volatile
     private var isFlushing = false  // Tracks if flush is in progress (prevents race conditions)
 
     companion object {

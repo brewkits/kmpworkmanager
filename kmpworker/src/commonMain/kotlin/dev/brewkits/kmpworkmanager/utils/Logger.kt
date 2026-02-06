@@ -18,25 +18,16 @@ object Logger {
     /**
      * Minimum log level to output. Logs below this level are filtered out.
      * Default: VERBOSE (log everything) for backward compatibility.
-     * @Volatile ensures visibility across threads
      */
-    @Volatile
     private var minLevel: Level = Level.VERBOSE
 
     /**
      * Custom logger implementation. If set, delegates all logging to this instance.
-     * @Volatile ensures visibility across threads
      */
-    @Volatile
     private var customLogger: CustomLogger? = null
 
     /**
-     * Lock object for thread-safe configuration changes
-     */
-    private val configLock = Any()
-
-    /**
-     * Set the minimum log level (thread-safe). Logs below this level will be filtered out.
+     * Set the minimum log level. Logs below this level will be filtered out.
      *
      * Example:
      * ```
@@ -44,14 +35,12 @@ object Logger {
      * ```
      */
     fun setMinLevel(level: Level) {
-        synchronized(configLock) {
-            minLevel = level
-            i(LogTags.TAG_DEBUG, "Logger minimum level set to: $level")
-        }
+        minLevel = level
+        i(LogTags.TAG_DEBUG, "Logger minimum level set to: $level")
     }
 
     /**
-     * Set a custom logger implementation (thread-safe). All logs will be delegated to this logger.
+     * Set a custom logger implementation. All logs will be delegated to this logger.
      *
      * Example:
      * ```
@@ -63,11 +52,9 @@ object Logger {
      * ```
      */
     fun setCustomLogger(logger: CustomLogger?) {
-        synchronized(configLock) {
-            customLogger = logger
-            logger?.let {
-                i(LogTags.TAG_DEBUG, "Custom logger set: ${logger::class.simpleName}")
-            }
+        customLogger = logger
+        logger?.let {
+            i(LogTags.TAG_DEBUG, "Custom logger set: ${logger::class.simpleName}")
         }
     }
 
