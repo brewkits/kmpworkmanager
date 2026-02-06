@@ -1,5 +1,6 @@
 package dev.brewkits.kmpworkmanager.workers.builtins
 
+import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.workers.config.FileCompressionConfig
 import kotlinx.cinterop.ExperimentalForeignApi
@@ -12,12 +13,14 @@ import platform.darwin.NSObject
  * Note: This implementation uses NSFileManager for basic file operations.
  * For production use, consider integrating a ZIP library like ZIPFoundation.
  *
+ * v2.3.0+: Returns WorkerResult with compression statistics
+ *
  * Current implementation:
  * - Creates a ZIP archive using Cocoa APIs where available
  * - Falls back to copying files if ZIP APIs are not available
  */
 @OptIn(ExperimentalForeignApi::class)
-internal actual suspend fun platformCompress(config: FileCompressionConfig): Boolean {
+internal actual suspend fun platformCompress(config: FileCompressionConfig): WorkerResult {
     Logger.i("FileCompressionWorker", "iOS compression starting...")
 
     val fileManager = NSFileManager.defaultManager
@@ -27,7 +30,7 @@ internal actual suspend fun platformCompress(config: FileCompressionConfig): Boo
     // Check if input exists
     if (!fileManager.fileExistsAtPath(inputPath)) {
         Logger.e("FileCompressionWorker", "Input file/directory does not exist: $inputPath")
-        return false
+        return WorkerResult.Failure("Input file/directory does not exist: $inputPath")
     }
 
     return try {
@@ -93,22 +96,31 @@ internal actual suspend fun platformCompress(config: FileCompressionConfig): Boo
                     }
                 }
 
-                true
+                WorkerResult.Success(
+                    message = "Compressed $originalSize bytes to $compressedSize bytes ($ratio%)",
+                    data = mapOf(
+                        "originalSize" to originalSize,
+                        "compressedSize" to compressedSize,
+                        "compressionRatio" to ratio,
+                        "outputPath" to outputPath,
+                        "deletedOriginal" to config.deleteOriginal
+                    )
+                )
             } else {
                 Logger.e("FileCompressionWorker", "Compression failed")
-                false
+                WorkerResult.Failure("Compression failed")
             }
         } catch (e: Exception) {
             Logger.e("FileCompressionWorker", "Compression error: ${e.message}")
-            false
+            WorkerResult.Failure("Compression error: ${e.message}")
         }
 
-        error as? Boolean ?: false
+        error as? WorkerResult ?: WorkerResult.Failure("Unknown error")
     } catch (e: Exception) {
         Logger.e("FileCompressionWorker", "iOS compression failed", e)
         // Cleanup partial file
         NSFileManager.defaultManager.removeItemAtPath(outputPath, error = null)
-        false
+        WorkerResult.Failure("iOS compression failed: ${e.message}")
     }
 }
 

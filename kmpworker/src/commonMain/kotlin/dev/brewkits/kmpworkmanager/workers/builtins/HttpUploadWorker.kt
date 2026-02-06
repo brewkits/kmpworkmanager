@@ -2,6 +2,7 @@ package dev.brewkits.kmpworkmanager.workers.builtins
 
 import dev.brewkits.kmpworkmanager.background.domain.ProgressListener
 import dev.brewkits.kmpworkmanager.background.domain.Worker
+import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.background.domain.WorkerProgress
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.workers.config.HttpUploadConfig
@@ -71,12 +72,12 @@ class HttpUploadWorker(
     private val progressListener: ProgressListener? = null
 ) : Worker {
 
-    override suspend fun doWork(input: String?): Boolean {
+    override suspend fun doWork(input: String?): WorkerResult {
         Logger.i("HttpUploadWorker", "Starting HTTP upload worker...")
 
         if (input == null) {
             Logger.e("HttpUploadWorker", "Input configuration is null")
-            return false
+            return WorkerResult.Failure("Input configuration is null")
         }
 
         return try {
@@ -86,18 +87,18 @@ class HttpUploadWorker(
             uploadFile(config)
         } catch (e: Exception) {
             Logger.e("HttpUploadWorker", "Failed to upload file", e)
-            false
+            WorkerResult.Failure("Upload failed: ${e.message}")
         }
     }
 
-    private suspend fun uploadFile(config: HttpUploadConfig): Boolean {
+    private suspend fun uploadFile(config: HttpUploadConfig): WorkerResult {
         val filePath = config.filePath.toPath()
 
         return try {
             // Validate file exists
             if (!fileSystem.exists(filePath)) {
                 Logger.e("HttpUploadWorker", "File does not exist: ${config.filePath}")
-                return false
+                return WorkerResult.Failure("Input configuration is null")
             }
 
             // Get file metadata
@@ -144,25 +145,37 @@ class HttpUploadWorker(
             }
 
             val statusCode = response.status.value
-            val success = statusCode in 200..299
+            val responseBody = response.bodyAsText()
 
-            if (success) {
+            if (statusCode in 200..299) {
                 Logger.i("HttpUploadWorker", "Upload completed successfully with status $statusCode")
 
                 // Log response (truncated)
-                val responseBody = response.bodyAsText()
                 if (responseBody.isNotEmpty()) {
                     val truncatedResponse = SecurityValidator.truncateForLogging(responseBody, 200)
                     Logger.d("HttpUploadWorker", "Response: $truncatedResponse")
                 }
+
+                WorkerResult.Success(
+                    message = "Uploaded ${SecurityValidator.formatByteSize(fileSize)} - HTTP $statusCode",
+                    data = mapOf(
+                        "statusCode" to statusCode,
+                        "fileSize" to fileSize,
+                        "fileName" to fileName,
+                        "url" to SecurityValidator.sanitizedURL(config.url),
+                        "responseLength" to responseBody.length
+                    )
+                )
             } else {
                 Logger.w("HttpUploadWorker", "Upload completed with non-success status $statusCode")
+                WorkerResult.Failure(
+                    message = "HTTP $statusCode error",
+                    shouldRetry = statusCode in 500..599
+                )
             }
-
-            success
         } catch (e: Exception) {
             Logger.e("HttpUploadWorker", "Upload failed", e)
-            false
+            WorkerResult.Failure("Upload failed: ${e.message}", shouldRetry = true)
         }
     }
 

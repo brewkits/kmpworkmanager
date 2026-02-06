@@ -1,6 +1,7 @@
 package dev.brewkits.kmpworkmanager.workers.builtins
 
 import dev.brewkits.kmpworkmanager.background.domain.Worker
+import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.workers.config.HttpMethod as WorkerHttpMethod
 import dev.brewkits.kmpworkmanager.workers.config.HttpSyncConfig
@@ -67,12 +68,12 @@ class HttpSyncWorker(
     private val httpClient: HttpClient = createDefaultHttpClient()
 ) : Worker {
 
-    override suspend fun doWork(input: String?): Boolean {
+    override suspend fun doWork(input: String?): WorkerResult {
         Logger.i("HttpSyncWorker", "Starting HTTP sync worker...")
 
         if (input == null) {
             Logger.e("HttpSyncWorker", "Input configuration is null")
-            return false
+            return WorkerResult.Failure("Input configuration is null")
         }
 
         return try {
@@ -82,11 +83,11 @@ class HttpSyncWorker(
             executeSyncRequest(config)
         } catch (e: Exception) {
             Logger.e("HttpSyncWorker", "Failed to execute HTTP sync", e)
-            false
+            WorkerResult.Failure("Sync failed: ${e.message}")
         }
     }
 
-    private suspend fun executeSyncRequest(config: HttpSyncConfig): Boolean {
+    private suspend fun executeSyncRequest(config: HttpSyncConfig): WorkerResult {
         return try {
             val response: HttpResponse = httpClient.request(config.url) {
                 method = when (config.httpMethod) {
@@ -117,25 +118,36 @@ class HttpSyncWorker(
             }
 
             val statusCode = response.status.value
-            val success = statusCode in 200..299
+            val responseBody = response.bodyAsText()
 
-            if (success) {
+            if (statusCode in 200..299) {
                 Logger.i("HttpSyncWorker", "Sync completed successfully with status $statusCode")
 
                 // Optionally log response (truncated)
-                val responseBody = response.bodyAsText()
                 if (responseBody.isNotEmpty()) {
                     val truncatedResponse = SecurityValidator.truncateForLogging(responseBody, 500)
                     Logger.d("HttpSyncWorker", "Response: $truncatedResponse")
                 }
+
+                WorkerResult.Success(
+                    message = "Sync completed - HTTP $statusCode",
+                    data = mapOf(
+                        "statusCode" to statusCode,
+                        "method" to config.httpMethod.name,
+                        "url" to SecurityValidator.sanitizedURL(config.url),
+                        "responseLength" to responseBody.length
+                    )
+                )
             } else {
                 Logger.w("HttpSyncWorker", "Sync completed with non-success status $statusCode")
+                WorkerResult.Failure(
+                    message = "HTTP $statusCode error",
+                    shouldRetry = statusCode in 500..599
+                )
             }
-
-            success
         } catch (e: Exception) {
             Logger.e("HttpSyncWorker", "HTTP sync failed", e)
-            false
+            WorkerResult.Failure("Sync failed: ${e.message}", shouldRetry = true)
         }
     }
 

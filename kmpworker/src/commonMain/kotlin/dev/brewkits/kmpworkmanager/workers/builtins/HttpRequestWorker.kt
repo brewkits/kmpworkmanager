@@ -1,6 +1,7 @@
 package dev.brewkits.kmpworkmanager.workers.builtins
 
 import dev.brewkits.kmpworkmanager.background.domain.Worker
+import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.workers.config.HttpMethod as WorkerHttpMethod
 import dev.brewkits.kmpworkmanager.workers.config.HttpRequestConfig
@@ -59,12 +60,12 @@ class HttpRequestWorker(
     private val httpClient: HttpClient = createDefaultHttpClient()
 ) : Worker {
 
-    override suspend fun doWork(input: String?): Boolean {
+    override suspend fun doWork(input: String?): WorkerResult {
         Logger.i("HttpRequestWorker", "Starting HTTP request worker...")
 
         if (input == null) {
             Logger.e("HttpRequestWorker", "Input configuration is null")
-            return false
+            return WorkerResult.Failure("Input configuration is null")
         }
 
         return try {
@@ -74,11 +75,11 @@ class HttpRequestWorker(
             executeRequest(config)
         } catch (e: Exception) {
             Logger.e("HttpRequestWorker", "Failed to execute HTTP request", e)
-            false
+            WorkerResult.Failure("HTTP request failed: ${e.message}")
         }
     }
 
-    private suspend fun executeRequest(config: HttpRequestConfig): Boolean {
+    private suspend fun executeRequest(config: HttpRequestConfig): WorkerResult {
         return try {
             val response: HttpResponse = httpClient.request(config.url) {
                 method = when (config.httpMethod) {
@@ -102,18 +103,29 @@ class HttpRequestWorker(
             }
 
             val statusCode = response.status.value
-            val success = statusCode in 200..299
+            val responseBody = response.bodyAsText()
 
-            if (success) {
+            if (statusCode in 200..299) {
                 Logger.i("HttpRequestWorker", "Request completed successfully with status $statusCode")
+                WorkerResult.Success(
+                    message = "HTTP $statusCode - ${config.httpMethod} ${SecurityValidator.sanitizedURL(config.url)}",
+                    data = mapOf(
+                        "statusCode" to statusCode,
+                        "method" to config.httpMethod.name,
+                        "url" to SecurityValidator.sanitizedURL(config.url),
+                        "responseLength" to responseBody.length
+                    )
+                )
             } else {
                 Logger.w("HttpRequestWorker", "Request completed with non-success status $statusCode")
+                WorkerResult.Failure(
+                    message = "HTTP $statusCode error",
+                    shouldRetry = statusCode in 500..599
+                )
             }
-
-            success
         } catch (e: Exception) {
             Logger.e("HttpRequestWorker", "HTTP request failed", e)
-            false
+            WorkerResult.Failure("Request failed: ${e.message}", shouldRetry = true)
         }
     }
 

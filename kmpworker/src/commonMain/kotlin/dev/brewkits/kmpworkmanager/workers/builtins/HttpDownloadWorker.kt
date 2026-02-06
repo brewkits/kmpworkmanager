@@ -3,6 +3,7 @@ package dev.brewkits.kmpworkmanager.workers.builtins
 import dev.brewkits.kmpworkmanager.background.domain.ProgressListener
 import dev.brewkits.kmpworkmanager.background.domain.Worker
 import dev.brewkits.kmpworkmanager.background.domain.WorkerProgress
+import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.workers.config.HttpDownloadConfig
 import dev.brewkits.kmpworkmanager.workers.utils.SecurityValidator
@@ -64,12 +65,12 @@ class HttpDownloadWorker(
     private val progressListener: ProgressListener? = null
 ) : Worker {
 
-    override suspend fun doWork(input: String?): Boolean {
+    override suspend fun doWork(input: String?): WorkerResult {
         Logger.i("HttpDownloadWorker", "Starting HTTP download worker...")
 
         if (input == null) {
             Logger.e("HttpDownloadWorker", "Input configuration is null")
-            return false
+            return WorkerResult.Failure("Input configuration is null")
         }
 
         return try {
@@ -79,13 +80,14 @@ class HttpDownloadWorker(
             downloadFile(config)
         } catch (e: Exception) {
             Logger.e("HttpDownloadWorker", "Failed to download file", e)
-            false
+            WorkerResult.Failure("Download failed: ${e.message}")
         }
     }
 
-    private suspend fun downloadFile(config: HttpDownloadConfig): Boolean {
+    private suspend fun downloadFile(config: HttpDownloadConfig): WorkerResult {
         val savePath = config.savePath.toPath()
         val tempPath = "${config.savePath}.tmp".toPath()
+        val startTime = System.currentTimeMillis()
 
         return try {
             // Ensure parent directory exists
@@ -107,7 +109,7 @@ class HttpDownloadWorker(
             val statusCode = response.status.value
             if (statusCode !in 200..299) {
                 Logger.e("HttpDownloadWorker", "Download failed with status $statusCode")
-                return false
+                return WorkerResult.Failure("HTTP $statusCode error", shouldRetry = statusCode in 500..599)
             }
 
             val contentLength = response.contentLength() ?: -1L
@@ -148,8 +150,21 @@ class HttpDownloadWorker(
             }
             fileSystem.atomicMove(tempPath, savePath)
 
+            val duration = System.currentTimeMillis() - startTime
+            val speedKbps = if (duration > 0) (downloadedBytes / duration) else 0L
+
             Logger.i("HttpDownloadWorker", "Download completed successfully: $savePath")
-            true
+
+            WorkerResult.Success(
+                message = "Downloaded ${SecurityValidator.formatByteSize(downloadedBytes)} in ${duration}ms",
+                data = mapOf(
+                    "fileSize" to downloadedBytes,
+                    "filePath" to config.savePath,
+                    "durationMs" to duration,
+                    "speedKBps" to speedKbps,
+                    "url" to SecurityValidator.sanitizedURL(config.url)
+                )
+            )
         } catch (e: Exception) {
             // Cleanup temp file on error
             try {
@@ -162,7 +177,7 @@ class HttpDownloadWorker(
             }
 
             Logger.e("HttpDownloadWorker", "Download failed", e)
-            false
+            WorkerResult.Failure("Download failed: ${e.message}", shouldRetry = true)
         }
     }
 
