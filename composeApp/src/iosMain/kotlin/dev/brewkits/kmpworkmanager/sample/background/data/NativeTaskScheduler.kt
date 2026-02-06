@@ -371,15 +371,35 @@ actual class NativeTaskScheduler(
     }
 
     @OptIn(kotlinx.cinterop.BetaInteropApi::class)
-    actual override fun enqueueChain(chain: TaskChain) {
+    actual override fun enqueueChain(chain: TaskChain, id: String?, policy: ExistingPolicy) {
         val steps = chain.getSteps()
         if (steps.isEmpty()) {
             Logger.w(LogTags.CHAIN, "Attempted to enqueue empty chain, ignoring")
             return
         }
 
-        val chainId = NSUUID.UUID().UUIDString()
-        Logger.i(LogTags.CHAIN, "Enqueuing chain - ID: $chainId, Steps: ${steps.size}")
+        val chainId = id ?: NSUUID.UUID().UUIDString()
+        Logger.i(LogTags.CHAIN, "Enqueuing chain - ID: $chainId, Steps: ${steps.size}, Policy: $policy")
+
+        // Check if chain already exists and apply policy
+        val existingChain = userDefaults.stringForKey("$CHAIN_DEFINITION_PREFIX$chainId")
+        if (existingChain != null) {
+            when (policy) {
+                ExistingPolicy.KEEP -> {
+                    Logger.i(LogTags.CHAIN, "Chain $chainId already exists, KEEP policy - skipping")
+                    return
+                }
+                ExistingPolicy.REPLACE -> {
+                    Logger.i(LogTags.CHAIN, "Chain $chainId exists, REPLACE policy - replacing")
+                    // Remove from queue if exists
+                    val stringArray: List<String>? = userDefaults.arrayForKey(CHAIN_QUEUE_KEY)?.filterIsInstance<String>()
+                    val queue: MutableList<String> = stringArray?.toMutableList() ?: mutableListOf()
+                    queue.remove(chainId)
+                    userDefaults.setObject(queue, forKey = CHAIN_QUEUE_KEY)
+                    // Will continue to add it again below
+                }
+            }
+        }
 
         // 1. Serialize and save the chain definition
         val chainJson = Json.encodeToString(steps)

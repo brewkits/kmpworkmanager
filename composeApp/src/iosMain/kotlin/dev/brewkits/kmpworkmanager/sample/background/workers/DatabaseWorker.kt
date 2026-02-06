@@ -26,10 +26,10 @@ class DatabaseWorker : IosWorker {
             while (processed < totalRecords) {
                 delay(500) // Simulate database insert time
 
-                // Random 10% failure injection
-                if (Random.nextFloat() < 0.1f) {
-                    throw Exception("Database transaction failed (simulated error)")
-                }
+                // Random failure injection disabled - uncomment to test error handling
+                // if (Random.nextFloat() < 0.1f) {
+                //     throw Exception("Database transaction failed (simulated error)")
+                // }
 
                 processed += batchSize
                 val progress = (processed * 100) / totalRecords
