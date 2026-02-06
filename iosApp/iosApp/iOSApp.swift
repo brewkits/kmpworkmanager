@@ -258,14 +258,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         Task {
             do {
                 let workerResult = try await executor.executeTask(workerClassName: workerName, input: inputJson, timeoutMs: 25000)
-                // Check if result is Success by attempting to cast
-                let result: Bool
-                if let _ = workerResult as? WorkerResult.Success {
-                    result = true
-                } else {
-                    result = false
-                }
-                print("iOS BGTask: Task \(taskId) finished with success: \(result)")
+                // Check if result is Success (Kotlin type name in Obj-C: ComposeAppKmpworkerWorkerResult)
+                // Since it returns the sealed class, we just need to check the result type
+                let resultString = String(describing: type(of: workerResult))
+                let result = resultString.contains("Success")
+                print("iOS BGTask: Task \(taskId) finished with success: \(result) (type: \(resultString))")
 
                 // If it was a periodic task, re-schedule it.
                 if let meta = periodicMeta, meta["isPeriodic"] == "true" {

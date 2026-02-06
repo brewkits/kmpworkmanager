@@ -211,7 +211,7 @@ Perfect for apps that need reliable background execution:
 - [iOS Best Practices](docs/ios-best-practices.md) ⚠️ **Important**
 - [Release Notes](docs/V2.2.2_RELEASE_NOTES.md)
 - [Migration Guide](docs/MIGRATION_V2.2.2.md)
-- [Architecture](ARCHITECTURE.md)
+- [Architecture](docs/ARCHITECTURE.md)
 
 ## Production Track Record
 
