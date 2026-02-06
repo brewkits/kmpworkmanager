@@ -1,5 +1,6 @@
 package dev.brewkits.kmpworkmanager.sample.background.workers
 
+import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.sample.background.data.IosWorker
 import dev.brewkits.kmpworkmanager.sample.background.domain.TaskCompletionEvent
 import dev.brewkits.kmpworkmanager.sample.background.domain.TaskEventBus
@@ -11,10 +12,10 @@ import kotlinx.coroutines.delay
  * Simulates GPS location data sync with batch uploads
  */
 class LocationSyncWorker : IosWorker {
-    override suspend fun doWork(input: String?): Boolean {
+    override suspend fun doWork(input: String?): WorkerResult {
         Logger.i(LogTags.WORKER, "LocationSyncWorker started")
 
-        try {
+        return try {
             val locationPoints = 50
             val batchSize = 10
 
@@ -42,7 +43,13 @@ class LocationSyncWorker : IosWorker {
                 )
             )
 
-            return true
+            WorkerResult.Success(
+                message = "Synced $locationPoints location points",
+                data = mapOf(
+                    "locationPoints" to locationPoints,
+                    "batchSize" to batchSize
+                )
+            )
         } catch (e: Exception) {
             Logger.e(LogTags.WORKER, "LocationSyncWorker failed: ${e.message}", e)
             TaskEventBus.emit(
@@ -52,7 +59,7 @@ class LocationSyncWorker : IosWorker {
                     message = "❌ Location sync failed: ${e.message}"
                 )
             )
-            return false
+            WorkerResult.Failure("Location sync failed: ${e.message}")
         }
     }
 }

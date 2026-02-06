@@ -40,9 +40,9 @@ class IosWorkerFactory {
 
 /**
  * Adapter to wrap library Worker instances as IosWorker for the sample app.
+ *
+ * v2.3.0+: Updated to pass through WorkerResult directly
  */
 private class WorkerAdapter(private val worker: Worker) : IosWorker {
-    override suspend fun doWork(input: String?): Boolean {
-        return worker.doWork(input)
-    }
+    override suspend fun doWork(input: String?) = worker.doWork(input)
 }

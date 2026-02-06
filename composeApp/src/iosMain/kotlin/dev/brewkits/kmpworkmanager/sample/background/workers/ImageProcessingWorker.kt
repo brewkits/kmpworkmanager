@@ -1,5 +1,6 @@
 package dev.brewkits.kmpworkmanager.sample.background.workers
 
+import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.sample.background.data.IosWorker
 import dev.brewkits.kmpworkmanager.sample.background.domain.TaskCompletionEvent
 import dev.brewkits.kmpworkmanager.sample.background.domain.TaskEventBus
@@ -11,10 +12,10 @@ import kotlinx.coroutines.delay
  * CPU-intensive image processing simulation with progress reporting
  */
 class ImageProcessingWorker : IosWorker {
-    override suspend fun doWork(input: String?): Boolean {
+    override suspend fun doWork(input: String?): WorkerResult {
         Logger.i(LogTags.WORKER, "ImageProcessingWorker started")
 
-        try {
+        return try {
             val imageSizes = listOf("thumbnail", "medium", "large")
             val imageCount = 5
 
@@ -45,7 +46,14 @@ class ImageProcessingWorker : IosWorker {
                 )
             )
 
-            return true
+            WorkerResult.Success(
+                message = "Processed $imageCount images in ${imageSizes.size} sizes",
+                data = mapOf(
+                    "imageCount" to imageCount,
+                    "sizeVariants" to imageSizes.size,
+                    "totalProcessed" to (imageCount * imageSizes.size)
+                )
+            )
         } catch (e: Exception) {
             Logger.e(LogTags.WORKER, "ImageProcessingWorker failed: ${e.message}", e)
             TaskEventBus.emit(
@@ -55,7 +63,7 @@ class ImageProcessingWorker : IosWorker {
                     message = "❌ Image processing failed: ${e.message}"
                 )
             )
-            return false
+            WorkerResult.Failure("Image processing failed: ${e.message}")
         }
     }
 }

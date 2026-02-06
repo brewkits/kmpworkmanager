@@ -1,5 +1,6 @@
 package dev.brewkits.kmpworkmanager.sample.background.data
 
+import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.sample.background.domain.TaskCompletionEvent
 import dev.brewkits.kmpworkmanager.sample.background.domain.TaskEventBus
 import dev.brewkits.kmpworkmanager.sample.background.domain.TaskRequest
@@ -242,7 +243,8 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
         val results = coroutineScope {
             tasks.map { task ->
                 async {
-                    executeTask(task)
+                    val result = executeTask(task)
+                    result is WorkerResult.Success // Convert WorkerResult to Boolean
                 }
             }.awaitAll()
         }
@@ -256,36 +258,88 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
     }
 
     /**
-     * Execute a single task with timeout protection
+     * Execute a single task with timeout protection and detailed logging
      */
-    private suspend fun executeTask(task: TaskRequest): Boolean {
-        Logger.d(LogTags.CHAIN, "Executing task: ${task.workerClassName}")
+    private suspend fun executeTask(task: TaskRequest): WorkerResult {
+        Logger.d(LogTags.CHAIN, "▶️ Starting task: ${task.workerClassName} (timeout: ${TASK_TIMEOUT_MS}ms)")
 
         val worker = workerFactory.createWorker(task.workerClassName)
         if (worker == null) {
-            Logger.e(LogTags.CHAIN, "Could not create worker for ${task.workerClassName}")
-            return false
+            Logger.e(LogTags.CHAIN, "❌ Could not create worker for ${task.workerClassName}")
+            return WorkerResult.Failure("Worker not found: ${task.workerClassName}")
         }
+
+        val startTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
 
         return try {
             withTimeout(TASK_TIMEOUT_MS) {
-                val startTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
                 val result = worker.doWork(task.inputJson)
                 val duration = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime
+                val percentage = (duration * 100 / TASK_TIMEOUT_MS).toInt()
 
-                if (result) {
-                    Logger.d(LogTags.CHAIN, "Task ${task.workerClassName} completed (${duration}ms)")
-                } else {
-                    Logger.w(LogTags.CHAIN, "Task ${task.workerClassName} returned failure (${duration}ms)")
+                // Warn if task used > 80% of timeout
+                if (duration > TASK_TIMEOUT_MS * 0.8) {
+                    Logger.w(LogTags.CHAIN, "⚠️ Task ${task.workerClassName} used ${duration}ms / ${TASK_TIMEOUT_MS}ms (${percentage}%) - approaching timeout!")
                 }
-                result
+
+                when (result) {
+                    is WorkerResult.Success -> {
+                        val message = result.message ?: "Task succeeded in ${duration}ms"
+                        Logger.d(LogTags.CHAIN, "✅ Task ${task.workerClassName} - $message (${percentage}%)")
+
+                        TaskEventBus.emit(
+                            TaskCompletionEvent(
+                                taskName = task.workerClassName,
+                                success = true,
+                                message = message,
+                                outputData = result.data
+                            )
+                        )
+                        result  // Return the WorkerResult
+                    }
+                    is WorkerResult.Failure -> {
+                        Logger.w(LogTags.CHAIN, "❌ Task ${task.workerClassName} failed: ${result.message} (${duration}ms)")
+
+                        TaskEventBus.emit(
+                            TaskCompletionEvent(
+                                taskName = task.workerClassName,
+                                success = false,
+                                message = result.message,
+                                outputData = null
+                            )
+                        )
+                        result  // Return the WorkerResult
+                    }
+                }
             }
         } catch (e: TimeoutCancellationException) {
-            Logger.e(LogTags.CHAIN, "Task ${task.workerClassName} timed out after ${TASK_TIMEOUT_MS}ms")
-            false
+            val duration = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime
+            Logger.e(LogTags.CHAIN, "⏱️ Task ${task.workerClassName} timed out after ${duration}ms (limit: ${TASK_TIMEOUT_MS}ms)")
+
+            // Emit failure event with timeout details
+            TaskEventBus.emit(
+                TaskCompletionEvent(
+                    taskName = task.workerClassName,
+                    success = false,
+                    message = "⏱️ Timeout after ${duration}ms",
+                    outputData = null
+                )
+            )
+            WorkerResult.Failure("Timeout after ${duration}ms")
         } catch (e: Exception) {
-            Logger.e(LogTags.CHAIN, "Task ${task.workerClassName} threw exception", e)
-            false
+            val duration = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime
+            Logger.e(LogTags.CHAIN, "💥 Task ${task.workerClassName} threw exception after ${duration}ms", e)
+
+            // Emit failure event with exception details
+            TaskEventBus.emit(
+                TaskCompletionEvent(
+                    taskName = task.workerClassName,
+                    success = false,
+                    message = "💥 Exception: ${e.message}",
+                    outputData = null
+                )
+            )
+            WorkerResult.Failure("Exception: ${e.message}")
         }
     }
 

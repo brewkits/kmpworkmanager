@@ -6,11 +6,14 @@ import kotlinx.coroutines.flow.asSharedFlow
 
 /**
  * Event emitted when a background task completes.
+ *
+ * v2.3.0+: Added outputData field to support returning data from workers
  */
 data class TaskCompletionEvent(
     val taskName: String,
     val success: Boolean,
-    val message: String
+    val message: String,
+    val outputData: Map<String, Any?>? = null
 )
 
 /**

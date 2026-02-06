@@ -1,19 +1,20 @@
 package dev.brewkits.kmpworkmanager.sample.background.workers
 
+import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.sample.background.data.IosWorker
 import dev.brewkits.kmpworkmanager.sample.background.domain.TaskCompletionEvent
 import dev.brewkits.kmpworkmanager.sample.background.domain.TaskEventBus
 import kotlinx.coroutines.delay
 
 class UploadWorker : IosWorker {
-    override suspend fun doWork(input: String?): Boolean {
+    override suspend fun doWork(input: String?): WorkerResult {
         println("=".repeat(60))
         println(" KMP_BG_TASK_iOS: *** UPLOAD WORKER STARTED ***")
         println(" KMP_BG_TASK_iOS: Starting UploadWorker...")
         println(" KMP_BG_TASK_iOS: Input: $input")
         println("=".repeat(60))
 
-        try {
+        return try {
             // Simulate file upload with progress
             val totalSize = 100
             var uploaded = 0
@@ -43,7 +44,13 @@ class UploadWorker : IosWorker {
             println(" KMP_BG_TASK_iOS: *** EVENT EMITTED ***")
             println("=".repeat(60))
 
-            return true
+            WorkerResult.Success(
+                message = "Uploaded ${totalSize}MB successfully",
+                data = mapOf(
+                    "uploadedSize" to totalSize,
+                    "uploadedSizeUnit" to "MB"
+                )
+            )
         } catch (e: Exception) {
             println(" KMP_BG_TASK_iOS: UploadWorker failed: ${e.message}")
             TaskEventBus.emit(
@@ -53,7 +60,7 @@ class UploadWorker : IosWorker {
                     message = "❌ Upload failed: ${e.message}"
                 )
             )
-            return false
+            WorkerResult.Failure("Upload failed: ${e.message}")
         }
     }
 }

@@ -1,16 +1,17 @@
 package dev.brewkits.kmpworkmanager.sample.background.workers
 
+import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.sample.background.data.IosWorker
 import dev.brewkits.kmpworkmanager.sample.background.domain.TaskCompletionEvent
 import dev.brewkits.kmpworkmanager.sample.background.domain.TaskEventBus
 import kotlinx.coroutines.delay
 
 class SyncWorker : IosWorker {
-    override suspend fun doWork(input: String?): Boolean {
+    override suspend fun doWork(input: String?): WorkerResult {
         println(" KMP_BG_TASK_iOS: Starting SyncWorker...")
         println(" KMP_BG_TASK_iOS: Input: $input")
 
-        try {
+        return try {
             // Simulate network sync with multiple steps
             val steps = listOf("Fetching data", "Processing", "Saving")
             for ((index, step) in steps.withIndex()) {
@@ -30,7 +31,10 @@ class SyncWorker : IosWorker {
                 )
             )
 
-            return true
+            WorkerResult.Success(
+                message = "Synced ${steps.size} steps successfully",
+                data = mapOf("steps" to steps.size, "duration" to 2400L)
+            )
         } catch (e: Exception) {
             println(" KMP_BG_TASK_iOS: SyncWorker failed: ${e.message}")
             TaskEventBus.emit(
@@ -40,7 +44,7 @@ class SyncWorker : IosWorker {
                     message = "❌ Sync failed: ${e.message}"
                 )
             )
-            return false
+            WorkerResult.Failure("Sync failed: ${e.message}")
         }
     }
 }

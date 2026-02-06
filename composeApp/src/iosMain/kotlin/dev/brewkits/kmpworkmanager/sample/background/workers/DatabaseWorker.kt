@@ -1,5 +1,6 @@
 package dev.brewkits.kmpworkmanager.sample.background.workers
 
+import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.sample.background.data.IosWorker
 import dev.brewkits.kmpworkmanager.sample.background.domain.TaskCompletionEvent
 import dev.brewkits.kmpworkmanager.sample.background.domain.TaskEventBus
@@ -12,10 +13,10 @@ import kotlin.random.Random
  * Simulates database operations with batching and progress updates
  */
 class DatabaseWorker : IosWorker {
-    override suspend fun doWork(input: String?): Boolean {
+    override suspend fun doWork(input: String?): WorkerResult {
         Logger.i(LogTags.WORKER, "DatabaseWorker started")
 
-        try {
+        return try {
             val totalRecords = 1000
             val batchSize = 100
             var processed = 0
@@ -45,7 +46,13 @@ class DatabaseWorker : IosWorker {
                 )
             )
 
-            return true
+            WorkerResult.Success(
+                message = "Inserted $totalRecords records successfully",
+                data = mapOf(
+                    "totalRecords" to totalRecords,
+                    "batchSize" to batchSize
+                )
+            )
         } catch (e: Exception) {
             Logger.e(LogTags.WORKER, "DatabaseWorker failed: ${e.message}", e)
             TaskEventBus.emit(
@@ -55,7 +62,7 @@ class DatabaseWorker : IosWorker {
                     message = "❌ Database operation failed: ${e.message}"
                 )
             )
-            return false
+            WorkerResult.Failure("Database operation failed: ${e.message}")
         }
     }
 }
