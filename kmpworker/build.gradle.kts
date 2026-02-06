@@ -8,6 +8,7 @@ plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidLibrary)
     alias(libs.plugins.kotlinx.serialization)
+    alias(libs.plugins.kotlinx.atomicfu)
     id("maven-publish")
     id("signing")
 }
@@ -60,6 +61,8 @@ kotlin {
             implementation(libs.kotlinx.serialization.json)
             // Kotlinx Coroutines
             implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0")
+            // Kotlinx AtomicFU for thread-safe operations
+            implementation(libs.kotlinx.atomicfu)
         }
 
         commonTest.dependencies {
