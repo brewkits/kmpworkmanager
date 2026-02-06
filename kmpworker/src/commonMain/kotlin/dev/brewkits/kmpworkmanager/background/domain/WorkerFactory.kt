@@ -39,13 +39,22 @@ interface WorkerFactory {
  * - Android: Called from KmpWorker/KmpHeavyWorker/AlarmReceiver
  * - iOS: Implements IosWorker directly
  *
+ * v2.3.0+: Changed return type from Boolean to WorkerResult for richer return values
+ *
  * Example:
  * ```kotlin
  * class SyncWorker : Worker {
- *     override suspend fun doWork(input: String?): Boolean {
- *         // Your sync logic here
- *         delay(2000)
- *         return true
+ *     override suspend fun doWork(input: String?): WorkerResult {
+ *         return try {
+ *             // Your sync logic here
+ *             delay(2000)
+ *             WorkerResult.Success(
+ *                 message = "Sync completed",
+ *                 data = mapOf("syncedItems" to 42)
+ *             )
+ *         } catch (e: Exception) {
+ *             WorkerResult.Failure("Sync failed: ${e.message}")
+ *         }
  *     }
  * }
  * ```
@@ -54,8 +63,10 @@ interface Worker {
     /**
      * Performs the background work.
      *
+     * v2.3.0+: Return type changed from Boolean to WorkerResult
+     *
      * @param input Optional input data passed from scheduler.enqueue()
-     * @return true if work completed successfully, false otherwise
+     * @return WorkerResult indicating success/failure with optional data and message
      */
-    suspend fun doWork(input: String?): Boolean
+    suspend fun doWork(input: String?): WorkerResult
 }

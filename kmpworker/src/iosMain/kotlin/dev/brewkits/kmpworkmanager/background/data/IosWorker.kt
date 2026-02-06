@@ -5,16 +5,24 @@ package dev.brewkits.kmpworkmanager.background.data
  *
  * Implement this interface for each type of background work you want to perform on iOS.
  *
+ * v2.3.0+: Changed return type from Boolean to WorkerResult
  * v4.0.0+: Now extends common Worker interface
  *
  * Example:
  * ```kotlin
  * class SyncWorker : IosWorker {
- *     override suspend fun doWork(input: String?): Boolean {
- *         // Your sync logic here
- *         Logger.i(LogTags.WORKER, "Syncing data...")
- *         delay(2000)
- *         return true
+ *     override suspend fun doWork(input: String?): WorkerResult {
+ *         return try {
+ *             // Your sync logic here
+ *             Logger.i(LogTags.WORKER, "Syncing data...")
+ *             delay(2000)
+ *             WorkerResult.Success(
+ *                 message = "Sync completed",
+ *                 data = mapOf("syncedCount" to 10)
+ *             )
+ *         } catch (e: Exception) {
+ *             WorkerResult.Failure("Sync failed: ${e.message}")
+ *         }
  *     }
  * }
  * ```
@@ -22,6 +30,8 @@ package dev.brewkits.kmpworkmanager.background.data
 interface IosWorker : dev.brewkits.kmpworkmanager.background.domain.Worker {
     /**
      * Performs the background work.
+     *
+     * v2.3.0+: Return type changed from Boolean to WorkerResult
      *
      * **Important**: This method has timeout protection:
      * - Chain tasks: 20 seconds per task (ChainExecutor.TASK_TIMEOUT_MS)
@@ -33,9 +43,9 @@ interface IosWorker : dev.brewkits.kmpworkmanager.background.domain.Worker {
      * - Both are subject to iOS expiration handler which may fire earlier
      *
      * @param input Optional input data passed from scheduler.enqueue()
-     * @return true if work completed successfully, false otherwise
+     * @return WorkerResult indicating success/failure with optional data and message
      */
-    override suspend fun doWork(input: String?): Boolean
+    override suspend fun doWork(input: String?): WorkerResult
 }
 
 /**

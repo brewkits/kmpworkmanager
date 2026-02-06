@@ -14,6 +14,9 @@ import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import dev.brewkits.kmpworkmanager.background.domain.AndroidWorkerFactory
+import dev.brewkits.kmpworkmanager.background.domain.TaskCompletionEvent
+import dev.brewkits.kmpworkmanager.background.domain.TaskEventBus
+import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.utils.LogTags
 import org.koin.core.component.KoinComponent
@@ -255,17 +258,53 @@ class KmpHeavyWorker(
 
         // 3. Execute the actual worker
         return try {
-            val success = executeHeavyWork(workerClassName, inputJson)
+            val result = executeHeavyWork(workerClassName, inputJson)
 
-            if (success) {
-                Logger.i(LogTags.WORKER, "KmpHeavyWorker completed successfully: $workerClassName")
-                Result.success()
-            } else {
-                Logger.w(LogTags.WORKER, "KmpHeavyWorker returned failure: $workerClassName")
-                Result.failure()
+            when (result) {
+                is WorkerResult.Success -> {
+                    val message = result.message ?: "Heavy worker completed successfully"
+                    Logger.i(LogTags.WORKER, "KmpHeavyWorker success: $workerClassName - $message")
+
+                    TaskEventBus.emit(
+                        TaskCompletionEvent(
+                            taskName = workerClassName,
+                            success = true,
+                            message = message,
+                            outputData = result.data
+                        )
+                    )
+                    Result.success()
+                }
+                is WorkerResult.Failure -> {
+                    Logger.w(LogTags.WORKER, "KmpHeavyWorker failure: $workerClassName - ${result.message}")
+
+                    TaskEventBus.emit(
+                        TaskCompletionEvent(
+                            taskName = workerClassName,
+                            success = false,
+                            message = result.message,
+                            outputData = null
+                        )
+                    )
+
+                    if (result.shouldRetry) {
+                        Result.retry()
+                    } else {
+                        Result.failure()
+                    }
+                }
             }
         } catch (e: Exception) {
             Logger.e(LogTags.WORKER, "KmpHeavyWorker exception: $workerClassName", e)
+
+            TaskEventBus.emit(
+                TaskCompletionEvent(
+                    taskName = workerClassName,
+                    success = false,
+                    message = "Exception: ${e.message}",
+                    outputData = null
+                )
+            )
             Result.failure()
         }
     }
@@ -367,17 +406,18 @@ class KmpHeavyWorker(
      * Executes the actual heavy work by delegating to the specified worker class.
      *
      * v1.0.0+: Now uses AndroidWorkerFactory from Koin
+     * v2.3.0+: Returns WorkerResult instead of Boolean
      *
      * @param workerClassName Fully qualified worker class name
      * @param inputJson Optional JSON input data
-     * @return true if work succeeded, false otherwise
+     * @return WorkerResult indicating success/failure with optional data
      */
-    private suspend fun executeHeavyWork(workerClassName: String, inputJson: String?): Boolean {
+    private suspend fun executeHeavyWork(workerClassName: String, inputJson: String?): WorkerResult {
         val worker = workerFactory.createWorker(workerClassName)
 
         if (worker == null) {
             Logger.e(LogTags.WORKER, "Worker factory returned null for heavy worker: $workerClassName")
-            return false
+            return WorkerResult.Failure("Worker not found: $workerClassName")
         }
 
         return worker.doWork(inputJson)

@@ -6,6 +6,7 @@ import androidx.work.WorkerParameters
 import dev.brewkits.kmpworkmanager.background.domain.AndroidWorkerFactory
 import dev.brewkits.kmpworkmanager.background.domain.TaskCompletionEvent
 import dev.brewkits.kmpworkmanager.background.domain.TaskEventBus
+import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.utils.LogTags
 import dev.brewkits.kmpworkmanager.utils.Logger
 import org.koin.core.component.KoinComponent
@@ -50,14 +51,41 @@ class KmpWorker(
                 return Result.failure()
             }
 
-            val success = worker.doWork(inputJson)
+            val result = worker.doWork(inputJson)
 
-            if (success) {
-                Logger.i(LogTags.WORKER, "Worker completed successfully: $workerClassName")
-                Result.success()
-            } else {
-                Logger.w(LogTags.WORKER, "Worker returned failure: $workerClassName")
-                Result.failure()
+            when (result) {
+                is WorkerResult.Success -> {
+                    val message = result.message ?: "Worker completed successfully"
+                    Logger.i(LogTags.WORKER, "Worker success: $workerClassName - $message")
+
+                    TaskEventBus.emit(
+                        TaskCompletionEvent(
+                            taskName = workerClassName,
+                            success = true,
+                            message = message,
+                            outputData = result.data
+                        )
+                    )
+                    Result.success()
+                }
+                is WorkerResult.Failure -> {
+                    Logger.w(LogTags.WORKER, "Worker failure: $workerClassName - ${result.message}")
+
+                    TaskEventBus.emit(
+                        TaskCompletionEvent(
+                            taskName = workerClassName,
+                            success = false,
+                            message = result.message,
+                            outputData = null
+                        )
+                    )
+
+                    if (result.shouldRetry) {
+                        Result.retry()
+                    } else {
+                        Result.failure()
+                    }
+                }
             }
         } catch (e: Exception) {
             Logger.e(LogTags.WORKER, "Worker execution failed: ${e.message}")
