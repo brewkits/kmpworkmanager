@@ -1,51 +1,51 @@
 # KSP & Annotation Guide - KMPWorkManager
 
 > **v2.2.2+ Experimental Feature**
-> Auto-generate WorkerFactory với `@Worker` annotation và KSP
+> Auto-generate WorkerFactory with `@Worker` annotation and KSP
 
-## 📚 Mục Lục
+## 📚 Table of Contents
 
-- [Giới Thiệu](#giới-thiệu)
+- [Introduction](#introduction)
 - [Setup](#setup)
-- [Cách Sử Dụng](#cách-sử-dụng)
+- [Usage](#usage)
 - [Examples](#examples)
 - [Advanced Usage](#advanced-usage)
 - [Troubleshooting](#troubleshooting)
 - [Migration Guide](#migration-guide)
 
-## Giới Thiệu
+## Introduction
 
-### Vấn Đề
+### The Problem
 
-Trước đây, bạn phải tự tay tạo `WorkerFactory`:
+Previously, you had to manually create a `WorkerFactory`:
 
 ```kotlin
-// ❌ Manual - Dễ quên, nhiều boilerplate
+// ❌ Manual - Easy to forget, lots of boilerplate
 class MyWorkerFactory : AndroidWorkerFactory {
     override fun createWorker(workerClassName: String): AndroidWorker? {
         return when (workerClassName) {
             "SyncWorker" -> SyncWorker()
             "UploadWorker" -> UploadWorker()
             "DatabaseWorker" -> DatabaseWorker()
-            // Thêm worker mới? Phải nhớ update đây!
+            // Add new worker? Must remember to update here!
             else -> null
         }
     }
 }
 ```
 
-**Nhược điểm:**
-- ❌ Phải manually update mỗi khi thêm worker mới
-- ❌ Dễ quên không add vào factory
-- ❌ Runtime error nếu thiếu worker
-- ❌ Nhiều boilerplate code
+**Drawbacks:**
+- ❌ Manual update required when adding new workers
+- ❌ Easy to forget adding workers to factory
+- ❌ Runtime errors if worker is missing
+- ❌ Lots of boilerplate code
 
-### Giải Pháp
+### The Solution
 
-Với KSP annotation, tất cả tự động:
+With KSP annotation, everything is automatic:
 
 ```kotlin
-// ✅ Auto-generated - Không thể quên!
+// ✅ Auto-generated - Impossible to forget!
 @Worker("SyncWorker")
 class SyncWorker : AndroidWorker {
     override suspend fun doWork(input: String): Boolean {
@@ -61,16 +61,16 @@ KmpWorkManager.initialize(
 )
 ```
 
-**Ưu điểm:**
+**Benefits:**
 - ✅ Zero boilerplate
-- ✅ Tự động discovery workers
+- ✅ Automatic worker discovery
 - ✅ Compile-time validation
-- ✅ Không thể quên add worker
+- ✅ Impossible to forget adding workers
 - ✅ Type-safe
 
 ## Setup
 
-### 1. Thêm KSP Plugin
+### 1. Add KSP Plugin
 
 **Project-level `build.gradle.kts`:**
 
@@ -90,7 +90,7 @@ plugins {
 }
 ```
 
-### 2. Thêm Dependencies
+### 2. Add Dependencies
 
 ```kotlin
 dependencies {
@@ -111,14 +111,14 @@ dependencies {
 # Sync Gradle
 ./gradlew build
 
-# hoặc trong IDE: File → Sync Project with Gradle Files
+# or in IDE: File → Sync Project with Gradle Files
 ```
 
-## Cách Sử Dụng
+## Usage
 
 ### Step 1: Annotate Workers
 
-Thêm `@Worker` annotation vào tất cả worker classes:
+Add `@Worker` annotation to all worker classes:
 
 ```kotlin
 package com.example.workers
@@ -153,19 +153,19 @@ class DatabaseWorker : AndroidWorker {
 
 ### Step 2: Rebuild Project
 
-KSP chạy lúc compile. Rebuild để generate code:
+KSP runs at compile time. Rebuild to generate code:
 
 ```bash
 # Command line
 ./gradlew clean build
 
-# hoặc trong Android Studio
+# or in Android Studio
 Build → Rebuild Project
 ```
 
 ### Step 3: Use Generated Factory
 
-KSP tự động tạo factory ở package `dev.brewkits.kmpworkmanager.generated`:
+KSP automatically creates a factory in package `dev.brewkits.kmpworkmanager.generated`:
 
 ```kotlin
 // Application.kt
@@ -177,7 +177,7 @@ class MyApplication : Application() {
     override fun onCreate() {
         super.onCreate()
 
-        // Initialize với generated factory
+        // Initialize with generated factory
         KmpWorkManager.initialize(
             context = this,
             workerFactory = AndroidWorkerFactoryGenerated()
@@ -186,7 +186,7 @@ class MyApplication : Application() {
 }
 ```
 
-**Xong!** Không cần viết thêm code gì.
+**Done!** No additional code required.
 
 ## Examples
 
@@ -223,7 +223,7 @@ class CleanupWorker : AndroidWorker {
 
 ### iOS Workers
 
-KSP cũng hỗ trợ iOS:
+KSP also supports iOS:
 
 ```kotlin
 // Swift/Kotlin interop
@@ -247,7 +247,7 @@ startKoin {
 
 ### Custom Worker Names
 
-Mặc định dùng class name. Override với parameter:
+By default, the class name is used. Override with parameter:
 
 ```kotlin
 // Use custom name
@@ -258,18 +258,18 @@ class SyncWorker : AndroidWorker {
     }
 }
 
-// Schedule với custom name
+// Schedule with custom name
 scheduler.enqueue(
     id = "sync-task-1",
     trigger = TaskTrigger.OneTime(initialDelayMs = 0),
-    workerClassName = "my-custom-sync-task", // ← Dùng custom name
+    workerClassName = "my-custom-sync-task", // ← Use custom name
     constraints = Constraints()
 )
 ```
 
 ### Multiple Modules
 
-KSP works với multi-module projects:
+KSP works with multi-module projects:
 
 ```
 app/
@@ -284,7 +284,7 @@ feature-module/
 └── ... (generated factory per module)
 ```
 
-Mỗi module có factory riêng:
+Each module gets its own factory:
 - `app`: `AndroidWorkerFactoryGenerated`
 - `feature-module`: `FeatureWorkerFactoryGenerated`
 
@@ -307,7 +307,7 @@ class CombinedFactory : AndroidWorkerFactory {
 
 ### Viewing Generated Code
 
-Generated code ở:
+Generated code is located at:
 
 ```
 build/generated/ksp/debug/kotlin/dev/brewkits/kmpworkmanager/generated/
@@ -341,7 +341,7 @@ class AndroidWorkerFactoryGenerated : AndroidWorkerFactory {
 
 ### Dependency Injection
 
-Workers với Koin/Dagger:
+Workers with Koin/Dagger:
 
 ```kotlin
 @Worker("SyncWorker")
@@ -355,7 +355,7 @@ class SyncWorker(
     }
 }
 
-// Custom factory với DI
+// Custom factory with DI
 class DIWorkerFactory(private val koin: Koin) : AndroidWorkerFactory {
     private val generated = AndroidWorkerFactoryGenerated()
 
@@ -395,34 +395,34 @@ fun `test worker scheduling`() {
 
 ### "Cannot find AndroidWorkerFactoryGenerated"
 
-**Nguyên nhân:** KSP chưa generate code
+**Cause:** KSP hasn't generated code yet
 
-**Giải pháp:**
+**Solution:**
 1. Rebuild project: `Build → Rebuild Project`
-2. Check KSP plugin đã apply: `plugins { id("com.google.devtools.ksp") }`
+2. Verify KSP plugin is applied: `plugins { id("com.google.devtools.ksp") }`
 3. Check dependency: `ksp("dev.brewkits:kmpworkmanager-ksp:2.2.2")`
 4. Sync Gradle files
 
 ### "Worker not found in factory"
 
 **Checklist:**
-- [ ] Class có `@Worker` annotation?
-- [ ] Class extend `AndroidWorker` hoặc `IosWorker`?
-- [ ] Đã rebuild sau khi add annotation?
-- [ ] Worker name trong `@Worker` match với `enqueue()` call?
+- [ ] Does the class have `@Worker` annotation?
+- [ ] Does the class extend `AndroidWorker` or `IosWorker`?
+- [ ] Did you rebuild after adding the annotation?
+- [ ] Does the worker name in `@Worker` match the `enqueue()` call?
 
 **Debug:**
-1. Check generated file tại: `build/generated/ksp/.../AndroidWorkerFactoryGenerated.kt`
-2. Verify worker có trong `when` clause
+1. Check generated file at: `build/generated/ksp/.../AndroidWorkerFactoryGenerated.kt`
+2. Verify worker is present in the `when` clause
 3. Check worker name spelling
 
 ### "KSP runs but no code generated"
 
-**Nguyên nhân:** No workers found
+**Cause:** No workers found
 
-**Giải pháp:**
+**Solution:**
 1. Verify `@Worker` import: `import dev.brewkits.kmpworkmanager.annotations.Worker`
-2. Check class extends `AndroidWorker` hoặc `IosWorker`
+2. Check that the class extends `AndroidWorker` or `IosWorker`
 3. Enable KSP logging:
 
 ```kotlin
@@ -434,11 +434,11 @@ ksp {
 
 ### Build Time Slow
 
-**Nguyên nhân:** KSP adds ~1-2s to build
+**Cause:** KSP adds ~1-2s to build time
 
 **Optimization:**
 1. Use build cache: `org.gradle.caching=true` in `gradle.properties`
-2. Incremental compilation: KSP chỉ chạy khi workers change
+2. Incremental compilation: KSP only runs when workers change
 3. Parallel builds: `org.gradle.parallel=true`
 
 ## Migration Guide
@@ -507,7 +507,7 @@ KmpWorkManager.initialize(
 
 ### Gradual Migration
 
-Combine old + new factories:
+Combine old + new factories during transition:
 
 ```kotlin
 class HybridFactory : AndroidWorkerFactory {
@@ -515,14 +515,14 @@ class HybridFactory : AndroidWorkerFactory {
     private val generated = AndroidWorkerFactoryGenerated()
 
     override fun createWorker(workerClassName: String): AndroidWorker? {
-        // Try generated first
+        // Try generated first, fallback to manual
         return generated.createWorker(workerClassName)
             ?: manual.createWorker(workerClassName)
     }
 }
 ```
 
-Migrate từng worker một:
+Migrate workers incrementally:
 1. Add `@Worker` to worker A → rebuild
 2. Test worker A
 3. Remove worker A from manual factory
@@ -531,50 +531,54 @@ Migrate từng worker một:
 
 ## Performance
 
-| Aspect | Manual Factory | KSP Generated | Difference |
-|--------|---------------|---------------|------------|
-| **Build Time** | 0s | +1-2s | KSP processing |
-| **Runtime** | Same | Same | Zero overhead |
-| **Type Safety** | Runtime | Compile-time | ✅ Better |
-| **Maintenance** | Manual | Auto | ✅ Better |
-| **Boilerplate** | ~50 lines | 0 lines | ✅ Better |
+| Aspect | Manual Factory | KSP Generated | Winner |
+|--------|---------------|---------------|--------|
+| **Build Time** | 0s | +1-2s | Manual |
+| **Runtime Performance** | Same | Same | Tie |
+| **Type Safety** | Runtime | Compile-time | ✅ KSP |
+| **Maintenance** | Manual | Automatic | ✅ KSP |
+| **Boilerplate** | ~50 lines | 0 lines | ✅ KSP |
+| **Error Prevention** | Low | High | ✅ KSP |
 
-**Kết luận:** Minimal build time cost, huge developer experience improvement.
+**Conclusion:** Minimal build time cost for massive developer experience improvement.
 
 ## FAQ
 
-**Q: KSP có chạy mỗi lần build không?**
-A: Incremental. Chỉ chạy khi workers change.
+**Q: Does KSP run on every build?**
+A: Incremental only. KSP only runs when annotated workers change.
 
-**Q: Generated code có commit vào Git không?**
-A: Không. Add `build/` vào `.gitignore`. KSP regenerate mỗi build.
+**Q: Should generated code be committed to Git?**
+A: No. Add `build/` to `.gitignore`. KSP regenerates on each build.
 
-**Q: Multi-module project support?**
-A: Yes. Mỗi module có factory riêng. Combine factories nếu cần.
+**Q: Does it support multi-module projects?**
+A: Yes. Each module gets its own factory. Combine factories if needed.
 
-**Q: iOS support?**
-A: Yes. KSP generate `IosWorkerFactoryGenerated` cho iOS workers.
+**Q: Does it support iOS?**
+A: Yes. KSP generates `IosWorkerFactoryGenerated` for iOS workers.
 
-**Q: Dependency injection?**
-A: KSP không inject dependencies. Use custom factory wrapper với Koin/Dagger.
+**Q: How does it work with dependency injection?**
+A: KSP doesn't inject dependencies. Use a custom factory wrapper with Koin/Dagger.
 
-**Q: Can I customize generated code?**
-A: No. Generated code read-only. Customize via custom factory wrapper.
+**Q: Can I customize the generated code?**
+A: No. Generated code is read-only. Customize via custom factory wrapper.
 
-**Q: Production ready?**
-A: Experimental (v2.2.2). Beta stability. Needs validation in production apps.
+**Q: Is it production ready?**
+A: Experimental status (v2.2.2). Beta stability. Requires validation in production apps.
+
+**Q: What if I need complex worker initialization?**
+A: Use custom factory wrapper that delegates to generated factory for simple cases and handles complex initialization separately.
 
 ## Resources
 
-- **KSP Docs**: https://kotlinlang.org/docs/ksp-overview.html
+- **KSP Documentation**: https://kotlinlang.org/docs/ksp-overview.html
 - **Main README**: ../README.md
-- **KSP Module**: ../kmpworker-ksp/README.md
-- **Examples**: ../composeApp/
-- **Issues**: https://github.com/brewkits/kmpworkmanager/issues
+- **KSP Module README**: ../kmpworker-ksp/README.md
+- **Example App**: ../composeApp/
+- **Report Issues**: https://github.com/brewkits/kmpworkmanager/issues
 
 ## Feedback
 
-KSP annotation là experimental feature. Report bugs/suggestions:
+KSP annotation is an experimental feature. Please report bugs and suggestions:
 
 https://github.com/brewkits/kmpworkmanager/issues/new
 
