@@ -78,6 +78,7 @@ docs/CODE_REVIEW_*.md
 *.bundle.zip
 *-bundle.jar
 maven-central-artifacts/
+maven-bundle-v2.3.0-complete/
 
 # Temporary files
 *.log
