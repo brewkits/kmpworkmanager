@@ -26,6 +26,7 @@ KMP WorkManager provides a unified API for scheduling and managing background ta
 - **Unified Scheduling API**: Single interface for both platforms
 - **Multiple Task Types**: One-time, periodic, exact timing (Android), and chained tasks
 - **WorkerResult API (v2.3.0+)**: Return structured data from workers
+- **Security Hardened (v2.3.1+)**: SSRF protection, resource limits
 - **Chain State Restoration**: Resume iOS task chains after app termination
 - **Built-in Workers**: HTTP requests, file operations, sync tasks
 - **Chain IDs (v2.3.0+)**: Prevent duplicate task execution
@@ -57,7 +58,7 @@ KMP WorkManager provides a unified API for scheduling and managing background ta
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("dev.brewkits:kmpworkmanager:2.3.0")
+            implementation("dev.brewkits:kmpworkmanager:2.3.1")
         }
     }
 }

@@ -13,14 +13,13 @@ import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
+import dev.brewkits.kmpworkmanager.KmpWorkManagerKoin
 import dev.brewkits.kmpworkmanager.background.domain.AndroidWorkerFactory
 import dev.brewkits.kmpworkmanager.background.domain.TaskCompletionEvent
 import dev.brewkits.kmpworkmanager.background.domain.TaskEventBus
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.utils.LogTags
-import org.koin.core.component.KoinComponent
-import org.koin.core.component.inject
 
 /**
  * Heavy worker that runs in foreground service with persistent notification.
@@ -156,9 +155,9 @@ import org.koin.core.component.inject
 class KmpHeavyWorker(
     appContext: Context,
     workerParams: WorkerParameters
-) : CoroutineWorker(appContext, workerParams), KoinComponent {
+) : CoroutineWorker(appContext, workerParams) {
 
-    private val workerFactory: AndroidWorkerFactory by inject()
+    private val workerFactory: AndroidWorkerFactory = KmpWorkManagerKoin.getKoin().get()
 
     companion object {
         const val CHANNEL_ID = "kmp_heavy_worker_channel"

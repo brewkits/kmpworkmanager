@@ -112,7 +112,7 @@ internal class IosFileStorage(
     private val progressBuffer = mutableMapOf<String, ChainProgress>()
     private val progressMutex = Mutex()
     private var flushJob: kotlinx.coroutines.Job? = null
-    private var isFlushing = false  // Tracks if flush is in progress (prevents race conditions)
+    private var flushCompletionSignal: kotlinx.coroutines.CompletableDeferred<Unit>? = null
 
     companion object {
         const val MAX_QUEUE_SIZE = 1000
@@ -611,15 +611,11 @@ internal class IosFileStorage(
                 )
 
                 // Schedule debounced flush (only if not currently flushing)
-                // FIX: Check isFlushing flag to prevent race condition with flushNow()
-                if (!isFlushing) {
+                if (flushCompletionSignal == null) {
                     flushJob?.cancel()
                     flushJob = backgroundScope.launch {
                         delay(FLUSH_DEBOUNCE_MS)
-                        // Double-check still not flushing before executing
-                        if (!isFlushing) {
-                            flushProgressBuffer()
-                        }
+                        flushProgressBuffer()
                     }
                 }
             }
@@ -636,47 +632,56 @@ internal class IosFileStorage(
      * FIX: Uses isFlushing flag to prevent race conditions with saveChainProgress()
      */
     private suspend fun flushProgressBuffer() {
-        progressMutex.withLock {
+        val signal = progressMutex.withLock {
             if (progressBuffer.isEmpty()) {
                 return
             }
 
-            // Set flag to prevent concurrent flush scheduling
-            isFlushing = true
+            // Create completion signal to coordinate with flushNow()
+            val newSignal = kotlinx.coroutines.CompletableDeferred<Unit>()
+            flushCompletionSignal = newSignal
 
             val bufferSnapshot = progressBuffer.toMap()
             progressBuffer.clear()
 
             Logger.d(LogTags.CHAIN, "Flushing ${bufferSnapshot.size} progress updates to disk")
 
-            // Write all progress files in batch
-            try {
-                bufferSnapshot.forEach { (chainId, progress) ->
-                    val progressFile = chainsDirURL.URLByAppendingPathComponent("${chainId}_progress.json")!!
-                    val json = Json.encodeToString(progress)
+            // Return snapshot and signal for processing outside lock
+            Pair(bufferSnapshot, newSignal)
+        } ?: return
 
-                    try {
-                        coordinated(progressFile, write = true) { safeUrl ->
-                            writeStringToFile(safeUrl, json)
-                        }
-                        Logger.v(
-                            LogTags.CHAIN,
-                            "Flushed progress for $chainId (${progress.getCompletionPercentage()}% complete)"
-                        )
-                    } catch (e: Exception) {
-                        Logger.e(LogTags.CHAIN, "Failed to flush progress for $chainId", e)
-                        // Re-buffer failed writes for retry on next flush
-                        progressMutex.withLock {
-                            progressBuffer[chainId] = progress
-                        }
+        val (bufferSnapshot, completionSignal) = signal
+
+        // Write all progress files in batch (outside mutex to allow concurrent saves)
+        try {
+            bufferSnapshot.forEach { (chainId, progress) ->
+                val progressFile = chainsDirURL.URLByAppendingPathComponent("${chainId}_progress.json")!!
+                val json = Json.encodeToString(progress)
+
+                try {
+                    coordinated(progressFile, write = true) { safeUrl ->
+                        writeStringToFile(safeUrl, json)
+                    }
+                    Logger.v(
+                        LogTags.CHAIN,
+                        "Flushed progress for $chainId (${progress.getCompletionPercentage()}% complete)"
+                    )
+                } catch (e: Exception) {
+                    Logger.e(LogTags.CHAIN, "Failed to flush progress for $chainId", e)
+                    // Re-buffer failed writes for retry on next flush
+                    progressMutex.withLock {
+                        progressBuffer[chainId] = progress
                     }
                 }
-
-                Logger.i(LogTags.CHAIN, "✅ Progress flush completed (${bufferSnapshot.size} updates)")
-            } finally {
-                // CRITICAL: Always reset flag even if flush fails
-                isFlushing = false
             }
+
+            Logger.i(LogTags.CHAIN, "✅ Progress flush completed (${bufferSnapshot.size} updates)")
+        } finally {
+            // CRITICAL: Always complete signal and reset even if flush fails
+            progressMutex.withLock {
+                flushCompletionSignal = null
+            }
+            completionSignal.complete(Unit)
         }
     }
 
@@ -695,12 +700,13 @@ internal class IosFileStorage(
      */
     suspend fun flushNow() {
         // Cancel pending debounced flush
-        flushJob?.cancelAndJoin()  // Use cancelAndJoin() to wait for cancellation
+        flushJob?.cancelAndJoin()
 
-        // Wait for any in-progress flush to complete (prevents race condition)
-        while (isFlushing) {
-            delay(10)  // Small delay to avoid busy-wait
+        // Wait for any in-progress flush to complete
+        val signal = progressMutex.withLock {
+            flushCompletionSignal
         }
+        signal?.await()
 
         // Now safe to flush immediately
         flushProgressBuffer()

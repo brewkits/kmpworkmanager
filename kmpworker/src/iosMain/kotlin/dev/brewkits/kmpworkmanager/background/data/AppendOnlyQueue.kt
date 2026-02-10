@@ -491,6 +491,11 @@ internal class AppendOnlyQueue(
     /**
      * Count total lines in queue file
      */
+    /**
+     * Count lines in file without loading entire content into memory.
+     * Reads file in chunks and counts newline characters.
+     * Memory efficient for large queue files.
+     */
     private fun countTotalLines(): Int {
         val path = queueFileURL.path ?: return 0
 
@@ -500,13 +505,53 @@ internal class AppendOnlyQueue(
 
         return memScoped {
             val errorPtr = alloc<ObjCObjectVar<NSError?>>()
-            val content = NSString.stringWithContentsOfFile(
-                path,
-                encoding = NSUTF8StringEncoding,
+            val fileHandle = NSFileHandle.fileHandleForReadingFromURL(
+                queueFileURL,
                 error = errorPtr.ptr
             )
 
-            content?.split("\n")?.filter { it.isNotBlank() }?.size ?: 0
+            if (fileHandle == null) {
+                Logger.w(LogTags.QUEUE, "Failed to open file for line counting: ${errorPtr.value?.localizedDescription}")
+                return 0
+            }
+
+            try {
+                var lineCount = 0
+                var hasContent = false
+                val chunkSize = 8192UL // 8KB chunks
+
+                while (true) {
+                    val data = fileHandle.readDataOfLength(chunkSize)
+                    if (data.length == 0UL) break
+
+                    hasContent = true
+
+                    // Convert NSData to ByteArray and count newlines
+                    val byteArray = ByteArray(data.length.toInt())
+                    byteArray.usePinned { pinned ->
+                        data.getBytes(pinned.addressOf(0), data.length)
+                    }
+
+                    for (byte in byteArray) {
+                        if (byte == '\n'.code.toByte()) {
+                            lineCount++
+                        }
+                    }
+                }
+
+                fileHandle.closeFile()
+
+                // If file has content but no newlines, count as 1 line
+                if (hasContent && lineCount == 0) {
+                    return 1
+                }
+
+                return lineCount
+            } catch (e: Exception) {
+                fileHandle.closeFile()
+                Logger.e(LogTags.QUEUE, "Error counting lines: ${e.message}")
+                return 0
+            }
         }
     }
 
@@ -606,24 +651,44 @@ internal class AppendOnlyQueue(
                 writeItemsToFile(compactedQueueURL, unprocessedItems)
 
                 // Step 3: Atomically replace old file with compacted file
-                val queuePath = queueFileURL.path ?: throw IllegalStateException("Queue file path is null")
-                val compactedPath = compactedQueueURL.path ?: throw IllegalStateException("Compacted file path is null")
-
                 memScoped {
                     val errorPtr = alloc<ObjCObjectVar<NSError?>>()
 
-                    // Delete old queue file
-                    fileManager.removeItemAtPath(queuePath, errorPtr.ptr)
-
-                    // Move compacted file to queue file
-                    val success = fileManager.moveItemAtPath(
-                        compactedPath,
-                        toPath = queuePath,
+                    // Use replaceItemAtURL for atomic replacement
+                    // This ensures crash-safety: if interrupted, either old or new file exists
+                    val resultingURL = fileManager.replaceItemAtURL(
+                        queueFileURL,
+                        withItemAtURL = compactedQueueURL,
+                        backupItemName = null,
+                        options = NSFileManagerItemReplacementWithoutDeletingBackupItem,
+                        resultingItemURL = null,
                         error = errorPtr.ptr
                     )
 
-                    if (!success) {
-                        throw IllegalStateException("Failed to replace queue file: ${errorPtr.value?.localizedDescription}")
+                    if (resultingURL == null) {
+                        val error = errorPtr.value
+                        // Fallback to non-atomic replacement if replaceItemAtURL not supported
+                        if (error?.code == NSFileNoSuchFileError || error?.code == NSFileReadNoSuchFileError) {
+                            Logger.w(LogTags.QUEUE, "replaceItemAtURL not available, using fallback")
+                            val queuePath = queueFileURL.path ?: throw IllegalStateException("Queue file path is null")
+                            val compactedPath = compactedQueueURL.path ?: throw IllegalStateException("Compacted file path is null")
+
+                            // Delete old queue file
+                            fileManager.removeItemAtPath(queuePath, errorPtr.ptr)
+
+                            // Move compacted file to queue file
+                            val success = fileManager.moveItemAtPath(
+                                compactedPath,
+                                toPath = queuePath,
+                                error = errorPtr.ptr
+                            )
+
+                            if (!success) {
+                                throw IllegalStateException("Failed to replace queue file: ${error?.localizedDescription}")
+                            }
+                        } else {
+                            throw IllegalStateException("Failed to replace queue file atomically: ${error?.localizedDescription}")
+                        }
                     }
                 }
 

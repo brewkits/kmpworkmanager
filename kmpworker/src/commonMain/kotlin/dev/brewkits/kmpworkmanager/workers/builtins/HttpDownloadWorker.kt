@@ -60,7 +60,7 @@ import okio.use
  * ```
  */
 class HttpDownloadWorker(
-    private val httpClient: HttpClient = createDefaultHttpClient(),
+    private val httpClient: HttpClient? = null,
     private val fileSystem: FileSystem = platformFileSystem,
     private val progressListener: ProgressListener? = null
 ) : Worker {
@@ -73,18 +73,33 @@ class HttpDownloadWorker(
             return WorkerResult.Failure("Input configuration is null")
         }
 
+        // Create client if not provided, ensure it's closed after use
+        val client = httpClient ?: createDefaultHttpClient()
+        val shouldCloseClient = httpClient == null
+
         return try {
             val config = Json.decodeFromString<HttpDownloadConfig>(input)
+
+            // Validate URL before downloading
+            if (!SecurityValidator.validateURL(config.url)) {
+                Logger.e("HttpDownloadWorker", "Invalid or unsafe URL: ${SecurityValidator.sanitizedURL(config.url)}")
+                return WorkerResult.Failure("Invalid or unsafe URL")
+            }
+
             Logger.i("HttpDownloadWorker", "Downloading from ${SecurityValidator.sanitizedURL(config.url)} to ${config.savePath}")
 
-            downloadFile(config)
+            downloadFile(client, config)
         } catch (e: Exception) {
             Logger.e("HttpDownloadWorker", "Failed to download file", e)
             WorkerResult.Failure("Download failed: ${e.message}")
+        } finally {
+            if (shouldCloseClient) {
+                client.close()
+            }
         }
     }
 
-    private suspend fun downloadFile(config: HttpDownloadConfig): WorkerResult {
+    private suspend fun downloadFile(client: HttpClient, config: HttpDownloadConfig): WorkerResult {
         val savePath = config.savePath.toPath()
         val tempPath = "${config.savePath}.tmp".toPath()
 
@@ -98,7 +113,7 @@ class HttpDownloadWorker(
             }
 
             // Download to temp file
-            val response: HttpResponse = httpClient.get(config.url) {
+            val response: HttpResponse = client.get(config.url) {
                 // Set headers
                 config.headers?.forEach { (key, value) ->
                     header(key, value)
