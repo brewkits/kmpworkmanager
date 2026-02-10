@@ -95,7 +95,7 @@ class SingleTaskExecutor(private val workerFactory: IosWorkerFactory) {
      * v2.3.0+: Emits both success and failure events with outputData
      */
     private fun emitEvent(workerClassName: String, result: WorkerResult) {
-        CoroutineScope(Dispatchers.Main).launch {
+        coroutineScope.launch(Dispatchers.Main) {
             val event = when (result) {
                 is WorkerResult.Success -> {
                     TaskCompletionEvent(

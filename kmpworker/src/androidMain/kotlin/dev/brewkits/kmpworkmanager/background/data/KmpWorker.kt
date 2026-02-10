@@ -3,14 +3,13 @@ package dev.brewkits.kmpworkmanager.background.data
 import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import dev.brewkits.kmpworkmanager.KmpWorkManagerKoin
 import dev.brewkits.kmpworkmanager.background.domain.AndroidWorkerFactory
 import dev.brewkits.kmpworkmanager.background.domain.TaskCompletionEvent
 import dev.brewkits.kmpworkmanager.background.domain.TaskEventBus
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.utils.LogTags
 import dev.brewkits.kmpworkmanager.utils.Logger
-import org.koin.core.component.KoinComponent
-import org.koin.core.component.inject
 
 /**
  * A generic CoroutineWorker that delegates to user-provided AndroidWorker implementations.
@@ -26,9 +25,9 @@ import org.koin.core.component.inject
 class KmpWorker(
     appContext: Context,
     workerParams: WorkerParameters
-) : CoroutineWorker(appContext, workerParams), KoinComponent {
+) : CoroutineWorker(appContext, workerParams) {
 
-    private val workerFactory: AndroidWorkerFactory by inject()
+    private val workerFactory: AndroidWorkerFactory = KmpWorkManagerKoin.getKoin().get()
 
     override suspend fun doWork(): Result {
         val workerClassName = inputData.getString("workerClassName") ?: return Result.failure()

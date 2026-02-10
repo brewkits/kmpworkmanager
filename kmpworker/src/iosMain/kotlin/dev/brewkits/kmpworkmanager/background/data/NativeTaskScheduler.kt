@@ -5,6 +5,7 @@ import dev.brewkits.kmpworkmanager.background.domain.*
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.utils.LogTags
 import kotlinx.cinterop.*
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -97,6 +98,12 @@ actual class NativeTaskScheduler(
     private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     /**
+     * Signal that completes when migration is done
+     * Operations should await this before accessing storage
+     */
+    private val migrationComplete = CompletableDeferred<Unit>()
+
+    /**
      * Task IDs read from Info.plist BGTaskSchedulerPermittedIdentifiers
      */
     private val infoPlistTaskIds: Set<String> = InfoPlistReader.readPermittedTaskIds()
@@ -120,6 +127,9 @@ actual class NativeTaskScheduler(
                 }
             } catch (e: Exception) {
                 Logger.e(LogTags.SCHEDULER, "Storage migration error", e)
+            } finally {
+                // Always complete signal, even if migration fails
+                migrationComplete.complete(Unit)
             }
         }
 
@@ -140,6 +150,9 @@ actual class NativeTaskScheduler(
         inputJson: String?,
         policy: ExistingPolicy
     ): ScheduleResult {
+        // Wait for migration to complete before accessing storage
+        migrationComplete.await()
+
         Logger.i(LogTags.SCHEDULER, "Enqueue request - ID: '$id', Trigger: ${trigger::class.simpleName}, Policy: $policy")
 
         // Validate task ID against Info.plist permitted identifiers
