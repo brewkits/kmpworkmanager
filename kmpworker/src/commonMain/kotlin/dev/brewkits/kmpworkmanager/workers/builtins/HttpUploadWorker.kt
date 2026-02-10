@@ -67,7 +67,7 @@ import okio.Path.Companion.toPath
  * ```
  */
 class HttpUploadWorker(
-    private val httpClient: HttpClient = createDefaultHttpClient(),
+    private val httpClient: HttpClient? = null,
     private val fileSystem: FileSystem = platformFileSystem,
     private val progressListener: ProgressListener? = null
 ) : Worker {
@@ -80,25 +80,40 @@ class HttpUploadWorker(
             return WorkerResult.Failure("Input configuration is null")
         }
 
+        // Create client if not provided, ensure it's closed after use
+        val client = httpClient ?: createDefaultHttpClient()
+        val shouldCloseClient = httpClient == null
+
         return try {
             val config = Json.decodeFromString<HttpUploadConfig>(input)
+
+            // Validate URL before uploading
+            if (!SecurityValidator.validateURL(config.url)) {
+                Logger.e("HttpUploadWorker", "Invalid or unsafe URL: ${SecurityValidator.sanitizedURL(config.url)}")
+                return WorkerResult.Failure("Invalid or unsafe URL")
+            }
+
             Logger.i("HttpUploadWorker", "Uploading file ${config.filePath} to ${SecurityValidator.sanitizedURL(config.url)}")
 
-            uploadFile(config)
+            uploadFile(client, config)
         } catch (e: Exception) {
             Logger.e("HttpUploadWorker", "Failed to upload file", e)
             WorkerResult.Failure("Upload failed: ${e.message}")
+        } finally {
+            if (shouldCloseClient) {
+                client.close()
+            }
         }
     }
 
-    private suspend fun uploadFile(config: HttpUploadConfig): WorkerResult {
+    private suspend fun uploadFile(client: HttpClient, config: HttpUploadConfig): WorkerResult {
         val filePath = config.filePath.toPath()
 
         return try {
             // Validate file exists
             if (!fileSystem.exists(filePath)) {
                 Logger.e("HttpUploadWorker", "File does not exist: ${config.filePath}")
-                return WorkerResult.Failure("Input configuration is null")
+                return WorkerResult.Failure("File does not exist: ${config.filePath}")
             }
 
             // Get file metadata
@@ -106,9 +121,10 @@ class HttpUploadWorker(
             val fileSize = metadata.size ?: 0L
             Logger.i("HttpUploadWorker", "File size: ${SecurityValidator.formatByteSize(fileSize)}")
 
-            // Read file content
-            val fileBytes = fileSystem.read(filePath) {
-                readByteArray()
+            // Validate file size (max 100MB to prevent OOM)
+            val maxSize = 100 * 1024 * 1024L
+            if (fileSize > maxSize) {
+                return WorkerResult.Failure("File too large: ${SecurityValidator.formatByteSize(fileSize)} (max 100MB)")
             }
 
             // Determine filename
@@ -118,8 +134,13 @@ class HttpUploadWorker(
             val mimeType = config.mimeType ?: detectMimeType(fileName)
             Logger.d("HttpUploadWorker", "MIME type: $mimeType")
 
+            // Read file content
+            val fileBytes = fileSystem.read(filePath) {
+                readByteArray()
+            }
+
             // Upload using multipart/form-data
-            val response: HttpResponse = httpClient.submitFormWithBinaryData(
+            val response: HttpResponse = client.submitFormWithBinaryData(
                 url = config.url,
                 formData = formData {
                     // Add additional form fields

@@ -271,9 +271,10 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
             """.trimIndent())
 
             // Fallback: Use WorkManager with delay
+            val delayMs = (trigger.atEpochMillis - System.currentTimeMillis()).coerceAtLeast(0)
             return scheduleOneTimeWork(
                 id = id,
-                trigger = TaskTrigger.OneTime(initialDelayMs = trigger.atEpochMillis),
+                trigger = TaskTrigger.OneTime(initialDelayMs = delayMs),
                 workerClassName = workerClassName,
                 constraints = Constraints(), // No constraints for fallback
                 inputJson = inputJson,
@@ -430,138 +431,6 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
     }
 
     /**
-     * Schedules work to run when storage is low (Android only).
-     * Uses WorkManager's setRequiresStorageNotLow constraint (inverted logic).
-     */
-    private fun scheduleStorageLowWork(
-        id: String,
-        workerClassName: String,
-        constraints: Constraints,
-        inputJson: String?,
-        policy: ExistingPolicy
-    ): ScheduleResult {
-        Logger.i(LogTags.SCHEDULER, "Scheduling StorageLow task - ID: '$id'")
-
-        val workManagerPolicy = when (policy) {
-            ExistingPolicy.KEEP -> ExistingWorkPolicy.KEEP
-            ExistingPolicy.REPLACE -> ExistingWorkPolicy.REPLACE
-        }
-
-        // Note: WorkManager has setRequiresStorageNotLow, but we want to trigger ON low storage
-        val wmConstraints = buildWorkManagerConstraints(constraints) { builder ->
-            builder.setRequiresStorageNotLow(false) // Allow running when storage is low
-        }
-
-        val workRequest = buildOneTimeWorkRequest(
-            id, workerClassName, constraints, inputJson,
-            "storage-low", 0L, wmConstraints
-        )
-
-        workManager.enqueueUniqueWork(id, workManagerPolicy, workRequest)
-        Logger.i(LogTags.SCHEDULER, "Successfully enqueued StorageLow task '$id'")
-        Logger.w(LogTags.SCHEDULER, "Note: This allows running during low storage but doesn't actively trigger on low storage events")
-        return ScheduleResult.ACCEPTED
-    }
-
-    /**
-     * Schedules work to run when battery is low (Android only).
-     * Uses WorkManager's setRequiresBatteryNotLow constraint (inverted logic).
-     */
-    private fun scheduleBatteryLowWork(
-        id: String,
-        workerClassName: String,
-        constraints: Constraints,
-        inputJson: String?,
-        policy: ExistingPolicy
-    ): ScheduleResult {
-        Logger.i(LogTags.SCHEDULER, "Scheduling BatteryLow task - ID: '$id'")
-
-        val workManagerPolicy = when (policy) {
-            ExistingPolicy.KEEP -> ExistingWorkPolicy.KEEP
-            ExistingPolicy.REPLACE -> ExistingWorkPolicy.REPLACE
-        }
-
-        // Note: WorkManager has setRequiresBatteryNotLow, but we want to trigger ON low battery
-        val wmConstraints = buildWorkManagerConstraints(constraints) { builder ->
-            builder.setRequiresBatteryNotLow(false) // Allow running when battery is low
-        }
-
-        val workRequest = buildOneTimeWorkRequest(
-            id, workerClassName, constraints, inputJson,
-            "battery-low", 0L, wmConstraints
-        )
-
-        workManager.enqueueUniqueWork(id, workManagerPolicy, workRequest)
-        Logger.i(LogTags.SCHEDULER, "Successfully enqueued BatteryLow task '$id'")
-        Logger.w(LogTags.SCHEDULER, "Note: This allows running during low battery but doesn't actively trigger on low battery events")
-        return ScheduleResult.ACCEPTED
-    }
-
-    /**
-     * Schedules work to run when battery is okay/not low (Android only).
-     * Uses WorkManager's setRequiresBatteryNotLow constraint.
-     */
-    private fun scheduleBatteryOkayWork(
-        id: String,
-        workerClassName: String,
-        constraints: Constraints,
-        inputJson: String?,
-        policy: ExistingPolicy
-    ): ScheduleResult {
-        Logger.i(LogTags.SCHEDULER, "Scheduling BatteryOkay task - ID: '$id'")
-
-        val workManagerPolicy = when (policy) {
-            ExistingPolicy.KEEP -> ExistingWorkPolicy.KEEP
-            ExistingPolicy.REPLACE -> ExistingWorkPolicy.REPLACE
-        }
-
-        val wmConstraints = buildWorkManagerConstraints(constraints) { builder ->
-            builder.setRequiresBatteryNotLow(true) // Only run when battery is NOT low
-        }
-
-        val workRequest = buildOneTimeWorkRequest(
-            id, workerClassName, constraints, inputJson,
-            "battery-okay", 0L, wmConstraints
-        )
-
-        workManager.enqueueUniqueWork(id, workManagerPolicy, workRequest)
-        Logger.i(LogTags.SCHEDULER, "Successfully enqueued BatteryOkay task '$id'")
-        return ScheduleResult.ACCEPTED
-    }
-
-    /**
-     * Schedules work to run when device is idle (Android only).
-     * Uses WorkManager's setRequiresDeviceIdle constraint.
-     */
-    private fun scheduleDeviceIdleWork(
-        id: String,
-        workerClassName: String,
-        constraints: Constraints,
-        inputJson: String?,
-        policy: ExistingPolicy
-    ): ScheduleResult {
-        Logger.i(LogTags.SCHEDULER, "Scheduling DeviceIdle task - ID: '$id'")
-
-        val workManagerPolicy = when (policy) {
-            ExistingPolicy.KEEP -> ExistingWorkPolicy.KEEP
-            ExistingPolicy.REPLACE -> ExistingWorkPolicy.REPLACE
-        }
-
-        val wmConstraints = buildWorkManagerConstraints(constraints) { builder ->
-            builder.setRequiresDeviceIdle(true) // Only run when device is idle
-        }
-
-        val workRequest = buildOneTimeWorkRequest(
-            id, workerClassName, constraints, inputJson,
-            "device-idle", 0L, wmConstraints
-        )
-
-        workManager.enqueueUniqueWork(id, workManagerPolicy, workRequest)
-        Logger.i(LogTags.SCHEDULER, "Successfully enqueued DeviceIdle task '$id'")
-        return ScheduleResult.ACCEPTED
-    }
-
-    /**
      * Helper: Build common Constraints for WorkManager from KMP Constraints
      */
     private fun buildWorkManagerConstraints(
@@ -598,30 +467,47 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
             .apply { inputJson?.let { putString("inputJson", it) } }
             .build()
 
-        val workRequestBuilder = OneTimeWorkRequestBuilder<KmpWorker>()
-            .setInitialDelay(initialDelayMs, TimeUnit.MILLISECONDS)
-            .setConstraints(wmConstraints)
-            .setInputData(workData)
-            .setBackoffCriteria(
-                if (constraints.backoffPolicy == dev.brewkits.kmpworkmanager.background.domain.BackoffPolicy.EXPONENTIAL)
-                    BackoffPolicy.EXPONENTIAL
-                else
-                    BackoffPolicy.LINEAR,
-                constraints.backoffDelayMs,
-                TimeUnit.MILLISECONDS
-            )
-            .addTag(TAG_KMP_TASK)
-            .addTag("type-$taskType")
-            .addTag("id-$id")
-            .addTag("worker-$workerClassName")
-
-        // Apply expedited if NOT a heavy task (for faster execution of light tasks)
-        return if (!constraints.isHeavyTask) {
-            Logger.d(LogTags.SCHEDULER, "Creating EXPEDITED task for faster execution")
-            workRequestBuilder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST).build()
+        // Use KmpHeavyWorker for heavy tasks (foreground service with notification)
+        // Use KmpWorker for regular tasks (background execution)
+        return if (constraints.isHeavyTask) {
+            Logger.d(LogTags.SCHEDULER, "Creating HEAVY task with foreground service")
+            OneTimeWorkRequestBuilder<KmpHeavyWorker>()
+                .setInitialDelay(initialDelayMs, TimeUnit.MILLISECONDS)
+                .setConstraints(wmConstraints)
+                .setInputData(workData)
+                .setBackoffCriteria(
+                    if (constraints.backoffPolicy == dev.brewkits.kmpworkmanager.background.domain.BackoffPolicy.EXPONENTIAL)
+                        BackoffPolicy.EXPONENTIAL
+                    else
+                        BackoffPolicy.LINEAR,
+                    constraints.backoffDelayMs,
+                    TimeUnit.MILLISECONDS
+                )
+                .addTag(TAG_KMP_TASK)
+                .addTag("type-$taskType")
+                .addTag("id-$id")
+                .addTag("worker-$workerClassName")
+                .build()
         } else {
-            Logger.d(LogTags.SCHEDULER, "Creating REGULAR task for heavy processing")
-            workRequestBuilder.build()
+            Logger.d(LogTags.SCHEDULER, "Creating EXPEDITED task for faster execution")
+            OneTimeWorkRequestBuilder<KmpWorker>()
+                .setInitialDelay(initialDelayMs, TimeUnit.MILLISECONDS)
+                .setConstraints(wmConstraints)
+                .setInputData(workData)
+                .setBackoffCriteria(
+                    if (constraints.backoffPolicy == dev.brewkits.kmpworkmanager.background.domain.BackoffPolicy.EXPONENTIAL)
+                        BackoffPolicy.EXPONENTIAL
+                    else
+                        BackoffPolicy.LINEAR,
+                    constraints.backoffDelayMs,
+                    TimeUnit.MILLISECONDS
+                )
+                .addTag(TAG_KMP_TASK)
+                .addTag("type-$taskType")
+                .addTag("id-$id")
+                .addTag("worker-$workerClassName")
+                .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                .build()
         }
     }
 

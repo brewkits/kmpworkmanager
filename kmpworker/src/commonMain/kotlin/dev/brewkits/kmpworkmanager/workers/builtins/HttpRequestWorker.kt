@@ -57,7 +57,7 @@ import kotlinx.serialization.json.Json
  * ```
  */
 class HttpRequestWorker(
-    private val httpClient: HttpClient = createDefaultHttpClient()
+    private val httpClient: HttpClient? = null
 ) : Worker {
 
     override suspend fun doWork(input: String?): WorkerResult {
@@ -68,20 +68,35 @@ class HttpRequestWorker(
             return WorkerResult.Failure("Input configuration is null")
         }
 
+        // Create client if not provided, ensure it's closed after use
+        val client = httpClient ?: createDefaultHttpClient()
+        val shouldCloseClient = httpClient == null
+
         return try {
             val config = Json.decodeFromString<HttpRequestConfig>(input)
+
+            // Validate URL before making request
+            if (!SecurityValidator.validateURL(config.url)) {
+                Logger.e("HttpRequestWorker", "Invalid or unsafe URL: ${SecurityValidator.sanitizedURL(config.url)}")
+                return WorkerResult.Failure("Invalid or unsafe URL")
+            }
+
             Logger.i("HttpRequestWorker", "Executing ${config.method} request to ${SecurityValidator.sanitizedURL(config.url)}")
 
-            executeRequest(config)
+            executeRequest(client, config)
         } catch (e: Exception) {
             Logger.e("HttpRequestWorker", "Failed to execute HTTP request", e)
             WorkerResult.Failure("HTTP request failed: ${e.message}")
+        } finally {
+            if (shouldCloseClient) {
+                client.close()
+            }
         }
     }
 
-    private suspend fun executeRequest(config: HttpRequestConfig): WorkerResult {
+    private suspend fun executeRequest(client: HttpClient, config: HttpRequestConfig): WorkerResult {
         return try {
-            val response: HttpResponse = httpClient.request(config.url) {
+            val response: HttpResponse = client.request(config.url) {
                 method = when (config.httpMethod) {
                     WorkerHttpMethod.GET -> HttpMethod.Get
                     WorkerHttpMethod.POST -> HttpMethod.Post

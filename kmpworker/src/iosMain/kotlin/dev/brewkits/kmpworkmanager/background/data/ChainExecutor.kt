@@ -44,7 +44,8 @@ interface Closeable {
 
 class ChainExecutor(
     private val workerFactory: IosWorkerFactory,
-    private val taskType: BGTaskType = BGTaskType.PROCESSING
+    private val taskType: BGTaskType = BGTaskType.PROCESSING,
+    private val onContinuationNeeded: (() -> Unit)? = null
 ) : Closeable {
 
     private var isClosed = false
@@ -793,24 +794,46 @@ class ChainExecutor(
     /**
      * Schedule next BGTask for continuation
      *
-     * Note: This is a placeholder. Actual implementation requires access to
-     * NativeTaskScheduler or BGTaskScheduler. In production, this should be
-     * called from the BGTask handler after receiving metrics.
+     * **v2.3.1+:** Now calls the onContinuationNeeded callback if provided.
+     *
+     * **Usage from Swift:**
+     * ```swift
+     * let executor = ChainExecutor(
+     *     workerFactory: factory,
+     *     taskType: .processing,
+     *     onContinuationNeeded: {
+     *         let request = BGProcessingTaskRequest(identifier: "chain_executor")
+     *         request.earliestBeginDate = Date(timeIntervalSinceNow: 1)
+     *         try? BGTaskScheduler.shared.submit(request)
+     *     }
+     * )
+     * ```
      */
     private fun scheduleNextBGTask() {
-        Logger.i(LogTags.CHAIN, """
-            📅 Continuation needed: Queue has remaining chains
+        Logger.i(LogTags.CHAIN, "📅 Continuation needed: Queue has remaining chains")
 
-            Implementation note: The BGTask handler should call NativeTaskScheduler
-            to schedule the next execution:
+        if (onContinuationNeeded != null) {
+            Logger.d(LogTags.CHAIN, "Invoking continuation callback to schedule next BGTask")
+            onContinuationNeeded.invoke()
+        } else {
+            Logger.w(LogTags.CHAIN, """
+                ⚠️ No continuation callback provided!
 
-            Swift example:
-            if executor.getChainQueueSize() > 0 {
-                let request = BGProcessingTaskRequest(identifier: "chain_executor")
-                request.earliestBeginDate = Date(timeIntervalSinceNow: 1)
-                try? BGTaskScheduler.shared.submit(request)
-            }
-        """.trimIndent())
+                Chains remain in queue but no BGTask will be scheduled.
+                Provide onContinuationNeeded callback when creating ChainExecutor:
+
+                Swift example:
+                let executor = ChainExecutor(
+                    workerFactory: factory,
+                    taskType: .processing,
+                    onContinuationNeeded: {
+                        let request = BGProcessingTaskRequest(identifier: "chain_executor")
+                        request.earliestBeginDate = Date(timeIntervalSinceNow: 1)
+                        try? BGTaskScheduler.shared.submit(request)
+                    }
+                )
+            """.trimIndent())
+        }
 
         // Emit event to notify that continuation is needed
         coroutineScope.launch(Dispatchers.Main) {
@@ -832,28 +855,60 @@ class ChainExecutor(
      * - Resources are properly released
      * - Subsequent calls are no-ops
      * - Thread-safe with mutex protection
+     *
+     * **v2.3.1+:** Non-blocking close to prevent deadlocks. Progress flush happens
+     * asynchronously. For guaranteed cleanup, use closeAsync() instead.
      */
     override fun close() {
-        // Use runBlocking to handle suspend function in close()
-        kotlinx.coroutines.runBlocking {
-            closeMutex.withLock {
-                if (isClosed) {
-                    Logger.d(LogTags.CHAIN, "ChainExecutor already closed")
-                    return@runBlocking
-                }
+        if (isClosed) {
+            Logger.d(LogTags.CHAIN, "ChainExecutor already closed")
+            return
+        }
 
-                isClosed = true
-                Logger.d(LogTags.CHAIN, "Closing ChainExecutor")
+        isClosed = true
+        Logger.d(LogTags.CHAIN, "Closing ChainExecutor")
 
-                // v2.2.2+: Flush buffered progress before closing
+        // Cancel all running coroutines first (non-blocking)
+        job.cancel()
+
+        // Launch async cleanup on a separate scope to avoid blocking
+        // This prevents deadlock if close() is called from coroutine context
+        CoroutineScope(Dispatchers.Default).launch {
+            try {
+                // Flush buffered progress before fully closing
                 fileStorage.flushNow()
                 Logger.d(LogTags.CHAIN, "Progress buffer flushed during close")
-
-                // Cancel all running coroutines
-                job.cancel()
-
-                Logger.i(LogTags.CHAIN, "ChainExecutor closed successfully")
+            } catch (e: Exception) {
+                Logger.e(LogTags.CHAIN, "Error flushing progress during close", e)
             }
+            Logger.i(LogTags.CHAIN, "ChainExecutor closed successfully")
+        }
+    }
+
+    /**
+     * Async version of close() that guarantees cleanup completion.
+     * Use this when you need to ensure all resources are flushed before proceeding.
+     *
+     * **v2.3.1+:** Recommended for critical cleanup paths (app shutdown, etc.)
+     */
+    suspend fun closeAsync() {
+        closeMutex.withLock {
+            if (isClosed) {
+                Logger.d(LogTags.CHAIN, "ChainExecutor already closed")
+                return
+            }
+
+            isClosed = true
+            Logger.d(LogTags.CHAIN, "Closing ChainExecutor (async)")
+
+            // Cancel all running coroutines
+            job.cancel()
+
+            // Flush buffered progress before closing
+            fileStorage.flushNow()
+            Logger.d(LogTags.CHAIN, "Progress buffer flushed during close")
+
+            Logger.i(LogTags.CHAIN, "ChainExecutor closed successfully")
         }
     }
 
