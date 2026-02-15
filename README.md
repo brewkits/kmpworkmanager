@@ -294,11 +294,11 @@ See `/composeApp` directory for complete demo app with:
 
 See [CHANGELOG.md](CHANGELOG.md) for version history.
 
-**Latest: v2.3.0** (2026-02-07)
-- WorkerResult API for structured data
-- Built-in workers with data return
-- Chain IDs and ExistingPolicy
-- Demo UX improvements
+**Latest: v2.3.1** (2026-02-10)
+- Critical bug fixes (14 issues resolved)
+- Security hardening (SSRF protection, file size limits)
+- Stability improvements (race conditions, memory leaks fixed)
+- 100% backward compatible
 
 ---
 
