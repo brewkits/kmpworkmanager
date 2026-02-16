@@ -80,7 +80,7 @@ kotlin {
 }
 
 composeCompiler {
-    // Bật strong skipping để tối ưu runtime
+    // Enable strong skipping mode for runtime optimization
     enableStrongSkippingMode.set(true)
 }
 
