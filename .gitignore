@@ -40,6 +40,7 @@ DEPLOYMENT_GUIDE.md
 
 # Internal working docs (not shipped with the library)
 internal-docs/
+docs/internal/
 
 # Internal documentation (notes for development only)
 FIXES_SUMMARY.md
@@ -78,7 +79,12 @@ docs/CODE_REVIEW_*.md
 *.bundle.zip
 *-bundle.jar
 maven-central-artifacts/
-maven-bundle-v2.3.0-complete/
+maven-bundle-v*/
+
+# Maven artifacts and release packages
+MAVEN-ARTIFACTS-README.txt
+kmpworkmanager-*-maven-central.zip
+kmpworkmanager-v*.zip
 
 # Temporary files
 *.log
@@ -99,3 +105,9 @@ maven-bundle-v2.3.0-complete/
 *.bak
 *.backup
 HOÀN-THÀNH-v2.3.1.md
+
+# Review and implementation summaries
+*-IMPLEMENTATION-SUMMARY.md
+*-PROFESSIONAL-REVIEW.md
+*-COMPREHENSIVE-REVIEW.md
+HOÀN-THÀNH-*.md

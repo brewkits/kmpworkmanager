@@ -13,7 +13,7 @@ plugins {
 }
 
 group = "dev.brewkits"
-version = "2.3.1"
+version = "2.3.2"
 
 kotlin {
     androidTarget()
@@ -80,6 +80,9 @@ kotlin {
         commonTest.dependencies {
             implementation(libs.kotlin.test)
             implementation(libs.kotlinx.coroutines.test)
+            // Kotest for property-based testing (v2.3.2+)
+            implementation("io.kotest:kotest-property:5.8.0")
+            implementation("io.kotest:kotest-framework-engine:5.8.0")
         }
 
         androidInstrumentedTest.dependencies {
@@ -111,11 +114,11 @@ afterEvaluate {
             withType<MavenPublication> {
                 groupId = "dev.brewkits"
                 artifactId = artifactId.replace("kmpworker", "kmpworkmanager")
-                version = "2.3.1"
+                version = "2.3.2"
 
                 pom {
                     name.set("KMP WorkManager")
-                    description.set("Enterprise-grade Kotlin Multiplatform background task scheduler for Android & iOS. Unified API for WorkManager (Android) and BGTaskScheduler (iOS) with progress tracking, task chains, and production-ready reliability.")
+                    description.set("Kotlin Multiplatform background task scheduler for Android & iOS. Unified API for WorkManager (Android) and BGTaskScheduler (iOS) with progress tracking, task chains, and production-ready reliability.")
                     url.set("https://github.com/brewkits/kmpworkmanager")
 
                     licenses {

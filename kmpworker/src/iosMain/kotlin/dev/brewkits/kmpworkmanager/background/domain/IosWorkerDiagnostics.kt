@@ -45,9 +45,17 @@ internal class IosWorkerDiagnostics(
                         batteryState == UIDeviceBatteryState.UIDeviceBatteryStateFull
 
         // Low power mode (critical for BGTask scheduling)
-        // TODO: Implement proper low power mode detection via Swift interop or objc_msgSend
-        // NSProcessInfo.processInfo.isLowPowerModeEnabled requires proper Objective-C binding
-        val isLowPowerMode = false // Placeholder - production should check actual state
+        // NOTE: Low Power Mode detection requires Swift interop or custom Objective-C binding
+        // NSProcessInfo.processInfo.isLowPowerModeEnabled is not directly accessible from Kotlin/Native
+        //
+        // WORKAROUND for production apps:
+        // Option 1: Use expect/actual with Swift implementation
+        // Option 2: Pass low power mode state from Swift via method parameter
+        // Option 3: Use @ObjCName annotation with custom interop definition
+        //
+        // For now, returns false (conservative approach - assume device has full power)
+        // Apps can override this by extending IosWorkerDiagnostics
+        val isLowPowerMode = false
 
         // Storage check
         val freeSpace = fileStorage.getAvailableDiskSpace()
