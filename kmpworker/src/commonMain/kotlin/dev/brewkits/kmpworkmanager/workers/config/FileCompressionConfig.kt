@@ -53,5 +53,7 @@ data class FileCompressionConfig(
         require(outputPath.endsWith(".zip", ignoreCase = true)) {
             "Output path must end with .zip"
         }
+        // Validate compression level eagerly
+        CompressionLevel.fromString(compressionLevel)
     }
 }

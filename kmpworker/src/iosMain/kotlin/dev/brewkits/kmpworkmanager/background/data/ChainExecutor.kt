@@ -787,8 +787,23 @@ class ChainExecutor(
             )
         }
 
-        // TODO: Add analytics/telemetry integration here
-        // Analytics.track("batch_execution", metrics)
+        // Analytics/Telemetry Integration Point
+        // Apps can add custom analytics tracking here by:
+        // 1. Listening to TaskEventBus events
+        // 2. Extending ChainExecutor and overriding this method
+        // 3. Using ExecutionMetrics data for reporting:
+        //    - metrics.taskType, metrics.duration
+        //    - metrics.chainsSucceeded, metrics.chainsFailed
+        //    - metrics.timeUsagePercentage, metrics.wasKilledBySystem
+        //
+        // Example with custom analytics:
+        // Analytics.track("bgwork_batch_complete", mapOf(
+        //     "task_type" to metrics.taskType.name,
+        //     "chains_succeeded" to metrics.chainsSucceeded,
+        //     "chains_failed" to metrics.chainsFailed,
+        //     "duration_ms" to metrics.duration,
+        //     "time_usage_pct" to metrics.timeUsagePercentage
+        // ))
     }
 
     /**
