@@ -58,7 +58,7 @@ KMP WorkManager provides a unified API for scheduling and managing background ta
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("dev.brewkits:kmpworkmanager:2.3.1")
+            implementation("dev.brewkits:kmpworkmanager:2.3.2")
         }
     }
 }
@@ -294,11 +294,12 @@ See `/composeApp` directory for complete demo app with:
 
 See [CHANGELOG.md](CHANGELOG.md) for version history.
 
-**Latest: v2.3.1** (2026-02-10)
-- Critical bug fixes (14 issues resolved)
-- Security hardening (SSRF protection, file size limits)
-- Stability improvements (race conditions, memory leaks fixed)
-- 100% backward compatible
+**Latest: v2.3.2** (2026-02-16)
+- Property-based testing with Kotest (10 tests, 1000+ generated cases)
+- Chinese ROM compatibility tests (MIUI, EMUI, ColorOS, FuntouchOS)
+- Mutation testing framework and comprehensive guide
+- Low-end device benchmarks (5 devices: budget Android + older iPhones)
+- 100% backward compatible with v2.3.1
 
 ---
 
