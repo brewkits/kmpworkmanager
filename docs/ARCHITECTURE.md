@@ -565,4 +565,4 @@ scheduler.beginWith(task1)
 ---
 
 **Last Updated:** February 2026
-**Version:** 2.2.1
+**Version:** 2.3.1

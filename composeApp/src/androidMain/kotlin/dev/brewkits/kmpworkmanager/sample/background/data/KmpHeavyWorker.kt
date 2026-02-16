@@ -28,7 +28,7 @@ class KmpHeavyWorker(
         val notificationTitle = "Heavy Task Running"
         val initialMessage = "Starting heavy processing..."
 
-        // BẮT BUỘC: Hiển thị notification và chuyển worker thành Foreground Service
+        // REQUIRED: Display notification and promote worker to Foreground Service
         setForeground(createForegroundInfo(notificationTitle, initialMessage))
 
         return try {
@@ -107,7 +107,7 @@ class KmpHeavyWorker(
             .setContentTitle(title)
             .setContentText(message)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setOngoing(true) // Quan trọng: làm cho notification không thể bị xóa
+            .setOngoing(true) // Important: makes notification non-dismissible
             .build()
 
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
