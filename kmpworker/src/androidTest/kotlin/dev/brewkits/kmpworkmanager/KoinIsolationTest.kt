@@ -329,17 +329,20 @@ class KoinIsolationTest {
             inputJson: String?,
             policy: ExistingPolicy
         ): ScheduleResult {
-            TODO("Not yet implemented")
+            // Stub implementation for Koin isolation testing - not called in tests
+            throw NotImplementedError("Mock scheduler stub")
         }
 
         override fun cancel(id: String) {}
         override fun cancelAll() {}
         override fun beginWith(task: TaskRequest): TaskChain {
-            TODO("Not yet implemented")
+            // Stub implementation for Koin isolation testing - not called in tests
+            throw NotImplementedError("Mock scheduler stub")
         }
 
         override fun beginWith(tasks: List<TaskRequest>): TaskChain {
-            TODO("Not yet implemented")
+            // Stub implementation for Koin isolation testing - not called in tests
+            throw NotImplementedError("Mock scheduler stub")
         }
 
         override fun enqueueChain(
@@ -347,7 +350,8 @@ class KoinIsolationTest {
             id: String?,
             policy: ExistingPolicy
         ) {
-            TODO("Not yet implemented")
+            // Stub implementation for Koin isolation testing - not called in tests
+            throw NotImplementedError("Mock scheduler stub")
         }
     }
 }
