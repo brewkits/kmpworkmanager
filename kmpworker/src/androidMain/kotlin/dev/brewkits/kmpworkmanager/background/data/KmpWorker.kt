@@ -8,6 +8,7 @@ import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
+import dev.brewkits.kmpworkmanager.R
 import dev.brewkits.kmpworkmanager.KmpWorkManagerKoin
 import dev.brewkits.kmpworkmanager.background.domain.AndroidWorkerFactory
 import dev.brewkits.kmpworkmanager.background.domain.TaskCompletionEvent
@@ -49,12 +50,17 @@ class KmpWorker(
      * KmpWorker does not run as a foreground service — the notification provided here
      * serves as a fallback and will only be shown if WorkManager explicitly promotes
      * the task to a foreground service (e.g. on low-memory devices or API 31+).
+     *
+     * **Localization:** Notification strings are resolved from Android string resources.
+     * Override `kmp_worker_notification_title` and `kmp_worker_notification_channel_name`
+     * in your app's `res/values-xx/strings.xml` to support multiple languages.
      */
     override suspend fun getForegroundInfo(): ForegroundInfo {
         ensureNotificationChannel()
+        val title = applicationContext.getString(R.string.kmp_worker_notification_title)
         val notification = NotificationCompat.Builder(applicationContext, NOTIFICATION_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_popup_sync)
-            .setContentTitle("Background task running")
+            .setContentTitle(title)
             .setPriority(NotificationCompat.PRIORITY_MIN)
             .setSilent(true)
             .setOngoing(false)
@@ -66,10 +72,11 @@ class KmpWorker(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val manager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             if (manager.getNotificationChannel(NOTIFICATION_CHANNEL_ID) == null) {
+                val channelName = applicationContext.getString(R.string.kmp_worker_notification_channel_name)
                 manager.createNotificationChannel(
                     NotificationChannel(
                         NOTIFICATION_CHANNEL_ID,
-                        "Background Tasks",
+                        channelName,
                         NotificationManager.IMPORTANCE_MIN
                     ).apply { setShowBadge(false) }
                 )

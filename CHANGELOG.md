@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.3] - 2026-02-17
+
+### Fixed
+
+**Critical: WorkManager 2.10.0+ Compatibility (KmpWorker)**
+- Added `getForegroundInfo()` override to `KmpWorker`
+- WorkManager 2.10.0+ calls `getForegroundInfoAsync()` in the execution path for all expedited
+  tasks, even when not running as a foreground service. Without this override, the default
+  `CoroutineWorker` implementation threw `IllegalStateException: Not implemented (CoroutineWorker.kt:92)`
+- Provides a minimal silent fallback notification (only shown if WorkManager promotes the task
+  to a foreground service, e.g. on low-memory devices). Uses `PRIORITY_MIN`, `setSilent(true)`,
+  `setOngoing(false)` to minimize user impact
+- Notification channel: `kmp_worker_tasks` — separate from `KmpHeavyWorker`'s `kmp_heavy_worker_channel`
+
+**Critical: Task Chain Heavy Worker Routing (NativeTaskScheduler)**
+- Fixed bug in `createWorkRequest()` where `isHeavyTask = true` in a `TaskChain` was silently ignored
+- Both `if` branches incorrectly used `KmpWorker` — heavy tasks in chains never ran as foreground services
+- Fix: `isHeavyTask = true` now correctly routes chain tasks to `KmpHeavyWorker`
+
+**Build: OSSRH Publish URL Typo**
+- Fixed URL typo: `https.s01.oss.sonatype.org` → `https://s01.oss.sonatype.org`
+
+### Added
+
+**Notification Localization via Android String Resources**
+- All notification strings moved to `res/values/strings.xml` — host apps can override per locale
+- Overridable keys: `kmp_worker_notification_channel_name`, `kmp_worker_notification_title`,
+  `kmp_heavy_worker_notification_channel_name`, `kmp_heavy_worker_notification_default_title`,
+  `kmp_heavy_worker_notification_default_text`
+- Create `res/values-xx/strings.xml` in your app with the same keys to support any language
+- `KmpHeavyWorker`: `inputJson` override (via `NOTIFICATION_TITLE_KEY` / `NOTIFICATION_TEXT_KEY`)
+  takes priority over string resources for per-task custom notifications
+
+**Tests**
+- `V233BugFixesTest.kt` (13 tests) — documents and validates all v2.3.3 fixes
+- `KmpWorkerForegroundInfoCompatTest.kt` (6 Android instrumented tests) — validates compatibility
+  with WorkManager 2.10.0+, string resources, and chain routing on device
+
+**Demo**
+- Added "v2.3.3 Bug Fixes" section in `DemoScenariosScreen` with 3 interactive demos:
+  - Fix #1: WorkManager 2.10.0+ expedited task compat
+  - Fix #2: Heavy task routing in chain
+  - i18n: Notification string resource localization guide
+
+### Changed
+
+- Version bumped from 2.3.2 to 2.3.3
+- Test strings updated: Vietnamese Unicode test data replaced with Japanese Unicode for neutrality
+
 ## [2.3.2] - 2026-02-16
 
 ### ✨ Added

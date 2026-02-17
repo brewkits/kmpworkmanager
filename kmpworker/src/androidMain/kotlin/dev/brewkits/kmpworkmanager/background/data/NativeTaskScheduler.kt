@@ -617,7 +617,7 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
 
         val workRequestBuilder = if (constraints?.isHeavyTask == true) {
             Logger.d(LogTags.CHAIN, "Creating HEAVY task in chain: ${task.workerClassName}")
-            OneTimeWorkRequestBuilder<KmpWorker>()
+            OneTimeWorkRequestBuilder<KmpHeavyWorker>()
         } else {
             Logger.d(LogTags.CHAIN, "Creating REGULAR task in chain: ${task.workerClassName}")
             OneTimeWorkRequestBuilder<KmpWorker>()

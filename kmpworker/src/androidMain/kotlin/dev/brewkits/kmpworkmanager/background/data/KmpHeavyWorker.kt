@@ -13,6 +13,7 @@ import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
+import dev.brewkits.kmpworkmanager.R
 import dev.brewkits.kmpworkmanager.KmpWorkManagerKoin
 import dev.brewkits.kmpworkmanager.background.domain.AndroidWorkerFactory
 import dev.brewkits.kmpworkmanager.background.domain.TaskCompletionEvent
@@ -201,7 +202,16 @@ class KmpHeavyWorker(
         const val FOREGROUND_SERVICE_TYPE_KEY = "foregroundServiceType"
 
         /**
-         * Default notification text (used if not provided via inputData)
+         * Fallback notification strings used only when:
+         * 1. inputData does not contain NOTIFICATION_TITLE_KEY / NOTIFICATION_TEXT_KEY, AND
+         * 2. String resources are unavailable (e.g. in unit tests without a Context).
+         *
+         * In normal app usage, titles/text are resolved from string resources so they
+         * automatically respect the device locale. Apps can override the resource keys:
+         * - `kmp_heavy_worker_notification_default_title`
+         * - `kmp_heavy_worker_notification_default_text`
+         *
+         * in their own `res/values-xx/strings.xml` for full localization support.
          */
         private const val DEFAULT_NOTIFICATION_TITLE = "Background Task Running"
         private const val DEFAULT_NOTIFICATION_TEXT = "Processing heavy task..."
@@ -337,8 +347,14 @@ class KmpHeavyWorker(
     private fun createForegroundInfo(): ForegroundInfo {
         createNotificationChannel()
 
-        val notificationTitle = inputData.getString(NOTIFICATION_TITLE_KEY) ?: DEFAULT_NOTIFICATION_TITLE
-        val notificationText = inputData.getString(NOTIFICATION_TEXT_KEY) ?: DEFAULT_NOTIFICATION_TEXT
+        val defaultTitle = try {
+            applicationContext.getString(R.string.kmp_heavy_worker_notification_default_title)
+        } catch (_: Exception) { DEFAULT_NOTIFICATION_TITLE }
+        val defaultText = try {
+            applicationContext.getString(R.string.kmp_heavy_worker_notification_default_text)
+        } catch (_: Exception) { DEFAULT_NOTIFICATION_TEXT }
+        val notificationTitle = inputData.getString(NOTIFICATION_TITLE_KEY) ?: defaultTitle
+        val notificationText = inputData.getString(NOTIFICATION_TEXT_KEY) ?: defaultText
 
         val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
             .setContentTitle(notificationTitle)
@@ -387,9 +403,12 @@ class KmpHeavyWorker(
      */
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channelName = try {
+                applicationContext.getString(R.string.kmp_heavy_worker_notification_channel_name)
+            } catch (_: Exception) { CHANNEL_NAME }
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                CHANNEL_NAME,
+                channelName,
                 NotificationManager.IMPORTANCE_LOW // Low importance for background work
             ).apply {
                 description = "Notifications for long-running background tasks from KMP WorkManager"

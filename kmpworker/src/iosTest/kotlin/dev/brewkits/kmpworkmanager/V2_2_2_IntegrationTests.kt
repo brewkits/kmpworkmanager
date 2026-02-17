@@ -6,7 +6,7 @@ import kotlinx.coroutines.*
 import kotlin.test.*
 
 /**
- * Integration tests for v2.2.2 "Đại Phẫu" Performance & Stability Upgrade
+ * Integration tests for v2.2.2 "Major Surgery" Performance & Stability Upgrade
  * Tests all 10 implemented features working together in real-world scenarios
  */
 class V2_2_2_IntegrationTests {
