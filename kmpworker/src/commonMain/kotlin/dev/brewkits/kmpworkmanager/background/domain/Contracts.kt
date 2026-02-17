@@ -732,5 +732,11 @@ enum class ScheduleResult {
      *
      * **Recommendation**: Retry with exponential backoff or wait for better conditions
      */
-    THROTTLED
+    THROTTLED;
+
+    /**
+     * Returns true if the scheduling operation was successful (ACCEPTED).
+     */
+    val isSuccess: Boolean
+        get() = this == ACCEPTED
 }

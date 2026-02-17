@@ -6,6 +6,7 @@ import androidx.work.WorkManager
 import dev.brewkits.kmpworkmanager.background.domain.AndroidWorker
 import dev.brewkits.kmpworkmanager.background.domain.Constraints
 import dev.brewkits.kmpworkmanager.background.domain.ExistingPolicy
+import dev.brewkits.kmpworkmanager.background.domain.SystemConstraint
 import dev.brewkits.kmpworkmanager.background.domain.TaskTrigger
 import dev.brewkits.kmpworkmanager.background.domain.WorkerFactory
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
@@ -70,7 +71,7 @@ class AndroidExactAlarmTest {
         // Schedule with exact timestamp
         val result = scheduler.enqueue(
             id = "exact-alarm-future",
-            trigger = TaskTrigger.ExactTime(atEpochMillis = futureTimestamp),
+            trigger = TaskTrigger.Exact(atEpochMillis = futureTimestamp),
             workerClassName = "TestWorker",
             constraints = Constraints(),
             inputJson = null,
@@ -108,7 +109,7 @@ class AndroidExactAlarmTest {
 
         val result = scheduler.enqueue(
             id = "exact-alarm-past",
-            trigger = TaskTrigger.ExactTime(atEpochMillis = pastTimestamp),
+            trigger = TaskTrigger.Exact(atEpochMillis = pastTimestamp),
             workerClassName = "TestWorker",
             constraints = Constraints(),
             inputJson = null,
@@ -137,7 +138,7 @@ class AndroidExactAlarmTest {
 
         val result = scheduler.enqueue(
             id = "exact-alarm-current",
-            trigger = TaskTrigger.ExactTime(atEpochMillis = currentTimestamp),
+            trigger = TaskTrigger.Exact(atEpochMillis = currentTimestamp),
             workerClassName = "TestWorker",
             constraints = Constraints(),
             inputJson = null,
@@ -166,7 +167,7 @@ class AndroidExactAlarmTest {
 
         val result = scheduler.enqueue(
             id = "exact-alarm-far-future",
-            trigger = TaskTrigger.ExactTime(atEpochMillis = farFutureTimestamp),
+            trigger = TaskTrigger.Exact(atEpochMillis = farFutureTimestamp),
             workerClassName = "TestWorker",
             constraints = Constraints(),
             inputJson = null,
@@ -201,7 +202,7 @@ class AndroidExactAlarmTest {
 
         val result1 = scheduler.enqueue(
             id = "exact-alarm-precision-1",
-            trigger = TaskTrigger.ExactTime(atEpochMillis = timestamp1),
+            trigger = TaskTrigger.Exact(atEpochMillis = timestamp1),
             workerClassName = "TestWorker",
             constraints = Constraints(),
             inputJson = null,
@@ -210,7 +211,7 @@ class AndroidExactAlarmTest {
 
         val result2 = scheduler.enqueue(
             id = "exact-alarm-precision-2",
-            trigger = TaskTrigger.ExactTime(atEpochMillis = timestamp2),
+            trigger = TaskTrigger.Exact(atEpochMillis = timestamp2),
             workerClassName = "TestWorker",
             constraints = Constraints(),
             inputJson = null,
@@ -274,11 +275,10 @@ class AndroidExactAlarmTest {
 
         val result = scheduler.enqueue(
             id = "exact-alarm-with-constraints",
-            trigger = TaskTrigger.ExactTime(atEpochMillis = futureTimestamp),
+            trigger = TaskTrigger.Exact(atEpochMillis = futureTimestamp),
             workerClassName = "TestWorker",
             constraints = Constraints(
-                requiresBatteryNotLow = true,
-                requiresDeviceIdle = false
+                systemConstraints = setOf(SystemConstraint.REQUIRE_BATTERY_NOT_LOW)
             ),
             inputJson = null,
             policy = ExistingPolicy.REPLACE
@@ -314,7 +314,7 @@ class AndroidExactAlarmTest {
             val timestamp = baseTime + (seconds * 1000L)
             scheduler.enqueue(
                 id = "exact-alarm-multiple-$seconds",
-                trigger = TaskTrigger.ExactTime(atEpochMillis = timestamp),
+                trigger = TaskTrigger.Exact(atEpochMillis = timestamp),
                 workerClassName = "TestWorker",
                 constraints = Constraints(),
                 inputJson = null,
@@ -349,7 +349,7 @@ class AndroidExactAlarmTest {
         // First enqueue
         val result1 = scheduler.enqueue(
             id = "exact-alarm-replace",
-            trigger = TaskTrigger.ExactTime(atEpochMillis = timestamp1),
+            trigger = TaskTrigger.Exact(atEpochMillis = timestamp1),
             workerClassName = "TestWorker",
             constraints = Constraints(),
             inputJson = null,
@@ -361,7 +361,7 @@ class AndroidExactAlarmTest {
         // Second enqueue (should replace)
         val result2 = scheduler.enqueue(
             id = "exact-alarm-replace",
-            trigger = TaskTrigger.ExactTime(atEpochMillis = timestamp2),
+            trigger = TaskTrigger.Exact(atEpochMillis = timestamp2),
             workerClassName = "TestWorker",
             constraints = Constraints(),
             inputJson = null,
@@ -388,7 +388,7 @@ class AndroidExactAlarmTest {
         try {
             val result = scheduler.enqueue(
                 id = "exact-alarm-max",
-                trigger = TaskTrigger.ExactTime(atEpochMillis = Long.MAX_VALUE),
+                trigger = TaskTrigger.Exact(atEpochMillis = Long.MAX_VALUE),
                 workerClassName = "TestWorker",
                 constraints = Constraints(),
                 inputJson = null,
