@@ -910,6 +910,96 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                 )
             }
 
+            // v2.3.3 Bug Fixes Demo
+            DemoSection(
+                title = "v2.3.3 Bug Fixes",
+                icon = Icons.Default.BugReport,
+                containerColor = MaterialTheme.colorScheme.tertiaryContainer
+            ) {
+                // Fix #1: WorkManager 2.10.0+ compatibility
+                DemoCard(
+                    title = "Fix #1: WorkManager 2.10.0+ Compat",
+                    description = "OneTime expedited task now works with WorkManager 2.10.0+. " +
+                        "Previously crashed with IllegalStateException: Not implemented (getForegroundInfo).",
+                    icon = Icons.Default.CheckCircle,
+                    enabled = !isAnyTaskRunning,
+                    onClick = {
+                        runTask("Fix1: Expedited task (WorkManager 2.10.0+ compat)") {
+                            scheduler.enqueue(
+                                id = "v233-fix1-expedited",
+                                trigger = TaskTrigger.OneTime(initialDelayMs = 2.seconds.inWholeMilliseconds),
+                                workerClassName = WorkerTypes.SYNC_WORKER,
+                                constraints = Constraints(isHeavyTask = false)
+                            )
+                            snackbarHostState.showSnackbar(
+                                message = "✅ Fix #1: Expedited task scheduled — no crash on WorkManager 2.10.0+",
+                                duration = SnackbarDuration.Short
+                            )
+                        }
+                    }
+                )
+                // Fix #2: Heavy task routing in chains
+                DemoCard(
+                    title = "Fix #2: Heavy Task in Chain",
+                    description = "Chain with isHeavyTask=true now correctly uses KmpHeavyWorker (foreground service). " +
+                        "Previously both branches silently used KmpWorker.",
+                    icon = Icons.Default.AccountTree,
+                    enabled = !isAnyTaskRunning,
+                    onClick = {
+                        runTask("Fix2: Heavy task routing in chain") {
+                            scheduler.beginWith(
+                                dev.brewkits.kmpworkmanager.sample.background.domain.TaskRequest(
+                                    workerClassName = WorkerTypes.SYNC_WORKER,
+                                    constraints = Constraints(isHeavyTask = false)
+                                )
+                            )
+                            .then(
+                                dev.brewkits.kmpworkmanager.sample.background.domain.TaskRequest(
+                                    workerClassName = WorkerTypes.HEAVY_PROCESSING_WORKER,
+                                    constraints = Constraints(isHeavyTask = true)
+                                )
+                            )
+                            .then(
+                                dev.brewkits.kmpworkmanager.sample.background.domain.TaskRequest(
+                                    workerClassName = WorkerTypes.UPLOAD_WORKER,
+                                    constraints = Constraints(isHeavyTask = false)
+                                )
+                            )
+                            .withId("v233-fix2-heavy-chain", policy = dev.brewkits.kmpworkmanager.sample.background.domain.ExistingPolicy.REPLACE)
+                            .enqueue()
+                            snackbarHostState.showSnackbar(
+                                message = "✅ Fix #2: Chain with heavy task scheduled — KmpHeavyWorker used for step 2",
+                                duration = SnackbarDuration.Short
+                            )
+                        }
+                    }
+                )
+                // Localization demo
+                DemoCard(
+                    title = "i18n: Notification String Resources",
+                    description = "Notification strings (channel name, title) are now in res/values/strings.xml. " +
+                        "Override kmp_worker_notification_title in your app's res/values-xx/strings.xml for localization.",
+                    icon = Icons.Default.Language,
+                    enabled = !isAnyTaskRunning,
+                    onClick = {
+                        runTask("i18n: Localized notification") {
+                            // Schedule a regular task — if WorkManager promotes it to foreground,
+                            // the notification title will be resolved from string resources (device locale)
+                            scheduler.enqueue(
+                                id = "v233-i18n-notification",
+                                trigger = TaskTrigger.OneTime(initialDelayMs = 1.seconds.inWholeMilliseconds),
+                                workerClassName = WorkerTypes.SYNC_WORKER,
+                                constraints = Constraints(isHeavyTask = false)
+                            )
+                            snackbarHostState.showSnackbar(
+                                message = "ℹ️ i18n: Override 'kmp_worker_notification_title' in res/values-xx/strings.xml for your language",
+                                duration = SnackbarDuration.Long
+                            )
+                        }
+                    }
+                )
+            }
+
             // Quick Actions
             HorizontalDivider()
             Row(

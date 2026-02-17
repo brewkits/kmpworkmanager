@@ -58,8 +58,8 @@ class CRC32Test {
     // ==================== Unicode Support Tests ====================
 
     @Test
-    fun `testUnicode - Vietnamese text`() {
-        val input = "Xin chào thế giới!"
+    fun `testUnicode - Multibyte UTF-8 text`() {
+        val input = "こんにちは世界！"
         val crc = CRC32.calculate(input)
 
         // Verify it produces a consistent checksum

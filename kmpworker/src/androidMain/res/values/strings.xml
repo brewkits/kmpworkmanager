@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    KMP WorkManager — default string resources (English).
+
+    Host apps can override any of these strings to support localization.
+    Create the same key in your app's res/values-xx/strings.xml, e.g.:
+
+    res/values-vi/strings.xml (Vietnamese)
+    res/values-zh/strings.xml (Chinese)
+    res/values-ja/strings.xml (Japanese)
+
+    Example override for Japanese (res/values-ja/strings.xml):
+    <resources>
+        <string name="kmp_worker_notification_channel_name">バックグラウンドタスク</string>
+        <string name="kmp_worker_notification_title">バックグラウンドタスクを実行中</string>
+        <string name="kmp_heavy_worker_notification_channel_name">重いタスク</string>
+        <string name="kmp_heavy_worker_notification_default_title">タスクを処理中</string>
+        <string name="kmp_heavy_worker_notification_default_text">重いタスクを処理中…</string>
+    </resources>
+
+    Android resolves the correct locale automatically based on device language.
+-->
+<resources>
+
+    <!-- KmpWorker: fallback notification (only shown if WorkManager promotes task to foreground service) -->
+    <string name="kmp_worker_notification_channel_name">Background Tasks</string>
+    <string name="kmp_worker_notification_title">Background task running</string>
+
+    <!-- KmpHeavyWorker: foreground service notification defaults -->
+    <string name="kmp_heavy_worker_notification_channel_name">KMP Heavy Tasks</string>
+    <string name="kmp_heavy_worker_notification_default_title">Background Task Running</string>
+    <string name="kmp_heavy_worker_notification_default_text">Processing heavy task…</string>
+
+</resources>

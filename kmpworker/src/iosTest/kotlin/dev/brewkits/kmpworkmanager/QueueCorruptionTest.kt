@@ -117,13 +117,13 @@ class QueueCorruptionTest {
     // ==================== Unicode Support Tests ====================
 
     @Test
-    fun `testUnicodeInQueue - Vietnamese characters`() = runTest {
-        val vietnamese = "Xin chào! Tôi là developer 🇻🇳"
+    fun `testUnicodeInQueue - Multibyte UTF-8 characters`() = runTest {
+        val multibyte = "こんにちは！I am a developer 🌏"
 
-        queue.enqueue(vietnamese)
+        queue.enqueue(multibyte)
         val result = queue.dequeue()
 
-        assertEquals(vietnamese, result, "Queue should handle Vietnamese text correctly")
+        assertEquals(multibyte, result, "Queue should handle multibyte UTF-8 text correctly")
     }
 
     @Test
