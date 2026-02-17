@@ -1,8 +1,14 @@
 package dev.brewkits.kmpworkmanager.background.data
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Context
+import android.os.Build
+import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
+import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
+import dev.brewkits.kmpworkmanager.R
 import dev.brewkits.kmpworkmanager.KmpWorkManagerKoin
 import dev.brewkits.kmpworkmanager.background.domain.AndroidWorkerFactory
 import dev.brewkits.kmpworkmanager.background.domain.TaskCompletionEvent
@@ -28,6 +34,55 @@ class KmpWorker(
 ) : CoroutineWorker(appContext, workerParams) {
 
     private val workerFactory: AndroidWorkerFactory = KmpWorkManagerKoin.getKoin().get()
+
+    companion object {
+        private const val NOTIFICATION_CHANNEL_ID = "kmp_worker_tasks"
+        private const val NOTIFICATION_ID = 0x4B4D5000.toInt()
+    }
+
+    /**
+     * Required override for WorkManager 2.10.0+.
+     *
+     * WorkManager 2.10.0+ calls getForegroundInfoAsync() in the worker execution path
+     * even for non-foreground workers. Without this override, the default CoroutineWorker
+     * implementation throws IllegalStateException: "Not implemented".
+     *
+     * KmpWorker does not run as a foreground service — the notification provided here
+     * serves as a fallback and will only be shown if WorkManager explicitly promotes
+     * the task to a foreground service (e.g. on low-memory devices or API 31+).
+     *
+     * **Localization:** Notification strings are resolved from Android string resources.
+     * Override `kmp_worker_notification_title` and `kmp_worker_notification_channel_name`
+     * in your app's `res/values-xx/strings.xml` to support multiple languages.
+     */
+    override suspend fun getForegroundInfo(): ForegroundInfo {
+        ensureNotificationChannel()
+        val title = applicationContext.getString(R.string.kmp_worker_notification_title)
+        val notification = NotificationCompat.Builder(applicationContext, NOTIFICATION_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_popup_sync)
+            .setContentTitle(title)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setSilent(true)
+            .setOngoing(false)
+            .build()
+        return ForegroundInfo(NOTIFICATION_ID, notification)
+    }
+
+    private fun ensureNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            if (manager.getNotificationChannel(NOTIFICATION_CHANNEL_ID) == null) {
+                val channelName = applicationContext.getString(R.string.kmp_worker_notification_channel_name)
+                manager.createNotificationChannel(
+                    NotificationChannel(
+                        NOTIFICATION_CHANNEL_ID,
+                        channelName,
+                        NotificationManager.IMPORTANCE_MIN
+                    ).apply { setShowBadge(false) }
+                )
+            }
+        }
+    }
 
     override suspend fun doWork(): Result {
         val workerClassName = inputData.getString("workerClassName") ?: return Result.failure()

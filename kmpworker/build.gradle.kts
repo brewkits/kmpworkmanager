@@ -13,7 +13,7 @@ plugins {
 }
 
 group = "dev.brewkits"
-version = "2.3.2"
+version = "2.3.3"
 
 kotlin {
     androidTarget()
@@ -114,7 +114,7 @@ afterEvaluate {
             withType<MavenPublication> {
                 groupId = "dev.brewkits"
                 artifactId = artifactId.replace("kmpworker", "kmpworkmanager")
-                version = "2.3.2"
+                version = "2.3.3"
 
                 pom {
                     name.set("KMP WorkManager")
@@ -169,7 +169,7 @@ publishing {
         // Sonatype OSSRH (Maven Central)
         maven {
             name = "OSSRH"
-            val releasesRepoUrl = uri("https.s01.oss.sonatype.org/service/local/staging/deploy/maven2/")
+            val releasesRepoUrl = uri("https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/")
             val snapshotsRepoUrl = uri("https://s01.oss.sonatype.org/content/repositories/snapshots/")
             url = if (version.toString().endsWith("SNAPSHOT")) snapshotsRepoUrl else releasesRepoUrl
 
