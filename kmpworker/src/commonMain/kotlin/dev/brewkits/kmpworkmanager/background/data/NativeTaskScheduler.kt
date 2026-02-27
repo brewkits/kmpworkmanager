@@ -60,9 +60,15 @@ expect class NativeTaskScheduler : BackgroundTaskScheduler {
     /**
      * Default values are specified in the interface BackgroundTaskScheduler
      */
-    override fun enqueueChain(
+    override suspend fun enqueueChain(
         chain: dev.brewkits.kmpworkmanager.background.domain.TaskChain,
         id: String?,
         policy: ExistingPolicy
     )
+
+    /**
+     * Flush all pending progress updates to disk immediately.
+     * Platform-specific implementation.
+     */
+    override fun flushPendingProgress()
 }

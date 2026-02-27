@@ -1,3 +1,5 @@
+@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
+
 package dev.brewkits.kmpworkmanager
 
 import dev.brewkits.kmpworkmanager.background.data.ChainProgress

@@ -314,11 +314,16 @@ class ChainExecutor(
 
         try {
             withTimeout(conservativeTimeout) {
-                repeat(maxChains) {
-                    val shouldStop = shutdownMutex.withLock { isShuttingDown }
-                    if (shouldStop) {
-                        Logger.w(LogTags.CHAIN, "Stopping batch execution - shutdown requested")
-                        return@repeat
+                repeat(maxChains) { iteration ->
+                    // v2.3.4+ Performance optimization: Check shutdown less frequently
+                    // Check every 5 iterations instead of every iteration (80% fewer lock acquisitions)
+                    // Shutdown is a rare event, so this optimization is safe
+                    if (iteration % 5 == 0) {
+                        val shouldStop = shutdownMutex.withLock { isShuttingDown }
+                        if (shouldStop) {
+                            Logger.w(LogTags.CHAIN, "Stopping batch execution - shutdown requested")
+                            return@repeat
+                        }
                     }
 
                     val elapsedTime = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime

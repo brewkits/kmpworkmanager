@@ -1,6 +1,6 @@
-# Quick Start Guide
+# Quick Start
 
-Get KMP WorkManager running in your project in just 5 minutes!
+Let's get KMP WorkManager running in your project. Should take about 5 minutes.
 
 ## Table of Contents
 
@@ -370,7 +370,7 @@ object IosWorkerFactory {
 
 ## Next Steps
 
-Congratulations! You've successfully integrated KMP WorkManager. Now you can:
+That's it! You now have KMP WorkManager set up. Here's what you can do next:
 
 1. **[Explore all triggers](constraints-triggers.md)** - Learn about 9 different trigger types
 2. **[Build task chains](task-chains.md)** - Execute sequential and parallel workflows

@@ -13,7 +13,7 @@ plugins {
 }
 
 group = "dev.brewkits"
-version = "2.3.3"
+version = "2.3.4"
 
 kotlin {
     androidTarget()
@@ -68,6 +68,9 @@ kotlin {
             implementation(libs.ktor.client.core)
             implementation(libs.ktor.client.content.negotiation)
             implementation(libs.ktor.serialization.kotlinx.json)
+            // Ktor plugins for HttpClient optimization (v2.4.0+)
+            implementation("io.ktor:ktor-client-encoding:2.3.7")
+            implementation("io.ktor:ktor-client-logging:2.3.7")
             // Okio for cross-platform file I/O
             implementation(libs.okio)
         }
@@ -89,6 +92,11 @@ kotlin {
             implementation(libs.kotlin.test)
             implementation(libs.kotlin.test.junit.common)
             implementation(libs.androidx.test.core)
+            implementation(libs.androidx.test.runner)
+            implementation(libs.androidx.testExt.junit)
+            implementation(libs.androidx.work.runtime.ktx)
+            implementation(libs.androidx.work.testing)
+            implementation(libs.kotlinx.coroutines.test)
         }
     }
 }
@@ -99,6 +107,7 @@ android {
 
     defaultConfig {
         minSdk = libs.versions.android.minSdk.get().toInt()
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     compileOptions {
@@ -114,7 +123,7 @@ afterEvaluate {
             withType<MavenPublication> {
                 groupId = "dev.brewkits"
                 artifactId = artifactId.replace("kmpworker", "kmpworkmanager")
-                version = "2.3.3"
+                version = "2.3.4"
 
                 pom {
                     name.set("KMP WorkManager")

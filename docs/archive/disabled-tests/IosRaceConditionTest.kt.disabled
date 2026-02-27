@@ -1,15 +1,20 @@
+@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
+
 package dev.brewkits.kmpworkmanager
 
 import dev.brewkits.kmpworkmanager.background.data.ChainExecutor
 import dev.brewkits.kmpworkmanager.background.data.ChainProgress
 import dev.brewkits.kmpworkmanager.background.data.IosFileStorage
 import dev.brewkits.kmpworkmanager.background.domain.BGTaskType
-import dev.brewkits.kmpworkmanager.background.domain.IosWorker
-import dev.brewkits.kmpworkmanager.background.domain.IosWorkerFactory
+import dev.brewkits.kmpworkmanager.background.data.IosWorker
+import dev.brewkits.kmpworkmanager.background.data.IosWorkerFactory
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import kotlinx.coroutines.*
+import kotlinx.datetime.Clock
+import kotlinx.datetime.TimeZone
 import platform.Foundation.*
 import kotlin.test.*
+import dev.brewkits.kmpworkmanager.currentTimeMillis
 
 /**
  * Comprehensive tests for High Priority Fixes #8-9: iOS Race Conditions & Deadlock Prevention
@@ -67,7 +72,7 @@ class IosRaceConditionTest {
      */
     @Test
     fun testConcurrentFlushNowSynchronized() = runBlocking {
-        val fileStorage = IosFileStorage(baseDirectory = testDirectory)
+        val fileStorage = IosFileStorage()
 
         // Create initial progress
         val progress = ChainProgress(
@@ -101,7 +106,7 @@ class IosRaceConditionTest {
      */
     @Test
     fun testFlushNowWaitsForOngoingFlush() = runBlocking {
-        val fileStorage = IosFileStorage(baseDirectory = testDirectory)
+        val fileStorage = IosFileStorage()
 
         val progress1 = ChainProgress(
             chainId = "wait-test",
@@ -137,7 +142,7 @@ class IosRaceConditionTest {
      */
     @Test
     fun testRapidFlushNowCallsNoCorruption() = runBlocking {
-        val fileStorage = IosFileStorage(baseDirectory = testDirectory)
+        val fileStorage = IosFileStorage()
 
         val progress = ChainProgress(
             chainId = "rapid-flush",
@@ -166,7 +171,7 @@ class IosRaceConditionTest {
      */
     @Test
     fun testConcurrentSavesAndFlushes() = runBlocking {
-        val fileStorage = IosFileStorage(baseDirectory = testDirectory)
+        val fileStorage = IosFileStorage()
 
         // Launch savers
         val saveJobs = (1..10).map { index ->
@@ -207,7 +212,7 @@ class IosRaceConditionTest {
      */
     @Test
     fun testFlushNowDuringBufferAccumulation() = runBlocking {
-        val fileStorage = IosFileStorage(baseDirectory = testDirectory)
+        val fileStorage = IosFileStorage()
 
         var progress = ChainProgress(
             chainId = "accumulation-test",
@@ -255,12 +260,12 @@ class IosRaceConditionTest {
             onContinuationNeeded = null
         )
 
-        val startTime = System.currentTimeMillis()
+        val startTime = now()
 
         // close() should be non-blocking
         chainExecutor.close()
 
-        val elapsed = System.currentTimeMillis() - startTime
+        val elapsed = now() - startTime
 
         // Should complete quickly (< 1 second)
         assertTrue(

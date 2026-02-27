@@ -1,3 +1,5 @@
+@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
+
 package dev.brewkits.kmpworkmanager
 
 import dev.brewkits.kmpworkmanager.background.data.AppendOnlyQueue
@@ -36,6 +38,9 @@ class AppendOnlyQueueTest {
 
     @AfterTest
     fun tearDown() {
+        // Shutdown queue to cancel background operations
+        queue.shutdown()
+
         // Clean up test directory
         val fileManager = NSFileManager.defaultManager
         fileManager.removeItemAtURL(testDirectoryURL, error = null)

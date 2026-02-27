@@ -66,6 +66,10 @@ rebuild-with-signing.sh
 create-maven-bundle*.sh
 docs/V2.2.2_TECHNICAL_GUIDE.md
 
+# Marketing and social media content
+SOCIAL_MEDIA_*.md
+*_SOCIAL_MEDIA.md
+
 # Internal docs/ files (uppercase filenames)
 docs/ROADMAP_*.md
 docs/TEST_PLAN.md

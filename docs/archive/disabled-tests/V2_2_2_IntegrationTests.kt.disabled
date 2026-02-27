@@ -1,9 +1,14 @@
+@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
+
 package dev.brewkits.kmpworkmanager
 
 import dev.brewkits.kmpworkmanager.background.data.ChainProgress
 import dev.brewkits.kmpworkmanager.background.domain.TaskRequest
 import kotlinx.coroutines.*
+import kotlinx.datetime.Clock
+import kotlinx.datetime.TimeZone
 import kotlin.test.*
+import dev.brewkits.kmpworkmanager.currentTimeMillis
 
 /**
  * Integration tests for v2.2.2 "Major Surgery" Performance & Stability Upgrade
@@ -24,15 +29,16 @@ class V2_2_2_IntegrationTests {
 
         // Execute 15-task chain
         repeat(15) { i ->
+            val currentStep = i / 5
+            val completedInStep = i % 5 + 1
             val progress = ChainProgress(
                 chainId = "test-chain",
                 totalSteps = 3,
-                completedSteps = i / 5,
-                currentStep = i / 5,
-                totalTasksInCurrentStep = 5,
-                completedTasksInCurrentStep = i % 5 + 1,
-                retryCount = 0,
-                lastError = null
+                completedSteps = (0 until currentStep).toList(),
+                completedTasksInSteps = if (completedInStep > 0) {
+                    mapOf(currentStep to (0 until completedInStep).toList())
+                } else emptyMap(),
+                retryCount = 0
             )
             mockStorage.saveProgress(progress)
             delay(50)
@@ -62,9 +68,9 @@ class V2_2_2_IntegrationTests {
         val queue = MockIndexedQueue()
         queue.populateQueue(10_000)
 
-        val startTime = System.currentTimeMillis()
+        val startTime = now()
         queue.loadIndex()
-        val duration = System.currentTimeMillis() - startTime
+        val duration = now() - startTime
 
         assertTrue(duration < 100, "10K index load should be <100ms (was ${duration}ms)")
 
@@ -112,7 +118,13 @@ class V2_2_2_IntegrationTests {
 
         val job = launch {
             repeat(100) { i ->
-                storage.saveProgress(ChainProgress("chain-$i", 1, 0, 0, 1, 0, 0, null))
+                storage.saveProgress(ChainProgress(
+                    chainId = "chain-$i",
+                    totalSteps = 1,
+                    completedSteps = emptyList(),
+                    completedTasksInSteps = emptyMap(),
+                    retryCount = 0
+                ))
                 delay(10)
             }
         }
@@ -142,12 +154,22 @@ class V2_2_2_IntegrationTests {
         val chainCount = 20
         val tasksPerChain = 50
 
-        val startTime = System.currentTimeMillis()
+        val startTime = now()
 
         val jobs = (1..chainCount).map { c ->
             launch {
                 repeat(tasksPerChain) { t ->
-                    storage.saveProgress(ChainProgress("chain-$c", 5, t/10, t/10, 10, t%10, 0, null))
+                    val currentStep = t/10
+                    val completedInStep = t%10
+                    storage.saveProgress(ChainProgress(
+                        chainId = "chain-$c",
+                        totalSteps = 5,
+                        completedSteps = (0 until currentStep).toList(),
+                        completedTasksInSteps = if (completedInStep > 0) {
+                            mapOf(currentStep to (0 until completedInStep).toList())
+                        } else emptyMap(),
+                        retryCount = 0
+                    ))
                     delay(5)
                 }
             }
@@ -156,7 +178,7 @@ class V2_2_2_IntegrationTests {
         jobs.joinAll()
         storage.flushNow()
 
-        val duration = System.currentTimeMillis() - startTime
+        val duration = now() - startTime
         val totalOps = chainCount * tasksPerChain
         val reduction = (totalOps - storage.writeCount) * 100 / totalOps
 
@@ -183,10 +205,10 @@ class V2_2_2_IntegrationTests {
         }
 
         suspend fun flushNow() {
-            val start = System.currentTimeMillis()
+            val start = now()
             writeCount += buffer.size
             buffer.clear()
-            val duration = System.currentTimeMillis() - start
+            val duration = now() - start
             flushDurations.add(duration)
             avgFlushDuration = if (flushDurations.isNotEmpty()) flushDurations.average().toLong() else 0L
         }
@@ -227,9 +249,9 @@ class V2_2_2_IntegrationTests {
         suspend fun replaceChainAtomic(chainId: String, steps: List<List<TaskRequest>>) {
             try {
                 delay(10)
-                transactionLog.add(Transaction(chainId, System.currentTimeMillis(), true))
+                transactionLog.add(Transaction(chainId, now(), true))
             } catch (e: Exception) {
-                transactionLog.add(Transaction(chainId, System.currentTimeMillis(), false))
+                transactionLog.add(Transaction(chainId, now(), false))
                 throw e
             }
         }

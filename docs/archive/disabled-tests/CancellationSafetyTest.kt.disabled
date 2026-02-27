@@ -1,6 +1,5 @@
 package dev.brewkits.kmpworkmanager.background.data
 
-import dev.brewkits.kmpworkmanager.background.domain.ChainProgress
 import kotlinx.coroutines.*
 import kotlinx.coroutines.test.*
 import kotlin.test.*

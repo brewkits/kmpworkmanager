@@ -9,9 +9,10 @@ import android.provider.Settings
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
-import dev.brewkits.kmpworkmanager.api.BackgroundTaskScheduler
-import dev.brewkits.kmpworkmanager.api.Constraints
-import dev.brewkits.kmpworkmanager.api.TaskTrigger
+import dev.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
+import dev.brewkits.kmpworkmanager.background.domain.Constraints
+import dev.brewkits.kmpworkmanager.background.domain.ExistingPolicy
+import dev.brewkits.kmpworkmanager.background.domain.TaskTrigger
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
@@ -209,12 +210,8 @@ class ChineseROMCompatibilityTest {
      * Verifies that tasks can be scheduled despite Chinese ROM restrictions.
      */
     @Test
-    fun testWorkManagerSchedulingOnChineseROM() = runBlocking {
-        val scheduler = KmpWorkManager.getScheduler() as? BackgroundTaskScheduler
-        if (scheduler == null) {
-            println("⚠️ Scheduler not initialized - skipping test")
-            return@runBlocking
-        }
+    fun testWorkManagerSchedulingOnChineseROM(): Unit = runBlocking {
+        val scheduler = KmpWorkManager.getInstance().backgroundTaskScheduler
 
         val taskId = "chinese-rom-test-${System.currentTimeMillis()}"
 
@@ -228,7 +225,8 @@ class ChineseROMCompatibilityTest {
                 constraints = Constraints(
                     requiresNetwork = false,
                     requiresCharging = false
-                )
+                ),
+                policy = ExistingPolicy.REPLACE
             )
 
             println("✅ Task scheduled successfully: $taskId")
