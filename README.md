@@ -1,109 +1,108 @@
-# KMP WorkManager
-
 <div align="center">
 
-### Background Tasks for Kotlin Multiplatform
+<img src="kmpworkmanager.png?v=2" alt="KMP WorkManager" width="800px" />
 
-Schedule background work on Android and iOS with the same code.
+# KMP WorkManager
 
-<img src="kmpworkmanager.png?v=2" alt="KMP WorkManager" width="100%" />
+**Background task scheduling for Kotlin Multiplatform**
 
-[![Maven Central](https://img.shields.io/maven-central/v/dev.brewkits/kmpworkmanager)](https://central.sonatype.com/artifact/dev.brewkits/kmpworkmanager)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Kotlin](https://img.shields.io/badge/Kotlin-2.1.21-blue.svg)](https://kotlinlang.org)
-[![Platform](https://img.shields.io/badge/Platform-Android%20%7C%20iOS-green.svg)](https://kotlinlang.org/docs/multiplatform.html)
+Write once, run everywhere — Schedule background tasks on Android and iOS from shared code
+
+[![Maven Central](https://img.shields.io/maven-central/v/dev.brewkits/kmpworkmanager?color=blue&label=maven%20central)](https://central.sonatype.com/artifact/dev.brewkits/kmpworkmanager)
+[![Kotlin](https://img.shields.io/badge/kotlin-2.1.21-blue.svg?logo=kotlin)](https://kotlinlang.org)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-android%20%7C%20ios-lightgrey.svg)](https://kotlinlang.org/docs/multiplatform.html)
+
+[Features](#features) •
+[Installation](#installation) •
+[Quick Start](#quick-start) •
+[Documentation](#documentation) •
+[Examples](#examples)
 
 </div>
 
 ---
 
-## Why This Exists
+## The Problem
 
-Building a KMP app and need to sync data in the background? Download files while the app is closed? Run periodic tasks?
-
-On Android you'd use WorkManager. On iOS you'd use BGTaskScheduler. Different APIs, different behavior, lots of platform-specific code.
-
-This library gives you one API that works on both. Write your scheduling logic once in common code.
-
----
-
-## What You Get
-
-**One API for both platforms** - Schedule tasks from shared code, no expect/actual needed
-
-**Multiple task types**
-- One-time tasks (run once, with optional delay)
-- Periodic tasks (every X minutes)
-- Exact timing on Android (via AlarmManager)
-- Task chains (run multiple tasks in sequence)
-
-**Return data from workers** (v2.3.0+) - Workers can return structured results with custom data
-
-**Security built-in** (v2.3.1+) - SSRF protection, input validation, resource limits
-
-**Chain state recovery on iOS** - If your app gets killed, chains resume from where they left off
-
-**Pre-built workers** - HTTP requests, downloads, uploads, file compression
-
-**Chain IDs** - Prevent duplicate execution with automatic deduplication
-
----
-
-## Platform Details
-
-| Feature | Android | iOS |
-|---------|---------|-----|
-| One-time tasks | ✓ WorkManager | ✓ BGTaskScheduler |
-| Periodic tasks | ✓ Native (min 15min) | ✓ Opportunistic |
-| Exact timing | ✓ AlarmManager | ✗ Not supported |
-| Task chains | ✓ WorkContinuation | ✓ With state recovery |
-| Constraints | ✓ Network, battery, storage | Limited by iOS |
-
-**About iOS background tasks:**
-- iOS decides when to run them (opportunistic scheduling)
-- If user force-quits your app, all tasks are cancelled
-- Tasks can be delayed for hours based on system conditions
-- Don't use this for time-critical work
-
----
-
-## Quick Example
+Building a multiplatform app that needs background task scheduling?
 
 ```kotlin
-// In your shared code
+// ❌ Platform-specific nightmare
+expect class BackgroundScheduler {
+    fun schedule(task: Task)
+}
+
+// Android implementation uses WorkManager
+// iOS implementation uses BGTaskScheduler
+// Different APIs, different behaviors, double the code
+```
+
+## The Solution
+
+```kotlin
+// ✅ One API, both platforms
 val scheduler = BackgroundTaskScheduler()
 
-// Schedule a periodic sync (runs every 15 minutes)
 scheduler.enqueue(
-    id = "data-sync",
+    id = "sync-data",
     trigger = TaskTrigger.Periodic(intervalMs = 900_000),
     workerClassName = "SyncWorker",
     constraints = Constraints(requiresNetwork = true)
 )
-
-// Chain multiple tasks
-scheduler.beginWith(
-    TaskRequest(workerClassName = "DownloadWorker")
-).then(
-    TaskRequest(workerClassName = "ProcessWorker")
-).then(
-    TaskRequest(workerClassName = "UploadWorker")
-).enqueue()
 ```
 
-**Worker implementation:**
+No `expect`/`actual`. No platform checks. Just works.
+
+---
+
+## Features
+
+### 🎯 **Unified API**
+Single API for Android WorkManager and iOS BGTaskScheduler. Write scheduling logic once in common code.
+
+### ⛓️ **Task Chains**
+Sequential task execution with automatic state recovery. If interrupted, chains resume where they left off.
 
 ```kotlin
-class SyncWorker : AndroidWorker {  // or IosWorker for iOS
-    override suspend fun doWork(input: String?): WorkerResult {
-        val data = fetchDataFromServer()
-        saveToDatabase(data)
+scheduler.beginWith(TaskRequest("Download"))
+    .then(TaskRequest("Process"))
+    .then(TaskRequest("Upload"))
+    .enqueue()
+```
 
-        return WorkerResult.Success(
-            message = "Synced ${data.size} items",
-            data = mapOf("count" to data.size)
-        )
-    }
+### 🔄 **Multiple Task Types**
+- **One-time**: Execute once, optionally delayed
+- **Periodic**: Run every N minutes (min 15min)
+- **Exact**: Precise timing on Android via AlarmManager
+- **Chains**: Multi-step workflows with state persistence
+
+### 📦 **Pre-built Workers**
+Ready-to-use workers for common tasks:
+- `HttpRequestWorker` — Make HTTP calls
+- `HttpDownloadWorker` — Download files
+- `HttpUploadWorker` — Upload files
+- `HttpSyncWorker` — Sync data
+- `FileCompressionWorker` — Compress files
+
+### 🔒 **Security First**
+Built-in SSRF protection, input validation, and resource limits (v2.3.1+).
+
+### ⚡ **High Performance**
+- 60-86% faster HTTP operations via singleton client (v2.3.4+)
+- O(1) queue operations on iOS
+- Efficient memory usage with streaming I/O
+
+### 📊 **Rich Result Data**
+Workers return structured results with custom data (v2.3.0+):
+
+```kotlin
+override suspend fun doWork(input: String?): WorkerResult {
+    val result = uploadFile()
+    return WorkerResult.Success(
+        message = "Upload complete",
+        data = mapOf("fileSize" to result.size, "duration" to result.duration)
+    )
 }
 ```
 
@@ -117,172 +116,359 @@ Add to your `build.gradle.kts`:
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("dev.brewkits:kmpworkmanager:2.3.2")
+            implementation("dev.brewkits:kmpworkmanager:2.3.4")
         }
     }
 }
 ```
 
-**Setup required:**
-- **Android:** Initialize in `Application.onCreate()`
-- **iOS:** Register task handlers in your App init
+### Platform Setup
 
-See [Quick Start Guide](docs/quickstart.md) for complete setup instructions.
-
----
-
-## Real-World Use Cases
-
-**Periodic data sync**
-Sync user data with your server every hour, only when connected to WiFi.
-
-**Background uploads**
-Upload photos/videos in the background, with automatic retry on failure.
-
-**Multi-step workflows**
-Download file → Process it → Upload results. If any step fails, retry with exponential backoff.
-
-**Offline-first apps**
-Queue up changes while offline, sync when network becomes available.
-
-**Analytics batching**
-Collect events locally, upload in batches to reduce network usage.
-
----
-
-## WorkerResult API
-
-New in v2.3.0 - workers can return structured data:
+<details>
+<summary><b>Android</b> — Initialize in Application class</summary>
 
 ```kotlin
-class UploadWorker : CommonWorker {
-    override suspend fun doWork(input: String?): WorkerResult {
-        return try {
-            val result = uploadFile()
-            WorkerResult.Success(
-                message = "Upload complete",
-                data = mapOf(
-                    "fileSize" to result.size,
-                    "duration" to result.duration
-                )
+class MyApplication : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        KmpWorkManager.initialize(
+            context = this,
+            config = KmpWorkManagerConfig(
+                logLevel = Logger.Level.INFO
             )
-        } catch (e: Exception) {
-            WorkerResult.Failure("Upload failed: ${e.message}")
+        )
+    }
+}
+```
+
+</details>
+
+<details>
+<summary><b>iOS</b> — Register task handlers in App init</summary>
+
+```swift
+import KMPWorkManager
+
+@main
+struct MyApp: App {
+    init() {
+        KmpWorkManager.shared.initialize(
+            config: KmpWorkManagerConfig(
+                logLevel: .info
+            )
+        )
+    }
+
+    var body: some Scene {
+        WindowGroup {
+            ContentView()
         }
     }
 }
 ```
 
-Old Boolean return type still works (100% backward compatible).
+Add to `Info.plist`:
+```xml
+<key>BGTaskSchedulerPermittedIdentifiers</key>
+<array>
+    <string>kmp_chain_executor_task</string>
+</array>
+```
+
+</details>
+
+**→ Full setup guide:** [Platform Setup Documentation](docs/platform-setup.md)
 
 ---
 
-## Built-in Workers
+## Quick Start
 
-Pre-built workers for common tasks:
+### 1. Create a Worker
 
-- `HttpRequestWorker` - Make HTTP requests
-- `HttpSyncWorker` - Sync data via GET/POST
-- `HttpDownloadWorker` - Download files
-- `HttpUploadWorker` - Upload files
-- `FileCompressionWorker` - Compress files/directories
+```kotlin
+// commonMain
+class DataSyncWorker : CommonWorker {
+    override suspend fun doWork(input: String?): WorkerResult {
+        val api = ApiClient()
+        val data = api.fetchLatestData()
 
-See [Built-in Workers Guide](docs/BUILTIN_WORKERS_GUIDE.md) for details.
+        database.save(data)
+
+        return WorkerResult.Success(
+            message = "Synced ${data.size} items",
+            data = mapOf("count" to data.size)
+        )
+    }
+}
+```
+
+Platform-specific implementations:
+
+```kotlin
+// androidMain
+class DataSyncWorkerAndroid : AndroidWorker {
+    override suspend fun doWork(input: String?): WorkerResult {
+        return DataSyncWorker().doWork(input)
+    }
+}
+
+// iosMain
+class DataSyncWorkerIos : IosWorker {
+    override suspend fun doWork(input: String?): WorkerResult {
+        return DataSyncWorker().doWork(input)
+    }
+}
+```
+
+### 2. Schedule the Task
+
+```kotlin
+// In your shared code
+val scheduler = BackgroundTaskScheduler()
+
+scheduler.enqueue(
+    id = "data-sync",
+    trigger = TaskTrigger.Periodic(intervalMs = 900_000), // 15 minutes
+    workerClassName = "DataSyncWorker",
+    constraints = Constraints(
+        requiresNetwork = true,
+        requiresCharging = false
+    )
+)
+```
+
+### 3. Done!
+
+The task will run every 15 minutes on both Android and iOS, only when network is available.
+
+---
+
+## Platform Comparison
+
+| Feature | Android | iOS |
+|---------|---------|-----|
+| **One-time tasks** | ✅ WorkManager | ✅ BGTaskScheduler |
+| **Periodic tasks** | ✅ Min 15 minutes | ✅ Opportunistic |
+| **Exact timing** | ✅ AlarmManager | ❌ Not available |
+| **Task chains** | ✅ WorkContinuation | ✅ With state recovery |
+| **Network constraint** | ✅ Enforced | ⚠️ Best effort |
+| **Battery constraint** | ✅ Enforced | ⚠️ System decides |
+| **Runs when app closed** | ✅ Yes | ⚠️ If not force-quit |
+
+**iOS Limitations:**
+- System decides when to run tasks (opportunistic scheduling)
+- Force-quit cancels all pending tasks
+- Execution may be delayed for hours
+- Not suitable for time-critical operations
+
+---
+
+## Use Cases
+
+<table>
+<tr>
+<td width="33%">
+
+**📊 Data Synchronization**
+
+Sync user data with your server periodically, only when connected to WiFi.
+
+```kotlin
+scheduler.enqueue(
+    id = "sync",
+    trigger = Periodic(15.minutes),
+    constraints = Constraints(
+        requiresNetwork = true,
+        requiresCharging = false
+    )
+)
+```
+
+</td>
+<td width="33%">
+
+**📤 Background Uploads**
+
+Upload photos/videos when device is charging and on WiFi.
+
+```kotlin
+scheduler.enqueue(
+    id = "upload",
+    workerClassName = "UploadWorker",
+    constraints = Constraints(
+        requiresNetwork = true,
+        requiresCharging = true
+    )
+)
+```
+
+</td>
+<td width="33%">
+
+**⛓️ Multi-step Workflows**
+
+Chain tasks together with automatic retry on failure.
+
+```kotlin
+scheduler.beginWith(
+    TaskRequest("Download")
+).then(
+    TaskRequest("Process")
+).then(
+    TaskRequest("Upload")
+).enqueue()
+```
+
+</td>
+</tr>
+</table>
 
 ---
 
 ## Documentation
 
-- [Quick Start Guide](docs/quickstart.md) - Get running in 5 minutes
-- [Platform Setup](docs/platform-setup.md) - Android & iOS configuration
-- [API Reference](docs/api-reference.md) - Complete API docs
-- [Task Chains](docs/task-chains.md) - Sequential & parallel workflows
-- [iOS Best Practices](docs/ios-best-practices.md) - iOS-specific tips
-- [Migration Guides](docs/) - Upgrading from older versions
+📘 **Getting Started**
+- [Quick Start Guide](docs/quickstart.md) — Get running in 5 minutes
+- [Platform Setup](docs/platform-setup.md) — Android & iOS configuration
+- [Migration Guide](docs/MIGRATION_V2.3.3_TO_V2.3.4.md) — Upgrading from v2.3.3
 
----
+📖 **Core Concepts**
+- [API Reference](docs/api-reference.md) — Complete API documentation
+- [Task Chains](docs/task-chains.md) — Sequential workflows
+- [Built-in Workers](docs/BUILTIN_WORKERS_GUIDE.md) — Pre-built workers
 
-## Requirements
-
-- Kotlin 2.1.21+
-- Android 7.0+ (API 24)
-- iOS 13.0+
-- Koin for dependency injection (included automatically)
-
----
-
-## Things to Know
-
-**You still need platform-specific workers**
-
-Despite shared scheduling code, you need separate `AndroidWorker` and `IosWorker` implementations. This is because the actual work often requires platform APIs (file system, network, etc).
-
-**Koin is included**
-
-This library uses Koin for DI. If your project uses Hilt or Dagger, you'll have both DI frameworks (Koin just for this library, yours for your app). They don't conflict.
-
-**iOS background execution is unpredictable**
-
-iOS decides when (and if) to run your tasks based on:
-- Battery level
-- User behavior patterns
-- System load
-- Whether user force-quit the app (if yes, tasks won't run)
-
-Don't rely on iOS background tasks for critical operations.
+🎯 **Platform-Specific**
+- [iOS Best Practices](docs/ios-best-practices.md) — iOS background task tips
+- [Android Configuration](docs/platform-setup.md#android) — Android setup details
 
 ---
 
 ## Examples
 
-Check the `/composeApp` directory for a complete demo app with:
-- Single task examples
-- Chain examples
-- Built-in worker demos
-- Error handling patterns
+Check the [`/composeApp`](composeApp/) directory for a complete demo app with:
+
+- ✅ Single task scheduling
+- ✅ Chain execution examples
+- ✅ Built-in worker usage
+- ✅ Error handling patterns
+- ✅ Real device testing
 
 ---
 
-## What's New
+## What's New in v2.3.4
 
-**v2.3.2** (February 16, 2026)
-- Property-based testing with Kotest (1000+ generated test cases)
-- Chinese ROM compatibility tests (MIUI, EMUI, ColorOS, FuntouchOS)
-- Mutation testing framework
-- Low-end device benchmarks (budget Android phones + older iPhones)
-- 100% backward compatible
+🚀 **Performance**
+- 60-86% faster HTTP operations (singleton HttpClient with connection pooling)
+- 90% less progress data loss on iOS (reduced flush interval: 500ms → 100ms)
 
-See [CHANGELOG.md](CHANGELOG.md) for full history.
+🐛 **Fixes**
+- Fixed iOS queue compaction segmentation fault
+- Fixed Logger test assertions
+- Added proper shutdown mechanism for background operations
+
+⚠️ **Breaking Changes**
+- `TaskChain.enqueue()` is now suspending
+
+**→ Full changelog:** [CHANGELOG.md](CHANGELOG.md)
+
+**→ Migration guide:** [MIGRATION_V2.3.3_TO_V2.3.4.md](docs/MIGRATION_V2.3.3_TO_V2.3.4.md)
+
+---
+
+## Requirements
+
+| Component | Version |
+|-----------|---------|
+| Kotlin | 2.1.21+ |
+| Android | 7.0+ (API 24) |
+| iOS | 13.0+ |
+| Gradle | 8.0+ |
+
+**Dependencies:**
+- AndroidX WorkManager (Android)
+- Koin (Dependency Injection)
+- Ktor (HTTP operations)
+- kotlinx.coroutines
+- kotlinx.serialization
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────┐
+│     Common API (Multiplatform)      │
+│   BackgroundTaskScheduler Interface │
+└─────────────┬───────────────────────┘
+              │
+      ┌───────┴────────┐
+      │                │
+┌─────▼─────┐    ┌────▼─────┐
+│  Android  │    │   iOS    │
+│ WorkManager│    │BGTask    │
+│            │    │Scheduler │
+└────────────┘    └──────────┘
+```
+
+All scheduling logic lives in common code. Platform implementations handle OS-specific details transparently.
 
 ---
 
 ## Contributing
 
-Pull requests welcome! Please:
-1. Fork the repo
-2. Create a feature branch
-3. Submit a PR
+Contributions are welcome! Please:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+**Before submitting:**
+- Run tests: `./gradlew test`
+- Check code style: `./gradlew ktlintCheck`
+- Update documentation if needed
 
 ---
 
 ## License
 
-Apache License 2.0 - see [LICENSE](LICENSE) file.
-
 ```
-Copyright 2026 Nguyễn Tuấn Việt
+Copyright 2024-2026 Nguyễn Tuấn Việt
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 ```
 
 ---
 
-## Need Help?
+## Support
 
+💬 **Need help?**
 - 📖 [Documentation](docs/)
 - 🐛 [Report Issues](https://github.com/brewkits/kmpworkmanager/issues)
-- 💬 [Discussions](https://github.com/brewkits/kmpworkmanager/discussions)
+- 💡 [Discussions](https://github.com/brewkits/kmpworkmanager/discussions)
+- 📧 Email: datacenter111@gmail.com
+
+⭐ **Like this project?** Give it a star on GitHub!
 
 ---
 
-**Made by Nguyễn Tuấn Việt**
-📧 datacenter111@gmail.com
-🐙 [@brewkits](https://github.com/brewkits)
+<div align="center">
+
+**Built with ❤️ by [Nguyễn Tuấn Việt](https://github.com/brewkits)**
+
+[GitHub](https://github.com/brewkits/kmpworkmanager) •
+[Maven Central](https://central.sonatype.com/artifact/dev.brewkits/kmpworkmanager) •
+[Documentation](docs/)
+
+</div>
