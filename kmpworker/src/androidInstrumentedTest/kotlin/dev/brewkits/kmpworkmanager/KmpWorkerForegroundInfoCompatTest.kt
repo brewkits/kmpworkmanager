@@ -6,8 +6,10 @@ import androidx.work.ListenableWorker
 import androidx.work.WorkManager
 import androidx.work.WorkInfo
 import dev.brewkits.kmpworkmanager.background.domain.AndroidWorker
+import dev.brewkits.kmpworkmanager.background.domain.AndroidWorkerFactory
 import dev.brewkits.kmpworkmanager.background.domain.Constraints
 import dev.brewkits.kmpworkmanager.background.domain.ExistingPolicy
+import dev.brewkits.kmpworkmanager.background.domain.ScheduleResult
 import dev.brewkits.kmpworkmanager.background.domain.TaskTrigger
 import dev.brewkits.kmpworkmanager.background.domain.WorkerFactory
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
@@ -78,7 +80,7 @@ class KmpWorkerForegroundInfoCompatTest {
             policy = ExistingPolicy.REPLACE
         )
 
-        assertTrue(result.isSuccess, "Expedited task should be scheduled without crash")
+        assertEquals(ScheduleResult.ACCEPTED, result, "Expedited task should be scheduled without crash")
 
         val workInfo = workManager.getWorkInfosForUniqueWork("compat-expedited-test").get()
         assertNotNull(workInfo)
@@ -110,7 +112,7 @@ class KmpWorkerForegroundInfoCompatTest {
             )
         }
 
-        assertTrue(results.all { it.isSuccess }, "All expedited tasks should schedule without crash")
+        assertTrue(results.all { it == ScheduleResult.ACCEPTED }, "All expedited tasks should schedule without crash")
 
         taskIds.forEach { id ->
             val workInfo = workManager.getWorkInfosForUniqueWork(id).get()
@@ -136,7 +138,7 @@ class KmpWorkerForegroundInfoCompatTest {
             policy = ExistingPolicy.REPLACE
         )
 
-        assertTrue(result.isSuccess, "Periodic task with KmpWorker should schedule without crash")
+        assertEquals(ScheduleResult.ACCEPTED, result, "Periodic task with KmpWorker should schedule without crash")
 
         val workInfo = workManager.getWorkInfosForUniqueWork("compat-periodic-test").get()
         assertTrue(workInfo.isNotEmpty(), "Periodic WorkInfo must exist")
@@ -207,7 +209,7 @@ class KmpWorkerForegroundInfoCompatTest {
     // Test Helpers
     // ─────────────────────────────────────────────────────────────────────────
 
-    private class TestWorkerFactory : WorkerFactory {
+    private class TestWorkerFactory : AndroidWorkerFactory {
         override fun createWorker(workerClassName: String): AndroidWorker? {
             return when (workerClassName) {
                 "SimpleWorker" -> SimpleWorker()

@@ -1,3 +1,5 @@
+@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
+
 package dev.brewkits.kmpworkmanager
 
 import dev.brewkits.kmpworkmanager.background.data.AppendOnlyQueue
@@ -249,7 +251,7 @@ class StressTests {
             (1..10).map { taskId ->
                 TaskRequest(
                     workerClassName = "Worker_${stepId}_$taskId",
-                    inputJson = """{"step":$stepId,"task":$taskId,"data":"${"x".repeat(100)}"}"""
+                    input = """{"step":$stepId,"task":$taskId,"data":"${"x".repeat(100)}"}"""
                 )
             }
         }

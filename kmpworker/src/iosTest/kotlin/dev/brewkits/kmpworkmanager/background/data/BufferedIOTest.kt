@@ -1,9 +1,11 @@
 package dev.brewkits.kmpworkmanager.background.data
 
-import dev.brewkits.kmpworkmanager.background.domain.ChainProgress
 import kotlinx.coroutines.*
 import kotlinx.coroutines.test.*
+import kotlinx.datetime.Clock
+import kotlinx.datetime.TimeZone
 import kotlin.test.*
+import dev.brewkits.kmpworkmanager.currentTimeMillis
 
 /**
  * Unit and stress tests for Buffered I/O with debouncing (Task #4)
@@ -174,14 +176,14 @@ class BufferedIOTest {
         val updateCount = 1000
         val chainCount = 10
 
-        val startTime = System.currentTimeMillis()
+        val startTime = currentTimeMillis()
         repeat(updateCount) { i ->
             storage.saveChainProgress(createTestProgress("chain${i % chainCount}", i / chainCount))
             delay(5) // 5ms between updates
         }
 
         delay(600) // Wait for final flush
-        val duration = System.currentTimeMillis() - startTime
+        val duration = currentTimeMillis() - startTime
 
         // Should batch into very few flushes
         assertTrue(
@@ -307,15 +309,29 @@ class BufferedIOTest {
     }
 
     private fun createTestProgress(chainId: String, completedTasks: Int): ChainProgress {
+        val currentStep = completedTasks / 5
+        val tasksInCurrentStep = completedTasks % 5
+
+        // Build list of completed steps
+        val completedStepsList = (0 until currentStep).toList()
+
+        // Build map of completed tasks in each step
+        val completedTasksMap = mutableMapOf<Int, List<Int>>()
+        // All previous steps are fully completed (tasks 0-4)
+        for (step in 0 until currentStep) {
+            completedTasksMap[step] = listOf(0, 1, 2, 3, 4)
+        }
+        // Current step has partial completion
+        if (tasksInCurrentStep > 0) {
+            completedTasksMap[currentStep] = (0 until tasksInCurrentStep).toList()
+        }
+
         return ChainProgress(
             chainId = chainId,
             totalSteps = 3,
-            completedSteps = completedTasks / 5,
-            currentStep = completedTasks / 5,
-            totalTasksInCurrentStep = 5,
-            completedTasksInCurrentStep = completedTasks % 5,
-            retryCount = 0,
-            lastError = null
+            completedSteps = completedStepsList,
+            completedTasksInSteps = completedTasksMap,
+            retryCount = 0
         )
     }
 }

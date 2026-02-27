@@ -4,8 +4,11 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.WorkManager
 import dev.brewkits.kmpworkmanager.background.domain.AndroidWorker
+import dev.brewkits.kmpworkmanager.background.domain.AndroidWorkerFactory
 import dev.brewkits.kmpworkmanager.background.domain.Constraints
 import dev.brewkits.kmpworkmanager.background.domain.ExistingPolicy
+import dev.brewkits.kmpworkmanager.background.domain.ScheduleResult
+import dev.brewkits.kmpworkmanager.background.domain.SystemConstraint
 import dev.brewkits.kmpworkmanager.background.domain.TaskTrigger
 import dev.brewkits.kmpworkmanager.background.domain.WorkerFactory
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
@@ -70,7 +73,7 @@ class AndroidExactAlarmTest {
         // Schedule with exact timestamp
         val result = scheduler.enqueue(
             id = "exact-alarm-future",
-            trigger = TaskTrigger.ExactTime(atEpochMillis = futureTimestamp),
+            trigger = TaskTrigger.Exact(atEpochMillis = futureTimestamp),
             workerClassName = "TestWorker",
             constraints = Constraints(),
             inputJson = null,
@@ -78,7 +81,7 @@ class AndroidExactAlarmTest {
         )
 
         // Verify task was scheduled
-        assertTrue(result.isSuccess, "Task should be scheduled successfully")
+        assertEquals(ScheduleResult.ACCEPTED, result, "Task should be scheduled successfully")
 
         // Verify WorkInfo exists and has correct delay
         val workInfo = workManager.getWorkInfosForUniqueWork("exact-alarm-future").get()
@@ -108,14 +111,14 @@ class AndroidExactAlarmTest {
 
         val result = scheduler.enqueue(
             id = "exact-alarm-past",
-            trigger = TaskTrigger.ExactTime(atEpochMillis = pastTimestamp),
+            trigger = TaskTrigger.Exact(atEpochMillis = pastTimestamp),
             workerClassName = "TestWorker",
             constraints = Constraints(),
             inputJson = null,
             policy = ExistingPolicy.REPLACE
         )
 
-        assertTrue(result.isSuccess, "Task should be scheduled successfully")
+        assertEquals(ScheduleResult.ACCEPTED, result, "Task should be scheduled successfully")
 
         // Work should be enqueued for immediate execution
         val workInfo = workManager.getWorkInfosForUniqueWork("exact-alarm-past").get()
@@ -137,14 +140,14 @@ class AndroidExactAlarmTest {
 
         val result = scheduler.enqueue(
             id = "exact-alarm-current",
-            trigger = TaskTrigger.ExactTime(atEpochMillis = currentTimestamp),
+            trigger = TaskTrigger.Exact(atEpochMillis = currentTimestamp),
             workerClassName = "TestWorker",
             constraints = Constraints(),
             inputJson = null,
             policy = ExistingPolicy.REPLACE
         )
 
-        assertTrue(result.isSuccess, "Task should be scheduled successfully")
+        assertEquals(ScheduleResult.ACCEPTED, result, "Task should be scheduled successfully")
 
         val workInfo = workManager.getWorkInfosForUniqueWork("exact-alarm-current").get()
         assertNotNull(workInfo, "WorkInfo should exist")
@@ -166,14 +169,14 @@ class AndroidExactAlarmTest {
 
         val result = scheduler.enqueue(
             id = "exact-alarm-far-future",
-            trigger = TaskTrigger.ExactTime(atEpochMillis = farFutureTimestamp),
+            trigger = TaskTrigger.Exact(atEpochMillis = farFutureTimestamp),
             workerClassName = "TestWorker",
             constraints = Constraints(),
             inputJson = null,
             policy = ExistingPolicy.REPLACE
         )
 
-        assertTrue(result.isSuccess, "Task should be scheduled successfully for far future")
+        assertEquals(ScheduleResult.ACCEPTED, result, "Task should be scheduled successfully for far future")
 
         val workInfo = workManager.getWorkInfosForUniqueWork("exact-alarm-far-future").get()
         assertNotNull(workInfo, "WorkInfo should exist for far future task")
@@ -201,7 +204,7 @@ class AndroidExactAlarmTest {
 
         val result1 = scheduler.enqueue(
             id = "exact-alarm-precision-1",
-            trigger = TaskTrigger.ExactTime(atEpochMillis = timestamp1),
+            trigger = TaskTrigger.Exact(atEpochMillis = timestamp1),
             workerClassName = "TestWorker",
             constraints = Constraints(),
             inputJson = null,
@@ -210,15 +213,15 @@ class AndroidExactAlarmTest {
 
         val result2 = scheduler.enqueue(
             id = "exact-alarm-precision-2",
-            trigger = TaskTrigger.ExactTime(atEpochMillis = timestamp2),
+            trigger = TaskTrigger.Exact(atEpochMillis = timestamp2),
             workerClassName = "TestWorker",
             constraints = Constraints(),
             inputJson = null,
             policy = ExistingPolicy.REPLACE
         )
 
-        assertTrue(result1.isSuccess, "First task should be scheduled")
-        assertTrue(result2.isSuccess, "Second task should be scheduled")
+        assertEquals(ScheduleResult.ACCEPTED, result1, "First task should be scheduled")
+        assertEquals(ScheduleResult.ACCEPTED, result2, "Second task should be scheduled")
 
         val workInfo1 = workManager.getWorkInfosForUniqueWork("exact-alarm-precision-1").get()
         val workInfo2 = workManager.getWorkInfosForUniqueWork("exact-alarm-precision-2").get()
@@ -248,7 +251,7 @@ class AndroidExactAlarmTest {
             policy = ExistingPolicy.REPLACE
         )
 
-        assertTrue(result.isSuccess, "OneTime trigger should work")
+        assertEquals(ScheduleResult.ACCEPTED, result, "OneTime trigger should work")
 
         val workInfo = workManager.getWorkInfosForUniqueWork("one-time-trigger").get()
         assertNotNull(workInfo, "OneTime task should exist")
@@ -274,17 +277,16 @@ class AndroidExactAlarmTest {
 
         val result = scheduler.enqueue(
             id = "exact-alarm-with-constraints",
-            trigger = TaskTrigger.ExactTime(atEpochMillis = futureTimestamp),
+            trigger = TaskTrigger.Exact(atEpochMillis = futureTimestamp),
             workerClassName = "TestWorker",
             constraints = Constraints(
-                requiresBatteryNotLow = true,
-                requiresDeviceIdle = false
+                systemConstraints = setOf(SystemConstraint.REQUIRE_BATTERY_NOT_LOW)
             ),
             inputJson = null,
             policy = ExistingPolicy.REPLACE
         )
 
-        assertTrue(result.isSuccess, "Task with constraints should be scheduled")
+        assertEquals(ScheduleResult.ACCEPTED, result, "Task with constraints should be scheduled")
 
         val workInfo = workManager.getWorkInfosForUniqueWork("exact-alarm-with-constraints").get()
         assertNotNull(workInfo, "Task with constraints should exist")
@@ -314,7 +316,7 @@ class AndroidExactAlarmTest {
             val timestamp = baseTime + (seconds * 1000L)
             scheduler.enqueue(
                 id = "exact-alarm-multiple-$seconds",
-                trigger = TaskTrigger.ExactTime(atEpochMillis = timestamp),
+                trigger = TaskTrigger.Exact(atEpochMillis = timestamp),
                 workerClassName = "TestWorker",
                 constraints = Constraints(),
                 inputJson = null,
@@ -323,7 +325,7 @@ class AndroidExactAlarmTest {
         }
 
         // Verify all tasks were scheduled
-        assertTrue(results.all { it.isSuccess }, "All tasks should be scheduled successfully")
+        assertTrue(results.all { it == ScheduleResult.ACCEPTED }, "All tasks should be scheduled successfully")
 
         // Verify all WorkInfo exist
         val workInfos = (1..10).map { seconds ->
@@ -349,26 +351,26 @@ class AndroidExactAlarmTest {
         // First enqueue
         val result1 = scheduler.enqueue(
             id = "exact-alarm-replace",
-            trigger = TaskTrigger.ExactTime(atEpochMillis = timestamp1),
+            trigger = TaskTrigger.Exact(atEpochMillis = timestamp1),
             workerClassName = "TestWorker",
             constraints = Constraints(),
             inputJson = null,
             policy = ExistingPolicy.REPLACE
         )
 
-        assertTrue(result1.isSuccess, "First enqueue should succeed")
+        assertEquals(ScheduleResult.ACCEPTED, result1, "First enqueue should succeed")
 
         // Second enqueue (should replace)
         val result2 = scheduler.enqueue(
             id = "exact-alarm-replace",
-            trigger = TaskTrigger.ExactTime(atEpochMillis = timestamp2),
+            trigger = TaskTrigger.Exact(atEpochMillis = timestamp2),
             workerClassName = "TestWorker",
             constraints = Constraints(),
             inputJson = null,
             policy = ExistingPolicy.REPLACE
         )
 
-        assertTrue(result2.isSuccess, "Second enqueue should succeed")
+        assertEquals(ScheduleResult.ACCEPTED, result2, "Second enqueue should succeed")
 
         val workInfo = workManager.getWorkInfosForUniqueWork("exact-alarm-replace").get()
         // Should have only one work item (replaced)
@@ -382,13 +384,13 @@ class AndroidExactAlarmTest {
      * Expected: Should handle without overflow or crash
      */
     @Test
-    fun testMaxTimestampBoundary() = runBlocking {
+    fun testMaxTimestampBoundary(): Unit = runBlocking {
         val scheduler = KmpWorkManager.getInstance().backgroundTaskScheduler
 
         try {
             val result = scheduler.enqueue(
                 id = "exact-alarm-max",
-                trigger = TaskTrigger.ExactTime(atEpochMillis = Long.MAX_VALUE),
+                trigger = TaskTrigger.Exact(atEpochMillis = Long.MAX_VALUE),
                 workerClassName = "TestWorker",
                 constraints = Constraints(),
                 inputJson = null,
@@ -407,7 +409,7 @@ class AndroidExactAlarmTest {
     // Test Helpers
     // ===========================
 
-    private class TestWorkerFactory : WorkerFactory {
+    private class TestWorkerFactory : AndroidWorkerFactory {
         override fun createWorker(workerClassName: String): AndroidWorker? {
             return when (workerClassName) {
                 "TestWorker" -> TestWorker()

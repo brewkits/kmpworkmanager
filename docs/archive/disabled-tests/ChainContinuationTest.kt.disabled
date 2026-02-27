@@ -1,15 +1,20 @@
+@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
+
 package dev.brewkits.kmpworkmanager
 
 import dev.brewkits.kmpworkmanager.background.data.ChainExecutor
 import dev.brewkits.kmpworkmanager.background.data.ChainProgress
-import dev.brewkits.kmpworkmanager.background.domain.IosWorker
-import dev.brewkits.kmpworkmanager.background.domain.IosWorkerFactory
+import dev.brewkits.kmpworkmanager.background.data.IosWorker
+import dev.brewkits.kmpworkmanager.background.data.IosWorkerFactory
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.background.data.IosFileStorage
 import dev.brewkits.kmpworkmanager.background.domain.BGTaskType
 import kotlinx.coroutines.*
+import kotlinx.datetime.Clock
+import kotlinx.datetime.TimeZone
 import platform.Foundation.*
 import kotlin.test.*
+import dev.brewkits.kmpworkmanager.currentTimeMillis
 
 /**
  * Comprehensive tests for Critical Fix #2: iOS Chain Continuation Callback
@@ -71,7 +76,7 @@ class ChainContinuationTest {
         }
 
         val workerFactory = TestWorkerFactory(delayMs = 100) // Each task takes 100ms
-        val fileStorage = IosFileStorage(baseDirectory = testDirectory)
+        val fileStorage = IosFileStorage()
 
         val chainExecutor = ChainExecutor(
             workerFactory = workerFactory,
@@ -108,11 +113,11 @@ class ChainContinuationTest {
         val invocationTimes = mutableListOf<Long>()
 
         val onContinuationNeeded: () -> Unit = {
-            invocationTimes.add(System.currentTimeMillis())
+            invocationTimes.add(now())
         }
 
         val workerFactory = TestWorkerFactory(delayMs = 50)
-        val fileStorage = IosFileStorage(baseDirectory = testDirectory)
+        val fileStorage = IosFileStorage()
 
         val chainExecutor = ChainExecutor(
             workerFactory = workerFactory,
@@ -178,7 +183,7 @@ class ChainContinuationTest {
         }
 
         val workerFactory = TestWorkerFactory(delayMs = 200) // Longer tasks
-        val fileStorage = IosFileStorage(baseDirectory = testDirectory)
+        val fileStorage = IosFileStorage()
 
         val chainExecutor = ChainExecutor(
             workerFactory = workerFactory,
@@ -266,7 +271,7 @@ class ChainContinuationTest {
         }
 
         val workerFactory = TestWorkerFactory(delayMs = 50)
-        val fileStorage = IosFileStorage(baseDirectory = testDirectory)
+        val fileStorage = IosFileStorage()
 
         val chainExecutor = ChainExecutor(
             workerFactory = workerFactory,
@@ -301,7 +306,7 @@ class ChainContinuationTest {
      */
     @Test
     fun testCallbackInvokedAfterProgressSaved() = runBlocking {
-        val fileStorage = IosFileStorage(baseDirectory = testDirectory)
+        val fileStorage = IosFileStorage()
         var progressAtCallback: ChainProgress? = null
 
         val onContinuationNeeded: () -> Unit = {

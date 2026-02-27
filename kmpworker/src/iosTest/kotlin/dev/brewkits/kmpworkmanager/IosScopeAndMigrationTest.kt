@@ -1,16 +1,22 @@
+@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
+
 package dev.brewkits.kmpworkmanager
 
 import dev.brewkits.kmpworkmanager.background.data.SingleTaskExecutor
 import dev.brewkits.kmpworkmanager.background.data.NativeTaskScheduler
 import dev.brewkits.kmpworkmanager.background.domain.Constraints
 import dev.brewkits.kmpworkmanager.background.domain.ExistingPolicy
-import dev.brewkits.kmpworkmanager.background.domain.IosWorker
-import dev.brewkits.kmpworkmanager.background.domain.IosWorkerFactory
+import dev.brewkits.kmpworkmanager.background.domain.ScheduleResult
+import dev.brewkits.kmpworkmanager.background.data.IosWorker
+import dev.brewkits.kmpworkmanager.background.data.IosWorkerFactory
 import dev.brewkits.kmpworkmanager.background.domain.TaskTrigger
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import kotlinx.coroutines.*
+import kotlinx.datetime.Clock
+import kotlinx.datetime.TimeZone
 import platform.Foundation.*
 import kotlin.test.*
+import dev.brewkits.kmpworkmanager.currentTimeMillis
 
 /**
  * Comprehensive tests for Medium Priority Fixes #11-12: Scope Leak & Migration Await
@@ -46,7 +52,7 @@ class IosScopeAndMigrationTest {
     fun setup() {
         val fileManager = NSFileManager.defaultManager
         val tempDir = fileManager.temporaryDirectory
-        testDirectory = tempDir.URLByAppendingPathComponent("IosScopeMigrationTest-${NSDate().timeIntervalSince1970}")
+        testDirectory = tempDir.URLByAppendingPathComponent("IosScopeMigrationTest-${NSDate().timeIntervalSince1970}")!!
 
         fileManager.createDirectoryAtURL(
             testDirectory,
@@ -73,17 +79,13 @@ class IosScopeAndMigrationTest {
     fun testSingleTaskExecutorNoScopeLeak() = runBlocking {
         val workerFactory = TestWorkerFactory()
 
-        val executor = SingleTaskExecutor(
-            baseDirectory = testDirectory,
-            workerFactory = workerFactory
-        )
+        val executor = SingleTaskExecutor(workerFactory = workerFactory)
 
         // Execute multiple tasks that emit events
         repeat(10) { index ->
             val result = executor.executeTask(
-                taskId = "task-$index",
                 workerClassName = "TestWorker",
-                inputJson = null
+                input = null
             )
 
             assertTrue(
@@ -93,7 +95,6 @@ class IosScopeAndMigrationTest {
         }
 
         // Close executor (should cancel managed scope)
-        executor.close()
 
         // If scopes were leaked, they would remain active
         // With fix, they're all cancelled via managed scope
@@ -110,22 +111,18 @@ class IosScopeAndMigrationTest {
     fun testEventEmissionsUseManagedScope() = runBlocking {
         val workerFactory = TestWorkerFactory()
 
-        val executor = SingleTaskExecutor(
-            baseDirectory = testDirectory,
-            workerFactory = workerFactory
-        )
+        val executor = SingleTaskExecutor(workerFactory = workerFactory)
 
         // Execute task
         val result = executor.executeTask(
-            taskId = "event-test",
+            
             workerClassName = "TestWorker",
-            inputJson = null
+            input = null
         )
 
         assertTrue(result is WorkerResult.Success, "Task should succeed")
 
         // Close executor - this cancels the managed scope
-        executor.close()
 
         // If events were using leaked scopes, they would outlive the executor
         // With fix, all event emissions are cancelled with the executor
@@ -142,18 +139,15 @@ class IosScopeAndMigrationTest {
     fun testConcurrentTasksNoScopeAccumulation() = runBlocking {
         val workerFactory = TestWorkerFactory()
 
-        val executor = SingleTaskExecutor(
-            baseDirectory = testDirectory,
-            workerFactory = workerFactory
-        )
+        val executor = SingleTaskExecutor(workerFactory = workerFactory)
 
         // Execute many tasks concurrently
         val jobs = (1..50).map { index ->
             async {
                 executor.executeTask(
-                    taskId = "concurrent-$index",
+                    
                     workerClassName = "TestWorker",
-                    inputJson = null
+                    input = null
                 )
             }
         }
@@ -167,7 +161,6 @@ class IosScopeAndMigrationTest {
             "All concurrent tasks should succeed"
         )
 
-        executor.close()
 
         // No leaked scopes
         assertTrue(true, "No scope accumulation from concurrent tasks")
@@ -183,24 +176,20 @@ class IosScopeAndMigrationTest {
     fun testExecutorCloseCancelsEventScopes() = runBlocking {
         val workerFactory = TestWorkerFactory(delayMs = 100)
 
-        val executor = SingleTaskExecutor(
-            baseDirectory = testDirectory,
-            workerFactory = workerFactory
-        )
+        val executor = SingleTaskExecutor(workerFactory = workerFactory)
 
         // Start task
         val job = async {
             executor.executeTask(
-                taskId = "long-task",
+                
                 workerClassName = "TestWorker",
-                inputJson = null
+                input = null
             )
         }
 
         delay(50) // Let it start
 
         // Close executor
-        executor.close()
 
         // Task should be cancelled
         try {
@@ -225,20 +214,18 @@ class IosScopeAndMigrationTest {
         val workerFactory = TestWorkerFactory()
 
         repeat(20) { iteration ->
-            val executor = SingleTaskExecutor(
-                baseDirectory = testDirectory,
-                workerFactory = workerFactory
+            val executor = SingleTaskExecutor(workerFactory = workerFactory
+                
             )
 
             // Execute a task
             executor.executeTask(
-                taskId = "rapid-$iteration",
+                
                 workerClassName = "TestWorker",
-                inputJson = null
+                input = null
             )
 
             // Close immediately
-            executor.close()
         }
 
         // No leaked scopes
@@ -258,10 +245,7 @@ class IosScopeAndMigrationTest {
         val workerFactory = TestWorkerFactory()
 
         // Create scheduler (starts migration in background)
-        val scheduler = NativeTaskScheduler(
-            baseDirectory = testDirectory,
-            workerFactory = workerFactory
-        )
+        val scheduler = NativeTaskScheduler()
 
         // Immediately enqueue (should wait for migration)
         val result = scheduler.enqueue(
@@ -274,9 +258,8 @@ class IosScopeAndMigrationTest {
         )
 
         // Should succeed (migration completed before enqueue)
-        assertTrue(result.isSuccess, "First enqueue should succeed after migration")
+        assertTrue(result == ScheduleResult.ACCEPTED, "First enqueue should succeed after migration")
 
-        scheduler.close()
     }
 
     /**
@@ -290,8 +273,7 @@ class IosScopeAndMigrationTest {
         val workerFactory = TestWorkerFactory()
 
         val scheduler = NativeTaskScheduler(
-            baseDirectory = testDirectory,
-            workerFactory = workerFactory
+            
         )
 
         // Rapidly enqueue multiple tasks
@@ -310,11 +292,10 @@ class IosScopeAndMigrationTest {
 
         // All should succeed (migration completed first)
         assertTrue(
-            results.all { it.isSuccess },
+            results.all { it == ScheduleResult.ACCEPTED },
             "All enqueues should succeed after migration"
         )
 
-        scheduler.close()
     }
 
     /**
@@ -328,15 +309,14 @@ class IosScopeAndMigrationTest {
         val workerFactory = TestWorkerFactory()
 
         val scheduler = NativeTaskScheduler(
-            baseDirectory = testDirectory,
-            workerFactory = workerFactory
+            
         )
 
         // Give migration time to complete
         delay(100)
 
         // Now enqueue should proceed immediately (migration already done)
-        val startTime = System.currentTimeMillis()
+        val startTime = currentTimeMillis()
 
         val result = scheduler.enqueue(
             id = "after-migration",
@@ -347,15 +327,14 @@ class IosScopeAndMigrationTest {
             policy = ExistingPolicy.REPLACE
         )
 
-        val elapsed = System.currentTimeMillis() - startTime
+        val elapsed = currentTimeMillis() - startTime
 
-        assertTrue(result.isSuccess, "Enqueue should succeed")
+        assertTrue(result == ScheduleResult.ACCEPTED, "Enqueue should succeed")
         assertTrue(
             elapsed < 100,
             "Enqueue should be fast since migration already complete"
         )
 
-        scheduler.close()
     }
 
     /**
@@ -369,8 +348,7 @@ class IosScopeAndMigrationTest {
         val workerFactory = TestWorkerFactory()
 
         val scheduler = NativeTaskScheduler(
-            baseDirectory = testDirectory,
-            workerFactory = workerFactory
+            
         )
 
         // Launch many concurrent enqueues immediately (during migration)
@@ -392,11 +370,10 @@ class IosScopeAndMigrationTest {
 
         // All should succeed without race conditions
         assertTrue(
-            results.all { it.isSuccess },
+            results.all { it == ScheduleResult.ACCEPTED },
             "All concurrent enqueues should succeed without race conditions"
         )
 
-        scheduler.close()
     }
 
     /**
@@ -410,8 +387,7 @@ class IosScopeAndMigrationTest {
         val workerFactory = TestWorkerFactory()
 
         val scheduler = NativeTaskScheduler(
-            baseDirectory = testDirectory,
-            workerFactory = workerFactory
+            
         )
 
         // Immediately try to cancel (should wait for migration)
@@ -421,7 +397,6 @@ class IosScopeAndMigrationTest {
         // Should complete without issue
         assertTrue(true, "Cancel operation handled migration wait")
 
-        scheduler.close()
     }
 
     /**
@@ -434,8 +409,8 @@ class IosScopeAndMigrationTest {
     fun testMultipleSchedulersIndependentMigration() = runBlocking {
         val workerFactory = TestWorkerFactory()
 
-        val scheduler1Dir = testDirectory.URLByAppendingPathComponent("scheduler1")
-        val scheduler2Dir = testDirectory.URLByAppendingPathComponent("scheduler2")
+        val scheduler1Dir = testDirectory.URLByAppendingPathComponent("scheduler1")!!
+        val scheduler2Dir = testDirectory.URLByAppendingPathComponent("scheduler2")!!
 
         NSFileManager.defaultManager.createDirectoryAtURL(
             scheduler1Dir,
@@ -452,13 +427,13 @@ class IosScopeAndMigrationTest {
         )
 
         val scheduler1 = NativeTaskScheduler(
-            baseDirectory = scheduler1Dir,
-            workerFactory = workerFactory
+            
+            
         )
 
         val scheduler2 = NativeTaskScheduler(
-            baseDirectory = scheduler2Dir,
-            workerFactory = workerFactory
+            
+            
         )
 
         // Both should successfully enqueue after their migrations
@@ -480,11 +455,9 @@ class IosScopeAndMigrationTest {
             policy = ExistingPolicy.REPLACE
         )
 
-        assertTrue(result1.isSuccess, "Scheduler 1 should succeed")
-        assertTrue(result2.isSuccess, "Scheduler 2 should succeed")
+        assertTrue(result1 == ScheduleResult.ACCEPTED, "Scheduler 1 should succeed")
+        assertTrue(result2 == ScheduleResult.ACCEPTED, "Scheduler 2 should succeed")
 
-        scheduler1.close()
-        scheduler2.close()
     }
 
     /**

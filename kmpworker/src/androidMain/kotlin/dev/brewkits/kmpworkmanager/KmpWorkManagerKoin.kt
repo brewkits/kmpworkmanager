@@ -218,6 +218,16 @@ object KmpWorkManager {
     fun isInitialized(): Boolean = KmpWorkManagerKoin.isInitialized()
 
     /**
+     * Get KmpWorkManager instance
+     *
+     * @return KmpWorkManagerInstance with access to backgroundTaskScheduler
+     * @throws IllegalStateException if not initialized
+     */
+    fun getInstance(): KmpWorkManagerInstance {
+        return KmpWorkManagerInstance(KmpWorkManagerKoin.getKoin())
+    }
+
+    /**
      * Shutdown KmpWorkManager and release all resources
      *
      * **Use Cases:**
@@ -237,4 +247,15 @@ object KmpWorkManager {
     fun shutdown() {
         KmpWorkManagerKoin.shutdown()
     }
+}
+
+/**
+ * KmpWorkManager instance providing access to scheduler and other services
+ */
+class KmpWorkManagerInstance internal constructor(private val koin: Koin) {
+    /**
+     * Background task scheduler for enqueuing and managing tasks
+     */
+    val backgroundTaskScheduler: BackgroundTaskScheduler
+        get() = koin.get()
 }

@@ -3,6 +3,7 @@ package dev.brewkits.kmpworkmanager
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import dev.brewkits.kmpworkmanager.background.domain.AndroidWorker
+import dev.brewkits.kmpworkmanager.background.domain.AndroidWorkerFactory
 import dev.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
 import dev.brewkits.kmpworkmanager.background.domain.Constraints
 import dev.brewkits.kmpworkmanager.background.domain.ExistingPolicy
@@ -44,11 +45,25 @@ class KoinIsolationTest {
     fun setup() {
         context = ApplicationProvider.getApplicationContext()
         stopKoin() // Clean slate
+        // Shutdown KmpWorkManager to allow reinitialization in tests
+        try {
+            KmpWorkManagerKoin.shutdown()
+        } catch (e: Exception) {
+            // Ignore if not initialized
+        }
+        // Reset Logger state for fresh test
+        Logger.setCustomLogger(null)
+        Logger.setMinLevel(Logger.Level.VERBOSE)
     }
 
     @After
     fun tearDown() {
         stopKoin() // Clean up after each test
+        try {
+            KmpWorkManagerKoin.shutdown()
+        } catch (e: Exception) {
+            // Ignore
+        }
     }
 
     /**
@@ -302,7 +317,7 @@ class KoinIsolationTest {
     // Test Helpers
     // ===========================
 
-    private class TestWorkerFactory : WorkerFactory {
+    private class TestWorkerFactory : AndroidWorkerFactory {
         override fun createWorker(workerClassName: String): AndroidWorker? {
             return when (workerClassName) {
                 "TestWorker" -> TestWorker()
@@ -311,7 +326,7 @@ class KoinIsolationTest {
         }
     }
 
-    private class HostWorkerFactory : WorkerFactory {
+    private class HostWorkerFactory : AndroidWorkerFactory {
         override fun createWorker(workerClassName: String): AndroidWorker? = null
     }
 
@@ -345,13 +360,17 @@ class KoinIsolationTest {
             throw NotImplementedError("Mock scheduler stub")
         }
 
-        override fun enqueueChain(
+        override suspend fun enqueueChain(
             chain: TaskChain,
             id: String?,
             policy: ExistingPolicy
         ) {
             // Stub implementation for Koin isolation testing - not called in tests
             throw NotImplementedError("Mock scheduler stub")
+        }
+
+        override fun flushPendingProgress() {
+            // Stub implementation for Koin isolation testing - not called in tests
         }
     }
 }

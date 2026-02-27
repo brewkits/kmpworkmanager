@@ -1,6 +1,7 @@
 package dev.brewkits.kmpworkmanager
 
 import dev.brewkits.kmpworkmanager.background.domain.*
+import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -85,9 +86,13 @@ class TaskChainTest {
             return TaskChain(this, tasks)
         }
 
-        override fun enqueueChain(chain: TaskChain, id: String?, policy: ExistingPolicy) {
+        override suspend fun enqueueChain(chain: TaskChain, id: String?, policy: ExistingPolicy) {
             enqueuedChain = chain
             enqueueCalled = true
+        }
+
+        override fun flushPendingProgress() {
+            // No-op for testing
         }
     }
 
@@ -200,7 +205,7 @@ class TaskChainTest {
     }
 
     @Test
-    fun `TaskChain enqueue should call scheduler enqueueChain`() {
+    fun `TaskChain enqueue should call scheduler enqueueChain`() = runBlocking {
         val scheduler = MockScheduler()
         val chain = scheduler.beginWith(TaskRequest("Worker1"))
             .then(TaskRequest("Worker2"))

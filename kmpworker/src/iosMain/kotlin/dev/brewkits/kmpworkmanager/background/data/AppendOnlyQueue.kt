@@ -7,6 +7,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancel
 import platform.Foundation.*
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.utils.LogTags
@@ -596,7 +597,7 @@ internal class AppendOnlyQueue(
                 compactQueue()
                 Logger.i(LogTags.CHAIN, "Background compaction completed successfully")
             } catch (e: Exception) {
-                Logger.e(LogTags.CHAIN, "Background compaction failed: ${e.message}")
+                Logger.e(LogTags.CHAIN, "Background compaction failed: ${e.message}", e)
             } finally {
                 // Reset flag under mutex protection
                 compactionMutex.withLock {
@@ -620,6 +621,13 @@ internal class AppendOnlyQueue(
      */
     private suspend fun compactQueue() {
         queueMutex.withLock {
+            // Safety check: Verify base directory still exists before proceeding
+            val basePath = baseDirectoryURL.path
+            if (basePath == null || !fileManager.fileExistsAtPath(basePath)) {
+                Logger.w(LogTags.CHAIN, "Base directory no longer exists - skipping compaction")
+                return@withLock
+            }
+
             coordinated(queueFileURL, write = true) {
                 Logger.i(LogTags.CHAIN, "Starting queue compaction...")
 
@@ -1160,6 +1168,21 @@ internal class AppendOnlyQueue(
             coordinated(queueFileURL, write = true) {
                 resetQueueInternal()
             }
+        }
+    }
+
+    /**
+     * Shutdown the queue and cancel all background operations
+     * Call this before disposing the queue (e.g., in tests)
+     * v2.3.4+
+     */
+    fun shutdown() {
+        try {
+            // Cancel all background compaction operations
+            compactionScope.cancel()
+            Logger.d(LogTags.QUEUE, "Queue shutdown - background operations cancelled")
+        } catch (e: Exception) {
+            Logger.w(LogTags.QUEUE, "Error during queue shutdown", e)
         }
     }
 

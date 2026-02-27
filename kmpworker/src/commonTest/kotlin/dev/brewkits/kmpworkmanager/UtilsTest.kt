@@ -47,13 +47,14 @@ class TaskIdsTest {
     }
 }
 
-class LoggerTest {
+class LoggerEnumTest {
 
     @Test
     fun `Logger Level enum should have all levels`() {
         val levels = Logger.Level.entries.toList()
 
-        assertEquals(4, levels.size)
+        assertEquals(5, levels.size)
+        kotlin.test.assertTrue(levels.contains(Logger.Level.VERBOSE))
         kotlin.test.assertTrue(levels.contains(Logger.Level.DEBUG_LEVEL))
         kotlin.test.assertTrue(levels.contains(Logger.Level.INFO))
         kotlin.test.assertTrue(levels.contains(Logger.Level.WARN))
@@ -85,10 +86,11 @@ class LoggerTest {
 
     @Test
     fun `Logger Level should have correct ordinals`() {
-        assertEquals(0, Logger.Level.DEBUG_LEVEL.ordinal)
-        assertEquals(1, Logger.Level.INFO.ordinal)
-        assertEquals(2, Logger.Level.WARN.ordinal)
-        assertEquals(3, Logger.Level.ERROR.ordinal)
+        assertEquals(0, Logger.Level.VERBOSE.ordinal)
+        assertEquals(1, Logger.Level.DEBUG_LEVEL.ordinal)
+        assertEquals(2, Logger.Level.INFO.ordinal)
+        assertEquals(3, Logger.Level.WARN.ordinal)
+        assertEquals(4, Logger.Level.ERROR.ordinal)
     }
 }
 

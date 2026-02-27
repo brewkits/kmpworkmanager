@@ -1,6 +1,9 @@
 package dev.brewkits.kmpworkmanager.background.data
 
+import kotlinx.datetime.Clock
+import kotlinx.datetime.TimeZone
 import kotlin.test.*
+import dev.brewkits.kmpworkmanager.currentTimeMillis
 
 /**
  * Unit and stress tests for Queue Persisted Index (Task #7)
@@ -166,14 +169,14 @@ class QueueIndexTest {
         }
 
         // Measure save performance
-        val saveStart = System.currentTimeMillis()
+        val saveStart = currentTimeMillis()
         index.saveIndex(offsets)
-        val saveDuration = System.currentTimeMillis() - saveStart
+        val saveDuration = currentTimeMillis() - saveStart
 
         // Measure load performance
-        val loadStart = System.currentTimeMillis()
+        val loadStart = currentTimeMillis()
         val loaded = index.loadIndex()
-        val loadDuration = System.currentTimeMillis() - loadStart
+        val loadDuration = currentTimeMillis() - loadStart
 
         assertEquals(10_000, loaded.size, "Should load all 10,000 entries")
 
@@ -199,13 +202,13 @@ class QueueIndexTest {
             (i * 100).toULong()
         }
 
-        val saveStart = System.currentTimeMillis()
+        val saveStart = currentTimeMillis()
         index.saveIndex(offsets)
-        val saveDuration = System.currentTimeMillis() - saveStart
+        val saveDuration = currentTimeMillis() - saveStart
 
-        val loadStart = System.currentTimeMillis()
+        val loadStart = currentTimeMillis()
         val loaded = index.loadIndex()
-        val loadDuration = System.currentTimeMillis() - loadStart
+        val loadDuration = currentTimeMillis() - loadStart
 
         assertEquals(100_000, loaded.size, "Should load all 100,000 entries")
 
@@ -233,17 +236,17 @@ class QueueIndexTest {
 
         // Indexed approach (O(1))
         index.saveIndex(offsets)
-        val indexedStart = System.currentTimeMillis()
+        val indexedStart = currentTimeMillis()
         index.loadIndex()
-        val indexedDuration = System.currentTimeMillis() - indexedStart
+        val indexedDuration = currentTimeMillis() - indexedStart
 
         // Simulate sequential scan (O(N))
-        val sequentialStart = System.currentTimeMillis()
+        val sequentialStart = currentTimeMillis()
         var lastOffset = 0UL
         repeat(itemCount) { i ->
             lastOffset += 100UL // Simulate reading line length
         }
-        val sequentialDuration = System.currentTimeMillis() - sequentialStart
+        val sequentialDuration = currentTimeMillis() - sequentialStart
 
         // Indexed should be significantly faster
         val speedup = sequentialDuration.toDouble() / indexedDuration.toDouble()
@@ -311,9 +314,9 @@ class QueueIndexTest {
         index.saveIndex(offsets)
 
         // Simulate app restart: load index
-        val loadStart = System.currentTimeMillis()
+        val loadStart = currentTimeMillis()
         val loaded = index.loadIndex()
-        val loadDuration = System.currentTimeMillis() - loadStart
+        val loadDuration = currentTimeMillis() - loadStart
 
         // Verify loaded correctly
         assertEquals(queueSize, loaded.size, "Should restore full queue state")
@@ -352,9 +355,9 @@ class QueueIndexTest {
 
             offsets = offsets + newOffsets
 
-            val saveStart = System.currentTimeMillis()
+            val saveStart = currentTimeMillis()
             index.saveIndex(offsets)
-            totalSaveTime += System.currentTimeMillis() - saveStart
+            totalSaveTime += currentTimeMillis() - saveStart
         }
 
         // Verify final state

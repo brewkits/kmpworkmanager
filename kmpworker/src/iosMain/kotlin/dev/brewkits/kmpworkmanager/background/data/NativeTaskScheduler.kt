@@ -616,7 +616,13 @@ actual class NativeTaskScheduler(
         return TaskChain(this, tasks)
     }
 
-    actual override fun enqueueChain(chain: TaskChain, id: String?, policy: ExistingPolicy) {
+    /**
+     * Enqueues a task chain for execution.
+     *
+     * v2.3.4: Now suspending to prevent deadlock risks.
+     * Removed runBlocking calls that could cause deadlocks under load.
+     */
+    actual override suspend fun enqueueChain(chain: TaskChain, id: String?, policy: ExistingPolicy) {
         val steps = chain.getSteps()
         if (steps.isEmpty()) {
             Logger.w(LogTags.CHAIN, "Attempted to enqueue empty chain, ignoring")
@@ -634,11 +640,9 @@ actual class NativeTaskScheduler(
                 }
                 ExistingPolicy.REPLACE -> {
                     Logger.i(LogTags.CHAIN, "Chain $chainId exists, REPLACE policy - using atomic replace...")
-                    // v2.2.2+ Use atomic transaction to fix TOCTOU race condition
+                    // v2.3.4: Proper suspend call (no runBlocking)
                     try {
-                        kotlinx.coroutines.runBlocking {
-                            fileStorage.replaceChainAtomic(chainId, steps)
-                        }
+                        fileStorage.replaceChainAtomic(chainId, steps)
                         Logger.i(LogTags.CHAIN, "✅ Chain $chainId replaced atomically")
                         return // Early return - atomic operation already enqueued
                     } catch (e: Exception) {
@@ -652,13 +656,11 @@ actual class NativeTaskScheduler(
         // 1. Save the chain definition
         fileStorage.saveChainDefinition(chainId, steps)
 
-        // 2. Add the chainId to the execution queue (synchronous for KEEP/APPEND)
-        // v2.2.2+ Changed from async to synchronous to prevent race conditions
+        // 2. Add the chainId to the execution queue
+        // v2.3.4: Proper suspend call (no runBlocking)
         try {
-            kotlinx.coroutines.runBlocking {
-                fileStorage.enqueueChain(chainId)
-                Logger.d(LogTags.CHAIN, "Added chain $chainId to execution queue. Queue size: ${fileStorage.getQueueSize()}")
-            }
+            fileStorage.enqueueChain(chainId)
+            Logger.d(LogTags.CHAIN, "Added chain $chainId to execution queue. Queue size: ${fileStorage.getQueueSize()}")
         } catch (e: Exception) {
             Logger.e(LogTags.CHAIN, "Failed to enqueue chain $chainId", e)
             throw e
@@ -707,5 +709,17 @@ actual class NativeTaskScheduler(
         fileStorage.cleanupStaleMetadata(olderThanDays = 0) // Clean all metadata immediately
 
         Logger.d(LogTags.SCHEDULER, "Cancelled all tasks and cleaned up metadata")
+    }
+
+    /**
+     * Flush all pending progress updates immediately.
+     * v2.3.4+ Implementation for iOS - delegates to IosFileStorage.
+     *
+     * This method ensures data durability before app suspension.
+     * Critical for iOS where apps can be suspended/terminated aggressively.
+     */
+    actual override fun flushPendingProgress() {
+        Logger.i(LogTags.SCHEDULER, "Flushing pending progress (iOS)")
+        fileStorage.flushAllPendingProgress()
     }
 }

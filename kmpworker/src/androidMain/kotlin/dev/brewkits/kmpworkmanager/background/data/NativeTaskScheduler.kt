@@ -60,7 +60,7 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
             }
 
             is TaskTrigger.Exact -> {
-                scheduleExactAlarm(id, actualTrigger, workerClassName, inputJson)
+                scheduleExactAlarm(id, actualTrigger, workerClassName, updatedConstraints, inputJson)
             }
 
             is TaskTrigger.Windowed -> {
@@ -244,6 +244,7 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
         id: String,
         trigger: TaskTrigger.Exact,
         workerClassName: String,
+        constraints: Constraints,
         inputJson: String?
     ): ScheduleResult {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
@@ -270,13 +271,13 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
                 }
             """.trimIndent())
 
-            // Fallback: Use WorkManager with delay
+            // Fallback: Use WorkManager with delay (preserve constraints)
             val delayMs = (trigger.atEpochMillis - System.currentTimeMillis()).coerceAtLeast(0)
             return scheduleOneTimeWork(
                 id = id,
                 trigger = TaskTrigger.OneTime(initialDelayMs = delayMs),
                 workerClassName = workerClassName,
-                constraints = Constraints(), // No constraints for fallback
+                constraints = constraints, // Preserve constraints from user
                 inputJson = inputJson,
                 policy = ExistingPolicy.REPLACE
             )
@@ -297,12 +298,12 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
                 Falling back to WorkManager...
             """.trimIndent())
 
-            // Fallback to WorkManager
+            // Fallback to WorkManager (preserve constraints)
             return scheduleOneTimeWork(
                 id = id,
                 trigger = TaskTrigger.OneTime(initialDelayMs = trigger.atEpochMillis),
                 workerClassName = workerClassName,
-                constraints = Constraints(),
+                constraints = constraints,
                 inputJson = inputJson,
                 policy = ExistingPolicy.REPLACE
             )
@@ -344,12 +345,12 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
         } catch (e: SecurityException) {
             Logger.e(LogTags.ALARM, "❌ SecurityException scheduling exact alarm", e)
 
-            // Final fallback to WorkManager
+            // Final fallback to WorkManager (preserve constraints)
             return scheduleOneTimeWork(
                 id = id,
                 trigger = TaskTrigger.OneTime(initialDelayMs = trigger.atEpochMillis),
                 workerClassName = workerClassName,
-                constraints = Constraints(),
+                constraints = constraints,
                 inputJson = inputJson,
                 policy = ExistingPolicy.REPLACE
             )
@@ -489,8 +490,17 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
                 .addTag("worker-$workerClassName")
                 .build()
         } else {
-            Logger.d(LogTags.SCHEDULER, "Creating EXPEDITED task for faster execution")
-            OneTimeWorkRequestBuilder<KmpWorker>()
+            // Expedited work restrictions (WorkManager):
+            // 1. Cannot have delay
+            // 2. Only supports network and storage constraints (no charging, battery, etc.)
+            val hasIncompatibleConstraints = constraints.requiresCharging ||
+                    constraints.systemConstraints.any { it != dev.brewkits.kmpworkmanager.background.domain.SystemConstraint.DEVICE_IDLE }
+
+            val shouldUseExpedited = initialDelayMs == 0L && !hasIncompatibleConstraints
+
+            Logger.d(LogTags.SCHEDULER, "Creating ${if (shouldUseExpedited) "EXPEDITED" else "REGULAR"} task (delay: ${initialDelayMs}ms, incompatibleConstraints: $hasIncompatibleConstraints)")
+
+            val builder = OneTimeWorkRequestBuilder<KmpWorker>()
                 .setInitialDelay(initialDelayMs, TimeUnit.MILLISECONDS)
                 .setConstraints(wmConstraints)
                 .setInputData(workData)
@@ -506,8 +516,13 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
                 .addTag("type-$taskType")
                 .addTag("id-$id")
                 .addTag("worker-$workerClassName")
-                .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-                .build()
+
+            // Only set expedited policy when compatible
+            if (shouldUseExpedited) {
+                builder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+            }
+
+            builder.build()
         }
     }
 
@@ -553,6 +568,24 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
         Logger.d(LogTags.SCHEDULER, "Cancelled all WorkManager tasks (alarms require individual cancellation)")
     }
 
+    /**
+     * Flush all pending progress updates immediately.
+     * v2.3.4+ Implementation for Android.
+     *
+     * **Note for Android:**
+     * WorkManager automatically persists progress updates via Room database.
+     * No explicit flush needed on Android - this is a no-op for API consistency.
+     *
+     * Progress is already durable on Android through:
+     * - Room database with WAL mode (write-ahead logging)
+     * - Automatic transaction management by WorkManager
+     * - Crash-safe persistence
+     */
+    actual override fun flushPendingProgress() {
+        // No-op on Android: WorkManager handles progress persistence automatically
+        Logger.v(LogTags.SCHEDULER, "flushPendingProgress called (no-op on Android - WorkManager auto-persists)")
+    }
+
     actual override fun beginWith(task: dev.brewkits.kmpworkmanager.background.domain.TaskRequest): dev.brewkits.kmpworkmanager.background.domain.TaskChain {
         return dev.brewkits.kmpworkmanager.background.domain.TaskChain(this, listOf(task))
     }
@@ -561,7 +594,13 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
         return dev.brewkits.kmpworkmanager.background.domain.TaskChain(this, tasks)
     }
 
-    actual override fun enqueueChain(
+    /**
+     * Enqueues a task chain for execution.
+     *
+     * v2.3.4: Now suspending for consistency with iOS implementation.
+     * Android WorkManager handles the async nature internally.
+     */
+    actual override suspend fun enqueueChain(
         chain: dev.brewkits.kmpworkmanager.background.domain.TaskChain,
         id: String?,
         policy: dev.brewkits.kmpworkmanager.background.domain.ExistingPolicy

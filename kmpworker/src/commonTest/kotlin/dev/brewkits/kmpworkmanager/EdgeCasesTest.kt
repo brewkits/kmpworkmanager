@@ -228,6 +228,10 @@ class EdgeCasesTest {
             return TaskChain(this, tasks)
         }
 
-        override fun enqueueChain(chain: TaskChain, id: String?, policy: ExistingPolicy) {}
+        override suspend fun enqueueChain(chain: TaskChain, id: String?, policy: ExistingPolicy) {}
+
+        override fun flushPendingProgress() {
+            // No-op for testing
+        }
     }
 }

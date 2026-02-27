@@ -4,10 +4,10 @@ package dev.brewkits.kmpworkmanager.background.domain
 import kotlinx.serialization.Serializable
 
 /**
- * Represents a single, non-periodic task to be executed as part of a chain.
+ * A single task that can be chained with other tasks.
  *
- * @property workerClassName A unique name identifying the actual work to be done.
- * @property inputJson Optional JSON string data to pass as input to the worker.
+ * @property workerClassName Name of the worker class to run
+ * @property inputJson Optional JSON data to pass to the worker
  */
 @Serializable
 data class TaskRequest(
@@ -86,9 +86,56 @@ class TaskChain internal constructor(
     /**
      * Enqueues the constructed task chain for execution.
      * The actual scheduling is delegated to the `BackgroundTaskScheduler`.
+     *
+     * **Breaking Change (v2.3.4):** This method is now suspending to prevent deadlock risks.
+     *
+     * Migration:
+     * ```kotlin
+     * // Before (v2.3.x):
+     * fun scheduleChain() {
+     *     val chain = scheduler.beginWith(task1).then(task2)
+     *     chain.enqueue()  // Blocking
+     * }
+     *
+     * // After (v2.3.4+):
+     * suspend fun scheduleChain() {
+     *     val chain = scheduler.beginWith(task1).then(task2)
+     *     chain.enqueue()  // Suspending
+     * }
+     *
+     * // Or wrap in coroutine:
+     * fun scheduleChain() {
+     *     CoroutineScope(Dispatchers.IO).launch {
+     *         val chain = scheduler.beginWith(task1).then(task2)
+     *         chain.enqueue()
+     *     }
+     * }
+     * ```
+     *
+     * @since 2.3.4 Now suspending to prevent deadlock risks
      */
-    fun enqueue() {
+    suspend fun enqueue() {
         scheduler.enqueueChain(this, chainId, existingPolicy)
+    }
+
+    /**
+     * Enqueues the constructed task chain for execution (blocking version).
+     *
+     * **DEPRECATED:** Use suspending `enqueue()` instead.
+     * This blocking version is provided for backward compatibility only
+     * and will be removed in v3.0.0.
+     *
+     * @deprecated Use suspending enqueue() to avoid blocking and potential deadlocks
+     */
+    @Deprecated(
+        message = "Use suspending enqueue() instead to avoid blocking and potential deadlocks",
+        replaceWith = ReplaceWith("enqueue()"),
+        level = DeprecationLevel.WARNING
+    )
+    fun enqueueBlocking() {
+        kotlinx.coroutines.runBlocking {
+            scheduler.enqueueChain(this@TaskChain, chainId, existingPolicy)
+        }
     }
 
     /**

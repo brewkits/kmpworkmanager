@@ -7,6 +7,7 @@ import dev.brewkits.kmpworkmanager.background.domain.TaskChain
 import dev.brewkits.kmpworkmanager.background.domain.TaskRequest
 import dev.brewkits.kmpworkmanager.background.domain.TaskTrigger
 import dev.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
+import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -130,7 +131,7 @@ class V233BugFixesTest {
     }
 
     @Test
-    fun `Fix2 - Chain with mixed heavy and regular tasks preserves all constraints`() {
+    fun `Fix2 - Chain with mixed heavy and regular tasks preserves all constraints`() = runBlocking {
         val scheduler = CapturingMockScheduler()
 
         val chain = scheduler
@@ -284,8 +285,12 @@ class V233BugFixesTest {
         override fun beginWith(task: TaskRequest) = TaskChain(this, listOf(task))
         override fun beginWith(tasks: List<TaskRequest>) = TaskChain(this, tasks)
 
-        override fun enqueueChain(chain: TaskChain, id: String?, policy: ExistingPolicy) {
+        override suspend fun enqueueChain(chain: TaskChain, id: String?, policy: ExistingPolicy) {
             capturedChain = chain
+        }
+
+        override fun flushPendingProgress() {
+            // No-op for testing
         }
     }
 }
