@@ -144,30 +144,52 @@ class MyApplication : Application() {
 </details>
 
 <details>
-<summary><b>iOS</b> — Register task handlers in App init</summary>
+<summary><b>iOS</b> — Initialize Koin and register background tasks</summary>
 
-```swift
-import KMPWorkManager
+**Step 1: Create Worker Factory**
 
-@main
-struct MyApp: App {
-    init() {
-        KmpWorkManager.shared.initialize(
-            config: KmpWorkManagerConfig(
-                logLevel: .info
-            )
-        )
-    }
-
-    var body: some Scene {
-        WindowGroup {
-            ContentView()
+```kotlin
+// iosMain/MyWorkerFactory.kt
+class MyWorkerFactory : IosWorkerFactory {
+    override fun createWorker(workerClassName: String): IosWorker? {
+        return when (workerClassName) {
+            "DataSyncWorker" -> DataSyncWorkerIos()
+            else -> null
         }
     }
 }
 ```
 
-Add to `Info.plist`:
+**Step 2: Initialize in AppDelegate**
+
+```swift
+// iOSApp.swift
+import ComposeApp  // Your shared framework name
+
+@main
+class AppDelegate: UIResponder, UIApplicationDelegate {
+    override init() {
+        super.init()
+
+        // Initialize Koin with worker factory
+        KoinInitializerKt.doInitKoin(platformModule: IOSModuleKt.iosModule)
+    }
+
+    func application(_ application: UIApplication,
+                     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        // Register background task handlers
+        registerBackgroundTasks()
+        return true
+    }
+
+    private func registerBackgroundTasks() {
+        // See platform-setup.md for full implementation
+    }
+}
+```
+
+**Step 3: Add to `Info.plist`**
+
 ```xml
 <key>BGTaskSchedulerPermittedIdentifiers</key>
 <array>

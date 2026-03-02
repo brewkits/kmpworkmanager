@@ -377,14 +377,51 @@ Open your Xcode project and verify:
 
 ---
 
-### 3. AppDelegate Setup
+### 3. Create Worker Factory (Required)
+
+Before initializing, you must create a worker factory:
+
+```kotlin
+// iosMain/background/MyWorkerFactory.kt
+class MyWorkerFactory : IosWorkerFactory {
+    override fun createWorker(workerClassName: String): IosWorker? {
+        return when (workerClassName) {
+            "SyncWorker" -> SyncWorker()
+            "UploadWorker" -> UploadWorker()
+            "HeavyProcessingWorker" -> HeavyProcessingWorker()
+            else -> {
+                Logger.e(LogTags.FACTORY, "Unknown worker: $workerClassName")
+                null
+            }
+        }
+    }
+}
+```
+
+Register factory in your iOS module:
+
+```kotlin
+// iosMain/di/IOSModule.kt
+val iosModule = module {
+    // Register your worker factory
+    factory { MyWorkerFactory() }
+
+    // Other iOS-specific dependencies
+    single<BackgroundTaskScheduler> { NativeTaskScheduler() }
+    // ...
+}
+```
+
+---
+
+### 4. AppDelegate Setup
 
 Create or update `iOSApp.swift`:
 
 ```swift
 import SwiftUI
 import BackgroundTasks
-import composeApp
+import composeApp  // Your shared framework name
 
 @main
 struct iOSApp: App {
@@ -405,8 +442,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
 
-        // Initialize Koin
-        KoinIOSKt.doInitKoinIos()
+        // Initialize Koin with your platform module
+        // This module should include your WorkerFactory
+        KoinInitializerKt.doInitKoin(platformModule: IOSModuleKt.iosModule)
 
         // Register background tasks
         registerBackgroundTasks()
@@ -502,7 +540,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
 ---
 
-### 4. Worker Implementation
+### 5. Worker Implementation
 
 Create worker classes in `iosMain/background/workers/`:
 
@@ -530,27 +568,11 @@ class SyncWorker : IosWorker {
 }
 ```
 
-Register in `IosWorkerFactory.kt`:
-
-```kotlin
-object IosWorkerFactory {
-    fun createWorker(className: String): IosWorker? {
-        return when (className) {
-            "SyncWorker" -> SyncWorker()
-            "UploadWorker" -> UploadWorker()
-            "HeavyProcessingWorker" -> HeavyProcessingWorker()
-            else -> {
-                Logger.e(LogTags.FACTORY, "Unknown worker: $className")
-                null
-            }
-        }
-    }
-}
-```
+**Important:** Workers must be registered in your `MyWorkerFactory` (see Step 3 above).
 
 ---
 
-### 5. iOS-Specific Features
+### 6. iOS-Specific Features
 
 #### BGAppRefreshTask vs BGProcessingTask
 
