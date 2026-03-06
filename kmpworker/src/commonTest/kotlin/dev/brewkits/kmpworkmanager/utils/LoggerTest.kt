@@ -35,11 +35,14 @@ class LoggerTest {
 
     @Test
     fun testDefaultBehavior() {
+        // Use testLogger to avoid platform-specific logging (android.util.Log not available in JVM unit tests)
+        Logger.setCustomLogger(testLogger)
         // Should not throw exception
         Logger.d("TEST", "Debug message")
         Logger.i("TEST", "Info message")
         Logger.w("TEST", "Warning message")
         Logger.e("TEST", "Error message")
+        assertEquals(4, capturedLogs.size)
     }
 
     @Test
@@ -142,9 +145,13 @@ class LoggerTest {
         Logger.i("TEST", "First message")
         assertEquals(1, capturedLogs.size)
 
-        // Clear custom logger
-        Logger.setCustomLogger(null)
-        Logger.i("TEST", "Second message - should not be captured")
+        // Switch to a separate no-op logger — verifies testLogger is no longer receiving logs
+        // (Setting to null would call android.util.Log which is not mocked in JVM unit tests)
+        val noopLogger = object : CustomLogger {
+            override fun log(level: Logger.Level, tag: String, message: String, throwable: Throwable?) {}
+        }
+        Logger.setCustomLogger(noopLogger)
+        Logger.i("TEST", "Second message - should not be captured in testLogger")
 
         // Still only 1 from before
         assertEquals(1, capturedLogs.size)

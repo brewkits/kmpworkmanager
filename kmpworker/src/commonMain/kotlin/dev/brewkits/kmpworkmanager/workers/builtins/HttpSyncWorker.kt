@@ -29,7 +29,7 @@ import kotlinx.serialization.json.Json
  * **Startup Time:** <50ms
  * **Default Timeout:** 60 seconds
  *
- * **Performance Optimization (v2.3.4+):**
+ * **Performance Optimization (v2.3.5+):**
  * - Uses singleton HttpClient for connection pool reuse
  * - 60-86% faster than previous version
  *

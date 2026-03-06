@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.5] - 2026-03-06
+
+### Fixed
+
+**Android: AndroidWorkerDiagnostics wrong WorkManager tag**
+- `getWorkInfosByTag()` was querying `"kmp-worker"` instead of `"KMP_TASK"`
+- All tasks are tagged `TAG_KMP_TASK = "KMP_TASK"` by `NativeTaskScheduler`
+- Previously caused diagnostics API to always return empty task lists on Android
+
+**iOS: IosEventStore silent write failure**
+- `NSString.writeToURL(error = null)` silently swallowed disk-full and permission errors
+- Now captures `NSError` and propagates as `IllegalStateException`
+- Also fixed `IosEventStore` using raw `NSFileCoordinator` directly — now delegates to
+  `IosFileCoordinator.coordinate()` which handles test environment detection correctly
+
+**EventStore: clearOldEvents parameter semantics (KDoc)**
+- Parameter `olderThanMs` was incorrectly documented as "Timestamp in milliseconds"
+- Corrected to "Maximum age in milliseconds" — it is a duration delta, not an absolute timestamp
+
+**SharedFlow: TaskEventBus / TaskProgressBus event drops**
+- `tryEmit()` silently drops events when the buffer is full (capacity 64 / 32)
+- Replaced with `emit()` which suspends the caller until buffer space is available — no silent drops
+
+**Logger: JVM unit test stability**
+- `Logger` was calling the platform logger (`android.util.Log`) in JVM unit tests
+- Fixed by using a test-safe custom logger; tests no longer require Android SDK mocks
+
+### Changed
+
+- All internal code comments cleaned up — removed informal fix markers, corrected version references
+- Version bumped from 2.3.3 to 2.3.5
+
+### Tests
+
+- `V235BugFixesTest.kt` (10 tests) — regression coverage for all v2.3.5 fixes
+- `IosEventStoreTest.kt` (15 tests) — iOS-specific EventStore coverage
+- Total: 534 iOS simulator tests, 296 Android unit tests — all passing
+
 ## [2.3.3] - 2026-02-17
 
 ### Fixed

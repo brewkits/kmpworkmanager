@@ -48,7 +48,7 @@ interface BackgroundTaskScheduler {
      * Enqueues a constructed [TaskChain] for execution.
      * This method is intended to be called from `TaskChain.enqueue()`.
      *
-     * **Breaking Change (v2.3.4):** This method is now suspending to prevent deadlock risks.
+     * **Breaking Change (v2.3.5):** This method is now suspending to prevent deadlock risks.
      * Previously used `runBlocking` which could cause deadlocks under load.
      *
      * Migration:
@@ -57,7 +57,7 @@ interface BackgroundTaskScheduler {
      * val chain = scheduler.beginWith(task).then(task2)
      * chain.enqueue()  // Blocking call
      *
-     * // After (v2.3.4+):
+     * // After (v2.3.5+):
      * val chain = scheduler.beginWith(task).then(task2)
      * chain.enqueue()  // Now suspending - call from coroutine
      * ```
@@ -65,7 +65,7 @@ interface BackgroundTaskScheduler {
      * @param chain The task chain to enqueue
      * @param id Unique identifier for the chain (optional, auto-generated if not provided)
      * @param policy How to handle if a chain with the same ID already exists
-     * @since 2.3.4 Now suspending to prevent deadlock risks
+     * @since 2.3.5 Now suspending to prevent deadlock risks
      */
     suspend fun enqueueChain(
         chain: TaskChain,
@@ -75,7 +75,7 @@ interface BackgroundTaskScheduler {
 
     /**
      * Flush all pending progress updates to disk immediately.
-     * Added in v2.3.4 to prevent data loss when your app goes to the background.
+     * Added in v2.3.5 to prevent data loss when your app goes to the background.
      *
      * **When to use:**
      * - iOS: Call from `applicationWillResignActive` in AppDelegate

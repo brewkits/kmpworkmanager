@@ -1,5 +1,7 @@
 package dev.brewkits.kmpworkmanager.utils
 
+import kotlin.concurrent.Volatile
+
 /**
  * Professional logging utility for KMP WorkManager.
  * Provides structured logging with levels, tags, and platform-specific formatting.
@@ -19,12 +21,12 @@ object Logger {
      * Minimum log level to output. Logs below this level are filtered out.
      * Default: VERBOSE (log everything) for backward compatibility.
      */
-    private var minLevel: Level = Level.VERBOSE
+    @Volatile private var minLevel: Level = Level.VERBOSE
 
     /**
      * Custom logger implementation. If set, delegates all logging to this instance.
      */
-    private var customLogger: CustomLogger? = null
+    @Volatile private var customLogger: CustomLogger? = null
 
     /**
      * Set the minimum log level. Logs below this level will be filtered out.
@@ -36,7 +38,6 @@ object Logger {
      */
     fun setMinLevel(level: Level) {
         minLevel = level
-        i(LogTags.TAG_DEBUG, "Logger minimum level set to: $level")
     }
 
     /**
@@ -53,9 +54,6 @@ object Logger {
      */
     fun setCustomLogger(logger: CustomLogger?) {
         customLogger = logger
-        logger?.let {
-            i(LogTags.TAG_DEBUG, "Custom logger set: ${logger::class.simpleName}")
-        }
     }
 
     /**

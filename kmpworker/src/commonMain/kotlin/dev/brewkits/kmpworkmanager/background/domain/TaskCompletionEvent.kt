@@ -37,6 +37,7 @@ object TaskEventBus {
     val events: SharedFlow<TaskCompletionEvent> = _events.asSharedFlow()
 
     suspend fun emit(event: TaskCompletionEvent) {
-        _events.tryEmit(event)
+        // emit() suspends when the buffer (extraBufferCapacity=64) is full — no silent drops
+        _events.emit(event)
     }
 }

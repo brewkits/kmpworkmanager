@@ -56,7 +56,8 @@ interface EventStore {
     /**
      * Removes events older than the specified time.
      *
-     * @param olderThanMs Timestamp in milliseconds (events older than this are deleted)
+     * @param olderThanMs Maximum age in milliseconds — events older than this duration are deleted
+     *   (e.g., pass 86_400_000 to delete events older than 24 hours)
      * @return Number of events deleted
      */
     suspend fun clearOldEvents(olderThanMs: Long): Int

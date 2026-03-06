@@ -34,11 +34,13 @@ class ExistingPolicyTest {
             error = null
         )
 
-        fileStorage = IosFileStorage()
+        fileStorage = IosFileStorage(baseDirectory = testDirectoryURL)
     }
 
     @AfterTest
-    fun tearDown() {
+    fun tearDown() = kotlinx.coroutines.test.runTest {
+        // Cancel background scope before removing directory to avoid race conditions
+        fileStorage.close()
         // Clean up test directory
         val fileManager = NSFileManager.defaultManager
         fileManager.removeItemAtURL(testDirectoryURL, error = null)

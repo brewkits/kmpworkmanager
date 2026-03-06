@@ -87,7 +87,7 @@ class TaskChain internal constructor(
      * Enqueues the constructed task chain for execution.
      * The actual scheduling is delegated to the `BackgroundTaskScheduler`.
      *
-     * **Breaking Change (v2.3.4):** This method is now suspending to prevent deadlock risks.
+     * **Breaking Change (v2.3.5):** This method is now suspending to prevent deadlock risks.
      *
      * Migration:
      * ```kotlin
@@ -97,7 +97,7 @@ class TaskChain internal constructor(
      *     chain.enqueue()  // Blocking
      * }
      *
-     * // After (v2.3.4+):
+     * // After (v2.3.5+):
      * suspend fun scheduleChain() {
      *     val chain = scheduler.beginWith(task1).then(task2)
      *     chain.enqueue()  // Suspending

@@ -7,6 +7,7 @@ import dev.brewkits.kmpworkmanager.background.domain.TaskRequest
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.utils.LogTags
+import kotlin.concurrent.AtomicInt
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -48,7 +49,9 @@ class ChainExecutor(
     private val onContinuationNeeded: (() -> Unit)? = null
 ) : Closeable {
 
-    private var isClosed = false
+    // AtomicInt for lock-free isClosed check in synchronous close().
+    // compareAndSet(0, 1) ensures only one caller wins the race, avoiding double-flush.
+    private val closedFlag = AtomicInt(0)
     private val closeMutex = Mutex()
 
     private val fileStorage = IosFileStorage()
@@ -315,8 +318,7 @@ class ChainExecutor(
         try {
             withTimeout(conservativeTimeout) {
                 repeat(maxChains) { iteration ->
-                    // v2.3.4+ Performance optimization: Check shutdown less frequently
-                    // Check every 5 iterations instead of every iteration (80% fewer lock acquisitions)
+                    // Check shutdown every 5 iterations instead of every iteration (80% fewer lock acquisitions)
                     // Shutdown is a rare event, so this optimization is safe
                     if (iteration % 5 == 0) {
                         val shouldStop = shutdownMutex.withLock { isShuttingDown }
@@ -880,12 +882,12 @@ class ChainExecutor(
      * asynchronously. For guaranteed cleanup, use closeAsync() instead.
      */
     override fun close() {
-        if (isClosed) {
+        // compareAndSet is atomic → only one concurrent caller wins
+        if (!closedFlag.compareAndSet(0, 1)) {
             Logger.d(LogTags.CHAIN, "ChainExecutor already closed")
             return
         }
 
-        isClosed = true
         Logger.d(LogTags.CHAIN, "Closing ChainExecutor")
 
         // Cancel all running coroutines first (non-blocking)
@@ -900,6 +902,9 @@ class ChainExecutor(
                 Logger.d(LogTags.CHAIN, "Progress buffer flushed during close")
             } catch (e: Exception) {
                 Logger.e(LogTags.CHAIN, "Error flushing progress during close", e)
+            } finally {
+                // Close fileStorage to cancel its backgroundScope
+                fileStorage.close()
             }
             Logger.i(LogTags.CHAIN, "ChainExecutor closed successfully")
         }
@@ -913,20 +918,24 @@ class ChainExecutor(
      */
     suspend fun closeAsync() {
         closeMutex.withLock {
-            if (isClosed) {
+            if (!closedFlag.compareAndSet(0, 1)) {
                 Logger.d(LogTags.CHAIN, "ChainExecutor already closed")
                 return
             }
 
-            isClosed = true
             Logger.d(LogTags.CHAIN, "Closing ChainExecutor (async)")
 
             // Cancel all running coroutines
             job.cancel()
 
-            // Flush buffered progress before closing
-            fileStorage.flushNow()
-            Logger.d(LogTags.CHAIN, "Progress buffer flushed during close")
+            try {
+                // Flush buffered progress before closing
+                fileStorage.flushNow()
+                Logger.d(LogTags.CHAIN, "Progress buffer flushed during close")
+            } finally {
+                // Close fileStorage to cancel its backgroundScope
+                fileStorage.close()
+            }
 
             Logger.i(LogTags.CHAIN, "ChainExecutor closed successfully")
         }
@@ -936,7 +945,7 @@ class ChainExecutor(
      * Check if executor is closed, throw if it is
      */
     private fun checkNotClosed() {
-        if (isClosed) {
+        if (closedFlag.value != 0) {
             throw IllegalStateException("ChainExecutor is closed and cannot be used")
         }
     }

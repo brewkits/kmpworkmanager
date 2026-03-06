@@ -56,7 +56,10 @@ internal class StorageMigration(
         Logger.i(LogTags.SCHEDULER, "Starting storage migration from NSUserDefaults to file storage")
 
         try {
-            var chainCount = 0
+            // Use separate counters for queue items vs chain definitions.
+            // Previously chainCount was incremented for both, making the log/result misleading.
+            var queueItemsMigrated = 0
+            var chainDefinitionsMigrated = 0
             var metadataCount = 0
 
             // 1. Migrate chain queue
@@ -68,7 +71,7 @@ internal class StorageMigration(
                 queue.forEach { chainId ->
                     try {
                         fileStorage.enqueueChain(chainId)
-                        chainCount++
+                        queueItemsMigrated++
                     } catch (e: Exception) {
                         Logger.e(LogTags.SCHEDULER, "Failed to enqueue chain $chainId during migration", e)
                     }
@@ -90,7 +93,7 @@ internal class StorageMigration(
                             try {
                                 val steps = Json.decodeFromString<List<List<TaskRequest>>>(jsonString)
                                 fileStorage.saveChainDefinition(chainId, steps)
-                                chainCount++
+                                chainDefinitionsMigrated++
                                 Logger.d(LogTags.SCHEDULER, "Migrated chain definition: $chainId")
                             } catch (e: Exception) {
                                 Logger.e(LogTags.SCHEDULER, "Failed to migrate chain $chainId", e)
@@ -145,11 +148,14 @@ internal class StorageMigration(
             val result = MigrationResult(
                 success = true,
                 message = "Migration completed successfully",
-                chainsMigrated = chainCount,
+                chainsMigrated = chainDefinitionsMigrated,
                 metadataMigrated = metadataCount
             )
 
-            Logger.i(LogTags.SCHEDULER, "Migration completed: ${result.chainsMigrated} chains, ${result.metadataMigrated} metadata items")
+            Logger.i(
+                LogTags.SCHEDULER,
+                "Migration completed: $queueItemsMigrated queue items, ${result.chainsMigrated} chain definitions, ${result.metadataMigrated} metadata items"
+            )
             return result
 
         } catch (e: Exception) {

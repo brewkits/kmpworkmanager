@@ -1,6 +1,8 @@
 package dev.brewkits.kmpworkmanager.background.data
 
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.test.*
 import kotlinx.datetime.Clock
 import kotlinx.datetime.TimeZone
@@ -23,42 +25,47 @@ class BufferedIOTest {
      * Mock IosFileStorage to test buffering logic
      */
     private class MockBufferedStorage {
-        val progressBuffer = mutableMapOf<String, ChainProgress>()
+        private val _progressBuffer = mutableMapOf<String, ChainProgress>()
+        val progressBuffer: Map<String, ChainProgress> get() = _progressBuffer
         var flushCount = 0
         var writeCount = 0
         private var flushJob: Job? = null
         private val scope = CoroutineScope(Dispatchers.Default)
+        private val mutex = Mutex()
 
         fun saveChainProgress(progress: ChainProgress) {
             scope.launch {
-                progressBuffer[progress.chainId] = progress
-
-                // Schedule flush (debounced)
-                flushJob?.cancel()
-                flushJob = scope.launch {
-                    delay(500) // FLUSH_DEBOUNCE_MS
-                    flushProgressBuffer()
+                mutex.withLock {
+                    _progressBuffer[progress.chainId] = progress
+                    // Debounce: cancel previous flush and schedule new one
+                    flushJob?.cancel()
+                    flushJob = scope.launch {
+                        delay(500) // FLUSH_DEBOUNCE_MS
+                        mutex.withLock { flushProgressBuffer() }
+                    }
                 }
             }
         }
 
         suspend fun flushNow() {
-            flushJob?.cancelAndJoin()
-            flushProgressBuffer()
+            // Give any in-flight saveChainProgress launches time to update buffer
+            delay(50)
+            mutex.withLock {
+                flushJob?.cancel()
+                flushProgressBuffer()
+            }
         }
 
         private fun flushProgressBuffer() {
-            progressBuffer.forEach { (_, _) ->
-                writeCount++
-            }
-            progressBuffer.clear()
+            _progressBuffer.forEach { _ -> writeCount++ }
+            _progressBuffer.clear()
             flushCount++
         }
 
         fun reset() {
             flushCount = 0
             writeCount = 0
-            progressBuffer.clear()
+            _progressBuffer.clear()
         }
     }
 
