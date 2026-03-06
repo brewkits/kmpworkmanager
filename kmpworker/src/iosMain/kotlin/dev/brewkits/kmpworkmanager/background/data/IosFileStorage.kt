@@ -329,13 +329,15 @@ internal class IosFileStorage(
     }
 
     /**
-     * Get current queue size (O(1) lock-free operation in steady state).
-     * Returns actual disk size when counter is uninitialized.
+     * Get current queue size — always reads from disk for correctness.
+     *
+     * Multiple IosFileStorage instances sharing the same path (e.g. NativeTaskScheduler
+     * and ChainExecutor) each have an independent in-memory queueSizeCounter that can
+     * diverge after any enqueue/dequeue performed by the other instance.  Reading from
+     * disk on every call prevents stale-counter bugs at the cost of a single I/O per call,
+     * which is acceptable since getQueueSize() is called infrequently (once per BGTask).
      */
-    suspend fun getQueueSize(): Int {
-        val v = queueSizeCounter.value
-        return if (v == UNINITIALIZED_COUNTER) queue.getSize() else v
-    }
+    suspend fun getQueueSize(): Int = queue.getSize()
 
     /**
      * Replace chain atomically (v2.2.2+ Race Condition Fix)

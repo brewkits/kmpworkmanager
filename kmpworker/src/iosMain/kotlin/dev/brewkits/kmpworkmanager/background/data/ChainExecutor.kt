@@ -54,6 +54,12 @@ class ChainExecutor(
     private val closedFlag = AtomicInt(0)
     private val closeMutex = Mutex()
 
+    /** Tracks the async cleanup job started by close() */
+    private var closeCleanupJob: Job? = null
+
+    // A-3 note: NativeTaskScheduler creates its own IosFileStorage instance pointing to the
+    // same default path. Counter divergence is avoided by having getQueueSize() always read
+    // from disk rather than trusting the in-memory counter (see IosFileStorage.getQueueSize).
     private val fileStorage = IosFileStorage()
     private val job = SupervisorJob()
     private val coroutineScope = CoroutineScope(Dispatchers.Default + job)
@@ -84,11 +90,11 @@ class ChainExecutor(
 
     /**
      * Maximum time for chain execution
-     * - APP_REFRESH: 50 seconds (total ~30s limit, 20s safety margin)
+     * - APP_REFRESH: 25 seconds (iOS BGAppRefreshTask ~30s OS limit)
      * - PROCESSING: 300 seconds (5 minutes from typical 5-10 min window)
      */
     private val chainTimeout: Long = when (taskType) {
-        BGTaskType.APP_REFRESH -> 50_000L
+        BGTaskType.APP_REFRESH -> 25_000L
         BGTaskType.PROCESSING -> 300_000L
     }
 
@@ -141,14 +147,10 @@ class ChainExecutor(
             Logger.w(LogTags.CHAIN, "🛑 Graceful shutdown requested - cancelling active chains")
         }
 
-        // Cancel all running chains
+        // Cancel all running chains — NonCancellable progress saves in executeChain will complete
         job.cancelChildren()
 
-        // Wait for grace period to allow progress saving
-        Logger.i(LogTags.CHAIN, "Waiting ${SHUTDOWN_GRACE_PERIOD_MS}ms for progress to be saved...")
-        kotlinx.coroutines.delay(SHUTDOWN_GRACE_PERIOD_MS)
-
-        // v2.2.2+: Flush buffered progress before shutdown
+        // Flush buffered progress after cancellation
         fileStorage.flushNow()
         Logger.d(LogTags.CHAIN, "Progress buffer flushed during shutdown")
 
@@ -190,6 +192,20 @@ class ChainExecutor(
         val timeUsagePercentage: Int,
         val queueSizeRemaining: Int
     )
+
+    /**
+     * Result of executing next chain from queue
+     */
+    enum class NextChainResult {
+        /** Chain executed successfully */
+        SUCCESS,
+        /** Chain executed but failed */
+        FAILURE,
+        /** Chain was skipped (e.g. deleted by REPLACE policy) */
+        SKIPPED,
+        /** Queue was empty */
+        QUEUE_EMPTY
+    }
 
     /**
      * Calculate adaptive time budget based on measured cleanup duration
@@ -270,15 +286,14 @@ class ChainExecutor(
     ): Int {
         checkNotClosed()
 
-        // FIX: Atomic check-and-reset to prevent TOCTOU race
+        // Check shutdown flag — if set, skip execution (called from expirationHandler or stale state).
+        // Callers starting a new BGTask should call resetShutdownState() first to clear stale state
+        // from the previous task's expiration.
         shutdownMutex.withLock {
             if (isShuttingDown) {
                 Logger.w(LogTags.CHAIN, "Batch execution skipped - shutdown in progress")
                 return 0
             }
-            // Reset shutdown state inside lock (was outside, causing TOCTOU)
-            isShuttingDown = false
-            Logger.d(LogTags.CHAIN, "Shutdown state reset (atomic with check)")
         }
 
         val startTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
@@ -337,20 +352,32 @@ class ChainExecutor(
                     }
 
                     // Execute next chain
-                    chainsAttempted++
-                    val success = executeNextChainFromQueue()
+                    val result = executeNextChainFromQueue()
 
-                    if (success) {
-                        chainsSucceeded++
+                    when (result) {
+                        NextChainResult.SUCCESS -> {
+                            chainsAttempted++
+                            chainsSucceeded++
 
-                        // Check if more chains in queue
-                        if (getChainQueueSize() == 0) {
-                            Logger.i(LogTags.CHAIN, "Queue empty after ${chainsSucceeded} chains")
+                            // Check if more chains in queue
+                            if (getChainQueueSize() == 0) {
+                                Logger.i(LogTags.CHAIN, "Queue empty after ${chainsSucceeded} chains")
+                                break
+                            }
+                        }
+                        NextChainResult.FAILURE -> {
+                            chainsAttempted++
+                            chainsFailed++
+                            Logger.w(LogTags.CHAIN, "Chain execution failed, continuing to next")
+                        }
+                        NextChainResult.SKIPPED -> {
+                            Logger.d(LogTags.CHAIN, "Chain skipped (REPLACE policy), continuing to next")
+                            // Don't count skipped chains in metrics
+                        }
+                        NextChainResult.QUEUE_EMPTY -> {
+                            Logger.i(LogTags.CHAIN, "Queue empty, stopping batch")
                             break
                         }
-                    } else {
-                        chainsFailed++
-                        Logger.w(LogTags.CHAIN, "Chain execution failed, continuing to next")
                     }
                 }
             }
@@ -413,22 +440,22 @@ class ChainExecutor(
     /**
      * Retrieves the next chain ID from the queue and executes it.
      *
-     * @return `true` if the chain was executed successfully or if the queue was empty, `false` otherwise.
+     * @return [NextChainResult] indicating the outcome of the execution attempt.
      * @throws IllegalStateException if executor is closed
      */
-    suspend fun executeNextChainFromQueue(): Boolean {
+    suspend fun executeNextChainFromQueue(): NextChainResult {
         checkNotClosed()
 
         // 1. Retrieve and remove the next chain ID from the queue (atomic operation)
         val chainId = fileStorage.dequeueChain() ?: run {
             Logger.d(LogTags.CHAIN, "Chain queue is empty, nothing to execute")
-            return true // Considered success as there's no work to do
+            return NextChainResult.QUEUE_EMPTY
         }
 
         if (fileStorage.isChainDeleted(chainId)) {
             Logger.i(LogTags.CHAIN, "Chain $chainId was deleted (REPLACE policy). Skipping execution...")
             fileStorage.clearDeletedMarker(chainId)
-            return true // Success - continue to next chain
+            return NextChainResult.SKIPPED
         }
 
         Logger.i(LogTags.CHAIN, "Dequeued chain $chainId for execution (Remaining: ${fileStorage.getQueueSize()})")
@@ -441,7 +468,7 @@ class ChainExecutor(
             Logger.e(LogTags.CHAIN, "Chain $chainId failed")
             emitChainFailureEvent(chainId)
         }
-        return success
+        return if (success) NextChainResult.SUCCESS else NextChainResult.FAILURE
     }
 
     /**
@@ -581,6 +608,9 @@ class ChainExecutor(
                 // Re-queue the chain for next execution
                 fileStorage.enqueueChain(chainId)
                 Logger.i(LogTags.CHAIN, "Re-queued chain $chainId for resumption")
+
+                // Schedule next BGTask to resume this chain
+                scheduleNextBGTask()
 
                 return false
             }
@@ -901,8 +931,8 @@ class ChainExecutor(
         job.cancel()
 
         // Launch async cleanup on a separate scope to avoid blocking
-        // This prevents deadlock if close() is called from coroutine context
-        CoroutineScope(Dispatchers.Default).launch {
+        // Tracked so tests and closeAsync() can await completion
+        closeCleanupJob = CoroutineScope(Dispatchers.Default).launch {
             try {
                 // Flush buffered progress before fully closing
                 fileStorage.flushNow()

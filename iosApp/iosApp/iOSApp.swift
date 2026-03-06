@@ -309,7 +309,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         task.expirationHandler = {
             print("⏰ iOS BGTask: KMP Chain Executor Task expired - initiating graceful shutdown")
 
-            // Graceful shutdown with 5s grace period for progress save
+            // Graceful shutdown — setTaskCompleted fires AFTER shutdown to ensure
+            // all buffered progress is flushed before iOS marks the task complete.
             Task {
                 do {
                     try await chainExecutor.requestShutdown()
@@ -317,9 +318,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
                 } catch {
                     print("❌ iOS BGTask: Graceful shutdown failed: \(error)")
                 }
+                task.setTaskCompleted(success: false)
             }
-
-            task.setTaskCompleted(success: false)
         }
 
         // Schedule the next task if queue still has items
@@ -350,6 +350,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
                 let initialQueueSize = try await chainExecutor.getChainQueueSize()
                 let queueCount = Int(truncating: initialQueueSize as NSNumber)
                 print("📦 iOS BGTask: Chain queue size: \(queueCount)")
+
+                // B-2 fix: Reset any stale shutdown flag from the previous BGTask's expirationHandler
+                // before starting a new batch, so the chain executor isn't permanently stuck.
+                try await chainExecutor.resetShutdownState()
 
                 let executedCount = try await chainExecutor.executeChainsInBatch(maxChains: 3, totalTimeoutMs: 50_000)
                 let count = Int(truncating: executedCount as NSNumber)
