@@ -9,6 +9,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -728,6 +729,16 @@ actual class NativeTaskScheduler(
         fileStorage.cleanupStaleMetadata(olderThanDays = 0) // Clean all metadata immediately
 
         Logger.d(LogTags.SCHEDULER, "Cancelled all tasks and cleaned up metadata")
+    }
+
+    /**
+     * Cancel the background scope (call when scheduler is no longer needed).
+     * In production, the scheduler is typically a singleton for app lifetime.
+     * Call this in tests to prevent coroutine leaks.
+     */
+    fun close() {
+        backgroundScope.cancel()
+        Logger.d(LogTags.SCHEDULER, "NativeTaskScheduler background scope cancelled")
     }
 
     /**

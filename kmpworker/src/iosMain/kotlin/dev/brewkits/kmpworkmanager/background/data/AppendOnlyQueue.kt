@@ -473,7 +473,7 @@ internal class AppendOnlyQueue(
 
             val success = content.writeToFile(
                 path,
-                atomically = false,
+                atomically = true,
                 encoding = NSUTF8StringEncoding,
                 error = errorPtr.ptr
             )

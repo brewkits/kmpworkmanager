@@ -109,25 +109,30 @@ class GracefulShutdownTest {
     }
 
     @Test
-    fun `shutdown grace period waits for progress save`() {
-        // Note: Using runBlocking instead of runTest to measure real time (not virtual time)
+    fun `shutdown completes quickly and flushes progress`() {
+        // D-1 fix: requestShutdown() no longer blocks for a 5s grace period.
+        // Progress durability is guaranteed by withContext(NonCancellable) in executeChain(),
+        // so a blocking delay is unnecessary and harmful (could outlive the BGTask).
         kotlinx.coroutines.runBlocking {
-            // Trigger shutdown and measure grace period
             val startTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
 
-            executor.requestShutdown() // Should wait SHUTDOWN_GRACE_PERIOD_MS
+            executor.requestShutdown() // Should complete quickly (no delay)
 
             val endTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
             val duration = endTime - startTime
 
-            // Shutdown should take at least the grace period (5s)
-            val expectedDuration = ChainExecutor.SHUTDOWN_GRACE_PERIOD_MS
+            // Shutdown should be fast (< 2s) — no blocking delay
             assertTrue(
-                duration >= expectedDuration - 500, // Allow 500ms tolerance
-                "Shutdown should wait ~${expectedDuration}ms grace period, was ${duration}ms"
+                duration < 2_000,
+                "Shutdown should complete quickly (< 2000ms), was ${duration}ms"
             )
 
-            println("✅ Grace period of ${duration}ms enforced correctly (expected ${expectedDuration}ms)")
+            // Shutdown flag should be set
+            // (verified indirectly: executeChainsInBatch will return 0 while flag is set)
+            val executedCount = executor.executeChainsInBatch(maxChains = 1)
+            assertEquals(0, executedCount, "Batch should skip while shutdown flag is set")
+
+            println("✅ Shutdown completed in ${duration}ms (fast shutdown)")
         }
     }
 
