@@ -8,6 +8,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
@@ -1219,8 +1220,13 @@ internal class IosFileStorage(
             // Cancelling the scope first would kill the pending flushJob, silently
             // discarding any buffered progress updates that hadn't reached disk yet.
             flushNow()
-            // Cancel all background jobs (flush, maintenance)
+            // Cancel all background jobs and WAIT for them to finish.
+            // cancel() alone only requests cancellation — background coroutines may still
+            // be executing. Without join() the test @AfterTest can delete the directory
+            // while a coroutine is still writing, causing "file doesn't exist" crashes.
+            val scopeJob = backgroundScope.coroutineContext[Job.Key]
             backgroundScope.cancel()
+            scopeJob?.join()
             Logger.i(LogTags.CHAIN, "IosFileStorage closed - background scope cancelled")
         } catch (e: Exception) {
             Logger.e(LogTags.CHAIN, "Error during IosFileStorage close", e)

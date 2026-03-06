@@ -135,9 +135,13 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
     }
 
     /**
-     * Builds WorkManager Constraints from KMP Constraints (v3.0.0+ with SystemConstraints support)
+     * Builds WorkManager Constraints from KMP Constraints.
+     * Applies network, charging, systemConstraints, and any extra configuration via [extraConfig].
      */
-    private fun buildWorkManagerConstraints(constraints: Constraints): androidx.work.Constraints {
+    private fun buildWorkManagerConstraints(
+        constraints: Constraints,
+        extraConfig: (androidx.work.Constraints.Builder) -> Unit = {}
+    ): androidx.work.Constraints {
         val networkType = when {
             constraints.requiresUnmeteredNetwork -> NetworkType.UNMETERED
             constraints.requiresNetwork -> NetworkType.CONNECTED
@@ -148,24 +152,25 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
             .setRequiredNetworkType(networkType)
             .setRequiresCharging(constraints.requiresCharging)
 
-        // Apply systemConstraints (v3.0.0+)
+        // Apply systemConstraints
         constraints.systemConstraints.forEach { systemConstraint ->
             when (systemConstraint) {
                 dev.brewkits.kmpworkmanager.background.domain.SystemConstraint.ALLOW_LOW_STORAGE -> {
-                    builder.setRequiresStorageNotLow(false) // Allow when storage IS low
+                    builder.setRequiresStorageNotLow(false)
                 }
                 dev.brewkits.kmpworkmanager.background.domain.SystemConstraint.ALLOW_LOW_BATTERY -> {
-                    builder.setRequiresBatteryNotLow(false) // Allow when battery IS low
+                    builder.setRequiresBatteryNotLow(false)
                 }
                 dev.brewkits.kmpworkmanager.background.domain.SystemConstraint.REQUIRE_BATTERY_NOT_LOW -> {
-                    builder.setRequiresBatteryNotLow(true) // Require battery NOT low
+                    builder.setRequiresBatteryNotLow(true)
                 }
                 dev.brewkits.kmpworkmanager.background.domain.SystemConstraint.DEVICE_IDLE -> {
-                    builder.setRequiresDeviceIdle(true) // Require device idle/dozing
+                    builder.setRequiresDeviceIdle(true)
                 }
             }
         }
 
+        extraConfig(builder)
         return builder.build()
     }
 
@@ -196,10 +201,18 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
         // Build WorkManager constraints (v3.0.0+ with SystemConstraints support)
         val wmConstraints = buildWorkManagerConstraints(constraints)
 
-        val workRequest = PeriodicWorkRequestBuilder<KmpWorker>(
-            trigger.intervalMs,
-            TimeUnit.MILLISECONDS
-        )
+        val periodicBuilder = if (trigger.flexMs != null) {
+            PeriodicWorkRequestBuilder<KmpWorker>(
+                trigger.intervalMs, TimeUnit.MILLISECONDS,
+                trigger.flexMs, TimeUnit.MILLISECONDS
+            )
+        } else {
+            PeriodicWorkRequestBuilder<KmpWorker>(
+                trigger.intervalMs, TimeUnit.MILLISECONDS
+            )
+        }
+
+        val workRequest = periodicBuilder
             .setConstraints(wmConstraints)
             .setInputData(workData)
             .setBackoffCriteria(
@@ -298,10 +311,11 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
                 Falling back to WorkManager...
             """.trimIndent())
 
-            // Fallback to WorkManager (preserve constraints)
+            // Fallback to WorkManager: compute actual delay from now, not raw epoch
+            val delayMs = (trigger.atEpochMillis - System.currentTimeMillis()).coerceAtLeast(0)
             return scheduleOneTimeWork(
                 id = id,
-                trigger = TaskTrigger.OneTime(initialDelayMs = trigger.atEpochMillis),
+                trigger = TaskTrigger.OneTime(initialDelayMs = delayMs),
                 workerClassName = workerClassName,
                 constraints = constraints,
                 inputJson = inputJson,
@@ -345,10 +359,11 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
         } catch (e: SecurityException) {
             Logger.e(LogTags.ALARM, "❌ SecurityException scheduling exact alarm", e)
 
-            // Final fallback to WorkManager (preserve constraints)
+            // Final fallback to WorkManager: compute actual delay from now, not raw epoch
+            val delayMs = (trigger.atEpochMillis - System.currentTimeMillis()).coerceAtLeast(0)
             return scheduleOneTimeWork(
                 id = id,
-                trigger = TaskTrigger.OneTime(initialDelayMs = trigger.atEpochMillis),
+                trigger = TaskTrigger.OneTime(initialDelayMs = delayMs),
                 workerClassName = workerClassName,
                 constraints = constraints,
                 inputJson = inputJson,
@@ -432,26 +447,6 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
     }
 
     /**
-     * Helper: Build common Constraints for WorkManager from KMP Constraints
-     */
-    private fun buildWorkManagerConstraints(
-        constraints: Constraints,
-        extraConfig: (androidx.work.Constraints.Builder) -> Unit = {}
-    ): androidx.work.Constraints {
-        val networkType = when {
-            constraints.requiresUnmeteredNetwork -> NetworkType.UNMETERED
-            constraints.requiresNetwork -> NetworkType.CONNECTED
-            else -> NetworkType.NOT_REQUIRED
-        }
-
-        return androidx.work.Constraints.Builder()
-            .setRequiredNetworkType(networkType)
-            .setRequiresCharging(constraints.requiresCharging)
-            .apply { extraConfig(this) }
-            .build()
-    }
-
-    /**
      * Helper: Build common OneTimeWorkRequest with standard configuration
      */
     private fun buildOneTimeWorkRequest(
@@ -492,9 +487,13 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
         } else {
             // Expedited work restrictions (WorkManager):
             // 1. Cannot have delay
-            // 2. Only supports network and storage constraints (no charging, battery, etc.)
+            // 2. Only supports network and storage constraints — charging, device-idle,
+            //    and battery constraints are incompatible with expedited mode
             val hasIncompatibleConstraints = constraints.requiresCharging ||
-                    constraints.systemConstraints.any { it != dev.brewkits.kmpworkmanager.background.domain.SystemConstraint.DEVICE_IDLE }
+                    constraints.systemConstraints.any {
+                        it == dev.brewkits.kmpworkmanager.background.domain.SystemConstraint.DEVICE_IDLE ||
+                        it == dev.brewkits.kmpworkmanager.background.domain.SystemConstraint.REQUIRE_BATTERY_NOT_LOW
+                    }
 
             val shouldUseExpedited = initialDelayMs == 0L && !hasIncompatibleConstraints
 
@@ -641,15 +640,7 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
         val constraints = task.constraints
 
         val wmConstraints = if (constraints != null) {
-            val networkType = when {
-                constraints.requiresUnmeteredNetwork -> NetworkType.UNMETERED
-                constraints.requiresNetwork -> NetworkType.CONNECTED
-                else -> NetworkType.NOT_REQUIRED
-            }
-            androidx.work.Constraints.Builder()
-                .setRequiredNetworkType(networkType)
-                .setRequiresCharging(constraints.requiresCharging)
-                .build()
+            buildWorkManagerConstraints(constraints)
         } else {
             androidx.work.Constraints.NONE
         }

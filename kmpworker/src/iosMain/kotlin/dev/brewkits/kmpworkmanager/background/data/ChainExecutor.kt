@@ -317,14 +317,14 @@ class ChainExecutor(
 
         try {
             withTimeout(conservativeTimeout) {
-                repeat(maxChains) { iteration ->
+                for (iteration in 0 until maxChains) {
                     // Check shutdown every 5 iterations instead of every iteration (80% fewer lock acquisitions)
                     // Shutdown is a rare event, so this optimization is safe
                     if (iteration % 5 == 0) {
                         val shouldStop = shutdownMutex.withLock { isShuttingDown }
                         if (shouldStop) {
                             Logger.w(LogTags.CHAIN, "Stopping batch execution - shutdown requested")
-                            return@repeat
+                            break
                         }
                     }
 
@@ -333,7 +333,7 @@ class ChainExecutor(
 
                     if (remainingTime < minTimePerChain) {
                         Logger.w(LogTags.CHAIN, "⏱️ Time-slicing: Insufficient time remaining (${remainingTime}ms < ${minTimePerChain}ms), stopping early to preserve iOS credit score")
-                        return@repeat
+                        break
                     }
 
                     // Execute next chain
@@ -346,7 +346,7 @@ class ChainExecutor(
                         // Check if more chains in queue
                         if (getChainQueueSize() == 0) {
                             Logger.i(LogTags.CHAIN, "Queue empty after ${chainsSucceeded} chains")
-                            return@repeat
+                            break
                         }
                     } else {
                         chainsFailed++
@@ -508,8 +508,10 @@ class ChainExecutor(
             }
 
             // 7. Execute steps sequentially with timeout protection
+            var chainSucceeded = false
             try {
-                withTimeout(chainTimeout) {
+                chainSucceeded = withTimeout(chainTimeout) {
+                    var allStepsSucceeded = true
                     for ((index, step) in steps.withIndex()) {
                         // Skip already completed steps
                         if (progress.isStepCompleted(index)) {
@@ -525,7 +527,6 @@ class ChainExecutor(
                             Logger.e(LogTags.CHAIN, "Step ${index + 1} failed. Updating progress for chain $chainId")
 
                             // Update progress with failure and increment retry count
-                            // v2.2.2+: Protect progress save from cancellation
                             withContext(NonCancellable) {
                                 progress = progress.withFailure(index)
                                 fileStorage.saveChainProgress(progress)
@@ -541,11 +542,11 @@ class ChainExecutor(
                                 fileStorage.deleteChainProgress(chainId)
                             }
 
-                            return@withTimeout false
+                            allStepsSucceeded = false
+                            break
                         }
 
                         // Step succeeded - update progress
-                        // v2.2.2+: Protect progress save from cancellation
                         withContext(NonCancellable) {
                             progress = progress.withCompletedStep(index)
                             fileStorage.saveChainProgress(progress)
@@ -555,12 +556,12 @@ class ChainExecutor(
                             "Step ${index + 1}/${steps.size} completed for chain $chainId (${progress.getCompletionPercentage()}% complete)"
                         )
                     }
+                    allStepsSucceeded
                 }
             } catch (e: TimeoutCancellationException) {
                 Logger.e(LogTags.CHAIN, "Chain $chainId timed out after ${chainTimeout}ms")
 
-                // Save current progress (don't delete - allow resume)
-                // Progress already saved after last successful step
+                // Progress already saved after last successful step — allow resume
                 Logger.i(
                     LogTags.CHAIN,
                     "Chain $chainId progress saved. Will resume from step ${progress.getNextStepIndex()} on next execution."
@@ -570,7 +571,6 @@ class ChainExecutor(
             } catch (e: CancellationException) {
                 Logger.w(LogTags.CHAIN, "🛑 Chain $chainId cancelled due to graceful shutdown")
 
-                // Progress is already saved after each step, so current progress is persisted
                 val nextStep = progress.getNextStepIndex()
                 Logger.i(
                     LogTags.CHAIN,
@@ -585,7 +585,11 @@ class ChainExecutor(
                 return false
             }
 
-            // 8. Clean up the chain definition and progress upon successful completion
+            // 8. Only clean up on successful completion
+            if (!chainSucceeded) {
+                return false
+            }
+
             // v2.2.2+: Flush buffered progress before cleanup
             fileStorage.flushNow()
 
@@ -743,6 +747,9 @@ class ChainExecutor(
                 )
             )
             WorkerResult.Failure("Timeout after ${duration}ms")
+        } catch (e: CancellationException) {
+            // Re-throw CancellationException — must not be swallowed so coroutine cancellation propagates
+            throw e
         } catch (e: Exception) {
             val duration = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime
             Logger.e(LogTags.CHAIN, "💥 Task ${task.workerClassName} threw exception after ${duration}ms", e)

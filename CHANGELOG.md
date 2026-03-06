@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.6] - 2026-03-07
+
+### Fixed
+
+**iOS: ChainExecutor withTimeout return value discarded (CRITICAL)**
+- `withTimeout { return@withTimeout false }` result was discarded — chain always treated as succeeded
+- Fixed by capturing return value in `var chainSucceeded = false` and using `break` instead of `return@withTimeout`
+- Cleanup (delete chain definition + progress) now only runs on actual success
+
+**iOS: CancellationException swallowed in executeTask (HIGH)**
+- `catch (e: Exception)` inside `executeTask` caught `CancellationException` (subclass of Exception)
+- Caused cooperative cancellation to silently fail — timeouts and scope cancellation could not propagate
+- Fixed by adding `catch (e: CancellationException) { throw e }` before the general Exception handler
+
+**iOS: executeChainsInBatch loop break not working (HIGH)**
+- `repeat(maxChains) { return@repeat }` is `continue`, not `break` — loop never stopped early
+- Fixed by replacing `repeat` with `for (iteration in 0 until maxChains) { break }`
+
+**Android: Exact trigger uses epoch timestamp as delay (HIGH)**
+- `trigger.atEpochMillis` (~1.7 trillion ms) was passed directly as delay — scheduled far in the future
+- Fixed to compute `(trigger.atEpochMillis - System.currentTimeMillis()).coerceAtLeast(0)` for both fallback paths
+
+**iOS: enqueueChain hardcodes requiresNetworkConnectivity = true (MEDIUM)**
+- Chain executor task doesn't need network; individual chain steps manage their own requirements
+- Fixed to `requiresNetworkConnectivity = false`
+
+**Android: Periodic work ignores flexMs (MEDIUM)**
+- Single-parameter `PeriodicWorkRequestBuilder(intervalMs, MILLISECONDS)` ignores `flexMs`
+- Fixed by conditionally using the two-parameter overload when `flexMs` is non-null
+
+**Android: DEVICE_IDLE constraint detection inverted (MEDIUM)**
+- `any { it != DEVICE_IDLE }` incorrectly flagged non-DEVICE_IDLE constraints as incompatible with exact alarms
+- Fixed to `any { it == DEVICE_IDLE || it == REQUIRE_BATTERY_NOT_LOW }`
+
+**Android: Second buildWorkManagerConstraints overload missing systemConstraints (MEDIUM)**
+- Duplicate `buildWorkManagerConstraints` overload (used for ContentUri triggers) was missing the entire `systemConstraints` processing block
+- Fixed by merging into a single unified function with optional `extraConfig` lambda
+
+**iOS: IosFileStorage.close() does not await background scope cancellation (MEDIUM)**
+- `backgroundScope.cancel()` requests cancellation but returns immediately — background coroutines keep running
+- In tests, `@AfterTest` removed the directory while background coroutines still wrote to it, causing `head_pointer.txt doesn't exist` crashes on real devices
+- Fixed by adding `scopeJob?.join()` after `cancel()` to await full completion
+
+**iOS: IosEventStore file creation silently ignores write errors (LOW)**
+- `NSString.writeToURL(error = null)` on initial file creation silently swallowed disk-full/permission errors
+- Fixed with `memScoped { val errorPtr = alloc<ObjCObjectVar<NSError?>>() ... }` and proper error logging
+
 ## [2.3.5] - 2026-03-06
 
 ### Fixed

@@ -63,15 +63,23 @@ class IosEventStore(
      * Events file: events.jsonl
      */
     private val eventsFileURL: NSURL by lazy {
-        baseDir.URLByAppendingPathComponent("events.jsonl")!!.apply {
-            if (!fileManager.fileExistsAtPath(path ?: "")) {
-                ("" as NSString).writeToURL(
-                    this,
-                    atomically = true,
-                    encoding = NSUTF8StringEncoding,
-                    error = null
-                )
-                Logger.d(LogTags.SCHEDULER, "IosEventStore: Created events file at $path")
+        baseDir.URLByAppendingPathComponent("events.jsonl")!!.also { url ->
+            if (!fileManager.fileExistsAtPath(url.path ?: "")) {
+                memScoped {
+                    val errorPtr = alloc<ObjCObjectVar<NSError?>>()
+                    val success = ("" as NSString).writeToURL(
+                        url,
+                        atomically = true,
+                        encoding = NSUTF8StringEncoding,
+                        error = errorPtr.ptr
+                    )
+                    if (!success) {
+                        val msg = errorPtr.value?.localizedDescription ?: "unknown error"
+                        Logger.e(LogTags.SCHEDULER, "IosEventStore: Failed to create events file at ${url.path}: $msg")
+                    } else {
+                        Logger.d(LogTags.SCHEDULER, "IosEventStore: Created events file at ${url.path}")
+                    }
+                }
             }
         }
     }
