@@ -33,7 +33,7 @@ import okio.use
  * **Memory Usage:** ~3-5MB RAM
  * **Default Timeout:** 300 seconds (5 minutes)
  *
- * **Performance Optimization (v2.3.4+):**
+ * **Performance Optimization (v2.3.5+):**
  * - Uses singleton HttpClient for connection pool reuse
  * - 60-86% faster than previous version
  *

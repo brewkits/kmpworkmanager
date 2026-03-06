@@ -89,7 +89,7 @@ Ready-to-use workers for common tasks:
 Built-in SSRF protection, input validation, and resource limits (v2.3.1+).
 
 ### ⚡ **High Performance**
-- 60-86% faster HTTP operations via singleton client (v2.3.4+)
+- 60-86% faster HTTP operations via singleton client (v2.3.5+)
 - O(1) queue operations on iOS
 - Efficient memory usage with streaming I/O
 
@@ -116,7 +116,7 @@ Add to your `build.gradle.kts`:
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("dev.brewkits:kmpworkmanager:2.3.4")
+            implementation("dev.brewkits:kmpworkmanager:2.3.5")
         }
     }
 }
@@ -352,7 +352,8 @@ scheduler.beginWith(
 📘 **Getting Started**
 - [Quick Start Guide](docs/quickstart.md) — Get running in 5 minutes
 - [Platform Setup](docs/platform-setup.md) — Android & iOS configuration
-- [Migration Guide](docs/MIGRATION_V2.3.3_TO_V2.3.4.md) — Upgrading from v2.3.3
+- [Migration Guide](docs/MIGRATION_V2.3.3_TO_V2.3.4.md) — Upgrading from v2.3.3 to v2.3.4
+- [Migration Guide](docs/MIGRATION_V2.3.4_TO_V2.3.5.md) — Upgrading from v2.3.4 to v2.3.5
 
 📖 **Core Concepts**
 - [API Reference](docs/api-reference.md) — Complete API documentation
@@ -377,23 +378,15 @@ Check the [`/composeApp`](composeApp/) directory for a complete demo app with:
 
 ---
 
-## What's New in v2.3.4
-
-🚀 **Performance**
-- 60-86% faster HTTP operations (singleton HttpClient with connection pooling)
-- 90% less progress data loss on iOS (reduced flush interval: 500ms → 100ms)
+## What's New in v2.3.5
 
 🐛 **Fixes**
-- Fixed iOS queue compaction segmentation fault
-- Fixed Logger test assertions
-- Added proper shutdown mechanism for background operations
-
-⚠️ **Breaking Changes**
-- `TaskChain.enqueue()` is now suspending
+- Fixed Android diagnostics always returning empty task list (wrong WorkManager tag)
+- Fixed iOS event store silently dropping write errors (disk full, permissions)
+- Fixed SharedFlow event drops under high load (`tryEmit` → `emit`)
+- Fixed Logger crashing JVM unit tests when no platform logger is configured
 
 **→ Full changelog:** [CHANGELOG.md](CHANGELOG.md)
-
-**→ Migration guide:** [MIGRATION_V2.3.3_TO_V2.3.4.md](docs/MIGRATION_V2.3.3_TO_V2.3.4.md)
 
 ---
 

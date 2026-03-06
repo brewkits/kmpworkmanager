@@ -199,7 +199,7 @@ class IntegrationTests {
 
     @Test
     fun `testForceQuitRecovery - queue persisted after force-quit`() = runTest {
-        val fileStorage = IosFileStorage()
+        val fileStorage = IosFileStorage(baseDirectory = testDirectoryURL)
 
         // Step 1: Enqueue chains
         val chainId1 = "chain-force-quit-1"
@@ -218,26 +218,25 @@ class IntegrationTests {
         // In real scenario, app process is killed here
 
         // Step 3: Create new instances (simulating app restart)
-        val newFileStorage = IosFileStorage()
+        val newFileStorage = IosFileStorage(baseDirectory = testDirectoryURL)
 
-        // Step 4: Verify queue persisted
-        assertEquals(2, newFileStorage.getQueueSize(), "Queue should be persisted")
-
-        // Step 5: Verify execution can continue
+        // Step 4: Verify queue persisted by dequeuing the items
+        // (Note: getQueueSize() uses a background-initialized counter, so we test via dequeue)
         val dequeued1 = newFileStorage.dequeueChain()
-        assertEquals(chainId1, dequeued1)
+        assertEquals(chainId1, dequeued1, "Queue should be persisted")
 
         val dequeued2 = newFileStorage.dequeueChain()
-        assertEquals(chainId2, dequeued2)
+        assertEquals(chainId2, dequeued2, "Second item should be persisted")
 
-        assertEquals(0, newFileStorage.getQueueSize())
+        val dequeued3 = newFileStorage.dequeueChain()
+        assertNull(dequeued3, "Queue should be empty after dequeuing both")
     }
 
     // ==================== ExistingPolicy Tests ====================
 
     @Test
     fun `testExistingPolicyKeep - only one chain in queue`() = runTest {
-        val fileStorage = IosFileStorage()
+        val fileStorage = IosFileStorage(baseDirectory = testDirectoryURL)
         val chainId = "test-chain-keep"
         val steps1 = listOf(listOf(TaskRequest("Worker1", "input1")))
         val steps2 = listOf(listOf(TaskRequest("Worker2", "input2")))
@@ -267,7 +266,7 @@ class IntegrationTests {
 
     @Test
     fun `testExistingPolicyReplace - new chain definition loaded`() = runTest {
-        val fileStorage = IosFileStorage()
+        val fileStorage = IosFileStorage(baseDirectory = testDirectoryURL)
         val chainId = "test-chain-replace"
         val steps1 = listOf(listOf(TaskRequest("Worker1", "input1")))
         val steps2 = listOf(listOf(TaskRequest("Worker2", "input2")))
@@ -302,12 +301,12 @@ class IntegrationTests {
         // Note: Cannot actually simulate disk full in unit tests
         // This test verifies the API exists and throws expected exception type
 
-        val fileStorage = IosFileStorage()
+        val fileStorage = IosFileStorage(baseDirectory = testDirectoryURL)
         val chainId = "test-large-chain"
 
-        // Create very large chain (exceed MAX_CHAIN_SIZE_BYTES)
+        // Create very large chain (exceed MAX_CHAIN_SIZE_BYTES = 10MB)
         val largeSteps = (1..1000).map {
-            listOf(TaskRequest("Worker$it", "x".repeat(10000)))
+            listOf(TaskRequest("Worker$it", "x".repeat(11000)))
         }
 
         try {

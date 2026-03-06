@@ -83,7 +83,8 @@ internal data class IosFileStorageConfig(
  */
 @OptIn(ExperimentalForeignApi::class)
 internal class IosFileStorage(
-    private val config: IosFileStorageConfig = IosFileStorageConfig()
+    private val config: IosFileStorageConfig = IosFileStorageConfig(),
+    private val baseDirectory: NSURL? = null  // null = use AppSupport/dev.brewkits.kmpworkmanager
 ) {
 
     private val fileManager = NSFileManager.defaultManager
@@ -107,17 +108,31 @@ internal class IosFileStorage(
     private val queueMutex = Mutex()
 
     /**
-     * v2.3.4+ Lock-free queue size counter (P0.5 optimization)
-     * Eliminates disk I/O on critical path - getChainQueueSize() is now O(1) lock-free
+     * Dedicated mutex for enqueue operations to ensure atomic check-then-act
+     * for MAX_QUEUE_SIZE enforcement.
      *
-     * **Performance improvement:** 100-1000x faster than reading from disk
-     * - Before: 0.5-50ms (disk I/O)
-     * - After: <0.001ms (atomic read)
+     * enqueueChain() has a check-then-act pattern: two concurrent callers could both
+     * read counter=999, both pass the limit check, and both enqueue — resulting in
+     * queue size > MAX_QUEUE_SIZE. This mutex prevents that race.
      *
-     * **Correctness:** Counter is synchronized with queue operations under queueMutex,
-     * initialized on startup, and maintained atomically during enqueue/dequeue.
+     * This mutex is separate from queueMutex to avoid deadlock: replaceChainAtomic()
+     * holds queueMutex and calls enqueueChain() internally (via enqueueChainInternal()).
      */
-    private val queueSizeCounter = AtomicInt(0)
+    private val enqueueMutex = Mutex()
+
+    /**
+     * Queue size counter for O(1) size checks.
+     * Initialized to UNINITIALIZED_COUNTER (-1) instead of 0.
+     *
+     * **Why -1 and not 0:** If enqueueChain() is called before the init coroutine sets
+     * the real value, the limit check sees 0 and allows enqueues even when the
+     * queue already has MAX_QUEUE_SIZE-1 items (app restart with nearly-full queue).
+     *
+     * Sentinel -1 signals enqueueChain() to read the actual size from disk (O(N),
+     * one-time cost) before checking the limit. After init completes, the counter is
+     * accurate and all subsequent checks are O(1) lock-free.
+     */
+    private val queueSizeCounter = AtomicInt(UNINITIALIZED_COUNTER)
 
     /**
      * v2.2.2+ Buffered I/O for progress saves
@@ -131,6 +146,7 @@ internal class IosFileStorage(
     companion object {
         const val MAX_QUEUE_SIZE = 1000
         const val MAX_CHAIN_SIZE_BYTES = 10_485_760L // 10MB
+        private const val UNINITIALIZED_COUNTER = -1  // Sentinel: counter not yet set from disk
 
         /**
          * Default max age for deleted markers (now configurable via IosFileStorageConfig)
@@ -140,7 +156,7 @@ internal class IosFileStorage(
         const val DELETED_MARKER_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000L
 
         /**
-         * v2.3.4+ Debounce window for progress flush (100ms, reduced from 500ms)
+         * Debounce window for progress flush (100ms)
          * Balances performance (batching) vs data safety
          *
          * **Why 100ms?**
@@ -164,15 +180,21 @@ internal class IosFileStorage(
      * Base directory path: Library/Application Support/dev.brewkits.kmpworkmanager/
      */
     private val baseDir: NSURL by lazy {
-        val urls = fileManager.URLsForDirectory(
-            NSApplicationSupportDirectory,
-            NSUserDomainMask
-        ) as List<*>
-        val appSupportDir = urls.firstOrNull() as? NSURL
-            ?: throw IllegalStateException("Could not locate Application Support directory")
+        val basePath = if (baseDirectory != null) {
+            ensureDirectoryExists(baseDirectory)
+            baseDirectory
+        } else {
+            val urls = fileManager.URLsForDirectory(
+                NSApplicationSupportDirectory,
+                NSUserDomainMask
+            ) as List<*>
+            val appSupportDir = urls.firstOrNull() as? NSURL
+                ?: throw IllegalStateException("Could not locate Application Support directory")
 
-        val basePath = appSupportDir.URLByAppendingPathComponent(BASE_DIR_NAME)!!
-        ensureDirectoryExists(basePath)
+            val path = appSupportDir.URLByAppendingPathComponent(BASE_DIR_NAME)!!
+            ensureDirectoryExists(path)
+            path
+        }
 
         Logger.d(LogTags.SCHEDULER, "IosFileStorage initialized at: ${basePath.path}")
         basePath
@@ -211,8 +233,8 @@ internal class IosFileStorage(
 
     init {
         backgroundScope.launch {
-            // v2.3.4+ Initialize queue size counter from actual queue size
-            // This ensures counter is accurate after app restart
+            // Initialize queue size counter from actual queue size on disk.
+            // This ensures the counter is accurate after app restart.
             val actualQueueSize = queue.getSize()
             queueSizeCounter.value = actualQueueSize
             Logger.d(LogTags.SCHEDULER, "Initialized queue size counter: $actualQueueSize")
@@ -234,13 +256,37 @@ internal class IosFileStorage(
     // ==================== Queue Operations ====================
 
     /**
-     * Enqueue a chain ID to the queue (thread-safe, atomic)
-     * v2.3.4+ Updates queue size counter atomically
+     * Enqueue a chain ID to the queue (thread-safe, atomic).
+     *
+     * Wrapped in enqueueMutex to make the check-then-act atomic.
+     * Without the mutex, two concurrent callers could both read counter=999, both pass the
+     * MAX_QUEUE_SIZE check, and both enqueue — exceeding the limit by the number of
+     * concurrent callers.
+     *
+     * Delegates to [enqueueChainInternal] which is also used by [replaceChainAtomic]
+     * (under queueMutex) to avoid deadlock — enqueueMutex and queueMutex are always
+     * acquired in the same order: queueMutex first, enqueueMutex second.
      */
-    suspend fun enqueueChain(chainId: String) {
-        // Check queue size before enqueue (AppendOnlyQueue doesn't enforce limit)
-        // v2.3.4+ Use atomic counter for O(1) size check (was disk I/O)
-        val currentSize = queueSizeCounter.value
+    suspend fun enqueueChain(chainId: String) = enqueueMutex.withLock {
+        enqueueChainInternal(chainId)
+    }
+
+    /**
+     * Internal enqueue without enqueueMutex — called from replaceChainAtomic (under queueMutex).
+     *
+     * Handles UNINITIALIZED_COUNTER sentinel. If the init coroutine hasn't finished
+     * yet (counter == -1), reads actual size from disk (O(N), one-time) to prevent
+     * enqueues past capacity on first access after restart.
+     */
+    private suspend fun enqueueChainInternal(chainId: String) {
+        // Use actual disk size if counter not yet initialized (startup race)
+        val currentSize = if (queueSizeCounter.value == UNINITIALIZED_COUNTER) {
+            Logger.d(LogTags.CHAIN, "Counter uninitialized at enqueue — reading actual size from disk (one-time)")
+            queue.getSize()
+        } else {
+            queueSizeCounter.value
+        }
+
         if (currentSize >= MAX_QUEUE_SIZE) {
             Logger.e(LogTags.CHAIN, "Queue size limit reached ($MAX_QUEUE_SIZE). Cannot enqueue chain: $chainId")
             throw IllegalStateException("Queue size limit exceeded")
@@ -249,15 +295,21 @@ internal class IosFileStorage(
         // O(1) enqueue operation
         queue.enqueue(chainId)
 
-        // v2.3.4+ Increment counter atomically (lock-free)
-        queueSizeCounter.incrementAndGet()
+        // Increment counter. If still uninitialized (extremely rare: init not done yet AND
+        // disk read above was 0), compareAndSet from -1 → 1 won't happen here; just use
+        // getAndAdd which correctly handles any starting value.
+        if (queueSizeCounter.value == UNINITIALIZED_COUNTER) {
+            queueSizeCounter.value = currentSize + 1
+        } else {
+            queueSizeCounter.incrementAndGet()
+        }
 
         Logger.v(LogTags.CHAIN, "Enqueued chain $chainId. Queue size: ${queueSizeCounter.value}")
     }
 
     /**
      * Dequeue the first chain ID from the queue (thread-safe, atomic)
-     * v2.3.4+ Updates queue size counter atomically
+     * Updates queue size counter atomically
      * @return Chain ID or null if queue is empty
      */
     suspend fun dequeueChain(): String? {
@@ -267,7 +319,7 @@ internal class IosFileStorage(
         if (chainId == null) {
             Logger.v(LogTags.CHAIN, "Queue is empty")
         } else {
-            // v2.3.4+ Decrement counter atomically (lock-free)
+            // Decrement counter atomically (lock-free)
             queueSizeCounter.decrementAndGet()
             Logger.v(LogTags.CHAIN, "Dequeued chain $chainId. Remaining: ${queueSizeCounter.value}")
         }
@@ -276,18 +328,12 @@ internal class IosFileStorage(
     }
 
     /**
-     * Get current queue size
-     */
-    /**
-     * Get current queue size (O(1) lock-free operation)
-     * v2.3.4+ Uses atomic counter instead of disk I/O
-     *
-     * **Performance improvement:** 100-1000x faster
-     * - Before: 0.5-50ms (reads queue file from disk)
-     * - After: <0.001ms (atomic memory read)
+     * Get current queue size (O(1) lock-free operation in steady state).
+     * Returns actual disk size when counter is uninitialized.
      */
     suspend fun getQueueSize(): Int {
-        return queueSizeCounter.value  // v2.3.4+ Lock-free atomic read (was: queue.getSize())
+        val v = queueSizeCounter.value
+        return if (v == UNINITIALIZED_COUNTER) queue.getSize() else v
     }
 
     /**
@@ -333,7 +379,9 @@ internal class IosFileStorage(
             saveChainDefinition(chainId, newSteps)
 
             // Step 4: Enqueue (SYNCHRONOUS, not async - fixes race condition!)
-            enqueueChain(chainId)
+            // Use enqueueChainInternal() to avoid deadlock: we already hold queueMutex,
+            // and enqueueChain() acquires enqueueMutex (never queueMutex again → safe).
+            enqueueChainInternal(chainId)
 
             // Step 5: Log successful transaction
             val successTxn = txn.copy(succeeded = true)
@@ -414,8 +462,10 @@ internal class IosFileStorage(
         val chainFile = chainsDirURL.URLByAppendingPathComponent("$id.json")!!
         val json = Json.encodeToString(steps)
 
-        // Validate chain size
-        val sizeBytes = json.length.toLong()
+        // Use actual UTF-8 byte count, not String.length (UTF-16 char count).
+        // For CJK / emoji content, UTF-8 bytes can be 3–4× the char count — a 5M-char
+        // CJK string passes the old check but writes ~15MB to disk.
+        val sizeBytes = json.encodeToByteArray().size.toLong()
         if (sizeBytes > MAX_CHAIN_SIZE_BYTES) {
             Logger.e(LogTags.CHAIN, "Chain $id exceeds size limit: $sizeBytes bytes (max: $MAX_CHAIN_SIZE_BYTES)")
             throw IllegalStateException("Chain size exceeds limit")
@@ -534,8 +584,13 @@ internal class IosFileStorage(
             val markerFile = deletedChainsDirURL.URLByAppendingPathComponent(fileName)!!
             val markerPath = markerFile.path ?: return@forEach
 
-            // Read timestamp from marker file
-            val timestampStr = readStringFromFile(markerFile)
+            // Read marker via coordinated() to match the write path in
+            // markChainAsDeleted(). Without coordination, a concurrent write from the
+            // App Extension could produce a partial/stale read, yielding timestamp=0
+            // and causing the marker to be deleted prematurely (treated as 54+ years old).
+            val timestampStr = coordinated(markerFile, write = false) { safeUrl ->
+                readStringFromFile(safeUrl)
+            }
             val timestamp = timestampStr?.toLongOrNull() ?: 0L
 
             // FIX: Use configurable max age (was hardcoded DELETED_MARKER_MAX_AGE_MS)
@@ -631,34 +686,32 @@ internal class IosFileStorage(
      *
      * **v2.2.2 Performance Upgrade:**
      * - Buffers progress updates in-memory (O(1) operation)
-     * - Debounced flush after 500ms (batches multiple saves)
+     * - Debounced flush after 100ms (batches multiple saves)
      * - Reduces NSFileCoordinator overhead by 90% for parallel tasks
      * - Immediate flush available via flushNow() for critical points
      *
-     * Progress is stored separately from the chain definition to allow
-     * resuming chains after interruptions (timeout, force-quit, etc.).
+     * **v2.3.5 Fix:**
+     * - Now a suspend function to ensure buffer update is immediate and safe
+     * - Removed backgroundScope.launch to honor NonCancellable contexts
      *
      * @param progress The progress state to save
      */
-    fun saveChainProgress(progress: ChainProgress) {
-        // Update in-memory buffer asynchronously (non-blocking)
-        backgroundScope.launch {
-            progressMutex.withLock {
-                // Update buffer (O(1) in-memory operation)
-                progressBuffer[progress.chainId] = progress
+    suspend fun saveChainProgress(progress: ChainProgress) {
+        progressMutex.withLock {
+            // Update buffer (O(1) in-memory operation)
+            progressBuffer[progress.chainId] = progress
 
-                Logger.v(
-                    LogTags.CHAIN,
-                    "Buffered progress for ${progress.chainId} (${progress.getCompletionPercentage()}% complete, buffer size: ${progressBuffer.size})"
-                )
+            Logger.v(
+                LogTags.CHAIN,
+                "Buffered progress for ${progress.chainId} (${progress.getCompletionPercentage()}% complete, buffer size: ${progressBuffer.size})"
+            )
 
-                // Schedule debounced flush (only if not currently flushing)
-                if (flushCompletionSignal == null) {
-                    flushJob?.cancel()
-                    flushJob = backgroundScope.launch {
-                        delay(FLUSH_DEBOUNCE_MS)
-                        flushProgressBuffer()
-                    }
+            // Schedule debounced flush (only if not currently flushing)
+            if (flushCompletionSignal == null) {
+                flushJob?.cancel()
+                flushJob = backgroundScope.launch {
+                    delay(FLUSH_DEBOUNCE_MS)
+                    flushProgressBuffer()
                 }
             }
         }
@@ -722,6 +775,17 @@ internal class IosFileStorage(
             // CRITICAL: Always complete signal and reset even if flush fails
             progressMutex.withLock {
                 flushCompletionSignal = null
+                // Re-schedule a flush if new items arrived while we were flushing.
+                // Previously: saveChainProgress() called during a flush saw flushCompletionSignal != null
+                // and skipped scheduling a new job. After the flush completed, those items stayed in
+                // progressBuffer indefinitely if no further saveChainProgress() was called.
+                if (progressBuffer.isNotEmpty() && flushJob?.isActive != true) {
+                    flushJob = backgroundScope.launch {
+                        delay(FLUSH_DEBOUNCE_MS)
+                        flushProgressBuffer()
+                    }
+                    Logger.d(LogTags.CHAIN, "Scheduled follow-up flush for ${progressBuffer.size} items buffered during previous flush")
+                }
             }
             completionSignal.complete(Unit)
         }
@@ -758,7 +822,7 @@ internal class IosFileStorage(
 
     /**
      * Flush all pending progress immediately (synchronous, blocking).
-     * v2.3.4+ Added for data safety before app suspension.
+     * Ensures no progress is lost before app suspension.
      *
      * **Critical Use Cases:**
      * - iOS app entering background (applicationWillResignActive)
@@ -990,11 +1054,17 @@ internal class IosFileStorage(
 
         return memScoped {
             val errorPtr = alloc<ObjCObjectVar<NSError?>>()
-            NSString.stringWithContentsOfFile(
+            val result = NSString.stringWithContentsOfFile(
                 path,
                 encoding = NSUTF8StringEncoding,
                 error = errorPtr.ptr
             )
+            // Check NSError so callers can distinguish "file not found"
+            // from "file exists but unreadable" (iCloud placeholder, permissions, etc.)
+            errorPtr.value?.let { error ->
+                Logger.e(LogTags.CHAIN, "Failed to read file ${url.lastPathComponent}: ${error.localizedDescription}")
+            }
+            result
         }
     }
 
@@ -1002,7 +1072,11 @@ internal class IosFileStorage(
      * Write string to file atomically
      */
     private fun writeStringToFile(url: NSURL, content: String) {
-        val path = url.path ?: return
+        // Log instead of silent return — caller assumes write succeeded
+        val path = url.path ?: run {
+            Logger.e(LogTags.CHAIN, "writeStringToFile: url.path is null for ${url.absoluteString} — write skipped")
+            return
+        }
 
         memScoped {
             val errorPtr = alloc<ObjCObjectVar<NSError?>>()
@@ -1041,7 +1115,11 @@ internal class IosFileStorage(
      * @throws Exception if write fails (temp file cleaned up automatically)
      */
     suspend fun atomicWrite(fileURL: NSURL, content: String) {
-        val tempURL = baseDir.URLByAppendingPathComponent("${fileURL.lastPathComponent}.tmp")!!
+        // Include a hash of the full path in the temp filename to prevent collisions
+        // when two files with the same name exist in different directories. Previously,
+        // "chains/abc.json" and "metadata/tasks/abc.json" would share "abc.json.tmp".
+        val pathHash = fileURL.path.hashCode().toUInt().toString(16)
+        val tempURL = baseDir.URLByAppendingPathComponent("${fileURL.lastPathComponent}_${pathHash}.tmp")!!
 
         try {
             // Step 1: Write to temp file (safe if cancelled here)
@@ -1113,98 +1191,16 @@ internal class IosFileStorage(
      * - iCloud synchronization safety
      * - System file operation conflicts (Spotlight, etc.)
      *
-     * ISSUE: NSFileCoordinator callbacks (both async AND synchronous) do not execute
-     * reliably in unit test contexts, causing test failures.
-     *
-     * SOLUTION: Detect test environment and skip coordination for tests only.
-     * - Production: Full NSFileCoordinator protection (inter-process safety)
-     * - Tests: Direct execution with Kotlin Mutex protection (in-process safety)
-     *
-     * FIX: Multi-layered test detection (v2.2.2+):
-     * 1. Config override (isTestMode) - most reliable
-     * 2. Environment variable (KMPWORKMANAGER_TEST_MODE=1)
-     * 3. Fallback to process name check (test.kexe) - backward compatible
+     * **v2.3.5 Refactor:** Uses shared IosFileCoordinator.
      */
     private fun <T> coordinated(url: NSURL, write: Boolean, block: (NSURL) -> T): T {
-        // FIX: Improved test detection with multiple strategies
-        val isTestEnvironment = when {
-            // Priority 1: Config override (explicit)
-            config.isTestMode != null -> config.isTestMode
-
-            // Priority 2: Environment variable (recommended for tests)
-            NSProcessInfo.processInfo.environment.containsKey("KMPWORKMANAGER_TEST_MODE") -> {
-                val value = NSProcessInfo.processInfo.environment["KMPWORKMANAGER_TEST_MODE"] as? String
-                value == "1" || value?.equals("true", ignoreCase = true) == true
-            }
-
-            // Priority 3: Fallback to process name (backward compatible)
-            else -> NSProcessInfo.processInfo.processName.contains("test.kexe")
-        }
-
-        if (isTestEnvironment) {
-            // Test environment: Direct execution (Kotlin Mutex provides thread-safety)
-            Logger.d(LogTags.CHAIN, "Test mode detected - skipping NSFileCoordinator")
-            return block(url)
-        }
-
-        // Production: Full NSFileCoordinator protection (v2.2.2+ with timing instrumentation)
-        var result: T? = null
-        var blockError: Exception? = null
-
-        // FIX: Add timing instrumentation to detect slow operations
-        val startTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
-
-        memScoped {
-            val errorPtr = alloc<ObjCObjectVar<NSError?>>()
-
-            if (write) {
-                fileCoordinator.coordinateWritingItemAtURL(
-                    url = url,
-                    options = 0u,
-                    error = errorPtr.ptr,
-                    byAccessor = { actualURL ->
-                        try {
-                            result = block(actualURL!!)
-                        } catch (e: Exception) {
-                            blockError = e
-                        }
-                    }
-                )
-            } else {
-                fileCoordinator.coordinateReadingItemAtURL(
-                    url = url,
-                    options = 0u,
-                    error = errorPtr.ptr,
-                    byAccessor = { actualURL ->
-                        try {
-                            result = block(actualURL!!)
-                        } catch (e: Exception) {
-                            blockError = e
-                        }
-                    }
-                )
-            }
-
-            errorPtr.value?.let { error ->
-                throw IllegalStateException("File coordination failed: ${error.localizedDescription}")
-            }
-        }
-
-        // FIX: Check if operation exceeded timeout threshold and log warning
-        val duration = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime
-        if (config.fileCoordinationTimeoutMs > 0 && duration > config.fileCoordinationTimeoutMs) {
-            Logger.w(
-                LogTags.CHAIN,
-                "⚠️ File coordination took ${duration}ms (threshold: ${config.fileCoordinationTimeoutMs}ms) - " +
-                "consider increasing timeout or investigating performance issue. File: ${url.lastPathComponent}"
-            )
-        } else if (duration > 1000) {
-            // Log slow operations (>1s) even if below timeout
-            Logger.d(LogTags.CHAIN, "File coordination took ${duration}ms for ${url.lastPathComponent}")
-        }
-
-        blockError?.let { throw it }
-        return result ?: throw IllegalStateException("File coordination callback did not execute")
+        return IosFileCoordinator.coordinate(
+            url = url,
+            write = write,
+            isTestMode = config.isTestMode ?: false,
+            timeoutMs = config.fileCoordinationTimeoutMs,
+            block = block
+        )
     }
 
     /**
@@ -1219,6 +1215,10 @@ internal class IosFileStorage(
      */
     suspend fun close() {
         try {
+            // Flush buffered progress BEFORE cancelling scope.
+            // Cancelling the scope first would kill the pending flushJob, silently
+            // discarding any buffered progress updates that hadn't reached disk yet.
+            flushNow()
             // Cancel all background jobs (flush, maintenance)
             backgroundScope.cancel()
             Logger.i(LogTags.CHAIN, "IosFileStorage closed - background scope cancelled")

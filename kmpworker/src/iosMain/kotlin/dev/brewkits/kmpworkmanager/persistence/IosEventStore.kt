@@ -1,5 +1,6 @@
 package dev.brewkits.kmpworkmanager.persistence
 
+import dev.brewkits.kmpworkmanager.background.data.IosFileCoordinator
 import dev.brewkits.kmpworkmanager.background.domain.TaskCompletionEvent
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.utils.LogTags
@@ -9,7 +10,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import platform.Foundation.*
-import platform.darwin.NSInteger
 
 /**
  * iOS implementation of EventStore using file-based storage.
@@ -36,7 +36,6 @@ class IosEventStore(
 
     private val json = Json { ignoreUnknownKeys = true }
     private val fileManager = NSFileManager.defaultManager
-    private val fileCoordinator = NSFileCoordinator(filePresenter = null)
     private val fileLock = Mutex()
 
     /**
@@ -290,67 +289,48 @@ class IosEventStore(
     }
 
     /**
-     * Reads file content safely using NSFileCoordinator
+     * Reads file content safely using IosFileCoordinator (handles test-mode detection)
      */
     private fun readFileContent(url: NSURL): String? {
-        return memScoped {
-            val errorPtr = alloc<ObjCObjectVar<NSError?>>()
-
-            var content: String? = null
-
-            fileCoordinator.coordinateReadingItemAtURL(
-                url,
-                options = 0u,
-                error = errorPtr.ptr,
-                byAccessor = { actualURL ->
-                    actualURL?.let { fileURL ->
-                        val data = NSString.stringWithContentsOfURL(
-                            fileURL,
-                            encoding = NSUTF8StringEncoding,
-                            error = null
-                        )
-                        content = data?.toString()
-                    }
-                }
-            )
-
-            val error = errorPtr.value
-            if (error != null) {
-                Logger.w(LogTags.SCHEDULER, "IosEventStore: Read error: ${error.localizedDescription}")
-                return@memScoped null
+        return try {
+            IosFileCoordinator.coordinate(url, write = false) { fileURL ->
+                NSString.stringWithContentsOfURL(
+                    fileURL,
+                    encoding = NSUTF8StringEncoding,
+                    error = null
+                )?.toString()
             }
-
-            content
+        } catch (e: Exception) {
+            Logger.w(LogTags.SCHEDULER, "IosEventStore: Read error: ${e.message}")
+            null
         }
     }
 
     /**
-     * Writes file content atomically using NSFileCoordinator
+     * Writes file content atomically using IosFileCoordinator (handles test-mode detection).
+     * Write errors (disk full, permissions) are captured and propagated as exceptions.
      */
     private fun writeFileAtomic(url: NSURL, content: String) {
-        memScoped {
-            val errorPtr = alloc<ObjCObjectVar<NSError?>>()
+        var writeFailureMsg: String? = null
 
-            fileCoordinator.coordinateWritingItemAtURL(
-                url,
-                options = 0u,
-                error = errorPtr.ptr,
-                byAccessor = { actualURL ->
-                    actualURL?.let { fileURL ->
-                        (content as NSString).writeToURL(
-                            fileURL,
-                            atomically = true,
-                            encoding = NSUTF8StringEncoding,
-                            error = null
-                        )
-                    }
+        IosFileCoordinator.coordinate(url, write = true) { fileURL ->
+            memScoped {
+                val writeErrorPtr = alloc<ObjCObjectVar<NSError?>>()
+                val success = (content as NSString).writeToURL(
+                    fileURL,
+                    atomically = true,
+                    encoding = NSUTF8StringEncoding,
+                    error = writeErrorPtr.ptr
+                )
+                if (!success) {
+                    writeFailureMsg = writeErrorPtr.value?.localizedDescription
+                        ?: "Write returned false"
                 }
-            )
-
-            val error = errorPtr.value
-            if (error != null) {
-                throw IllegalStateException("IosEventStore: Write error: ${error.localizedDescription}")
             }
+        }
+
+        writeFailureMsg?.let { msg ->
+            throw IllegalStateException("IosEventStore: Write error: $msg")
         }
     }
 

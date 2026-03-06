@@ -128,23 +128,16 @@ internal class AppendOnlyQueue(
      */
     suspend fun enqueue(item: String) {
         queueMutex.withLock {
-            checkDiskSpace(item.length.toLong())
+            checkDiskSpace(item.encodeToByteArray().size.toLong())
 
-            coordinated(queueFileURL, write = true) {
+            coordinated(queueFileURL, write = true) { safeUrl ->
                 // Append single line to queue file (O(1) operation)
                 // Note: We removed size check here to maintain O(1) performance
                 // Size limits should be enforced at a higher level if needed
-                appendToQueueFile(item)
+                appendToQueueFile(safeUrl, item)
 
                 // Invalidate cache since file changed
                 cacheValid = false
-
-                // v2.2.2+ Save index asynchronously (non-blocking)
-                // Rebuild cache on next access, then persist
-                compactionScope.launch {
-                    // Note: Index will be saved after cache is rebuilt on next dequeue
-                    // This is acceptable since index is an optimization, not critical for correctness
-                }
 
                 Logger.v(LogTags.QUEUE, "Enqueued $item")
             }
@@ -166,9 +159,9 @@ internal class AppendOnlyQueue(
                 queueMutex.withLock {
                     // Double-check inside lock (prevents TOCTOU issues)
                     if (isQueueCorrupt) {
-                        coordinated(queueFileURL, write = true) {
+                        coordinated(queueFileURL, write = true) { safeUrl ->
                             Logger.w(LogTags.QUEUE, "Queue corruption detected during dequeue. Truncating at offset $corruptionOffset...")
-                            truncateAtCorruptionPoint()  // Safe: queueMutex already held
+                            truncateAtCorruptionPoint(safeUrl)  // Safe: queueMutex already held
                             isQueueCorrupt = false
                             corruptionOffset = 0UL
                         }
@@ -179,13 +172,15 @@ internal class AppendOnlyQueue(
         }
 
         return queueMutex.withLock {
-            coordinated(headPointerURL, write = true) {
-                val headIndex = readHeadPointer()
-                val item = readLineAtIndex(headIndex)
+            coordinated(headPointerURL, write = true) { safeHeadUrl ->
+                val headIndex = readHeadPointer(safeHeadUrl)
+                val item = coordinated(queueFileURL, write = false) { safeQueueUrl ->
+                    readLineAtIndex(safeQueueUrl, headIndex)
+                }
 
                 if (item != null) {
                     // Increment head pointer (O(1) operation)
-                    writeHeadPointer(headIndex + 1)
+                    writeHeadPointer(safeHeadUrl, headIndex + 1)
 
                     Logger.v(LogTags.QUEUE, "Dequeued $item. New head index: ${headIndex + 1}")
 
@@ -210,9 +205,13 @@ internal class AppendOnlyQueue(
      */
     suspend fun getSize(): Int {
         return queueMutex.withLock {
-            coordinated(queueFileURL, write = false) {
-                getQueueSizeInternal()
+            val headIndex = coordinated(headPointerURL, write = false) { safeHeadUrl ->
+                readHeadPointer(safeHeadUrl)
             }
+            val totalLines = coordinated(queueFileURL, write = false) { safeQueueUrl ->
+                countTotalLines(safeQueueUrl)
+            }
+            maxOf(0, totalLines - headIndex)
         }
     }
 
@@ -222,8 +221,8 @@ internal class AppendOnlyQueue(
      * Append a single line to the queue file
      * **Performance**: O(1) - seek to end and write
      */
-    private fun appendToQueueFile(item: String) {
-        val path = queueFileURL.path ?: throw IllegalStateException("Queue file path is null")
+    private fun appendToQueueFile(url: NSURL, item: String) {
+        val path = url.path ?: throw IllegalStateException("Queue file path is null")
 
         // Create file if it doesn't exist
         if (!fileManager.fileExistsAtPath(path)) {
@@ -232,7 +231,7 @@ internal class AppendOnlyQueue(
             if (fileFormat == null || fileFormat == FORMAT_VERSION) {
                 memScoped {
                     val errorPtr = alloc<ObjCObjectVar<NSError?>>()
-                    val fileHandle = NSFileHandle.fileHandleForWritingToURL(queueFileURL, errorPtr.ptr)
+                    val fileHandle = NSFileHandle.fileHandleForWritingToURL(url, errorPtr.ptr)
 
                     if (fileHandle != null) {
                         try {
@@ -249,7 +248,7 @@ internal class AppendOnlyQueue(
         memScoped {
             val errorPtr = alloc<ObjCObjectVar<NSError?>>()
 
-            val fileHandle = NSFileHandle.fileHandleForWritingToURL(queueFileURL, errorPtr.ptr)
+            val fileHandle = NSFileHandle.fileHandleForWritingToURL(url, errorPtr.ptr)
 
             if (fileHandle == null) {
                 throw IllegalStateException("Failed to open queue file: ${errorPtr.value?.localizedDescription}")
@@ -281,8 +280,8 @@ internal class AppendOnlyQueue(
      * Read line at specified index
      * **Performance**: O(1) with cache, O(N) first time (builds cache)
      */
-    private fun readLineAtIndex(index: Int): String? {
-        val path = queueFileURL.path ?: return null
+    private fun readLineAtIndex(url: NSURL, index: Int): String? {
+        val path = url.path ?: return null
 
         if (!fileManager.fileExistsAtPath(path)) {
             return null
@@ -291,7 +290,7 @@ internal class AppendOnlyQueue(
         memScoped {
             val errorPtr = alloc<ObjCObjectVar<NSError?>>()
 
-            val fileHandle = NSFileHandle.fileHandleForReadingFromURL(queueFileURL, errorPtr.ptr)
+            val fileHandle = NSFileHandle.fileHandleForReadingFromURL(url, errorPtr.ptr)
                 ?: return null
 
             try {
@@ -370,9 +369,10 @@ internal class AppendOnlyQueue(
      * Non-blocking - runs in background scope
      */
     private fun saveIndexAsync() {
+        val snapshot = HashMap(linePositionCache) // snapshot while caller holds queueMutex
         compactionScope.launch {
             try {
-                queueIndex.saveIndex(linePositionCache)
+                queueIndex.saveIndex(snapshot)
             } catch (e: Exception) {
                 Logger.w(LogTags.QUEUE, "Failed to save queue index (non-critical)", e)
             }
@@ -435,12 +435,12 @@ internal class AppendOnlyQueue(
      * Read head pointer value (current read position)
      * **Performance**: O(1)
      */
-    private fun readHeadPointer(): Int {
-        val path = headPointerURL.path ?: return 0
+    private fun readHeadPointer(url: NSURL): Int {
+        val path = url.path ?: return 0
 
         if (!fileManager.fileExistsAtPath(path)) {
             // First time: Create head pointer at 0
-            writeHeadPointer(0)
+            writeHeadPointer(url, 0)
             return 0
         }
 
@@ -452,6 +452,10 @@ internal class AppendOnlyQueue(
                 error = errorPtr.ptr
             )
 
+            errorPtr.value?.let { error ->
+                Logger.e(LogTags.QUEUE, "Failed to read head pointer, defaulting to 0: ${error.localizedDescription}")
+            }
+
             content?.toString()?.trim()?.toIntOrNull() ?: 0
         }
     }
@@ -460,8 +464,8 @@ internal class AppendOnlyQueue(
      * Write head pointer value
      * **Performance**: O(1)
      */
-    private fun writeHeadPointer(index: Int) {
-        val path = headPointerURL.path ?: throw IllegalStateException("Head pointer path is null")
+    private fun writeHeadPointer(url: NSURL, index: Int) {
+        val path = url.path ?: throw IllegalStateException("Head pointer path is null")
 
         memScoped {
             val errorPtr = alloc<ObjCObjectVar<NSError?>>()
@@ -469,7 +473,7 @@ internal class AppendOnlyQueue(
 
             val success = content.writeToFile(
                 path,
-                atomically = true,
+                atomically = false,
                 encoding = NSUTF8StringEncoding,
                 error = errorPtr.ptr
             )
@@ -479,6 +483,11 @@ internal class AppendOnlyQueue(
             }
         }
     }
+
+    // Convenience wrappers using class-level file URLs
+    private fun readHeadPointer(): Int = readHeadPointer(headPointerURL)
+    private fun writeHeadPointer(index: Int) = writeHeadPointer(headPointerURL, index)
+    private fun countTotalLines(): Int = countTotalLines(queueFileURL)
 
     /**
      * Get queue size (unprocessed items)
@@ -490,15 +499,17 @@ internal class AppendOnlyQueue(
     }
 
     /**
-     * Count total lines in queue file
+     * Count records in the queue file.
+     *
+     * For the binary format (FORMAT_VERSION), records are parsed by their
+     * length field so that incidental 0x0A bytes inside the length, data, or
+     * CRC32 fields are never mistaken for record terminators.
+     *
+     * For the legacy text format each line ends with exactly one '\n', so
+     * counting newlines is correct.
      */
-    /**
-     * Count lines in file without loading entire content into memory.
-     * Reads file in chunks and counts newline characters.
-     * Memory efficient for large queue files.
-     */
-    private fun countTotalLines(): Int {
-        val path = queueFileURL.path ?: return 0
+    private fun countTotalLines(url: NSURL): Int {
+        val path = url.path ?: return 0
 
         if (!fileManager.fileExistsAtPath(path)) {
             return 0
@@ -507,7 +518,7 @@ internal class AppendOnlyQueue(
         return memScoped {
             val errorPtr = alloc<ObjCObjectVar<NSError?>>()
             val fileHandle = NSFileHandle.fileHandleForReadingFromURL(
-                queueFileURL,
+                url,
                 error = errorPtr.ptr
             )
 
@@ -517,37 +528,40 @@ internal class AppendOnlyQueue(
             }
 
             try {
-                var lineCount = 0
-                var hasContent = false
-                val chunkSize = 8192UL // 8KB chunks
-
-                while (true) {
-                    val data = fileHandle.readDataOfLength(chunkSize)
-                    if (data.length == 0UL) break
-
-                    hasContent = true
-
-                    // Convert NSData to ByteArray and count newlines
-                    val byteArray = ByteArray(data.length.toInt())
-                    byteArray.usePinned { pinned ->
-                        data.getBytes(pinned.addressOf(0), data.length)
+                if (fileFormat == FORMAT_VERSION) {
+                    // Binary format: navigate by length fields to avoid false newline counts
+                    fileHandle.seekToFileOffset(8u) // skip 8-byte header (magic + version)
+                    var count = 0
+                    loop@ while (true) {
+                        val lengthData = fileHandle.readDataOfLength(4u)
+                        if (lengthData.length < 4UL) break@loop
+                        val lengthBytes = lengthData.bytes?.reinterpret<ByteVar>() ?: break@loop
+                        val length = readUIntFromBytes(lengthBytes)
+                        if (length == 0u || length > 10_000_000u) break@loop
+                        // Skip: data (length bytes) + CRC32 (4 bytes) + newline (1 byte)
+                        fileHandle.seekToFileOffset(fileHandle.offsetInFile + length.toULong() + 5UL)
+                        count++
                     }
-
-                    for (byte in byteArray) {
-                        if (byte == '\n'.code.toByte()) {
-                            lineCount++
+                    fileHandle.closeFile()
+                    return count
+                } else {
+                    // Legacy text format: count newline characters
+                    var lineCount = 0
+                    val chunkSize = 8192UL
+                    while (true) {
+                        val data = fileHandle.readDataOfLength(chunkSize)
+                        if (data.length == 0UL) break
+                        val byteArray = ByteArray(data.length.toInt())
+                        byteArray.usePinned { pinned ->
+                            data.getBytes(pinned.addressOf(0), data.length)
+                        }
+                        for (byte in byteArray) {
+                            if (byte == '\n'.code.toByte()) lineCount++
                         }
                     }
+                    fileHandle.closeFile()
+                    return lineCount
                 }
-
-                fileHandle.closeFile()
-
-                // If file has content but no newlines, count as 1 line
-                if (hasContent && lineCount == 0) {
-                    return 1
-                }
-
-                return lineCount
             } catch (e: Exception) {
                 fileHandle.closeFile()
                 Logger.e(LogTags.QUEUE, "Error counting lines: ${e.message}")
@@ -628,11 +642,13 @@ internal class AppendOnlyQueue(
                 return@withLock
             }
 
-            coordinated(queueFileURL, write = true) {
+            coordinated(queueFileURL, write = true) { safeQueueUrl ->
                 Logger.i(LogTags.CHAIN, "Starting queue compaction...")
 
-                val headIndex = readHeadPointer()
-                val totalLines = countTotalLines()
+                val headIndex = coordinated(headPointerURL, write = false) { safeHeadUrl ->
+                    readHeadPointer(safeHeadUrl)
+                }
+                val totalLines = countTotalLines(safeQueueUrl)
                 val unprocessedCount = totalLines - headIndex
 
                 if (unprocessedCount <= 0) {
@@ -647,7 +663,7 @@ internal class AppendOnlyQueue(
                 // Step 1: Read all unprocessed items
                 val unprocessedItems = mutableListOf<String>()
                 for (i in headIndex until totalLines) {
-                    val item = readLineAtIndex(i)
+                    val item = readLineAtIndex(safeQueueUrl, i)
                     if (item != null) {
                         unprocessedItems.add(item)
                     }
@@ -665,7 +681,7 @@ internal class AppendOnlyQueue(
                     // Use replaceItemAtURL for atomic replacement
                     // This ensures crash-safety: if interrupted, either old or new file exists
                     val resultingURL = fileManager.replaceItemAtURL(
-                        queueFileURL,
+                        safeQueueUrl,
                         withItemAtURL = compactedQueueURL,
                         backupItemName = null,
                         options = NSFileManagerItemReplacementWithoutDeletingBackupItem,
@@ -678,7 +694,7 @@ internal class AppendOnlyQueue(
                         // Fallback to non-atomic replacement if replaceItemAtURL not supported
                         if (error?.code == NSFileNoSuchFileError || error?.code == NSFileReadNoSuchFileError) {
                             Logger.w(LogTags.QUEUE, "replaceItemAtURL not available, using fallback")
-                            val queuePath = queueFileURL.path ?: throw IllegalStateException("Queue file path is null")
+                            val queuePath = safeQueueUrl.path ?: throw IllegalStateException("Queue file path is null")
                             val compactedPath = compactedQueueURL.path ?: throw IllegalStateException("Compacted file path is null")
 
                             // Delete old queue file
@@ -701,7 +717,9 @@ internal class AppendOnlyQueue(
                 }
 
                 // Step 4: Reset head pointer to 0
-                writeHeadPointer(0)
+                coordinated(headPointerURL, write = true) { safeHeadUrl ->
+                    writeHeadPointer(safeHeadUrl, 0)
+                }
 
                 // Step 5: Invalidate cache AFTER file replacement (Fix #3 - prevent stale reads)
                 linePositionCache.clear()
@@ -848,6 +866,14 @@ internal class AppendOnlyQueue(
         Logger.i(LogTags.QUEUE, "Starting text → binary migration...")
 
         try {
+            // Read current head pointer BEFORE renaming, so we can skip
+            // already-dequeued items. Without this, upgrading re-processes every item in
+            // the legacy file from the start, re-running already-completed chains.
+            val existingHeadIndex = readHeadPointer()
+            if (existingHeadIndex > 0) {
+                Logger.i(LogTags.QUEUE, "Migration: skipping first $existingHeadIndex already-processed items")
+            }
+
             // Step 1: Rename to .legacy
             memScoped {
                 val errorPtr = alloc<ObjCObjectVar<NSError?>>()
@@ -858,7 +884,7 @@ internal class AppendOnlyQueue(
                 }
             }
 
-            // Step 2: Read all items from legacy file
+            // Step 2: Read only unprocessed items from legacy file (skip first existingHeadIndex lines)
             val items = mutableListOf<String>()
             memScoped {
                 val errorPtr = alloc<ObjCObjectVar<NSError?>>()
@@ -869,16 +895,18 @@ internal class AppendOnlyQueue(
                 )
 
                 if (content != null) {
-                    content.split("\n").forEach { line ->
-                        val trimmed = line.trim()
-                        if (trimmed.isNotEmpty()) {
-                            items.add(trimmed)
+                    content.split("\n").forEachIndexed { lineIndex, line ->
+                        if (lineIndex >= existingHeadIndex) {
+                            val trimmed = line.trim()
+                            if (trimmed.isNotEmpty()) {
+                                items.add(trimmed)
+                            }
                         }
                     }
                 }
             }
 
-            Logger.i(LogTags.QUEUE, "Read ${items.size} items from legacy queue")
+            Logger.i(LogTags.QUEUE, "Read ${items.size} unprocessed items from legacy queue (skipped $existingHeadIndex)")
 
             // Step 3: Create new binary file with header
             fileManager.createFileAtPath(queuePath, null, null)
@@ -906,7 +934,7 @@ internal class AppendOnlyQueue(
                 }
             }
 
-            // Step 5: Reset head pointer to 0
+            // Step 5: Reset head pointer to 0 (items list already excludes processed items)
             writeHeadPointer(0)
 
             // Step 6: Delete legacy file
@@ -1001,13 +1029,18 @@ internal class AppendOnlyQueue(
 
     /**
      * Execute block with file coordination
-     * Note: File coordination abstraction will be added in Phase 3 (v2.1.0 DI implementation)
-     * For now, executes directly. Thread-safety is provided by queueMutex.
+     *
+     * **v2.3.5 Refactor:** Uses shared IosFileCoordinator for inter-process safety.
      */
-    private fun <T> coordinated(url: NSURL, write: Boolean, block: () -> T): T {
-        // Direct execution - thread-safety provided by queueMutex
-        return block()
+    private fun <T> coordinated(url: NSURL, write: Boolean, block: (NSURL) -> T): T {
+        return IosFileCoordinator.coordinate(
+            url = url,
+            write = write,
+            isTestMode = false, // Or auto-detect
+            block = block
+        )
     }
+
 
     /**
      * Check if sufficient disk space is available
@@ -1055,7 +1088,7 @@ internal class AppendOnlyQueue(
      *
      * CRITICAL: Assumes queueMutex already held by caller.
      */
-    private fun truncateAtCorruptionPoint() {
+    private fun truncateAtCorruptionPoint(url: NSURL) {
         val headerSize = if (fileFormat == FORMAT_VERSION) 8UL else 0UL
 
         if (corruptionOffset <= headerSize) {
@@ -1070,7 +1103,7 @@ internal class AppendOnlyQueue(
                     "preserving ${corruptionOffset - headerSize} bytes of valid data"
         )
 
-        val path = queueFileURL.path
+        val path = url.path
         if (path == null) {
             resetQueueInternal()
             return
@@ -1078,7 +1111,7 @@ internal class AppendOnlyQueue(
 
         memScoped {
             val errorPtr = alloc<ObjCObjectVar<NSError?>>()
-            val fileHandle = NSFileHandle.fileHandleForWritingToURL(queueFileURL, errorPtr.ptr)
+            val fileHandle = NSFileHandle.fileHandleForWritingToURL(url, errorPtr.ptr)
             if (fileHandle != null) {
                 try {
                     fileHandle.truncateFileAtOffset(corruptionOffset)
@@ -1147,9 +1180,11 @@ internal class AppendOnlyQueue(
 
             writeHeadPointer(0)
 
-            // Clear cache and reset format
+            // Clear cache, reset format, and clear corruption state
             linePositionCache.clear()
             cacheValid = false
+            isQueueCorrupt = false
+            corruptionOffset = 0UL
 
             Logger.i(LogTags.QUEUE, "Queue reset complete. All data cleared (binary format).")
         } catch (e: Exception) {
@@ -1174,7 +1209,6 @@ internal class AppendOnlyQueue(
     /**
      * Shutdown the queue and cancel all background operations
      * Call this before disposing the queue (e.g., in tests)
-     * v2.3.4+
      */
     fun shutdown() {
         try {

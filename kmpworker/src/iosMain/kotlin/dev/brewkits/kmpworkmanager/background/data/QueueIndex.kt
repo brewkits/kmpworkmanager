@@ -61,12 +61,11 @@ internal class QueueIndex(private val indexFileURL: NSURL) {
             }
         }
 
-        // Atomic write
         memScoped {
             val errorPtr = alloc<ObjCObjectVar<NSError?>>()
             val success = data.writeToURL(
                 indexFileURL,
-                options = NSDataWritingAtomic,
+                options = 0u,
                 error = errorPtr.ptr
             )
 
@@ -96,8 +95,18 @@ internal class QueueIndex(private val indexFileURL: NSURL) {
         }
 
         return try {
-            val data = NSData.dataWithContentsOfFile(path)
-                ?: return emptyMap()
+            val data = memScoped {
+                val errorPtr = alloc<ObjCObjectVar<NSError?>>()
+                val result = NSData.dataWithContentsOfFile(
+                    path,
+                    options = 0u,
+                    error = errorPtr.ptr
+                )
+                errorPtr.value?.let { error ->
+                    Logger.w(LogTags.QUEUE, "Failed to read queue index: ${error.localizedDescription} - will rebuild")
+                }
+                result
+            } ?: return emptyMap()
 
             val entryCount = (data.length / 8u).toInt()
 

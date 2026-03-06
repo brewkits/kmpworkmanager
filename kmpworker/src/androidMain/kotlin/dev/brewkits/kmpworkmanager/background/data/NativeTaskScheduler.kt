@@ -570,7 +570,7 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
 
     /**
      * Flush all pending progress updates immediately.
-     * v2.3.4+ Implementation for Android.
+     * v2.3.5+ Implementation for Android.
      *
      * **Note for Android:**
      * WorkManager automatically persists progress updates via Room database.
@@ -597,7 +597,7 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
     /**
      * Enqueues a task chain for execution.
      *
-     * v2.3.4: Now suspending for consistency with iOS implementation.
+     * v2.3.5: Now suspending for consistency with iOS implementation.
      * Android WorkManager handles the async nature internally.
      */
     actual override suspend fun enqueueChain(

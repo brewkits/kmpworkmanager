@@ -149,7 +149,7 @@ class IosFileStorageTest {
     // ==================== Chain Progress Operations ====================
 
     @Test
-    fun `saveChainProgress and loadChainProgress should persist progress`() {
+    fun `saveChainProgress and loadChainProgress should persist progress`() = runTest {
         val chainId = "progress-test-${(0..999999).random()}"
         val progress = ChainProgress(
             chainId = chainId,
@@ -160,8 +160,9 @@ class IosFileStorageTest {
             maxRetries = 3
         )
 
-        // Save
+        // Save and flush to disk
         storage.saveChainProgress(progress)
+        storage.flushNow()
 
         // Load and verify
         val loaded = storage.loadChainProgress(chainId)
@@ -183,11 +184,12 @@ class IosFileStorageTest {
     }
 
     @Test
-    fun `deleteChainProgress should remove progress`() {
+    fun `deleteChainProgress should remove progress`() = runTest {
         val chainId = "delete-progress-${(0..999999).random()}"
         val progress = ChainProgress(chainId = chainId, totalSteps = 3)
 
         storage.saveChainProgress(progress)
+        storage.flushNow()
         assertNotNull(storage.loadChainProgress(chainId))
 
         storage.deleteChainProgress(chainId)
@@ -195,7 +197,7 @@ class IosFileStorageTest {
     }
 
     @Test
-    fun `saveChainProgress should update existing progress`() {
+    fun `saveChainProgress should update existing progress`() = runTest {
         val chainId = "update-progress-${(0..999999).random()}"
 
         // Save initial progress
@@ -213,6 +215,7 @@ class IosFileStorageTest {
             completedSteps = listOf(0, 1, 2)
         )
         storage.saveChainProgress(progress2)
+        storage.flushNow()
 
         // Verify updated version
         val loaded = storage.loadChainProgress(chainId)
@@ -224,7 +227,7 @@ class IosFileStorageTest {
     }
 
     @Test
-    fun `progress with retry count should be persisted`() {
+    fun `progress with retry count should be persisted`() = runTest {
         val chainId = "retry-test-${(0..999999).random()}"
         val progress = ChainProgress(
             chainId = chainId,
@@ -236,6 +239,7 @@ class IosFileStorageTest {
         )
 
         storage.saveChainProgress(progress)
+        storage.flushNow()
         val loaded = storage.loadChainProgress(chainId)
 
         assertNotNull(loaded)

@@ -31,7 +31,7 @@ import okio.Path.Companion.toPath
  * **Memory Usage:** ~5-7MB RAM
  * **Default Timeout:** 120 seconds (2 minutes)
  *
- * **Performance Optimization (v2.3.4+):**
+ * **Performance Optimization (v2.3.5+):**
  * - Uses singleton HttpClient for connection pool reuse
  * - 60-86% faster than previous version
  *

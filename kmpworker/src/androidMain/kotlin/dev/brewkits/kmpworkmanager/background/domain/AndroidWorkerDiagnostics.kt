@@ -32,7 +32,8 @@ class AndroidWorkerDiagnostics(
 
     override suspend fun getSchedulerStatus(): SchedulerStatus {
         // Get all pending/running work
-        val workInfos = workManager.getWorkInfosByTag("kmp-worker").get()
+        // "KMP_TASK" matches the tag applied by NativeTaskScheduler.TAG_KMP_TASK
+        val workInfos = workManager.getWorkInfosByTag("KMP_TASK").get()
         val pendingTasks = workInfos.count {
             it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.RUNNING
         }
