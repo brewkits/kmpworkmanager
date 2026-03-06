@@ -675,10 +675,12 @@ actual class NativeTaskScheduler(
         }
 
         // 3. Schedule the generic chain executor task
-        // ChainExecutor should be created with BGTaskType.PROCESSING in the handler
+        // ChainExecutor should be created with BGTaskType.PROCESSING in the handler.
+        // requiresNetworkConnectivity is false: individual workers handle their own
+        // network requirements; the chain executor itself does not need connectivity.
         val request = BGProcessingTaskRequest(identifier = CHAIN_EXECUTOR_IDENTIFIER).apply {
             earliestBeginDate = NSDate().dateByAddingTimeInterval(1.0)
-            requiresNetworkConnectivity = true
+            requiresNetworkConnectivity = false
         }
 
         memScoped {

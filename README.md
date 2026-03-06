@@ -116,7 +116,7 @@ Add to your `build.gradle.kts`:
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("dev.brewkits:kmpworkmanager:2.3.5")
+            implementation("dev.brewkits:kmpworkmanager:2.3.6")
         }
     }
 }
@@ -378,13 +378,19 @@ Check the [`/composeApp`](composeApp/) directory for a complete demo app with:
 
 ---
 
-## What's New in v2.3.5
+## What's New in v2.3.6
 
-🐛 **Fixes**
-- Fixed Android diagnostics always returning empty task list (wrong WorkManager tag)
-- Fixed iOS event store silently dropping write errors (disk full, permissions)
-- Fixed SharedFlow event drops under high load (`tryEmit` → `emit`)
-- Fixed Logger crashing JVM unit tests when no platform logger is configured
+🐛 **Critical Bug Fixes**
+- Fixed iOS chain execution always treating chains as succeeded (withTimeout return discarded)
+- Fixed CancellationException swallowed in task executor — timeouts/cancellation now propagate correctly
+- Fixed batch execution loop never breaking early on failure
+- Fixed Android exact trigger using epoch timestamp as delay (scheduled far in the future)
+- Fixed iOS chain BGTask requiring network unnecessarily
+- Fixed Android periodic work ignoring flexMs
+- Fixed Android DEVICE_IDLE constraint detection inverted
+- Fixed Android ContentUri trigger missing systemConstraints
+- Fixed IosFileStorage.close() not awaiting background scope cancellation (caused real-device crashes)
+- Fixed IosEventStore initial file creation silently ignoring write errors
 
 **→ Full changelog:** [CHANGELOG.md](CHANGELOG.md)
 
