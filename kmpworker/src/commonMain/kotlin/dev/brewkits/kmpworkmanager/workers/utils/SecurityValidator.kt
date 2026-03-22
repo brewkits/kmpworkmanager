@@ -105,8 +105,11 @@ object SecurityValidator {
             return true
         }
 
-        // AWS/Cloud metadata endpoints
-        if (hostname == "169.254.169.254" || hostname == "fd00:ec2::254") {
+        // Cloud metadata endpoints (AWS, GCP, Azure, Alibaba Cloud)
+        if (hostname == "169.254.169.254" ||   // AWS / GCP / Azure instance metadata
+            hostname == "fd00:ec2::254" ||       // AWS IPv6 metadata
+            hostname == "100.100.100.200" ||     // Alibaba Cloud ECS metadata
+            hostname == "metadata.google.internal") {
             return true
         }
 

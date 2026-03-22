@@ -66,11 +66,22 @@ class AndroidWorkerDiagnostics(
     }
 
     override suspend fun getTaskStatus(id: String): TaskStatusDetail? {
-        val workInfo = try {
+        // Try lookup by UUID first (for tasks enqueued without a unique name)
+        val workInfo: WorkInfo? = try {
             workManager.getWorkInfoById(java.util.UUID.fromString(id)).get()
-        } catch (e: Exception) {
-            return null
-        } ?: return null // WorkInfo is null
+        } catch (_: IllegalArgumentException) {
+            // id is not a UUID — fall through to named work lookup
+            null
+        } catch (_: Exception) {
+            null
+        } ?: run {
+            // Fallback: look up by unique work name (used for chains and named tasks)
+            try {
+                workManager.getWorkInfosForUniqueWork(id).get().firstOrNull()
+            } catch (_: Exception) {
+                null
+            }
+        } ?: return null
 
         return TaskStatusDetail(
             taskId = id,
@@ -84,7 +95,7 @@ class AndroidWorkerDiagnostics(
                 WorkInfo.State.BLOCKED -> "BLOCKED"
             },
             retryCount = workInfo.runAttemptCount,
-            lastExecutionTime = null, // Not directly available from WorkInfo
+            lastExecutionTime = null,
             lastError = workInfo.outputData.getString("error")
         )
     }

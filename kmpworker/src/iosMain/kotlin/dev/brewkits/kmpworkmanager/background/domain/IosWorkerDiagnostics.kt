@@ -2,10 +2,13 @@ package dev.brewkits.kmpworkmanager.background.domain
 
 import dev.brewkits.kmpworkmanager.background.data.IosFileStorage
 import platform.Foundation.NSDate
+import platform.Foundation.NSFileManager
+import platform.Foundation.NSFileSystemFreeSize
+import platform.Foundation.NSNumber
+import platform.Foundation.NSProcessInfo
 import platform.Foundation.timeIntervalSince1970
 import platform.UIKit.UIDevice
 import platform.UIKit.UIDeviceBatteryState
-import platform.Foundation.NSProcessInfo
 import kotlinx.cinterop.*
 
 /**
@@ -44,24 +47,14 @@ internal class IosWorkerDiagnostics(
         val isCharging = batteryState == UIDeviceBatteryState.UIDeviceBatteryStateCharging ||
                         batteryState == UIDeviceBatteryState.UIDeviceBatteryStateFull
 
-        // Low power mode (critical for BGTask scheduling)
-        // NOTE: Low Power Mode detection requires Swift interop or custom Objective-C binding
-        // NSProcessInfo.processInfo.isLowPowerModeEnabled is not directly accessible from Kotlin/Native
-        //
-        // WORKAROUND for production apps:
-        // Option 1: Use expect/actual with Swift implementation
-        // Option 2: Pass low power mode state from Swift via method parameter
-        // Option 3: Use @ObjCName annotation with custom interop definition
-        //
-        // For now, returns false (conservative approach - assume device has full power)
-        // Apps can override this by extending IosWorkerDiagnostics
-        val isLowPowerMode = false
+        // Low power mode detection via NSProcessInfo (available iOS 9+)
+        val isLowPowerMode = NSProcessInfo.processInfo.lowPowerModeEnabled
 
         // Storage check
         val freeSpace = fileStorage.getAvailableDiskSpace()
         val isStorageLow = freeSpace < 500_000_000L // <500MB
 
-        // Network check (simplified - production apps should use NWPathMonitor)
+        // Network check: conservatively returns true (NWPathMonitor requires Swift interop)
         val networkAvailable = checkNetworkReachability()
 
         // Disable battery monitoring to save power
@@ -106,20 +99,11 @@ internal class IosWorkerDiagnostics(
     }
 
     /**
-     * Check network reachability (simplified)
-     * Production apps should use Network.framework's NWPathMonitor for accurate status
+     * Network reachability check.
+     * Returns true conservatively — NWPathMonitor requires Swift interop to implement properly.
+     * For accurate network state, pass the result from Swift via your app's bridge layer.
      */
-    private fun checkNetworkReachability(): Boolean {
-        // Simplified: assume network is available
-        // Real implementation would use NWPathMonitor:
-        // ```swift
-        // let monitor = NWPathMonitor()
-        // monitor.pathUpdateHandler = { path in
-        //     return path.status == .satisfied
-        // }
-        // ```
-        return true
-    }
+    private fun checkNetworkReachability(): Boolean = true
 
     private fun nowMillis(): Long {
         return (NSDate().timeIntervalSince1970 * 1000).toLong()
@@ -140,10 +124,18 @@ private suspend fun IosFileStorage.chainIdExists(chainId: String): Boolean {
 }
 
 /**
- * Extension to get available disk space
+ * Returns available disk space in bytes using NSFileManager.
+ * Falls back to 0 (conservative — signals low storage) on any error.
  */
+@OptIn(ExperimentalForeignApi::class)
 internal fun IosFileStorage.getAvailableDiskSpace(): Long {
-    // Simplified implementation - returns 1GB
-    // Real implementation would use NSFileManager.attributesOfFileSystemForPath
-    return 1_000_000_000L
+    return try {
+        val attrs = NSFileManager.defaultManager.attributesOfFileSystemForPath(
+            path = "/",
+            error = null
+        )
+        (attrs?.get(NSFileSystemFreeSize) as? NSNumber)?.longValue ?: 0L
+    } catch (e: Exception) {
+        0L
+    }
 }

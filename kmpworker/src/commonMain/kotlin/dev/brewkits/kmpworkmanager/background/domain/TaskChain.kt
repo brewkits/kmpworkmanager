@@ -128,9 +128,10 @@ class TaskChain internal constructor(
      * @deprecated Use suspending enqueue() to avoid blocking and potential deadlocks
      */
     @Deprecated(
-        message = "Use suspending enqueue() instead to avoid blocking and potential deadlocks",
+        message = "Use suspending enqueue() instead. enqueueBlocking() causes ANR on Android main thread " +
+            "and deadlocks when called from a coroutine. This method will be removed in v3.0.0.",
         replaceWith = ReplaceWith("enqueue()"),
-        level = DeprecationLevel.WARNING
+        level = DeprecationLevel.ERROR
     )
     fun enqueueBlocking() {
         kotlinx.coroutines.runBlocking {
