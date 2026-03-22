@@ -64,8 +64,19 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
             }
 
             is TaskTrigger.Windowed -> {
-                Logger.w(LogTags.SCHEDULER, "Windowed triggers not yet implemented on Android")
-                ScheduleResult.REJECTED_OS_POLICY
+                // Android has no native "window" concept. Map to OneTime with a delay to the
+                // earliest start time. The 'latest' deadline is not enforced — same behaviour
+                // as iOS BGTaskScheduler, keeping cross-platform semantics consistent.
+                val delayMs = maxOf(0L, actualTrigger.earliest - System.currentTimeMillis())
+                Logger.w(
+                    LogTags.SCHEDULER,
+                    "Windowed trigger: 'latest' deadline not enforced on Android. " +
+                        "Scheduling as OneTime with ${delayMs}ms delay."
+                )
+                scheduleOneTimeWork(
+                    id, TaskTrigger.OneTime(initialDelayMs = delayMs),
+                    workerClassName, updatedConstraints, inputJson, policy
+                )
             }
 
             is TaskTrigger.OneTime -> {

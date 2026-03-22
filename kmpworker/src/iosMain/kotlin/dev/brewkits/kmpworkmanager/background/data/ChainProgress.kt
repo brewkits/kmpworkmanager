@@ -29,6 +29,7 @@ import kotlinx.serialization.Serializable
  *   completed successfully. Keyed by step index; values are sorted task indices.
  *   Cleared for a step once that step is marked fully completed.
  * @property lastFailedStep Index of the step that last failed, if any
+ * @property lastError Error message from the last failed task, if any
  * @property retryCount Number of times this chain has been retried
  * @property maxRetries Maximum retry attempts before abandoning (default: 3)
  */
@@ -39,6 +40,7 @@ data class ChainProgress(
     val completedSteps: List<Int> = emptyList(),
     val completedTasksInSteps: Map<Int, List<Int>> = emptyMap(),
     val lastFailedStep: Int? = null,
+    val lastError: String? = null,
     val retryCount: Int = 0,
     val maxRetries: Int = 3
 ) {
@@ -97,11 +99,12 @@ data class ChainProgress(
     }
 
     /**
-     * Create a new progress with an incremented retry count.
+     * Create a new progress with an incremented retry count and optional error message.
      */
-    fun withFailure(stepIndex: Int): ChainProgress {
+    fun withFailure(stepIndex: Int, errorMessage: String? = null): ChainProgress {
         return copy(
             lastFailedStep = stepIndex,
+            lastError = errorMessage,
             retryCount = retryCount + 1
         )
     }

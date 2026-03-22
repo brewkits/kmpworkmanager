@@ -73,28 +73,46 @@ internal class IosWorkerDiagnostics(
     }
 
     override suspend fun getTaskStatus(id: String): TaskStatusDetail? {
-        // Check if chain exists in queue
-        val chainExists = fileStorage.chainIdExists(id)
+        // Check if chain exists via chain definition or one-time task metadata
+        val chainDefinition = fileStorage.loadChainDefinition(id)
+        val oneTimeMetadata = if (chainDefinition == null) fileStorage.loadTaskMetadata(id, periodic = false) else null
 
-        if (!chainExists) {
-            return null
+        if (chainDefinition == null && oneTimeMetadata == null) {
+            // Also check periodic metadata
+            val periodicMetadata = fileStorage.loadTaskMetadata(id, periodic = true)
+                ?: return null
+
+            val workerClass = periodicMetadata["workerClassName"] ?: "Unknown"
+            return TaskStatusDetail(
+                taskId = id,
+                workerClassName = workerClass,
+                state = "PENDING",
+                retryCount = 0,
+                lastExecutionTime = null,
+                lastError = null
+            )
         }
 
         // Load chain progress if exists
         val progress = fileStorage.loadChainProgress(id)
 
+        // Derive worker class name: first task of first step in chain, or one-time task metadata
+        val workerClassName = chainDefinition?.firstOrNull()?.firstOrNull()?.workerClassName
+            ?: oneTimeMetadata?.get("workerClassName")
+            ?: "Unknown"
+
         return TaskStatusDetail(
             taskId = id,
-            workerClassName = "ChainWorker", // iOS uses chains, not individual workers
+            workerClassName = workerClassName,
             state = when {
                 progress == null -> "PENDING"
-                progress.getCompletionPercentage() == 100 -> "COMPLETED"
+                progress.isComplete() -> "COMPLETED"
                 progress.hasExceededRetries() -> "FAILED"
                 else -> "RUNNING"
             },
             retryCount = progress?.retryCount ?: 0,
-            lastExecutionTime = null, // Not tracked in current implementation
-            lastError = null // Not tracked in current implementation
+            lastExecutionTime = null,
+            lastError = progress?.lastError
         )
     }
 
@@ -107,19 +125,6 @@ internal class IosWorkerDiagnostics(
 
     private fun nowMillis(): Long {
         return (NSDate().timeIntervalSince1970 * 1000).toLong()
-    }
-}
-
-/**
- * Extension to check if chain ID exists in queue
- * (Assuming IosFileStorage has access to queue)
- */
-private suspend fun IosFileStorage.chainIdExists(chainId: String): Boolean {
-    // Simple check: try to load chain definition
-    return try {
-        loadChainDefinition(chainId) != null
-    } catch (e: Exception) {
-        false
     }
 }
 

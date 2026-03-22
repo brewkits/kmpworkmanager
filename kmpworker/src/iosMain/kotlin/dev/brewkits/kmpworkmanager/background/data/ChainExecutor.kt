@@ -548,14 +548,14 @@ class ChainExecutor(
 
                         Logger.i(LogTags.CHAIN, "Executing step ${index + 1}/${steps.size} for chain $chainId (${step.size} tasks)")
 
-                        val (stepSuccess, updatedProgress) = executeStep(step, index, progress)
+                        val (stepSuccess, updatedProgress, stepError) = executeStep(step, index, progress)
                         progress = updatedProgress
                         if (!stepSuccess) {
                             Logger.e(LogTags.CHAIN, "Step ${index + 1} failed. Updating progress for chain $chainId")
 
-                            // Update progress with failure and increment retry count
+                            // Update progress with failure, retry count, and error message
                             withContext(NonCancellable) {
-                                progress = progress.withFailure(index)
+                                progress = progress.withFailure(index, stepError)
                                 fileStorage.saveChainProgress(progress)
                             }
 
@@ -661,14 +661,15 @@ class ChainExecutor(
         tasks: List<TaskRequest>,
         stepIndex: Int,
         progress: ChainProgress
-    ): Pair<Boolean, ChainProgress> {
-        if (tasks.isEmpty()) return Pair(true, progress)
+    ): Triple<Boolean, ChainProgress, String?> {
+        if (tasks.isEmpty()) return Triple(true, progress, null)
 
         var currentProgress = progress
         // Shared across all async blocks launched below — do not extract into a separate function.
         val progressMutex = Mutex()
 
-        val results = coroutineScope {
+        // Each async block returns Pair(success, errorMessage?)
+        val results: List<Pair<Boolean, String?>> = coroutineScope {
             tasks.mapIndexed { taskIndex, task ->
                 async {
                     // Skip tasks that already succeeded in a previous attempt.
@@ -682,7 +683,7 @@ class ChainExecutor(
                             LogTags.CHAIN,
                             "Skipping already-completed task $taskIndex in step $stepIndex (${task.workerClassName})"
                         )
-                        return@async true
+                        return@async Pair(true, null)
                     }
 
                     val result = executeTask(task)
@@ -696,16 +697,18 @@ class ChainExecutor(
                             }
                         }
                     }
-                    success  // Return Boolean instead of WorkerResult
+                    val errorMessage = if (!success) (result as? WorkerResult.Failure)?.message else null
+                    Pair(success, errorMessage)
                 }
             }.awaitAll()
         }
 
-        val allSucceeded = results.all { it }
+        val allSucceeded = results.all { it.first }
         if (!allSucceeded) {
-            Logger.w(LogTags.CHAIN, "Step $stepIndex had ${results.count { !it }} failed task(s) out of ${tasks.size}")
+            Logger.w(LogTags.CHAIN, "Step $stepIndex had ${results.count { !it.first }} failed task(s) out of ${tasks.size}")
         }
-        return Pair(allSucceeded, currentProgress)
+        val firstError = results.firstOrNull { !it.first }?.second
+        return Triple(allSucceeded, currentProgress, firstError)
     }
 
     /**
