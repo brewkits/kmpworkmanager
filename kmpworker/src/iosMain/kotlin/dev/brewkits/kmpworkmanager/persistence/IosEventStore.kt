@@ -53,8 +53,8 @@ class IosEventStore(
             ?: throw IllegalStateException("Could not locate Application Support directory")
 
         val eventsDirURL = appSupportDir
-            .URLByAppendingPathComponent("dev.brewkits.kmpworkmanager")!!
-            .URLByAppendingPathComponent("events")!!
+            .safeAppend("dev.brewkits.kmpworkmanager")
+            .safeAppend("events")
 
         ensureDirectoryExists(eventsDirURL)
 
@@ -66,7 +66,7 @@ class IosEventStore(
      * Events file: events.jsonl
      */
     private val eventsFileURL: NSURL by lazy {
-        baseDir.URLByAppendingPathComponent("events.jsonl")!!.also { url ->
+        baseDir.safeAppend("events.jsonl").also { url ->
             if (!fileManager.fileExistsAtPath(url.path ?: "")) {
                 memScoped {
                     val errorPtr = alloc<ObjCObjectVar<NSError?>>()
@@ -396,3 +396,10 @@ class IosEventStore(
         }
     }
 }
+
+/**
+ * Safe URL path component appending — replaces URLByAppendingPathComponent(x)!!
+ */
+private fun NSURL.safeAppend(component: String): NSURL =
+    URLByAppendingPathComponent(component)
+        ?: throw IllegalStateException("Failed to construct URL: base='$path' component='$component'")

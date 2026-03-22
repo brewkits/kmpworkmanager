@@ -75,9 +75,11 @@ object SecurityValidator {
                 // Check if it looks like an IPv6 address (multiple colons)
                 val colonCount = hostnameWithPort.count { it == ':' }
                 if (colonCount >= 2) {
-                    // Malformed IPv6 without brackets (e.g., 0:0:0:0:0:0:0:1)
-                    // Return the whole thing for validation
-                    hostnameWithPort
+                    // Unbracketed IPv6 — RFC 2732 requires brackets for IPv6 in URLs.
+                    // Any unbracketed multi-colon hostname is malformed; return null to reject.
+                    // This also prevents SSRF bypass via e.g. http://::1:8080/ where the port
+                    // suffix prevents simple blocklist matching against "::1".
+                    return null
                 } else {
                     // Regular hostname or IPv4 with port
                     hostnameWithPort.substringBefore(":")

@@ -518,18 +518,21 @@ actual class NativeTaskScheduler(
      * Schedule exact notification using UNUserNotificationCenter.
      * This is the default and recommended approach for exact alarms on iOS.
      *
+     * NOTE: The notification body intentionally does NOT include inputJson.
+     * Worker input data may contain PII or secrets; exposing it in a system
+     * notification would be a privacy/security violation.
      */
     private fun scheduleExactNotification(
         id: String,
         trigger: TaskTrigger.Exact,
-        title: String,
-        message: String?
+        workerClassName: String,
+        @Suppress("UNUSED_PARAMETER") inputJson: String?
     ): ScheduleResult {
         Logger.i(LogTags.ALARM, "Scheduling exact notification - ID: '$id', Time: ${trigger.atEpochMillis}")
 
         val content = UNMutableNotificationContent().apply {
-            setTitle(title)
-            setBody(message ?: "Scheduled event")
+            setTitle("Scheduled Task")
+            setBody("Task '$workerClassName' is ready to run")
             setSound(UNNotificationSound.defaultSound)
         }
 
