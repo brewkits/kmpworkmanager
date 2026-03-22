@@ -99,7 +99,7 @@ internal class IosFileStorage(
 
     private val queue: AppendOnlyQueue by lazy {
         // Create queue subdirectory for better organization
-        val queueDirURL = baseDir.URLByAppendingPathComponent("queue")!!
+        val queueDirURL = baseDir.safeAppend("queue")
         ensureDirectoryExists(queueDirURL)
         AppendOnlyQueue(queueDirURL)
     }
@@ -192,7 +192,7 @@ internal class IosFileStorage(
             val appSupportDir = urls.firstOrNull() as? NSURL
                 ?: throw IllegalStateException("Could not locate Application Support directory")
 
-            val path = appSupportDir.URLByAppendingPathComponent(BASE_DIR_NAME)!!
+            val path = appSupportDir.safeAppend(BASE_DIR_NAME)
             ensureDirectoryExists(path)
             path
         }
@@ -201,35 +201,35 @@ internal class IosFileStorage(
         basePath
     }
 
-    private val queueFileURL: NSURL by lazy { baseDir.URLByAppendingPathComponent(QUEUE_FILE_NAME)!! }
+    private val queueFileURL: NSURL by lazy { baseDir.safeAppend(QUEUE_FILE_NAME) }
     private val chainsDirURL: NSURL by lazy {
-        val url = baseDir.URLByAppendingPathComponent(CHAINS_DIR_NAME)!!
+        val url = baseDir.safeAppend(CHAINS_DIR_NAME)
         ensureDirectoryExists(url)
         url
     }
     private val metadataDirURL: NSURL by lazy {
-        val url = baseDir.URLByAppendingPathComponent(METADATA_DIR_NAME)!!
+        val url = baseDir.safeAppend(METADATA_DIR_NAME)
         ensureDirectoryExists(url)
         url
     }
     private val tasksDirURL: NSURL by lazy {
-        val url = metadataDirURL.URLByAppendingPathComponent(TASKS_DIR_NAME)!!
+        val url = metadataDirURL.safeAppend(TASKS_DIR_NAME)
         ensureDirectoryExists(url)
         url
     }
     private val periodicDirURL: NSURL by lazy {
-        val url = metadataDirURL.URLByAppendingPathComponent(PERIODIC_DIR_NAME)!!
+        val url = metadataDirURL.safeAppend(PERIODIC_DIR_NAME)
         ensureDirectoryExists(url)
         url
     }
     private val deletedChainsDirURL: NSURL by lazy {
-        val url = metadataDirURL.URLByAppendingPathComponent(DELETED_CHAINS_DIR_NAME)!!
+        val url = metadataDirURL.safeAppend(DELETED_CHAINS_DIR_NAME)
         ensureDirectoryExists(url)
         url
     }
 
     private val maintenanceTimestampURL: NSURL by lazy {
-        baseDir.URLByAppendingPathComponent("last_maintenance.txt")!!
+        baseDir.safeAppend("last_maintenance.txt")
     }
 
     init {
@@ -410,7 +410,7 @@ internal class IosFileStorage(
      */
     private fun logTransaction(txn: ChainTransaction) {
         try {
-            val logFile = baseDir.URLByAppendingPathComponent("transactions.jsonl")!!
+            val logFile = baseDir.safeAppend("transactions.jsonl")
             val json = Json.encodeToString(txn)
             val line = "$json\n"
 
@@ -462,7 +462,7 @@ internal class IosFileStorage(
      * Save chain definition to file
      */
     fun saveChainDefinition(id: String, steps: List<List<TaskRequest>>) {
-        val chainFile = chainsDirURL.URLByAppendingPathComponent("$id.json")!!
+        val chainFile = chainsDirURL.safeAppend("$id.json")
         val json = Json.encodeToString(steps)
 
         // Use actual UTF-8 byte count, not String.length (UTF-16 char count).
@@ -487,7 +487,7 @@ internal class IosFileStorage(
      * Load chain definition from file with self-healing for corrupt data
      */
     fun loadChainDefinition(id: String): List<List<TaskRequest>>? {
-        val chainFile = chainsDirURL.URLByAppendingPathComponent("$id.json")!!
+        val chainFile = chainsDirURL.safeAppend("$id.json")
 
         return coordinated(chainFile, write = false) { safeUrl ->
             val json = readStringFromFile(safeUrl) ?: return@coordinated null
@@ -512,7 +512,7 @@ internal class IosFileStorage(
      * Delete chain definition
      */
     fun deleteChainDefinition(id: String) {
-        val chainFile = chainsDirURL.URLByAppendingPathComponent("$id.json")!!
+        val chainFile = chainsDirURL.safeAppend("$id.json")
         deleteFile(chainFile)
         Logger.d(LogTags.CHAIN, "Deleted chain definition $id")
     }
@@ -521,7 +521,7 @@ internal class IosFileStorage(
      * Check if chain definition exists
      */
     fun chainExists(id: String): Boolean {
-        val chainFile = chainsDirURL.URLByAppendingPathComponent("$id.json")!!
+        val chainFile = chainsDirURL.safeAppend("$id.json")
         val path = chainFile.path ?: return false
         return fileManager.fileExistsAtPath(path)
     }
@@ -534,7 +534,7 @@ internal class IosFileStorage(
      *
      */
     fun markChainAsDeleted(chainId: String) {
-        val markerFile = deletedChainsDirURL.URLByAppendingPathComponent("$chainId.marker")!!
+        val markerFile = deletedChainsDirURL.safeAppend("$chainId.marker")
         val timestamp = NSDate().timeIntervalSince1970.toLong()
 
         coordinated(markerFile, write = true) { safeUrl ->
@@ -550,7 +550,7 @@ internal class IosFileStorage(
      *
      */
     fun isChainDeleted(chainId: String): Boolean {
-        val markerFile = deletedChainsDirURL.URLByAppendingPathComponent("$chainId.marker")!!
+        val markerFile = deletedChainsDirURL.safeAppend("$chainId.marker")
         val path = markerFile.path ?: return false
         return fileManager.fileExistsAtPath(path)
     }
@@ -561,7 +561,7 @@ internal class IosFileStorage(
      *
      */
     fun clearDeletedMarker(chainId: String) {
-        val markerFile = deletedChainsDirURL.URLByAppendingPathComponent("$chainId.marker")!!
+        val markerFile = deletedChainsDirURL.safeAppend("$chainId.marker")
         deleteFile(markerFile)
         Logger.d(LogTags.CHAIN, "Cleared deleted marker for chain $chainId")
     }
@@ -584,7 +584,7 @@ internal class IosFileStorage(
             if (fileName !is String) return@forEach
             if (!fileName.endsWith(".marker")) return@forEach
 
-            val markerFile = deletedChainsDirURL.URLByAppendingPathComponent(fileName)!!
+            val markerFile = deletedChainsDirURL.safeAppend(fileName)
             val markerPath = markerFile.path ?: return@forEach
 
             // Read marker via coordinated() to match the write path in
@@ -753,7 +753,7 @@ internal class IosFileStorage(
         // Write all progress files in batch (outside mutex to allow concurrent saves)
         try {
             bufferSnapshot.forEach { (chainId, progress) ->
-                val progressFile = chainsDirURL.URLByAppendingPathComponent("${chainId}_progress.json")!!
+                val progressFile = chainsDirURL.safeAppend("${chainId}_progress.json")
                 val json = Json.encodeToString(progress)
 
                 try {
@@ -864,7 +864,7 @@ internal class IosFileStorage(
      * @return The progress state, or null if no progress file exists or is corrupt
      */
     fun loadChainProgress(chainId: String): ChainProgress? {
-        val progressFile = chainsDirURL.URLByAppendingPathComponent("${chainId}_progress.json")!!
+        val progressFile = chainsDirURL.safeAppend("${chainId}_progress.json")
 
         return coordinated(progressFile, write = false) { safeUrl ->
             val json = readStringFromFile(safeUrl) ?: return@coordinated null
@@ -894,7 +894,7 @@ internal class IosFileStorage(
      * @param chainId The chain ID
      */
     fun deleteChainProgress(chainId: String) {
-        val progressFile = chainsDirURL.URLByAppendingPathComponent("${chainId}_progress.json")!!
+        val progressFile = chainsDirURL.safeAppend("${chainId}_progress.json")
         deleteFile(progressFile)
         Logger.d(LogTags.CHAIN, "Deleted chain progress $chainId")
     }
@@ -906,7 +906,7 @@ internal class IosFileStorage(
      */
     fun saveTaskMetadata(id: String, metadata: Map<String, String>, periodic: Boolean) {
         val dir = if (periodic) periodicDirURL else tasksDirURL
-        val metaFile = dir.URLByAppendingPathComponent("$id.json")!!
+        val metaFile = dir.safeAppend("$id.json")
         val json = Json.encodeToString(metadata)
 
         coordinated(metaFile, write = true) { safeUrl ->
@@ -921,7 +921,7 @@ internal class IosFileStorage(
      */
     fun loadTaskMetadata(id: String, periodic: Boolean): Map<String, String>? {
         val dir = if (periodic) periodicDirURL else tasksDirURL
-        val metaFile = dir.URLByAppendingPathComponent("$id.json")!!
+        val metaFile = dir.safeAppend("$id.json")
 
         return coordinated(metaFile, write = false) { safeUrl ->
             val json = readStringFromFile(safeUrl) ?: return@coordinated null
@@ -946,7 +946,7 @@ internal class IosFileStorage(
      */
     fun deleteTaskMetadata(id: String, periodic: Boolean) {
         val dir = if (periodic) periodicDirURL else tasksDirURL
-        val metaFile = dir.URLByAppendingPathComponent("$id.json")!!
+        val metaFile = dir.safeAppend("$id.json")
         deleteFile(metaFile)
         Logger.d(LogTags.SCHEDULER, "Deleted ${if (periodic) "periodic" else "task"} metadata for $id")
     }
@@ -1016,8 +1016,12 @@ internal class IosFileStorage(
             val errorPtr = alloc<ObjCObjectVar<NSError?>>()
 
             // Get filesystem attributes
+            val basePath = baseDir.path ?: run {
+                Logger.w(LogTags.CHAIN, "Cannot read filesystem attributes — baseDir has no path, skipping disk space check")
+                return
+            }
             val attributes = fileManager.attributesOfFileSystemForPath(
-                baseDir.path!!,
+                basePath,
                 error = errorPtr.ptr
             ) as? Map<*, *>
 
@@ -1122,7 +1126,7 @@ internal class IosFileStorage(
         // when two files with the same name exist in different directories. Previously,
         // "chains/abc.json" and "metadata/tasks/abc.json" would share "abc.json.tmp".
         val pathHash = fileURL.path.hashCode().toUInt().toString(16)
-        val tempURL = baseDir.URLByAppendingPathComponent("${fileURL.lastPathComponent}_${pathHash}.tmp")!!
+        val tempURL = baseDir.safeAppend("${fileURL.lastPathComponent}_${pathHash}.tmp")
 
         try {
             // Step 1: Write to temp file (safe if cancelled here)
@@ -1132,8 +1136,10 @@ internal class IosFileStorage(
 
             // Step 2: Atomic rename (protected from cancellation)
             withContext(NonCancellable) {
-                val targetPath = fileURL.path!!
-                val tempPath = tempURL.path!!
+                val targetPath = fileURL.path
+                    ?: throw IllegalStateException("Cannot rename: fileURL has no path component")
+                val tempPath = tempURL.path
+                    ?: throw IllegalStateException("Cannot rename: tempURL has no path component")
 
                 memScoped {
                     val errorPtr = alloc<ObjCObjectVar<NSError?>>()
@@ -1246,6 +1252,16 @@ class InsufficientDiskSpaceException(
     "Insufficient disk space. Required: ${required / 1024 / 1024}MB, " +
     "Available: ${available / 1024 / 1024}MB"
 )
+
+/**
+ * Safe URL path component appending.
+ * Replaces `URLByAppendingPathComponent(x)!!` — throws with context instead of NPE.
+ * In practice URLByAppendingPathComponent only returns null for empty components or
+ * file-reference URLs; this provides a clearer crash message when that invariant breaks.
+ */
+private fun NSURL.safeAppend(component: String): NSURL =
+    URLByAppendingPathComponent(component)
+        ?: throw IllegalStateException("Failed to construct URL: base='$path' component='$component'")
 
 /**
  * Extension: Convert String to NSData (UTF-8 encoding)

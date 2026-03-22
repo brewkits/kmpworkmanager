@@ -64,10 +64,10 @@ internal class AppendOnlyQueue(
     private val formatMutex = Mutex()
 
     // File paths
-    private val queueFileURL = baseDirectoryURL.URLByAppendingPathComponent("queue.jsonl")!!
-    private val headPointerURL = baseDirectoryURL.URLByAppendingPathComponent("head_pointer.txt")!!
-    private val compactedQueueURL = baseDirectoryURL.URLByAppendingPathComponent("queue_compacted.jsonl")!!
-    private val indexFileURL = baseDirectoryURL.URLByAppendingPathComponent("queue.index")!!
+    private val queueFileURL = baseDirectoryURL.safeAppend("queue.jsonl")
+    private val headPointerURL = baseDirectoryURL.safeAppend("head_pointer.txt")
+    private val compactedQueueURL = baseDirectoryURL.safeAppend("queue_compacted.jsonl")
+    private val indexFileURL = baseDirectoryURL.safeAppend("queue.index")
 
     // Line position cache: maps line index → file byte offset
     // Example: {0: 0, 1: 45, 2: 92, ...} means line 0 starts at byte 0, line 1 at byte 45, etc.
@@ -1358,6 +1358,13 @@ internal class AppendOnlyQueue(
         return b0 or (b1 shl 8) or (b2 shl 16) or (b3 shl 24)
     }
 }
+
+/**
+ * Safe URL path component appending — replaces URLByAppendingPathComponent(x)!!
+ */
+private fun NSURL.safeAppend(component: String): NSURL =
+    URLByAppendingPathComponent(component)
+        ?: throw IllegalStateException("Failed to construct URL: base='$path' component='$component'")
 
 /**
  * Custom exception for queue corruption
