@@ -60,7 +60,7 @@ class AndroidWorkerDiagnostics(
             networkAvailable = networkAvailable,
             storageAvailable = storageInfo.first,
             isStorageLow = storageInfo.second,
-            isLowPowerMode = false, // iOS only
+            isLowPowerMode = isPowerSaveMode(),
             deviceInDozeMode = dozeMode
         )
     }
@@ -151,6 +151,16 @@ class AndroidWorkerDiagnostics(
             val activeNetwork = connectivityManager.activeNetworkInfo
             activeNetwork?.isConnected == true
         }
+    }
+
+    /**
+     * Check if device is in Battery Saver (Low Power) mode.
+     * Battery Saver restricts background activity, equivalent to iOS Low Power Mode.
+     * Available API 21+; minSdk is 24 so no version guard needed.
+     */
+    private fun isPowerSaveMode(): Boolean {
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        return powerManager?.isPowerSaveMode == true
     }
 
     /**

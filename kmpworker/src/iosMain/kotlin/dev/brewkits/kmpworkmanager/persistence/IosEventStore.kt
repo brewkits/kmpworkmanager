@@ -38,6 +38,9 @@ class IosEventStore(
     private val fileManager = NSFileManager.defaultManager
     private val fileLock = Mutex()
 
+    @Volatile
+    private var lastCleanupTimeMs: Long = 0L
+
     /**
      * Base directory: Library/Application Support/dev.brewkits.kmpworkmanager/events/
      */
@@ -110,9 +113,10 @@ class IosEventStore(
 
             Logger.d(LogTags.SCHEDULER, "IosEventStore: Saved event $eventId for task ${event.taskName}")
 
-            // Auto-cleanup if enabled (probabilistic - 10% of writes)
-            if (config.autoCleanup && kotlin.random.Random.nextDouble() < 0.1) {
+            // Auto-cleanup if enabled (deterministic - time-based or size-based, matching Android v2.2.2+)
+            if (config.autoCleanup && shouldPerformCleanup()) {
                 performCleanup()
+                lastCleanupTimeMs = (NSDate().timeIntervalSince1970 * 1000).toLong()
             }
 
             eventId
@@ -241,6 +245,34 @@ class IosEventStore(
                 0
             }
         }
+    }
+
+    /**
+     * Deterministic cleanup check (mirrors Android v2.2.2+ logic).
+     * Triggers if cleanup interval has elapsed OR file size exceeds threshold.
+     * Must be called while holding [fileLock].
+     */
+    private fun shouldPerformCleanup(): Boolean {
+        val now = (NSDate().timeIntervalSince1970 * 1000).toLong()
+
+        // Check 1: Time-based (cleanup interval elapsed)
+        if (now - lastCleanupTimeMs >= config.cleanupIntervalMs) {
+            Logger.d(LogTags.SCHEDULER, "IosEventStore: Cleanup triggered by time (${now - lastCleanupTimeMs}ms since last)")
+            return true
+        }
+
+        // Check 2: Size-based (file exceeds threshold)
+        val filePath = eventsFileURL.path ?: return false
+        memScoped {
+            val attrs = NSFileManager.defaultManager.attributesOfItemAtPath(filePath, error = null)
+            val fileSize = (attrs?.get(NSFileSize) as? NSNumber)?.longValue ?: 0L
+            if (fileSize >= config.cleanupFileSizeThresholdBytes) {
+                Logger.d(LogTags.SCHEDULER, "IosEventStore: Cleanup triggered by file size (${fileSize / 1024}KB)")
+                return true
+            }
+        }
+
+        return false
     }
 
     /**
