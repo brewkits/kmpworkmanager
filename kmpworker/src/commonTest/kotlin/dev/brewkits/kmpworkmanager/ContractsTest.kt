@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION") // Deprecated trigger tests verify backward compatibility until v3.0.0 removal
+
 package dev.brewkits.kmpworkmanager
 
 import dev.brewkits.kmpworkmanager.background.domain.*

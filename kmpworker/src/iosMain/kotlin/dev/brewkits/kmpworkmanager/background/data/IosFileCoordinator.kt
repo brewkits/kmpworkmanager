@@ -29,16 +29,18 @@ internal object IosFileCoordinator {
         timeoutMs: Long = 30_000L,
         block: (NSURL) -> T
     ): T {
-        // Detect test environment if not explicitly provided
+        // Detect test environment:
+        // Priority 1 — explicit parameter from test setup
+        // Priority 2 — env var KMPWORKMANAGER_TEST_MODE=1 set by test runner
+        // Priority 3 — process name ends with "test.kexe" (Kotlin/Native test runner)
+        // NOTE: We intentionally do NOT use generic "Test" string matching to avoid
+        //       bypassing NSFileCoordinator in production apps whose name contains "Test".
         val isTestEnvironment = isTestMode || when {
             NSProcessInfo.processInfo.environment.containsKey("KMPWORKMANAGER_TEST_MODE") -> {
                 val value = NSProcessInfo.processInfo.environment["KMPWORKMANAGER_TEST_MODE"] as? String
                 value == "1" || value?.equals("true", ignoreCase = true) == true
             }
-            else -> {
-                val processName = NSProcessInfo.processInfo.processName
-                processName.contains("test.kexe") || processName.contains("Test")
-            }
+            else -> NSProcessInfo.processInfo.processName.endsWith("test.kexe")
         }
 
         if (isTestEnvironment) {

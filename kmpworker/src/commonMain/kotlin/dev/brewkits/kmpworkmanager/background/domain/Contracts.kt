@@ -170,7 +170,7 @@ sealed interface TaskTrigger {
     @Deprecated(
         message = "StorageLow is a constraint, not a trigger. Use Constraints(systemConstraints = setOf(SystemConstraint.ALLOW_LOW_STORAGE))",
         replaceWith = ReplaceWith("Constraints(systemConstraints = setOf(SystemConstraint.ALLOW_LOW_STORAGE))"),
-        level = DeprecationLevel.WARNING
+        level = DeprecationLevel.ERROR
     )
     data object StorageLow : TaskTrigger
 
@@ -195,7 +195,7 @@ sealed interface TaskTrigger {
     @Deprecated(
         message = "BatteryLow is a constraint. Use Constraints(systemConstraints = setOf(SystemConstraint.ALLOW_LOW_BATTERY))",
         replaceWith = ReplaceWith("Constraints(systemConstraints = setOf(SystemConstraint.ALLOW_LOW_BATTERY))"),
-        level = DeprecationLevel.WARNING
+        level = DeprecationLevel.ERROR
     )
     data object BatteryLow : TaskTrigger
 
@@ -220,7 +220,7 @@ sealed interface TaskTrigger {
     @Deprecated(
         message = "BatteryOkay is a constraint. Use Constraints(systemConstraints = setOf(SystemConstraint.REQUIRE_BATTERY_NOT_LOW))",
         replaceWith = ReplaceWith("Constraints(systemConstraints = setOf(SystemConstraint.REQUIRE_BATTERY_NOT_LOW))"),
-        level = DeprecationLevel.WARNING
+        level = DeprecationLevel.ERROR
     )
     data object BatteryOkay : TaskTrigger
 
@@ -245,7 +245,7 @@ sealed interface TaskTrigger {
     @Deprecated(
         message = "DeviceIdle is a constraint. Use Constraints(systemConstraints = setOf(SystemConstraint.DEVICE_IDLE))",
         replaceWith = ReplaceWith("Constraints(systemConstraints = setOf(SystemConstraint.DEVICE_IDLE))"),
-        level = DeprecationLevel.WARNING
+        level = DeprecationLevel.ERROR
     )
     data object DeviceIdle : TaskTrigger
 }
