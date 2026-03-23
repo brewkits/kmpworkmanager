@@ -437,14 +437,13 @@ class KmpHeavyWorker(
      * @return WorkerResult indicating success/failure with optional data
      */
     private suspend fun executeHeavyWork(workerClassName: String, inputJson: String?): WorkerResult {
-        val worker = workerFactory.createWorker(workerClassName)
-
-        if (worker == null) {
-            Logger.e(LogTags.WORKER, "Worker factory returned null for heavy worker: $workerClassName")
-            return WorkerResult.Failure("Worker not found: $workerClassName")
+        return try {
+            val worker = workerFactory.createWorker(workerClassName)
+            worker.doWork(inputJson)
+        } catch (e: IllegalArgumentException) {
+            Logger.e(LogTags.WORKER, "Worker not registered: $workerClassName — ${e.message}")
+            WorkerResult.Failure("Worker not registered: $workerClassName")
         }
-
-        return worker.doWork(inputJson)
     }
 
     /**

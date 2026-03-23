@@ -60,11 +60,11 @@ interface IosWorker : dev.brewkits.kmpworkmanager.background.domain.Worker {
  * Example:
  * ```kotlin
  * class MyWorkerFactory : IosWorkerFactory {
- *     override fun createWorker(workerClassName: String): IosWorker? {
+ *     override fun createWorker(workerClassName: String): IosWorker {
  *         return when (workerClassName) {
  *             "SyncWorker" -> SyncWorker()
  *             "UploadWorker" -> UploadWorker()
- *             else -> null
+ *             else -> throw IllegalArgumentException("Unregistered worker: $workerClassName")
  *         }
  *     }
  * }
@@ -75,7 +75,8 @@ interface IosWorkerFactory : dev.brewkits.kmpworkmanager.background.domain.Worke
      * Creates a worker instance based on the class name.
      *
      * @param workerClassName The fully qualified class name or simple name
-     * @return Worker instance or null if not found
+     * @return IosWorker instance — never null
+     * @throws IllegalArgumentException if [workerClassName] is not registered
      */
-    override fun createWorker(workerClassName: String): IosWorker?
+    override fun createWorker(workerClassName: String): IosWorker
 }

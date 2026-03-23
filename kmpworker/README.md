@@ -57,7 +57,7 @@ startKoin {
 ## Features
 
 ✅ **Unified API** - Single interface for both platforms
-✅ **Multiple Trigger Types** - OneTime, Periodic, Exact, ContentUri, Battery, Storage, DeviceIdle
+✅ **Multiple Trigger Types** - OneTime, Periodic, Exact, Windowed, ContentUri (Android)
 ✅ **Task Chains** - Sequential and parallel task execution with state restoration
 ✅ **Constraints** - Network, charging, battery, storage requirements
 ✅ **ExistingPolicy** - KEEP or REPLACE duplicate tasks

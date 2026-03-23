@@ -49,10 +49,11 @@ class SingleTaskExecutor(private val workerFactory: IosWorkerFactory) {
     ): WorkerResult {
         Logger.i(LogTags.WORKER, "Executing task: $workerClassName (timeout: ${timeoutMs}ms)")
 
-        val worker = workerFactory.createWorker(workerClassName)
-        if (worker == null) {
-            Logger.e(LogTags.WORKER, "Failed to create worker: $workerClassName")
-            val result = WorkerResult.Failure("Worker factory returned null")
+        val worker = try {
+            workerFactory.createWorker(workerClassName)
+        } catch (e: IllegalArgumentException) {
+            Logger.e(LogTags.WORKER, "Worker not registered: $workerClassName — ${e.message}")
+            val result = WorkerResult.Failure("Worker not registered: $workerClassName")
             emitEvent(workerClassName, result)
             return result
         }
