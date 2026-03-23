@@ -20,7 +20,7 @@ import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
  *             delay(2000)
  *             WorkerResult.Success(
  *                 message = "Sync completed",
- *                 data = mapOf("syncedCount" to 10)
+ *                 data = buildJsonObject { put("syncedCount", 10) }
  *             )
  *         } catch (e: Exception) {
  *             WorkerResult.Failure("Sync failed: ${e.message}")

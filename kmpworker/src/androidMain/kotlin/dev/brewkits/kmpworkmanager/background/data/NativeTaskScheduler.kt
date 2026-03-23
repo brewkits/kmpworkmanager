@@ -35,6 +35,14 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
         const val TAG_KMP_TASK = "KMP_TASK"
     }
 
+    // Maps KMP BackoffPolicy → WorkManager BackoffPolicy.
+    // Extracted to avoid repeating the same conditional in three builder sites (v2.3.7+).
+    private fun dev.brewkits.kmpworkmanager.background.domain.Constraints.toWorkManagerBackoffPolicy(): BackoffPolicy =
+        if (backoffPolicy == dev.brewkits.kmpworkmanager.background.domain.BackoffPolicy.EXPONENTIAL)
+            BackoffPolicy.EXPONENTIAL
+        else
+            BackoffPolicy.LINEAR
+
     /**
      * Enqueues a task based on its trigger type.
      * - `Periodic` triggers use WorkManager for efficient, deferrable background work.
@@ -227,10 +235,7 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
             .setConstraints(wmConstraints)
             .setInputData(workData)
             .setBackoffCriteria(
-                if (constraints.backoffPolicy == dev.brewkits.kmpworkmanager.background.domain.BackoffPolicy.EXPONENTIAL)
-                    BackoffPolicy.EXPONENTIAL
-                else
-                    BackoffPolicy.LINEAR,
+                constraints.toWorkManagerBackoffPolicy(),
                 constraints.backoffDelayMs,
                 TimeUnit.MILLISECONDS
             )
@@ -483,10 +488,7 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
                 .setConstraints(wmConstraints)
                 .setInputData(workData)
                 .setBackoffCriteria(
-                    if (constraints.backoffPolicy == dev.brewkits.kmpworkmanager.background.domain.BackoffPolicy.EXPONENTIAL)
-                        BackoffPolicy.EXPONENTIAL
-                    else
-                        BackoffPolicy.LINEAR,
+                    constraints.toWorkManagerBackoffPolicy(),
                     constraints.backoffDelayMs,
                     TimeUnit.MILLISECONDS
                 )
@@ -515,10 +517,7 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
                 .setConstraints(wmConstraints)
                 .setInputData(workData)
                 .setBackoffCriteria(
-                    if (constraints.backoffPolicy == dev.brewkits.kmpworkmanager.background.domain.BackoffPolicy.EXPONENTIAL)
-                        BackoffPolicy.EXPONENTIAL
-                    else
-                        BackoffPolicy.LINEAR,
+                    constraints.toWorkManagerBackoffPolicy(),
                     constraints.backoffDelayMs,
                     TimeUnit.MILLISECONDS
                 )

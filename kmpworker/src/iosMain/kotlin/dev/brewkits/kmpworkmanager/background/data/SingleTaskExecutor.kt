@@ -81,6 +81,11 @@ class SingleTaskExecutor(private val workerFactory: IosWorkerFactory) {
             val result = WorkerResult.Failure("Timed out after ${timeoutMs}ms")
             emitEvent(workerClassName, result)
             result
+        } catch (e: CancellationException) {
+            // CancellationException MUST be rethrown — swallowing it prevents the parent
+            // coroutine scope from cancelling correctly, causing resource leaks.
+            Logger.w(LogTags.WORKER, "Task cancelled by coroutine scope: $workerClassName")
+            throw e
         } catch (e: Exception) {
             Logger.e(LogTags.WORKER, "Task threw exception: $workerClassName", e)
             val result = WorkerResult.Failure("Exception: ${e.message}")

@@ -40,7 +40,7 @@ import kotlinx.serialization.Serializable
  *
  *             WorkerResult.Success(
  *                 message = "Downloaded $totalBytes bytes",
- *                 data = mapOf("fileSize" to totalBytes)
+ *                 data = buildJsonObject { put("fileSize", totalBytes) }
  *             )
  *         } catch (e: Exception) {
  *             WorkerResult.Failure("Download failed: ${e.message}")
