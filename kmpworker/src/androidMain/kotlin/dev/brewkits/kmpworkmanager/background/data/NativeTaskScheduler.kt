@@ -1,3 +1,5 @@
+@file:OptIn(dev.brewkits.kmpworkmanager.background.domain.AndroidOnly::class) // androidMain intentionally handles Android-only triggers (ContentUri, SystemConstraint)
+
 package dev.brewkits.kmpworkmanager.background.data
 
 import android.app.AlarmManager

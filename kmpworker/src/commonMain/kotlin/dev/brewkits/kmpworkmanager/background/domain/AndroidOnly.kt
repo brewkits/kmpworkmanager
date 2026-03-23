@@ -32,8 +32,9 @@ package dev.brewkits.kmpworkmanager.background.domain
  */
 @RequiresOptIn(
     message = "This API is Android-only and will return REJECTED_OS_POLICY or be ignored on iOS. " +
+            "Annotate your call site with @OptIn(AndroidOnly::class) to explicitly acknowledge this. " +
             "See documentation for platform-specific behavior.",
-    level = RequiresOptIn.Level.WARNING
+    level = RequiresOptIn.Level.ERROR
 )
 @Retention(AnnotationRetention.BINARY)
 @Target(

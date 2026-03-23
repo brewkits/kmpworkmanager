@@ -1,4 +1,5 @@
 @file:Suppress("DEPRECATION") // Deprecated trigger tests verify backward compatibility until v3.0.0 removal
+@file:OptIn(dev.brewkits.kmpworkmanager.background.domain.AndroidOnly::class) // Tests explicitly cover Android-only APIs (ContentUri, SystemConstraint)
 
 package dev.brewkits.kmpworkmanager
 
