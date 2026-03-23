@@ -93,19 +93,6 @@ class KmpWorker(
 
         return try {
             val worker = workerFactory.createWorker(workerClassName)
-
-            if (worker == null) {
-                Logger.e(LogTags.WORKER, "Worker factory returned null for: $workerClassName")
-                TaskEventBus.emit(
-                    TaskCompletionEvent(
-                        taskName = workerClassName,
-                        success = false,
-                        message = "❌ Worker not found: $workerClassName"
-                    )
-                )
-                return Result.failure()
-            }
-
             val result = worker.doWork(inputJson)
 
             when (result) {
@@ -142,6 +129,17 @@ class KmpWorker(
                     }
                 }
             }
+        } catch (e: IllegalArgumentException) {
+            // Worker class not registered in WorkerFactory — fail fast and visibly.
+            Logger.e(LogTags.WORKER, "Worker not registered: $workerClassName — ${e.message}")
+            TaskEventBus.emit(
+                TaskCompletionEvent(
+                    taskName = workerClassName,
+                    success = false,
+                    message = "Worker not registered: $workerClassName"
+                )
+            )
+            Result.failure()
         } catch (e: CancellationException) {
             // CancellationException MUST be rethrown — swallowing it breaks the coroutine
             // cancellation protocol and prevents WorkManager from correctly cancelling the task.
@@ -153,7 +151,7 @@ class KmpWorker(
                 TaskCompletionEvent(
                     taskName = workerClassName,
                     success = false,
-                    message = "❌ Failed: ${e.message}"
+                    message = "Failed: ${e.message}"
                 )
             )
             Result.failure()

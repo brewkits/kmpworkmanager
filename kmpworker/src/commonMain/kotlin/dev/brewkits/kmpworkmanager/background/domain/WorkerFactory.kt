@@ -6,14 +6,18 @@ package dev.brewkits.kmpworkmanager.background.domain
  * Users implement this interface to provide their custom worker implementations.
  * The library uses this factory to instantiate workers at runtime based on class names.
  *
+ * **Fail Fast**: throw [IllegalArgumentException] for unrecognised class names.
+ * The library catches it and emits a `TaskCompletionEvent(success = false)` — the
+ * task fails immediately and visibly rather than silently disappearing.
+ *
  * Example (Common code):
  * ```kotlin
  * class MyWorkerFactory : WorkerFactory {
- *     override fun createWorker(workerClassName: String): Worker? {
+ *     override fun createWorker(workerClassName: String): Worker {
  *         return when (workerClassName) {
  *             "SyncWorker" -> SyncWorker()
  *             "UploadWorker" -> UploadWorker()
- *             else -> null
+ *             else -> throw IllegalArgumentException("Unregistered worker: $workerClassName")
  *         }
  *     }
  * }
@@ -25,16 +29,11 @@ interface WorkerFactory {
     /**
      * Creates a worker instance based on the class name.
      *
-     * **Important**: returning `null` is treated as a hard failure by the library —
-     * it emits a `TaskCompletionEvent(success = false)` and marks the task as failed.
-     * Do **not** rely on `null` for "optional" workers; always return a worker or
-     * throw an exception with a meaningful message.
-     *
      * @param workerClassName The fully qualified class name or simple name
-     * @return Worker instance, or `null` if the class name is not registered
-     *         (treated as task failure — not a silent no-op)
+     * @return Worker instance — never null
+     * @throws IllegalArgumentException if [workerClassName] is not registered in this factory
      */
-    fun createWorker(workerClassName: String): Worker?
+    fun createWorker(workerClassName: String): Worker
 }
 
 /**

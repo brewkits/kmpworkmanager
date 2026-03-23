@@ -84,20 +84,27 @@ interface BackgroundTaskScheduler {
      * - Before app termination
      *
      * **iOS implementation details:**
-     * - I/O runs on a background thread (not Main Thread) to prevent UI jank
-     * - Bounded to **500 ms** maximum — safely within the iOS Watchdog limit for
-     *   `applicationWillResignActive` (~1 s). If the queue is very large and the
-     *   flush cannot complete in time, a partial flush is accepted with a warning log.
+     * - I/O is dispatched to a background thread (`Dispatchers.Default`) — the Main
+     *   Thread is never blocked by disk I/O directly.
+     * - The flush is bounded to **500 ms** maximum via `withTimeoutOrNull`. If the
+     *   queue is unusually large, a partial flush is accepted with a warning log rather
+     *   than risking an iOS Watchdog kill (~1 s budget for `applicationWillResignActive`).
      *
-     * **Benefits:**
-     * - No Main Thread I/O — Watchdog-safe even with large progress queues
-     * - Guarantees no progress data is lost when iOS suspends your app
+     * **Recommended Swift pattern (maximum safety):**
+     * Wrap the call in `UIApplication.beginBackgroundTask` to request up to 30 s of
+     * extra OS execution time. This ensures the flush survives even if the OS aggressively
+     * suspends the app right after `applicationWillResignActive` returns.
      *
-     * **Example (iOS):**
      * ```swift
      * // In AppDelegate.swift:
      * func applicationWillResignActive(_ application: UIApplication) {
+     *     var bgTaskId: UIBackgroundTaskIdentifier = .invalid
+     *     bgTaskId = UIApplication.shared.beginBackgroundTask {
+     *         UIApplication.shared.endBackgroundTask(bgTaskId)
+     *         bgTaskId = .invalid
+     *     }
      *     KmpWorkManager.shared.backgroundTaskScheduler.flushPendingProgress()
+     *     UIApplication.shared.endBackgroundTask(bgTaskId)
      * }
      * ```
      *

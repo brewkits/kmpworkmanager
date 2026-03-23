@@ -27,10 +27,10 @@ import dev.brewkits.kmpworkmanager.workers.builtins.*
  * **Usage (Composed with Custom Workers):**
  * ```kotlin
  * class MyWorkerFactory : WorkerFactory {
- *     override fun createWorker(workerClassName: String): Worker? {
+ *     override fun createWorker(workerClassName: String): Worker {
  *         return when(workerClassName) {
  *             "MyCustomWorker" -> MyCustomWorker()
- *             else -> null
+ *             else -> throw IllegalArgumentException("Unregistered worker: $workerClassName")
  *         }
  *     }
  * }
@@ -61,9 +61,10 @@ object BuiltinWorkerRegistry : WorkerFactory {
      * fully qualified names (e.g., "dev.brewkits.kmpworkmanager.workers.builtins.HttpRequestWorker").
      *
      * @param workerClassName The class name of the worker
-     * @return Worker instance or null if not a built-in worker
+     * @return Worker instance — never null
+     * @throws IllegalArgumentException if [workerClassName] is not a built-in worker
      */
-    override fun createWorker(workerClassName: String): Worker? {
+    override fun createWorker(workerClassName: String): Worker {
         // Normalize class name (support both simple and fully qualified names)
         val simpleName = workerClassName.substringAfterLast('.')
 
@@ -73,7 +74,7 @@ object BuiltinWorkerRegistry : WorkerFactory {
             "HttpDownloadWorker" -> HttpDownloadWorker()
             "HttpUploadWorker" -> HttpUploadWorker()
             "FileCompressionWorker" -> FileCompressionWorker()
-            else -> null
+            else -> throw IllegalArgumentException("'$workerClassName' is not a built-in worker. Register it in your WorkerFactory.")
         }
     }
 
@@ -96,16 +97,17 @@ object BuiltinWorkerRegistry : WorkerFactory {
 /**
  * Composite worker factory that tries multiple factories in order.
  *
- * This allows you to combine your custom workers with built-in workers.
- * The first factory to return a non-null worker wins.
+ * Each factory should throw [IllegalArgumentException] for unrecognised worker names.
+ * CompositeWorkerFactory catches that exception and moves to the next factory.
+ * If no factory recognises the name, [IllegalArgumentException] is thrown.
  *
  * **Usage:**
  * ```kotlin
  * class MyWorkerFactory : WorkerFactory {
- *     override fun createWorker(workerClassName: String): Worker? {
+ *     override fun createWorker(workerClassName: String): Worker {
  *         return when(workerClassName) {
  *             "MyWorker" -> MyWorker()
- *             else -> null
+ *             else -> throw IllegalArgumentException("Unregistered worker: $workerClassName")
  *         }
  *     }
  * }
@@ -122,13 +124,16 @@ class CompositeWorkerFactory(
     private vararg val factories: WorkerFactory
 ) : WorkerFactory {
 
-    override fun createWorker(workerClassName: String): Worker? {
+    override fun createWorker(workerClassName: String): Worker {
         for (factory in factories) {
-            val worker = factory.createWorker(workerClassName)
-            if (worker != null) {
-                return worker
+            try {
+                return factory.createWorker(workerClassName)
+            } catch (_: IllegalArgumentException) {
+                // This factory doesn't know this worker — try the next one
             }
         }
-        return null
+        throw IllegalArgumentException(
+            "'$workerClassName' was not recognised by any of the ${factories.size} registered factories."
+        )
     }
 }
