@@ -25,8 +25,14 @@ interface WorkerFactory {
     /**
      * Creates a worker instance based on the class name.
      *
+     * **Important**: returning `null` is treated as a hard failure by the library —
+     * it emits a `TaskCompletionEvent(success = false)` and marks the task as failed.
+     * Do **not** rely on `null` for "optional" workers; always return a worker or
+     * throw an exception with a meaningful message.
+     *
      * @param workerClassName The fully qualified class name or simple name
-     * @return Worker instance or null if not found
+     * @return Worker instance, or `null` if the class name is not registered
+     *         (treated as task failure — not a silent no-op)
      */
     fun createWorker(workerClassName: String): Worker?
 }

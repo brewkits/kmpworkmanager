@@ -264,12 +264,15 @@ sealed interface TaskTrigger {
  * System-level constraints for task execution.
  * These are conditions that must be met for a task to run.
  *
- * **Platform Support**: Android only (iOS ignores these)
+ * **Platform Support**: Android only (iOS ignores these entirely).
+ *
+ * This enum is intentionally in common code so it can be referenced in the shared
+ * [Constraints] data class. Only use values of this enum when writing Android-specific
+ * scheduling logic, or wrap the call site with `@OptIn(AndroidOnly::class)`.
  *
  * **v3.0.0+**: Replaces deprecated TaskTrigger variants (BatteryLow, StorageLow, etc.)
  * which incorrectly represented constraints as triggers.
  */
-@AndroidOnly
 @Serializable
 enum class SystemConstraint {
     /**

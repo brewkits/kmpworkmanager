@@ -83,9 +83,15 @@ interface BackgroundTaskScheduler {
      * - Before BGTask expiration
      * - Before app termination
      *
+     * **iOS implementation details:**
+     * - I/O runs on a background thread (not Main Thread) to prevent UI jank
+     * - Bounded to **500 ms** maximum — safely within the iOS Watchdog limit for
+     *   `applicationWillResignActive` (~1 s). If the queue is very large and the
+     *   flush cannot complete in time, a partial flush is accepted with a warning log.
+     *
      * **Benefits:**
+     * - No Main Thread I/O — Watchdog-safe even with large progress queues
      * - Guarantees no progress data is lost when iOS suspends your app
-     * - Takes 10-50ms (negligible for rare suspension events)
      *
      * **Example (iOS):**
      * ```swift

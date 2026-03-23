@@ -1,3 +1,4 @@
+@file:OptIn(dev.brewkits.kmpworkmanager.background.domain.AndroidOnly::class) // iOS scheduler exhaustively handles ContentUri by rejecting it — opt-in is explicit and intentional
 
 package dev.brewkits.kmpworkmanager.background.data
 

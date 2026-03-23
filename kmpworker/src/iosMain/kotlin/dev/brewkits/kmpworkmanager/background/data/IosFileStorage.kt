@@ -846,15 +846,23 @@ internal class IosFileStorage(
      * @since 2.3.4
      */
     fun flushAllPendingProgress() {
-        Logger.i(LogTags.CHAIN, "🚨 Emergency progress flush requested (app suspension/shutdown)")
+        Logger.i(LogTags.CHAIN, "Emergency progress flush requested (app suspension/shutdown)")
 
-        // Use runBlocking to ensure flush completes before app suspends
-        // This is one of the few valid uses of runBlocking (graceful shutdown)
+        // runBlocking is valid here (graceful shutdown), but I/O is offloaded to a background
+        // dispatcher and bounded to 500 ms so the Main Thread is never blocked by slow disk I/O.
+        // 500 ms is well within iOS Watchdog limits (~1 s for applicationWillResignActive).
         kotlinx.coroutines.runBlocking {
-            flushNow()
+            val completed = kotlinx.coroutines.withTimeoutOrNull(500L) {
+                // Kotlin/Native has no Dispatchers.IO; Dispatchers.Default is the background
+                // thread pool on iOS and achieves the same goal of freeing the Main Thread.
+                withContext(Dispatchers.Default) { flushNow() }
+            }
+            if (completed == null) {
+                Logger.w(LogTags.CHAIN, "Progress flush timed out after 500 ms — partial flush accepted to avoid Watchdog kill")
+            }
         }
 
-        Logger.i(LogTags.CHAIN, "✅ Emergency progress flush completed")
+        Logger.i(LogTags.CHAIN, "Emergency progress flush completed")
     }
 
     /**

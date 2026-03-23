@@ -34,15 +34,27 @@ import dev.brewkits.kmpworkmanager.utils.LogTags
  *         context: Context,
  *         taskId: String,
  *         workerClassName: String,
- *         inputJson: String?
+ *         inputJson: String?,
+ *         pendingResult: PendingResult
  *     ) {
- *         // Get worker factory from Koin
  *         val factory = KoinContext.get().get<WorkerFactory>()
- *         val worker = factory.createWorker(workerClassName)
- *
- *         // Execute work (consider using WorkManager for reliability)
  *         CoroutineScope(Dispatchers.IO).launch {
- *             worker?.doWork(inputJson)
+ *             try {
+ *                 // IMPORTANT: treat null as a hard failure — do NOT use worker?.doWork()
+ *                 // which silently does nothing and leaves the task result unresolved.
+ *                 val worker = factory.createWorker(workerClassName)
+ *                     ?: run {
+ *                         TaskEventBus.emit(TaskCompletionEvent(
+ *                             taskName = workerClassName,
+ *                             success = false,
+ *                             message = "Worker not found: $workerClassName"
+ *                         ))
+ *                         return@launch
+ *                     }
+ *                 worker.doWork(inputJson)
+ *             } finally {
+ *                 pendingResult.finish() // Always release the BroadcastReceiver
+ *             }
  *         }
  *     }
  * }
