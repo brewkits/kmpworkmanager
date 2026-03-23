@@ -243,12 +243,39 @@ object SecurityValidator {
     /**
      * Validates that a file path doesn't contain path traversal attempts.
      *
+     * Checks performed (v2.3.7+):
+     * - Blank / empty path
+     * - Literal `..` segments
+     * - URL-encoded `..` variants: `%2e%2e`, `%252e%252e` (double-encoded)
+     * - Backslash normalisation (Windows-style separators)
+     * - Null-byte injection (`\u0000`)
+     * - Absolute paths targeting sensitive system directories
+     *
      * @param path The file path to validate
-     * @return true if path is safe, false if it contains ".." or other suspicious patterns
+     * @return true if path is safe, false if it contains a suspicious pattern
      */
     fun validateFilePath(path: String): Boolean {
-        // Check for path traversal attempts
-        return !path.contains("..") && path.isNotBlank()
+        if (path.isBlank()) return false
+
+        // Normalise to a canonical form before checking, covering the most common
+        // bypass techniques without requiring platform-specific APIs.
+        val normalised = path
+            .replace("\\", "/")                         // Windows separators
+            .replace("\u0000", "")                      // Null-byte injection
+            .replace("%252e", ".", ignoreCase = true)   // Double URL-encoded dot
+            .replace("%2e", ".", ignoreCase = true)     // URL-encoded dot
+            .replace("%2f", "/", ignoreCase = true)     // URL-encoded slash
+            .replace("%5c", "/", ignoreCase = true)     // URL-encoded backslash
+
+        if (normalised.contains("..")) return false
+
+        // Block absolute paths that target sensitive OS directories.
+        // This is a defence-in-depth measure: the storage sandbox should be the
+        // primary enforcement point, but this catches misconfigured callers early.
+        val sensitiveRoots = listOf("/etc", "/proc", "/sys", "/dev", "/private/etc")
+        if (sensitiveRoots.any { normalised.startsWith(it) }) return false
+
+        return true
     }
 
     /**

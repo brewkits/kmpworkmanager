@@ -36,18 +36,11 @@ import platform.Foundation.timeIntervalSince1970
  * @param workerFactory Factory for creating worker instances
  * @param taskType Type of BGTask (APP_REFRESH or PROCESSING) - determines timeout limits
  */
-/**
- * Closeable interface for resource cleanup
- */
-interface Closeable {
-    fun close()
-}
-
 class ChainExecutor(
     private val workerFactory: IosWorkerFactory,
     private val taskType: BGTaskType = BGTaskType.PROCESSING,
     private val onContinuationNeeded: (() -> Unit)? = null
-) : Closeable {
+) : AutoCloseable {
 
     // AtomicInt for lock-free isClosed check in synchronous close().
     // compareAndSet(0, 1) ensures only one caller wins the race, avoiding double-flush.
@@ -1006,9 +999,9 @@ class ChainExecutor(
 }
 
 /**
- * Extension function for using Closeable with automatic cleanup
+ * Extension function for using AutoCloseable with automatic cleanup
  */
-inline fun <T : Closeable, R> T.use(block: (T) -> R): R {
+inline fun <T : AutoCloseable, R> T.use(block: (T) -> R): R {
     var exception: Throwable? = null
     try {
         return block(this)

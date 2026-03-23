@@ -45,12 +45,22 @@ sealed interface TaskTrigger {
     data class Exact(val atEpochMillis: Long) : TaskTrigger
 
     /**
-     * Triggers within a time window - **NOT IMPLEMENTED**.
+     * Triggers within a time window.
      *
-     * Allows the OS to optimize execution by choosing best time within window.
+     * Allows the OS to optimize execution by choosing the best time within the window.
+     *
+     * **Android**: Maps to a OneTime task with an initial delay to [earliest].
+     * The [latest] bound is not enforced — identical behaviour to iOS, keeping
+     * cross-platform semantics consistent. A warning is logged at scheduling time.
+     *
+     * **iOS**: Uses `earliestBeginDate = earliest`. [latest] is logged but ignored —
+     * BGTaskScheduler decides the actual execution time opportunistically.
+     *
+     * **Note**: Neither platform guarantees execution within [earliest..latest].
+     * For time-critical work use [Exact] with [ExactAlarmIOSBehavior].
      *
      * @param earliest Earliest time to execute (Unix epoch milliseconds)
-     * @param latest Latest time to execute (Unix epoch milliseconds)
+     * @param latest Latest time to execute (Unix epoch milliseconds) — hint only, not enforced
      */
     data class Windowed(val earliest: Long, val latest: Long) : TaskTrigger
 

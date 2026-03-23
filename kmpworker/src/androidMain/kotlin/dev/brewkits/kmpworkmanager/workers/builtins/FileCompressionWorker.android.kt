@@ -5,6 +5,8 @@ import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.workers.config.CompressionLevel
 import dev.brewkits.kmpworkmanager.workers.config.FileCompressionConfig
 import dev.brewkits.kmpworkmanager.workers.utils.SecurityValidator
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileInputStream
@@ -91,13 +93,13 @@ internal actual suspend fun platformCompress(config: FileCompressionConfig): Wor
 
         WorkerResult.Success(
             message = "Compressed ${SecurityValidator.formatByteSize(originalSize)} to ${SecurityValidator.formatByteSize(compressedSize)} ($compressionRatio%)",
-            data = mapOf(
-                "originalSize" to originalSize,
-                "compressedSize" to compressedSize,
-                "compressionRatio" to compressionRatio,
-                "outputPath" to config.outputPath,
-                "deletedOriginal" to config.deleteOriginal
-            )
+            data = buildJsonObject {
+                put("originalSize", originalSize)
+                put("compressedSize", compressedSize)
+                put("compressionRatio", compressionRatio)
+                put("outputPath", config.outputPath)
+                put("deletedOriginal", config.deleteOriginal)
+            }
         )
     } catch (e: Exception) {
         Logger.e("FileCompressionWorker", "Compression failed", e)

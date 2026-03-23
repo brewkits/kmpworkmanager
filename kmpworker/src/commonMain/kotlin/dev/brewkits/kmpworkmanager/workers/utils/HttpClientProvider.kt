@@ -1,13 +1,7 @@
 package dev.brewkits.kmpworkmanager.workers.utils
 
 import io.ktor.client.*
-import io.ktor.client.plugins.*
-import io.ktor.client.plugins.compression.*
-import io.ktor.client.plugins.contentnegotiation.*
-import io.ktor.client.plugins.logging.*
-import io.ktor.client.request.*
-import io.ktor.serialization.kotlinx.json.*
-import kotlinx.serialization.json.Json
+import kotlin.concurrent.Volatile
 
 /**
  * Singleton HttpClient provider for optimal performance.
@@ -28,8 +22,16 @@ import kotlinx.serialization.json.Json
  * ```
  *
  * @since 2.3.4
+ * @since 2.3.7 Replaced `by lazy` with @Volatile var so close() + re-access
+ *              creates a fresh client instead of silently returning a closed one.
  */
 object HttpClientProvider {
+
+    // @Volatile ensures the write to _client is immediately visible across threads
+    // on JVM/Android (happens-before guarantee). A tiny first-access race is acceptable —
+    // at worst two threads each create one client; the loser is GC'd on next access.
+    @Volatile
+    private var _client: HttpClient? = null
 
     /**
      * Shared HttpClient instance with optimal configuration.
@@ -41,24 +43,24 @@ object HttpClientProvider {
      * - JSON content negotiation
      * - Keep-alive connections
      * - Automatic redirect following
+     *
+     * If [close] was previously called, accessing this property creates a new client.
      */
-    val instance: HttpClient by lazy {
-        createPlatformHttpClient()
-    }
+    val instance: HttpClient
+        get() = _client ?: createPlatformHttpClient().also { _client = it }
 
     /**
-     * Gracefully close the shared client.
-     * Call this on app shutdown to release resources.
+     * Gracefully close the shared client and reset the reference.
      *
-     * Note: Once closed, the client cannot be reused.
-     * A new instance will be created on next access.
+     * After calling this, the next access to [instance] will create a fresh client —
+     * unlike the previous `by lazy` implementation which returned the closed client.
+     *
+     * Call on app shutdown or when reinitializing with a different configuration.
      */
     fun close() {
-        try {
-            instance.close()
-        } catch (e: Exception) {
-            // Already closed or closing - ignore
-        }
+        val toClose = _client
+        _client = null
+        runCatching { toClose?.close() }
     }
 }
 

@@ -15,6 +15,8 @@ import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.utils.io.*
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import okio.FileSystem
 import okio.Path.Companion.toPath
 import okio.buffer
@@ -171,11 +173,11 @@ class HttpDownloadWorker(
 
             WorkerResult.Success(
                 message = "Downloaded ${SecurityValidator.formatByteSize(downloadedBytes)}",
-                data = mapOf(
-                    "fileSize" to downloadedBytes,
-                    "filePath" to config.savePath,
-                    "url" to SecurityValidator.sanitizedURL(config.url)
-                )
+                data = buildJsonObject {
+                    put("fileSize", downloadedBytes)
+                    put("filePath", config.savePath)
+                    put("url", SecurityValidator.sanitizedURL(config.url))
+                }
             )
         } catch (e: Exception) {
             // Cleanup temp file on error

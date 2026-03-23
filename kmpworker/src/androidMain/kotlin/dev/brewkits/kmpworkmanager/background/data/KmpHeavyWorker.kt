@@ -13,6 +13,7 @@ import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
+import kotlinx.coroutines.CancellationException
 import dev.brewkits.kmpworkmanager.R
 import dev.brewkits.kmpworkmanager.KmpWorkManagerKoin
 import dev.brewkits.kmpworkmanager.background.domain.AndroidWorkerFactory
@@ -303,6 +304,11 @@ class KmpHeavyWorker(
                     }
                 }
             }
+        } catch (e: CancellationException) {
+            // CancellationException MUST be rethrown — swallowing it breaks the coroutine
+            // cancellation protocol and prevents WorkManager from correctly cancelling the task.
+            Logger.w(LogTags.WORKER, "KmpHeavyWorker cancelled by coroutine scope: $workerClassName")
+            throw e
         } catch (e: Exception) {
             Logger.e(LogTags.WORKER, "KmpHeavyWorker exception: $workerClassName", e)
 

@@ -50,7 +50,7 @@ interface WorkerFactory {
  *             delay(2000)
  *             WorkerResult.Success(
  *                 message = "Sync completed",
- *                 data = mapOf("syncedItems" to 42)
+ *                 data = buildJsonObject { put("syncedItems", 42) }
  *             )
  *         } catch (e: Exception) {
  *             WorkerResult.Failure("Sync failed: ${e.message}")

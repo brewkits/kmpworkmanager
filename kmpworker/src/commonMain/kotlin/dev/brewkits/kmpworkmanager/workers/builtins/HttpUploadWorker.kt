@@ -15,6 +15,8 @@ import io.ktor.client.request.forms.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import okio.FileSystem
 import okio.Path.Companion.toPath
 
@@ -181,13 +183,13 @@ class HttpUploadWorker(
 
                 WorkerResult.Success(
                     message = "Uploaded ${SecurityValidator.formatByteSize(fileSize)} - HTTP $statusCode",
-                    data = mapOf(
-                        "statusCode" to statusCode,
-                        "fileSize" to fileSize,
-                        "fileName" to fileName,
-                        "url" to SecurityValidator.sanitizedURL(config.url),
-                        "responseLength" to responseBody.length
-                    )
+                    data = buildJsonObject {
+                        put("statusCode", statusCode)
+                        put("fileSize", fileSize)
+                        put("fileName", fileName)
+                        put("url", SecurityValidator.sanitizedURL(config.url))
+                        put("responseLength", responseBody.length)
+                    }
                 )
             } else {
                 Logger.w("HttpUploadWorker", "Upload completed with non-success status $statusCode")

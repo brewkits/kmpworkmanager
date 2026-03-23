@@ -34,21 +34,6 @@ class TaskChain internal constructor(
     private val steps: MutableList<List<TaskRequest>> = mutableListOf(initialTasks)
 
     /**
-     */
-    @Suppress("UNUSED_PARAMETER")
-    private constructor(
-        scheduler: BackgroundTaskScheduler,
-        steps: MutableList<List<TaskRequest>>,
-        chainId: String?,
-        existingPolicy: ExistingPolicy,
-        @Suppress("UNUSED_PARAMETER") dummy: Unit = Unit
-    ) : this(scheduler, steps.firstOrNull() ?: emptyList(), chainId, existingPolicy) {
-        // Replace the single-item steps with the full steps list
-        this.steps.clear()
-        this.steps.addAll(steps)
-    }
-
-    /**
      * Appends a single task to be executed sequentially after all previous tasks in the chain have completed.
      *
      * @param task The [TaskRequest] to add to the chain.
@@ -79,8 +64,18 @@ class TaskChain internal constructor(
      * @param policy How to handle if a chain with this ID already exists
      * @return A new [TaskChain] instance with the specified ID and policy
      */
-    fun withId(id: String, policy: ExistingPolicy = ExistingPolicy.REPLACE): TaskChain {
-        return TaskChain(scheduler, steps.toMutableList(), id, policy, Unit)
+    fun withId(id: String, policy: ExistingPolicy = ExistingPolicy.REPLACE): TaskChain =
+        copyWith(chainId = id, existingPolicy = policy)
+
+    /**
+     * Creates a copy of this chain with a new ID and/or policy, preserving all steps.
+     * Replaces the awkward private dummy-parameter constructor pattern (v2.3.7+).
+     */
+    private fun copyWith(chainId: String?, existingPolicy: ExistingPolicy): TaskChain {
+        val copy = TaskChain(scheduler, steps.first(), chainId, existingPolicy)
+        copy.steps.clear()
+        copy.steps.addAll(this.steps)
+        return copy
     }
 
     /**

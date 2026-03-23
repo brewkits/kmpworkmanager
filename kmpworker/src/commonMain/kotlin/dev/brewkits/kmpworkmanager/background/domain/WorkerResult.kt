@@ -1,5 +1,9 @@
 package dev.brewkits.kmpworkmanager.background.domain
 
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+
 /**
  * Result type for Worker execution.
  *
@@ -10,19 +14,20 @@ package dev.brewkits.kmpworkmanager.background.domain
  * - Control retry behavior
  *
  * v2.3.0+: Introduced to support returning data from workers
+ * v2.3.7+: data changed from Map<String, Any?> to JsonObject for safe serialization
  *
  * Example:
  * ```kotlin
  * class DataFetchWorker : Worker {
  *     override suspend fun doWork(input: String?): WorkerResult {
  *         return try {
- *             val data = fetchData()
+ *             val items = fetchData()
  *             WorkerResult.Success(
- *                 message = "Fetched ${data.size} items",
- *                 data = mapOf(
- *                     "count" to data.size,
- *                     "items" to data
- *                 )
+ *                 message = "Fetched ${items.size} items",
+ *                 data = buildJsonObject {
+ *                     put("count", items.size)
+ *                     put("firstItem", items.firstOrNull()?.id ?: "")
+ *                 }
  *             )
  *         } catch (e: Exception) {
  *             WorkerResult.Failure(
@@ -39,12 +44,13 @@ sealed class WorkerResult {
      * Represents successful worker execution.
      *
      * @param message Optional success message
-     * @param data Optional output data to be passed to listeners via TaskCompletionEvent
+     * @param data Optional output data to be passed to listeners via TaskCompletionEvent.
+     *             Use [buildJsonObject] to construct: `buildJsonObject { put("key", value) }`
      * @param dataClass Optional hint for the data class name (for future typed deserialization)
      */
     data class Success(
         val message: String? = null,
-        val data: Map<String, Any?>? = null,
+        val data: JsonObject? = null,
         val dataClass: String? = null
     ) : WorkerResult()
 
