@@ -46,13 +46,13 @@ class ImageProcessingWorker : IosWorker {
                 )
             )
 
-            WorkerResult.Success(
+            return WorkerResult.Success(
                 message = "Processed $imageCount images in ${imageSizes.size} sizes",
-                data = mapOf(
-                    "imageCount" to imageCount,
-                    "sizeVariants" to imageSizes.size,
-                    "totalProcessed" to (imageCount * imageSizes.size)
-                )
+                data = buildJsonObject {
+                    put("imageCount", imageCount)
+                    put("sizeVariants", imageSizes.size)
+                    put("totalProcessed", (imageCount * imageSizes.size))
+                }
             )
         } catch (e: Exception) {
             Logger.e(LogTags.WORKER, "ImageProcessingWorker failed: ${e.message}", e)

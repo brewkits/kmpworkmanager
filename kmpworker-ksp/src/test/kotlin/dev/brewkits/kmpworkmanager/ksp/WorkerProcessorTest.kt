@@ -27,14 +27,19 @@ class WorkerProcessorTest {
         val source = SourceFile.kotlin(
             "TestWorker.kt",
             """
-            package dev.brewkits.test
+            package dev.brewkits.kmpworkmanager.annotations
+            annotation class Worker(val name: String = "")
 
+            package dev.brewkits.kmpworkmanager.background.domain
+            interface AndroidWorker
+
+            package dev.brewkits.test
             import dev.brewkits.kmpworkmanager.annotations.Worker
             import dev.brewkits.kmpworkmanager.background.domain.AndroidWorker
 
             @Worker("SyncWorker")
             class SyncWorker : AndroidWorker {
-                override suspend fun doWork(input: String): Boolean = true
+                suspend fun doWork(input: String): Boolean = true
             }
             """.trimIndent()
         )
@@ -60,14 +65,19 @@ class WorkerProcessorTest {
         val source = SourceFile.kotlin(
             "TestWorker.kt",
             """
-            package dev.brewkits.test
+            package dev.brewkits.kmpworkmanager.annotations
+            annotation class Worker(val name: String = "")
 
+            package dev.brewkits.kmpworkmanager.background.data
+            interface IosWorker
+
+            package dev.brewkits.test
             import dev.brewkits.kmpworkmanager.annotations.Worker
             import dev.brewkits.kmpworkmanager.background.data.IosWorker
 
             @Worker("SyncWorker")
             class SyncWorker : IosWorker {
-                override suspend fun doWork(input: String): Boolean = true
+                suspend fun doWork(input: String): Boolean = true
             }
             """.trimIndent()
         )
@@ -90,24 +100,29 @@ class WorkerProcessorTest {
         val source = SourceFile.kotlin(
             "TestWorkers.kt",
             """
-            package dev.brewkits.test
+            package dev.brewkits.kmpworkmanager.annotations
+            annotation class Worker(val name: String = "")
 
+            package dev.brewkits.kmpworkmanager.background.domain
+            interface AndroidWorker
+
+            package dev.brewkits.test
             import dev.brewkits.kmpworkmanager.annotations.Worker
             import dev.brewkits.kmpworkmanager.background.domain.AndroidWorker
 
             @Worker("SyncWorker")
             class SyncWorker : AndroidWorker {
-                override suspend fun doWork(input: String): Boolean = true
+                suspend fun doWork(input: String): Boolean = true
             }
 
             @Worker("UploadWorker")
             class UploadWorker : AndroidWorker {
-                override suspend fun doWork(input: String): Boolean = true
+                suspend fun doWork(input: String): Boolean = true
             }
 
             @Worker("DatabaseWorker")
             class DatabaseWorker : AndroidWorker {
-                override suspend fun doWork(input: String): Boolean = true
+                suspend fun doWork(input: String): Boolean = true
             }
             """.trimIndent()
         )
@@ -130,14 +145,19 @@ class WorkerProcessorTest {
         val source = SourceFile.kotlin(
             "TestWorker.kt",
             """
-            package dev.brewkits.test
+            package dev.brewkits.kmpworkmanager.annotations
+            annotation class Worker(val name: String = "")
 
+            package dev.brewkits.kmpworkmanager.background.domain
+            interface AndroidWorker
+
+            package dev.brewkits.test
             import dev.brewkits.kmpworkmanager.annotations.Worker
             import dev.brewkits.kmpworkmanager.background.domain.AndroidWorker
 
             @Worker("my-custom-sync-worker")
             class SyncWorker : AndroidWorker {
-                override suspend fun doWork(input: String): Boolean = true
+                suspend fun doWork(input: String): Boolean = true
             }
             """.trimIndent()
         )
@@ -161,14 +181,19 @@ class WorkerProcessorTest {
         val source = SourceFile.kotlin(
             "TestWorker.kt",
             """
-            package dev.brewkits.test
+            package dev.brewkits.kmpworkmanager.annotations
+            annotation class Worker(val name: String = "")
 
+            package dev.brewkits.kmpworkmanager.background.domain
+            interface AndroidWorker
+
+            package dev.brewkits.test
             import dev.brewkits.kmpworkmanager.annotations.Worker
             import dev.brewkits.kmpworkmanager.background.domain.AndroidWorker
 
             @Worker
             class SyncWorker : AndroidWorker {
-                override suspend fun doWork(input: String): Boolean = true
+                suspend fun doWork(input: String): Boolean = true
             }
             """.trimIndent()
         )
@@ -193,20 +218,28 @@ class WorkerProcessorTest {
         val source = SourceFile.kotlin(
             "TestWorkers.kt",
             """
-            package dev.brewkits.test
+            package dev.brewkits.kmpworkmanager.annotations
+            annotation class Worker(val name: String = "")
 
+            package dev.brewkits.kmpworkmanager.background.domain
+            interface AndroidWorker
+
+            package dev.brewkits.kmpworkmanager.background.data
+            interface IosWorker
+
+            package dev.brewkits.test
             import dev.brewkits.kmpworkmanager.annotations.Worker
             import dev.brewkits.kmpworkmanager.background.domain.AndroidWorker
             import dev.brewkits.kmpworkmanager.background.data.IosWorker
 
             @Worker("AndroidSync")
             class AndroidSyncWorker : AndroidWorker {
-                override suspend fun doWork(input: String): Boolean = true
+                suspend fun doWork(input: String): Boolean = true
             }
 
             @Worker("IosSync")
             class IosSyncWorker : IosWorker {
-                override suspend fun doWork(input: String): Boolean = true
+                suspend fun doWork(input: String): Boolean = true
             }
             """.trimIndent()
         )
@@ -265,14 +298,19 @@ class WorkerProcessorTest {
         val source = SourceFile.kotlin(
             "TestWorker.kt",
             """
-            package dev.brewkits.test
+            package dev.brewkits.kmpworkmanager.annotations
+            annotation class Worker(val name: String = "")
 
+            package dev.brewkits.kmpworkmanager.background.domain
+            interface AndroidWorker
+
+            package dev.brewkits.test
             import dev.brewkits.kmpworkmanager.annotations.Worker
             import dev.brewkits.kmpworkmanager.background.domain.AndroidWorker
 
             @Worker("TestWorker")
             class TestWorker : AndroidWorker {
-                override suspend fun doWork(input: String): Boolean = true
+                suspend fun doWork(input: String): Boolean = true
             }
             """.trimIndent()
         )
@@ -302,7 +340,7 @@ class WorkerProcessorTest {
             """
             @Worker("Worker$i")
             class Worker$i : AndroidWorker {
-                override suspend fun doWork(input: String): Boolean = true
+                suspend fun doWork(input: String): Boolean = true
             }
             """.trimIndent()
         }
@@ -310,8 +348,13 @@ class WorkerProcessorTest {
         val source = SourceFile.kotlin(
             "ManyWorkers.kt",
             """
-            package dev.brewkits.test
+            package dev.brewkits.kmpworkmanager.annotations
+            annotation class Worker(val name: String = "")
 
+            package dev.brewkits.kmpworkmanager.background.domain
+            interface AndroidWorker
+
+            package dev.brewkits.test
             import dev.brewkits.kmpworkmanager.annotations.Worker
             import dev.brewkits.kmpworkmanager.background.domain.AndroidWorker
 

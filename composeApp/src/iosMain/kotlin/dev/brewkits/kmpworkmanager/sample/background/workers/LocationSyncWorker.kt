@@ -43,12 +43,12 @@ class LocationSyncWorker : IosWorker {
                 )
             )
 
-            WorkerResult.Success(
+            return WorkerResult.Success(
                 message = "Synced $locationPoints location points",
-                data = mapOf(
-                    "locationPoints" to locationPoints,
-                    "batchSize" to batchSize
-                )
+                data = buildJsonObject {
+                    put("locationPoints", locationPoints)
+                    put("batchSize", batchSize)
+                }
             )
         } catch (e: Exception) {
             Logger.e(LogTags.WORKER, "LocationSyncWorker failed: ${e.message}", e)

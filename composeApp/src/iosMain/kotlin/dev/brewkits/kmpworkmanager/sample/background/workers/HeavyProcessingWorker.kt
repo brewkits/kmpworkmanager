@@ -42,14 +42,14 @@ class HeavyProcessingWorker : IosWorker {
                 )
             )
 
-            WorkerResult.Success(
+            return WorkerResult.Success(
                 message = "Calculated ${primes.size} primes in ${duration.inWholeMilliseconds}ms",
-                data = mapOf(
-                    "primeCount" to primes.size,
-                    "durationMs" to duration.inWholeMilliseconds,
-                    "firstPrimes" to primes.take(10).toString(),
-                    "lastPrimes" to primes.takeLast(10).toString()
-                )
+                data = buildJsonObject {
+                    put("primeCount", primes.size)
+                    put("durationMs", duration.inWholeMilliseconds)
+                    put("firstPrimes", primes.take(10).toString())
+                    put("lastPrimes", primes.takeLast(10).toString())
+                }
             )
         } catch (e: Exception) {
             println(" KMP_BG_TASK_iOS: HeavyProcessingWorker failed: ${e.message}")

@@ -140,7 +140,8 @@ scheduler.cancelAll()
 sealed class WorkerResult {
     data class Success(
         val message: String? = null,
-        val data: Map<String, Any?>? = null
+        val data: JsonObject? = null,
+        val dataClass: String? = null
     ) : WorkerResult()
 
     data class Failure(
@@ -192,12 +193,12 @@ class DownloadWorker : CommonWorker {
 
         return WorkerResult.Success(
             message = "Downloaded ${file.length()} bytes in 5s",
-            data = mapOf(
-                "filePath" to config.savePath,
-                "fileSize" to file.length(),
-                "url" to config.url,
-                "duration" to 5000L
-            )
+            data = buildJsonObject {
+                put("filePath", config.savePath)
+                put("fileSize", file.length())
+                put("url", config.url)
+                put("duration", 5000L)
+            }
         )
     }
 }
@@ -210,7 +211,7 @@ class DownloadWorker : CommonWorker {
 when (val result = worker.doWork(input)) {
     is WorkerResult.Success -> {
         println("Success: ${result.message}")
-        val fileSize = result.data?.get("fileSize") as? Long
+        val fileSize = result.data?.get("fileSize")?.jsonPrimitive?.longOrNull
         println("File size: $fileSize bytes")
     }
     is WorkerResult.Failure -> {
@@ -227,7 +228,10 @@ class DownloadWorker : CommonWorker {
     override suspend fun doWork(input: String?): WorkerResult {
         val file = download(url)
         return WorkerResult.Success(
-            data = mapOf("filePath" to file.path, "size" to file.size)
+            data = buildJsonObject {
+                put("filePath", file.path)
+                put("size", file.size)
+            }
         )
     }
 }
@@ -817,6 +821,7 @@ data class TaskCompletionEvent(
     val taskName: String,
     val success: Boolean,
     val message: String,
+    val outputData: JsonObject? = null,
     val timestamp: Long = Clock.System.now().toEpochMilliseconds()
 )
 ```
@@ -826,6 +831,7 @@ data class TaskCompletionEvent(
 - `taskName: String` - Name of the worker that completed
 - `success: Boolean` - Whether the task succeeded
 - `message: String` - Human-readable message
+- `outputData: JsonObject?` - Output data from worker (if successful)
 - `timestamp: Long` - Event timestamp in epoch milliseconds
 
 ---
@@ -844,7 +850,10 @@ class SyncWorker : IosWorker {
                 TaskCompletionEvent(
                     taskName = "SyncWorker",
                     success = true,
-                    message = "✅ Data synced successfully"
+                    message = "✅ Data synced successfully",
+                    outputData = buildJsonObject {
+                        put("count", 100)
+                    }
                 )
             )
 

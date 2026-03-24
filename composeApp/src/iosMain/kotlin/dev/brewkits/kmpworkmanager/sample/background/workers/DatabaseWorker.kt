@@ -46,12 +46,12 @@ class DatabaseWorker : IosWorker {
                 )
             )
 
-            WorkerResult.Success(
+            return WorkerResult.Success(
                 message = "Inserted $totalRecords records successfully",
-                data = mapOf(
-                    "totalRecords" to totalRecords,
-                    "batchSize" to batchSize
-                )
+                data = buildJsonObject {
+                    put("totalRecords", totalRecords)
+                    put("batchSize", batchSize)
+                }
             )
         } catch (e: Exception) {
             Logger.e(LogTags.WORKER, "DatabaseWorker failed: ${e.message}", e)
