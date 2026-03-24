@@ -12,7 +12,7 @@ import kotlin.test.*
 import kotlin.time.TimeSource
 
 /**
- * v2.3.0: Integration tests for complete workflows
+ * Integration tests for complete workflows
  * Tests migration, recovery, policy handling, and edge cases
  */
 @OptIn(ExperimentalForeignApi::class)

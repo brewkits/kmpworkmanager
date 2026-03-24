@@ -20,7 +20,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
- * v2.3.5 Bug Fixes — Regression Tests
+ * Bug Fixes — Regression Tests
  *
  * Covers all bugs fixed in this release:
  *
@@ -117,7 +117,7 @@ class V235BugFixesTest {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Fix EB-1 — TaskEventBus.emit() uses emit() not tryEmit()
+    // Fix EB-1 — TaskEventBus.emit() is non-blocking (tryEmit + DROP_OLDEST)
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
@@ -199,24 +199,27 @@ class V235BugFixesTest {
         }
         collectJob.join()
 
-        // All events must be received (no silent drops)
+        // All 10 events fit within the extraBufferCapacity=32 buffer, so no drops expected.
+        // Under extreme load (>32 concurrent), DROP_OLDEST kicks in — acceptable by design.
         assertEquals(eventCount, received.size,
-            "All $eventCount events must be received, no drops (EB-1)")
+            "All $eventCount events must be received (within buffer capacity)")
         assertTrue(received.all { it.taskName.startsWith(prefix) })
     }
 
     @Test
-    fun `Fix EB-1 - TaskEventBus replay buffer should hold last 5 events`() = runTest {
-        // Emit 7 events — replay=5 means only last 5 are replayed to new subscribers
-        repeat(7) { i ->
+    fun `Fix EB-1 - TaskEventBus replay buffer should hold last 1 event`() = runTest {
+        // Emit 3 events — replay=1 means only the last event is replayed to new subscribers.
+        // replay=1 (not 5) prevents holding multiple large outputData JsonObjects in RAM.
+        repeat(3) { i ->
             TaskEventBus.emit(
                 TaskCompletionEvent(taskName = "ReplayTask$i", success = true, message = "Replay $i")
             )
         }
 
-        // New subscriber should receive replayed events (up to 5)
-        val replayed = TaskEventBus.events.take(5).toList()
-        assertEquals(5, replayed.size, "Replay buffer should provide 5 events")
+        // New subscriber should receive exactly the last replayed event
+        val replayed = TaskEventBus.events.take(1).toList()
+        assertEquals(1, replayed.size, "Replay buffer should provide 1 event")
+        assertEquals("ReplayTask2", replayed.first().taskName, "Last emitted event should be replayed")
     }
 
     @Test
@@ -274,7 +277,7 @@ class V235BugFixesTest {
 
     @Test
     fun `V235 - all fixes are verified`() {
-        // v2.3.5 Release Summary:
+        // Release Summary:
         //
         // Fix AD-1: AndroidWorkerDiagnostics "kmp-worker" → "KMP_TASK"
         //   Impact: Diagnostics API now returns correct WorkManager task counts
@@ -296,7 +299,7 @@ class V235BugFixesTest {
         //   Impact: All unit tests now pass (was 2 failures)
         //   Backward compatible: yes
 
-        assertTrue(true, "v2.3.5 all fixes verified")
+        assertTrue(true, "all fixes verified")
     }
 
     // ─────────────────────────────────────────────────────────────────────────

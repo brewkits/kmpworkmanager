@@ -3,6 +3,7 @@ package dev.brewkits.kmpworkmanager.background.domain
 import dev.brewkits.kmpworkmanager.persistence.EventStore
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.utils.LogTags
+import kotlin.concurrent.Volatile
 
 /**
  * Central manager for task completion events.
@@ -23,17 +24,34 @@ import dev.brewkits.kmpworkmanager.utils.LogTags
  */
 object TaskEventManager {
 
+    // @Volatile ensures writes from the initializing thread are immediately visible
+    // to any thread that subsequently reads eventStore (e.g. a worker's IO thread).
+    @Volatile
     private var eventStore: EventStore? = null
 
     /**
      * Initializes the event manager with an EventStore implementation.
-     * Must be called during app initialization.
+     * Must be called during app initialization (before any workers run).
+     *
+     * Duplicate calls are silently ignored — the first call wins.
      *
      * @param store The EventStore instance to use for persistence
      */
     fun initialize(store: EventStore) {
+        if (eventStore != null) {
+            Logger.w(LogTags.SCHEDULER, "TaskEventManager: Already initialized — ignoring duplicate call")
+            return
+        }
         eventStore = store
         Logger.i(LogTags.SCHEDULER, "TaskEventManager: Initialized with EventStore")
+    }
+
+    /**
+     * Resets the event manager state. For use in tests only.
+     * @suppress
+     */
+    internal fun resetForTest() {
+        eventStore = null
     }
 
     /**

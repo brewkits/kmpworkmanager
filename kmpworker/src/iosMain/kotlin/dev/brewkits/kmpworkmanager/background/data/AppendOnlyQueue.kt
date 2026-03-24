@@ -42,10 +42,10 @@ import dev.brewkits.kmpworkmanager.utils.crc32
  * ```
  *
  * @param baseDirectoryURL Base directory URL for queue storage
- * @param compactionScope CoroutineScope for background compaction operations (v2.1.1+)
+ * @param compactionScope CoroutineScope for background compaction operations
  *                        Defaults to a supervised scope with Default dispatcher
  *
- * Note: File coordination will be added in Phase 3 (v2.1.0 DI implementation)
+ * Note: File coordination will be added in Phase 3
  */
 @OptIn(ExperimentalForeignApi::class)
 internal class AppendOnlyQueue(
@@ -64,17 +64,17 @@ internal class AppendOnlyQueue(
     private val formatMutex = Mutex()
 
     // File paths
-    private val queueFileURL = baseDirectoryURL.URLByAppendingPathComponent("queue.jsonl")!!
-    private val headPointerURL = baseDirectoryURL.URLByAppendingPathComponent("head_pointer.txt")!!
-    private val compactedQueueURL = baseDirectoryURL.URLByAppendingPathComponent("queue_compacted.jsonl")!!
-    private val indexFileURL = baseDirectoryURL.URLByAppendingPathComponent("queue.index")!!
+    private val queueFileURL = baseDirectoryURL.safeAppend("queue.jsonl")
+    private val headPointerURL = baseDirectoryURL.safeAppend("head_pointer.txt")
+    private val compactedQueueURL = baseDirectoryURL.safeAppend("queue_compacted.jsonl")
+    private val indexFileURL = baseDirectoryURL.safeAppend("queue.index")
 
     // Line position cache: maps line index → file byte offset
     // Example: {0: 0, 1: 45, 2: 92, ...} means line 0 starts at byte 0, line 1 at byte 45, etc.
     private val linePositionCache = mutableMapOf<Int, ULong>()
     private var cacheValid = false
 
-    // v2.2.2+ Persistent index for O(1) startup
+    // Persistent index for O(1) startup
     private val queueIndex = QueueIndex(indexFileURL)
 
     // Compaction threshold: trigger when 80%+ items are processed
@@ -103,10 +103,10 @@ internal class AppendOnlyQueue(
 
         detectAndMigrateIfNeeded()
 
-        // Auto-migrate from old format if needed (v2.1.0 migration)
+        // Auto-migrate from old format if needed
         migrateQueueIfNeeded()
 
-        // v2.2.2+ Load persisted index for O(1) startup
+        // Load persisted index for O(1) startup
         val savedIndex = queueIndex.loadIndex()
         if (savedIndex.isNotEmpty()) {
             linePositionCache.putAll(savedIndex)
@@ -349,7 +349,7 @@ internal class AppendOnlyQueue(
 
             if (currentIndex == targetIndex) {
                 cacheValid = true
-                // v2.2.2+ Save index after cache rebuild (async, non-blocking)
+                // Save index after cache rebuild (async, non-blocking)
                 saveIndexAsync()
                 return line
             }
@@ -359,13 +359,13 @@ internal class AppendOnlyQueue(
         }
 
         cacheValid = true
-        // v2.2.2+ Save index after cache rebuild (async, non-blocking)
+        // Save index after cache rebuild (async, non-blocking)
         saveIndexAsync()
         return null  // Index out of bounds
     }
 
     /**
-     * Save index asynchronously (v2.2.2+ optimization)
+     * Save index asynchronously
      * Non-blocking - runs in background scope
      */
     private fun saveIndexAsync() {
@@ -473,7 +473,7 @@ internal class AppendOnlyQueue(
 
             val success = content.writeToFile(
                 path,
-                atomically = false,
+                atomically = true,
                 encoding = NSUTF8StringEncoding,
                 error = errorPtr.ptr
             )
@@ -655,7 +655,7 @@ internal class AppendOnlyQueue(
                     Logger.i(LogTags.CHAIN, "Queue is empty. No compaction needed.")
                     cacheValid = false
                     linePositionCache.clear()
-                    // v2.2.2+ Delete index when queue is empty
+                    // Delete index when queue is empty
                     queueIndex.deleteIndex()
                     return@coordinated
                 }
@@ -725,7 +725,7 @@ internal class AppendOnlyQueue(
                 linePositionCache.clear()
                 cacheValid = false
 
-                // v2.2.2+ Delete index after compaction (will be regenerated on next access)
+                // Delete index after compaction (will be regenerated on next access)
                 queueIndex.deleteIndex()
 
                 Logger.i(LogTags.CHAIN, "Compaction complete. Reduced from $totalLines to $unprocessedCount items.")
@@ -977,7 +977,6 @@ internal class AppendOnlyQueue(
 
     /**
      * Write binary file header (magic number + version)
-     * v2.1.3+
      */
     private fun writeFileHeader(fileHandle: NSFileHandle) {
         // Write magic number (4 bytes)
@@ -1030,7 +1029,7 @@ internal class AppendOnlyQueue(
     /**
      * Execute block with file coordination
      *
-     * **v2.3.5 Refactor:** Uses shared IosFileCoordinator for inter-process safety.
+     * **Refactor:** Uses shared IosFileCoordinator for inter-process safety.
      */
     private fun <T> coordinated(url: NSURL, write: Boolean, block: (NSURL) -> T): T {
         return IosFileCoordinator.coordinate(
@@ -1229,12 +1228,11 @@ internal class AppendOnlyQueue(
         }
     }
 
-    // ==================== Binary Format Helpers (v2.1.3+) ====================
+    // ==================== Binary Format Helpers ====================
 
     /**
      * Append item to queue file in binary format with CRC32
      * Format: [length:4][data:length][crc32:4][\n:1]
-     * v2.1.3+
      */
     private fun appendToQueueFileBinary(fileHandle: NSFileHandle, item: String) {
         val jsonBytes = item.encodeToByteArray()
@@ -1251,7 +1249,6 @@ internal class AppendOnlyQueue(
     /**
      * Read single record from binary format with CRC32 validation
      * Format: [length:4][data:length][crc32:4][\n:1]
-     * v2.1.3+
      *
      * @return JSON string or null if EOF/corrupt
      */
@@ -1324,7 +1321,6 @@ internal class AppendOnlyQueue(
 
     /**
      * Convert UInt to ByteArray (Little Endian)
-     * v2.1.3+
      */
     private fun UInt.toByteArray(): ByteArray {
         return byteArrayOf(
@@ -1337,7 +1333,6 @@ internal class AppendOnlyQueue(
 
     /**
      * Convert ByteArray to NSData
-     * v2.1.3+
      */
     private fun ByteArray.toNSData(): NSData {
         return this.usePinned { pinned ->
@@ -1347,7 +1342,6 @@ internal class AppendOnlyQueue(
 
     /**
      * Read UInt from bytes (Little Endian)
-     * v2.1.3+
      */
     private fun readUIntFromBytes(bytes: CPointer<ByteVar>): UInt {
         val b0 = bytes[0].toUByte().toUInt()
@@ -1360,7 +1354,13 @@ internal class AppendOnlyQueue(
 }
 
 /**
+ * Safe URL path component appending — replaces URLByAppendingPathComponent(x)!!
+ */
+private fun NSURL.safeAppend(component: String): NSURL =
+    URLByAppendingPathComponent(component)
+        ?: throw IllegalStateException("Failed to construct URL: base='$path' component='$component'")
+
+/**
  * Custom exception for queue corruption
- * v2.1.3+
  */
 class CorruptQueueException(message: String) : Exception(message)

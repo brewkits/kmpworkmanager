@@ -1000,6 +1000,134 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                 )
             }
 
+            // v2.3.6 Bug Fixes Demo
+            DemoSection(
+                title = "v2.3.6 Bug Fixes",
+                icon = Icons.Default.BugReport,
+                containerColor = MaterialTheme.colorScheme.tertiaryContainer
+            ) {
+                // AND-2: Periodic flex interval
+                DemoCard(
+                    title = "Fix AND-2: Periodic with Flex Interval",
+                    description = "Periodic task with flexMs=15min in a 1h interval. " +
+                        "Before fix: flexMs was silently ignored on Android. " +
+                        "Now: task runs within the 15-minute flex window.",
+                    icon = Icons.Default.Schedule,
+                    enabled = !isAnyTaskRunning,
+                    onClick = {
+                        runTask("Fix AND-2: Periodic with Flex Interval") {
+                            scheduler.enqueue(
+                                id = "v236-and2-periodic-flex",
+                                trigger = TaskTrigger.Periodic(
+                                    intervalMs = 1.hours.inWholeMilliseconds,
+                                    flexMs = 15.minutes.inWholeMilliseconds
+                                ),
+                                workerClassName = WorkerTypes.SYNC_WORKER,
+                                constraints = Constraints(requiresNetwork = true)
+                            )
+                            snackbarHostState.showSnackbar(
+                                message = "Fix AND-2: Periodic with 15min flex window scheduled (Android: flexMs now respected)",
+                                duration = SnackbarDuration.Short
+                            )
+                        }
+                    }
+                )
+                // AND-3: REQUIRE_BATTERY_NOT_LOW — non-expedited fallback
+                DemoCard(
+                    title = "Fix AND-3: Battery-Low Constraint (No Crash)",
+                    description = "Task with BatteryOkay (→ REQUIRE_BATTERY_NOT_LOW) is now correctly " +
+                        "excluded from expedited mode on Android. " +
+                        "Before fix: WorkManager threw IllegalArgumentException when isHeavyTask=false.",
+                    icon = Icons.Default.BatteryFull,
+                    enabled = !isAnyTaskRunning,
+                    onClick = {
+                        runTask("Fix AND-3: Battery-Low Constraint") {
+                            // BatteryOkay is the legacy trigger that maps to REQUIRE_BATTERY_NOT_LOW.
+                            // With Fix AND-3, this task correctly falls back to non-expedited mode
+                            // instead of crashing with IllegalArgumentException.
+                            @Suppress("DEPRECATION")
+                            scheduler.enqueue(
+                                id = "v236-and3-battery-not-low",
+                                trigger = TaskTrigger.BatteryOkay,
+                                workerClassName = WorkerTypes.CLEANUP_WORKER
+                            )
+                            snackbarHostState.showSnackbar(
+                                message = "Fix AND-3: BatteryOkay task scheduled (non-expedited fallback — no crash)",
+                                duration = SnackbarDuration.Short
+                            )
+                        }
+                    }
+                )
+                // IOS-1: Chain without network requirement
+                DemoCard(
+                    title = "Fix IOS-1: Offline Chain Execution",
+                    description = "Chain executor BGTask no longer requires network. " +
+                        "Before fix: a file-processing chain would never start on an offline device " +
+                        "because the executor itself had requiresNetworkConnectivity=true.",
+                    icon = Icons.Default.CloudOff,
+                    enabled = !isAnyTaskRunning,
+                    onClick = {
+                        runTask("Fix IOS-1: Offline Chain Execution") {
+                            // Simulate a chain of local-only tasks (no network needed)
+                            scheduler.beginWith(
+                                dev.brewkits.kmpworkmanager.sample.background.domain.TaskRequest(
+                                    workerClassName = WorkerTypes.DATABASE_WORKER,
+                                    constraints = Constraints(requiresNetwork = false)
+                                )
+                            )
+                            .then(
+                                dev.brewkits.kmpworkmanager.sample.background.domain.TaskRequest(
+                                    workerClassName = WorkerTypes.CLEANUP_WORKER,
+                                    constraints = Constraints(requiresNetwork = false)
+                                )
+                            )
+                            .withId("v236-ios1-offline-chain", policy = dev.brewkits.kmpworkmanager.sample.background.domain.ExistingPolicy.REPLACE)
+                            .enqueue()
+                            snackbarHostState.showSnackbar(
+                                message = "Fix IOS-1: Offline chain started — executor no longer blocks on network (iOS)",
+                                duration = SnackbarDuration.Short
+                            )
+                        }
+                    }
+                )
+                // CE-1/2/3: Chain correctness (withTimeout return + CancellationException + for+break)
+                DemoCard(
+                    title = "Fix CE-1/2/3: Chain Correctness",
+                    description = "Chain success now correctly reflects step outcomes (CE-1). " +
+                        "BGTask expiry properly cancels running chains (CE-2). " +
+                        "Queue-empty check actually stops the batch loop (CE-3). iOS only.",
+                    icon = Icons.Default.Link,
+                    enabled = !isAnyTaskRunning,
+                    onClick = {
+                        runTask("Fix CE-1/2/3: Chain Correctness") {
+                            // A 3-step chain — on iOS, CE-1 ensures chainSucceeded tracks real outcome,
+                            // CE-2 ensures BGTask expiry signal propagates, CE-3 ensures loop stops early.
+                            scheduler.beginWith(
+                                dev.brewkits.kmpworkmanager.sample.background.domain.TaskRequest(
+                                    workerClassName = WorkerTypes.SYNC_WORKER
+                                )
+                            )
+                            .then(
+                                dev.brewkits.kmpworkmanager.sample.background.domain.TaskRequest(
+                                    workerClassName = WorkerTypes.DATABASE_WORKER
+                                )
+                            )
+                            .then(
+                                dev.brewkits.kmpworkmanager.sample.background.domain.TaskRequest(
+                                    workerClassName = WorkerTypes.ANALYTICS_WORKER
+                                )
+                            )
+                            .withId("v236-ce-chain-correctness", policy = dev.brewkits.kmpworkmanager.sample.background.domain.ExistingPolicy.REPLACE)
+                            .enqueue()
+                            snackbarHostState.showSnackbar(
+                                message = "Fix CE-1/2/3: Chain scheduled — success flag, cancellation and loop break all fixed",
+                                duration = SnackbarDuration.Short
+                            )
+                        }
+                    }
+                )
+            }
+
             // Quick Actions
             HorizontalDivider()
             Row(

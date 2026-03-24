@@ -1,6 +1,7 @@
 package dev.brewkits.kmpworkmanager.background.data
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 
 /**
  * Tracks the execution progress of a task chain on iOS.
@@ -22,6 +23,15 @@ import kotlinx.serialization.Serializable
  * - If retryCount >= maxRetries, abandon the chain
  * - This prevents infinite retry loops for permanently failing chains
  *
+ * **Schema versioning:**
+ * The [schemaVersion] field guards against data loss during upgrades. If the binary
+ * structure of this class changes (field type changes, removals, renames), increment
+ * [CURRENT_SCHEMA_VERSION] and add a migration branch in
+ * `IosFileStorage.loadChainProgress`. Using `ignoreUnknownKeys = true` handles
+ * *additive* changes (new nullable/default fields) without any migration. Only
+ * *breaking* changes (type changes, removals) need an explicit migration.
+ *
+ * @property schemaVersion Data schema version — used for migration on upgrade
  * @property chainId Unique identifier for the chain
  * @property totalSteps Total number of steps in the chain
  * @property completedSteps Indices of successfully completed steps (e.g., [0, 1])
@@ -29,19 +39,33 @@ import kotlinx.serialization.Serializable
  *   completed successfully. Keyed by step index; values are sorted task indices.
  *   Cleared for a step once that step is marked fully completed.
  * @property lastFailedStep Index of the step that last failed, if any
+ * @property lastError Error message from the last failed task, if any
  * @property retryCount Number of times this chain has been retried
  * @property maxRetries Maximum retry attempts before abandoning (default: 3)
  */
 @Serializable
 data class ChainProgress(
+    val schemaVersion: Int = CURRENT_SCHEMA_VERSION,
     val chainId: String,
     val totalSteps: Int,
     val completedSteps: List<Int> = emptyList(),
     val completedTasksInSteps: Map<Int, List<Int>> = emptyMap(),
     val lastFailedStep: Int? = null,
+    val lastError: String? = null,
     val retryCount: Int = 0,
     val maxRetries: Int = 3
 ) {
+    companion object {
+        /**
+         * Increment this when making a **breaking** change to [ChainProgress] fields
+         * (type change, removal, rename). Additive changes (new fields with defaults)
+         * do NOT need a version bump — [ignoreUnknownKeys] handles those automatically.
+         *
+         * Migration history:
+         *  v1 — initial release
+         */
+        const val CURRENT_SCHEMA_VERSION = 1
+    }
     /**
      * Check if a specific step has been completed.
      */
@@ -97,11 +121,12 @@ data class ChainProgress(
     }
 
     /**
-     * Create a new progress with an incremented retry count.
+     * Create a new progress with an incremented retry count and optional error message.
      */
-    fun withFailure(stepIndex: Int): ChainProgress {
+    fun withFailure(stepIndex: Int, errorMessage: String? = null): ChainProgress {
         return copy(
             lastFailedStep = stepIndex,
+            lastError = errorMessage,
             retryCount = retryCount + 1
         )
     }

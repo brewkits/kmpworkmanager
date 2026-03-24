@@ -49,13 +49,13 @@ class BatchUploadWorker : IosWorker {
                 )
             )
 
-            WorkerResult.Success(
+            return WorkerResult.Success(
                 message = "Uploaded ${fileNames.size} files (${totalSize}MB total)",
-                data = mapOf(
-                    "fileCount" to fileNames.size,
-                    "totalSizeMB" to totalSize,
-                    "files" to fileNames.joinToString(", ")
-                )
+                data = buildJsonObject {
+                    put("fileCount", fileNames.size)
+                    put("totalSizeMB", totalSize)
+                    put("files", fileNames.joinToString(", "))
+                }
             )
         } catch (e: Exception) {
             Logger.e(LogTags.WORKER, "BatchUploadWorker failed: ${e.message}", e)

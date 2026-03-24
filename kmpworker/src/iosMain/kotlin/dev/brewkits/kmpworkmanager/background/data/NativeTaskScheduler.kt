@@ -1,3 +1,4 @@
+@file:OptIn(dev.brewkits.kmpworkmanager.background.domain.AndroidOnly::class) // iOS scheduler exhaustively handles ContentUri by rejecting it — opt-in is explicit and intentional
 
 package dev.brewkits.kmpworkmanager.background.data
 
@@ -9,6 +10,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -33,13 +35,13 @@ import platform.UserNotifications.UNUserNotificationCenter
  * Key Features:
  * - BGAppRefreshTask for light tasks (≤30s)
  * - BGProcessingTask for heavy tasks (≤60s)
- * - File-based storage for improved performance and thread safety (v3.0.0+)
+ * - File-based storage for improved performance and thread safety
  * - Automatic migration from NSUserDefaults (v2.x)
  * - ExistingPolicy support (KEEP/REPLACE)
  * - Task ID validation against Info.plist
  * - Proper error handling with NSError
  *
- * **v2.2.0+ ChainExecutor Usage:**
+ * **ChainExecutor Usage:**
  *
  * When registering BGTask handlers in Swift/Objective-C, specify the correct BGTaskType:
  *
@@ -64,11 +66,11 @@ import platform.UserNotifications.UNUserNotificationCenter
  * ```
  */
 @OptIn(ExperimentalForeignApi::class)
-actual class NativeTaskScheduler(
+class NativeTaskScheduler(
     /**
      * Additional permitted task IDs beyond those in Info.plist.
      *
-     * v4.0.0+: Task IDs are now read from Info.plist automatically.
+     * Task IDs are now read from Info.plist automatically.
      * This parameter is kept for backward compatibility but is optional.
      *
      * Recommended: Define all task IDs in Info.plist only.
@@ -80,7 +82,13 @@ actual class NativeTaskScheduler(
      * )
      * ```
      */
-    additionalPermittedTaskIds: Set<String> = emptySet()
+    additionalPermittedTaskIds: Set<String> = emptySet(),
+    /**
+     * Minimum free disk space (bytes) required before any task data is written.
+     * Set via [KmpWorkManagerConfig.minFreeDiskSpaceBytes] when using Koin.
+     * Reduce to 25_000_000 (25 MB) for apps targeting older/low-storage devices.
+     */
+    diskSpaceBufferBytes: Long = 50_000_000L
 ) : BackgroundTaskScheduler {
 
     private companion object {
@@ -88,7 +96,7 @@ actual class NativeTaskScheduler(
         const val APPLE_TO_UNIX_EPOCH_OFFSET_SECONDS = 978307200.0
     }
 
-    private val fileStorage = IosFileStorage()
+    private val fileStorage = IosFileStorage(config = IosFileStorageConfig(diskSpaceBufferBytes = diskSpaceBufferBytes))
     private val migration = StorageMigration(fileStorage = fileStorage)
 
     /**
@@ -142,7 +150,7 @@ actual class NativeTaskScheduler(
         """.trimIndent())
     }
 
-    actual override suspend fun enqueue(
+    override suspend fun enqueue(
         id: String,
         trigger: TaskTrigger,
         workerClassName: String,
@@ -161,18 +169,13 @@ actual class NativeTaskScheduler(
             return ScheduleResult.REJECTED_OS_POLICY
         }
 
-        @Suppress("DEPRECATION")  // Keep backward compatibility for deprecated triggers until v3.0.0
+        @Suppress("DEPRECATION")  // Keep backward compatibility for deprecated triggers 
         return when (trigger) {
             is TaskTrigger.Periodic -> schedulePeriodicTask(id, trigger, workerClassName, constraints, inputJson, policy)
             is TaskTrigger.OneTime -> scheduleOneTimeTask(id, trigger, workerClassName, constraints, inputJson, policy)
             is TaskTrigger.Exact -> scheduleExactAlarm(id, trigger, workerClassName, constraints, inputJson)
             is TaskTrigger.Windowed -> scheduleWindowedTask(id, trigger, workerClassName, constraints, inputJson, policy)
             is TaskTrigger.ContentUri -> rejectUnsupportedTrigger("ContentUri")
-            // Will be removed in v3.0.0
-            TaskTrigger.StorageLow -> rejectUnsupportedTrigger("StorageLow (deprecated - use Constraints.systemConstraints)")
-            TaskTrigger.BatteryLow -> rejectUnsupportedTrigger("BatteryLow (deprecated - use Constraints.systemConstraints)")
-            TaskTrigger.BatteryOkay -> rejectUnsupportedTrigger("BatteryOkay (deprecated - use Constraints.systemConstraints)")
-            TaskTrigger.DeviceIdle -> rejectUnsupportedTrigger("DeviceIdle (deprecated - use Constraints.systemConstraints)")
         }
     }
 
@@ -287,7 +290,6 @@ actual class NativeTaskScheduler(
      * **Best Practice**: Design your app logic to not depend on the task
      * running before the `latest` time. Use exact alarms if strict timing is required.
      *
-     *
      * @param id Unique task identifier
      * @param trigger Windowed trigger with earliest and latest times
      * @param workerClassName Worker class name
@@ -303,17 +305,43 @@ actual class NativeTaskScheduler(
         inputJson: String?,
         policy: ExistingPolicy
     ): ScheduleResult {
+        val nowMs = (NSDate().timeIntervalSince1970 * 1000).toLong()
         val earliestDate = NSDate.dateWithTimeIntervalSince1970(trigger.earliest / 1000.0)
         val latestDate = NSDate.dateWithTimeIntervalSince1970(trigger.latest / 1000.0)
 
         Logger.i(
             LogTags.SCHEDULER,
-            "Scheduling windowed task - ID: '$id', Window: ${earliestDate} to ${latestDate}"
+            "Scheduling windowed task - ID: '$id', Window: $earliestDate to $latestDate"
         )
-        Logger.w(
-            LogTags.SCHEDULER,
-            "⚠️ iOS BGTaskScheduler does not support 'latest' deadline. Task may run after the specified window."
-        )
+
+        // Deadline guard: reject immediately if the window has already closed.
+        if (trigger.latest < nowMs) {
+            Logger.e(
+                LogTags.SCHEDULER,
+                "❌ Windowed task '$id' DEADLINE_ALREADY_PASSED — latest=$latestDate is in the past. " +
+                    "The business window is gone; the task will not be scheduled."
+            )
+            return ScheduleResult.DEADLINE_ALREADY_PASSED
+        }
+
+        // QoS-aware warning: BGTaskScheduler is opportunistic — it ignores 'latest'.
+        // Warn loudly when the window is tight so developers can switch to Exact trigger.
+        val windowMs = trigger.latest - maxOf(trigger.earliest, nowMs)
+        val windowMinutes = windowMs / 60_000
+        if (windowMinutes < 30) {
+            Logger.w(
+                LogTags.SCHEDULER,
+                "⚠️ Windowed task '$id' has a tight window (~${windowMinutes}min). " +
+                    "iOS BGTaskScheduler cannot honour the 'latest' deadline — the task may run AFTER ${latestDate}. " +
+                    "If this is deadline-critical (e.g. pre-flight sync), use TaskTrigger.Exact with ExactAlarmIOSBehavior instead."
+            )
+        } else {
+            Logger.w(
+                LogTags.SCHEDULER,
+                "⚠️ iOS BGTaskScheduler does not enforce 'latest' (${latestDate}). " +
+                    "Task may run after the window closes. Use TaskTrigger.Exact for strict deadlines."
+            )
+        }
 
         // Handle ExistingPolicy
         if (!handleExistingPolicy(id, policy, isPeriodicMetadata = false)) {
@@ -438,7 +466,7 @@ actual class NativeTaskScheduler(
     /**
      * Schedule exact alarm with iOS-specific behavior handling.
      *
-     * **v2.1.1+**: Implements ExactAlarmIOSBehavior for transparent exact alarm handling.
+     * Implements ExactAlarmIOSBehavior for transparent exact alarm handling.
      *
      * **Background**: iOS does NOT support background code execution at exact times.
      * This method provides three explicit behaviors based on constraints.exactAlarmIOSBehavior:
@@ -517,18 +545,32 @@ actual class NativeTaskScheduler(
      * Schedule exact notification using UNUserNotificationCenter.
      * This is the default and recommended approach for exact alarms on iOS.
      *
+     * Metadata is always saved to disk so that [checkAndExecuteMissedExactAlarms]
+     * can catch up if notifications are denied or the user never taps the notification.
+     *
+     * NOTE: The notification body intentionally does NOT include inputJson.
+     * Worker input data may contain PII or secrets; exposing it in a system
+     * notification would be a privacy/security violation.
      */
     private fun scheduleExactNotification(
         id: String,
         trigger: TaskTrigger.Exact,
-        title: String,
-        message: String?
+        workerClassName: String,
+        inputJson: String?
     ): ScheduleResult {
         Logger.i(LogTags.ALARM, "Scheduling exact notification - ID: '$id', Time: ${trigger.atEpochMillis}")
 
+        // Save metadata so catch-up can execute this task if the notification is missed
+        fileStorage.saveTaskMetadata(id, mapOf(
+            "workerClassName" to workerClassName,
+            "inputJson" to (inputJson ?: ""),
+            "targetTime" to trigger.atEpochMillis.toString(),
+            "exactAlarm" to "true"
+        ), periodic = false)
+
         val content = UNMutableNotificationContent().apply {
-            setTitle(title)
-            setBody(message ?: "Scheduled event")
+            setTitle("Scheduled Task")
+            setBody("Task '$workerClassName' is ready to run")
             setSound(UNNotificationSound.defaultSound)
         }
 
@@ -577,11 +619,12 @@ actual class NativeTaskScheduler(
             "Scheduling best-effort background task - ID: '$id', Target time: ${trigger.atEpochMillis}"
         )
 
-        // Save metadata for task execution
+        // Save metadata for task execution (also enables catch-up via checkAndExecuteMissedExactAlarms)
         val taskMetadata = mapOf(
             "workerClassName" to workerClassName,
             "inputJson" to (inputJson ?: ""),
-            "targetTime" to trigger.atEpochMillis.toString()
+            "targetTime" to trigger.atEpochMillis.toString(),
+            "exactAlarm" to "true"
         )
         fileStorage.saveTaskMetadata(id, taskMetadata, periodic = false)
 
@@ -608,6 +651,72 @@ actual class NativeTaskScheduler(
     }
 
     /**
+     * Execute any exact-alarm tasks that were missed while the app was not running.
+     *
+     * **When to call**: From `applicationDidBecomeActive` in your AppDelegate. This covers two
+     * failure modes:
+     * 1. **Notification permission denied** — `UNUserNotificationCenter` never fires, so the task
+     *    is silently lost without this catch-up.
+     * 2. **User ignored/dismissed notification** — the notification fired but no background work
+     *    was triggered.
+     *
+     * Tasks scheduled with [ExactAlarmIOSBehavior.ATTEMPT_BACKGROUND_RUN] are also caught here
+     * if iOS never ran the BGTask opportunity.
+     *
+     * The method is synchronous and lightweight — it only scans metadata files and invokes
+     * [execute] for each missed task. Heavy work should be done inside [execute] on a background
+     * thread/coroutine.
+     *
+     * ```swift
+     * // AppDelegate.swift
+     * func applicationDidBecomeActive(_ application: UIApplication) {
+     *     KmpWorkManager.shared.backgroundTaskScheduler.checkAndExecuteMissedExactAlarms { workerName, inputJson in
+     *         // Look up and run your worker
+     *         let worker = workerFactory.createWorker(workerName)
+     *         worker?.doWork(inputJson: inputJson)
+     *     }
+     * }
+     * ```
+     *
+     * @param execute Called for each missed task. Receives the worker class name and optional
+     *   input JSON. Exceptions thrown here are caught and logged; other tasks continue.
+     */
+    fun checkAndExecuteMissedExactAlarms(execute: (workerClassName: String, inputJson: String?) -> Unit) {
+        val nowMs = NSDate().timeIntervalSince1970 * 1000.0
+
+        val taskIds = fileStorage.listTaskIds()
+        if (taskIds.isEmpty()) return
+
+        Logger.d(LogTags.ALARM, "Catch-up scan: checking ${taskIds.size} metadata entries for missed exact alarms")
+
+        taskIds.forEach { taskId ->
+            val metadata = fileStorage.loadTaskMetadata(taskId, periodic = false) ?: return@forEach
+            if (metadata["exactAlarm"] != "true") return@forEach
+
+            val targetTimeMs = metadata["targetTime"]?.toDoubleOrNull() ?: return@forEach
+            if (nowMs < targetTimeMs) return@forEach  // not yet due
+
+            val workerClassName = metadata["workerClassName"] ?: return@forEach
+            val inputJson = metadata["inputJson"]?.takeIf { it.isNotEmpty() }
+
+            val overdueSeconds = ((nowMs - targetTimeMs) / 1000.0).toLong()
+            Logger.i(LogTags.ALARM, "🔄 Catch-up: executing missed exact alarm '$taskId' " +
+                "(worker=$workerClassName, overdue=${overdueSeconds}s)")
+
+            try {
+                execute(workerClassName, inputJson)
+                // Clean up after successful execution
+                fileStorage.deleteTaskMetadata(taskId, periodic = false)
+                cancel(taskId)  // Remove pending notification if not yet shown
+                Logger.i(LogTags.ALARM, "✅ Catch-up complete for '$taskId'")
+            } catch (e: Exception) {
+                Logger.e(LogTags.ALARM, "❌ Catch-up failed for '$taskId'", e)
+                // Leave metadata intact so the next foreground attempt can retry
+            }
+        }
+    }
+
+    /**
      * Reject unsupported trigger type with logging
      */
     private fun rejectUnsupportedTrigger(triggerName: String): ScheduleResult {
@@ -615,11 +724,11 @@ actual class NativeTaskScheduler(
         return ScheduleResult.REJECTED_OS_POLICY
     }
 
-    actual override fun beginWith(task: TaskRequest): TaskChain {
+    override fun beginWith(task: TaskRequest): TaskChain {
         return TaskChain(this, listOf(task))
     }
 
-    actual override fun beginWith(tasks: List<TaskRequest>): TaskChain {
+    override fun beginWith(tasks: List<TaskRequest>): TaskChain {
         return TaskChain(this, tasks)
     }
 
@@ -629,7 +738,7 @@ actual class NativeTaskScheduler(
      * Now suspending to prevent deadlock risks.
      * Removed runBlocking calls that could cause deadlocks under load.
      */
-    actual override suspend fun enqueueChain(chain: TaskChain, id: String?, policy: ExistingPolicy) {
+    override suspend fun enqueueChain(chain: TaskChain, id: String?, policy: ExistingPolicy) {
         // Await migration before accessing storage, same as enqueue()
         migrationComplete.await()
 
@@ -696,7 +805,7 @@ actual class NativeTaskScheduler(
         }
     }
 
-    actual override fun cancel(id: String) {
+    override fun cancel(id: String) {
         Logger.i(LogTags.SCHEDULER, "Cancelling task/notification with ID '$id'")
 
         BGTaskScheduler.sharedScheduler.cancelTaskRequestWithIdentifier(id)
@@ -715,7 +824,7 @@ actual class NativeTaskScheduler(
         Logger.d(LogTags.SCHEDULER, "Cancelled task '$id' and cleaned up metadata")
     }
 
-    actual override fun cancelAll() {
+    override fun cancelAll() {
         Logger.w(LogTags.SCHEDULER, "Cancelling ALL tasks and notifications")
 
         BGTaskScheduler.sharedScheduler.cancelAllTaskRequests()
@@ -731,13 +840,23 @@ actual class NativeTaskScheduler(
     }
 
     /**
+     * Cancel the background scope (call when scheduler is no longer needed).
+     * In production, the scheduler is typically a singleton for app lifetime.
+     * Call this in tests to prevent coroutine leaks.
+     */
+    fun close() {
+        backgroundScope.cancel()
+        Logger.d(LogTags.SCHEDULER, "NativeTaskScheduler background scope cancelled")
+    }
+
+    /**
      * Flush all pending progress updates immediately.
      * Implementation for iOS - delegates to IosFileStorage.
      *
      * This method ensures data durability before app suspension.
      * Critical for iOS where apps can be suspended/terminated aggressively.
      */
-    actual override fun flushPendingProgress() {
+    override fun flushPendingProgress() {
         Logger.i(LogTags.SCHEDULER, "Flushing pending progress (iOS)")
         fileStorage.flushAllPendingProgress()
     }

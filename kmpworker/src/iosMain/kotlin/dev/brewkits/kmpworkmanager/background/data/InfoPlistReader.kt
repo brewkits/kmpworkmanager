@@ -9,7 +9,7 @@ import platform.Foundation.NSBundle
 /**
  * Utility to read BGTaskSchedulerPermittedIdentifiers from Info.plist
  *
- * v4.0.0+: Dynamically validates task IDs against Info.plist configuration
+ * Dynamically validates task IDs against Info.plist configuration
  *
  * This eliminates the need to manually synchronize task IDs between:
  * - Info.plist BGTaskSchedulerPermittedIdentifiers

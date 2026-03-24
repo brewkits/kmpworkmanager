@@ -34,21 +34,33 @@ import dev.brewkits.kmpworkmanager.utils.LogTags
  *         context: Context,
  *         taskId: String,
  *         workerClassName: String,
- *         inputJson: String?
+ *         inputJson: String?,
+ *         pendingResult: PendingResult
  *     ) {
- *         // Get worker factory from Koin
  *         val factory = KoinContext.get().get<WorkerFactory>()
- *         val worker = factory.createWorker(workerClassName)
- *
- *         // Execute work (consider using WorkManager for reliability)
  *         CoroutineScope(Dispatchers.IO).launch {
- *             worker?.doWork(inputJson)
+ *             try {
+ *                 // IMPORTANT: treat null as a hard failure — do NOT use worker?.doWork()
+ *                 // which silently does nothing and leaves the task result unresolved.
+ *                 val worker = factory.createWorker(workerClassName)
+ *                     ?: run {
+ *                         TaskEventBus.emit(TaskCompletionEvent(
+ *                             taskName = workerClassName,
+ *                             success = false,
+ *                             message = "Worker not found: $workerClassName"
+ *                         ))
+ *                         return@launch
+ *                     }
+ *                 worker.doWork(inputJson)
+ *             } finally {
+ *                 pendingResult.finish() // Always release the BroadcastReceiver
+ *             }
  *         }
  *     }
  * }
  * ```
  *
- * **v3.0.0+**: Moved to library (previously in composeApp only)
+ * Moved to library (previously in composeApp only)
  */
 abstract class AlarmReceiver : BroadcastReceiver() {
 
@@ -122,7 +134,7 @@ abstract class AlarmReceiver : BroadcastReceiver() {
     /**
      * Override this method to implement custom alarm handling logic.
      *
-     * **Important Notes (v2.0.1+):**
+     * **Important Notes:**
      * - The [pendingResult] parameter keeps the receiver alive for async operations
      * - You MUST call `pendingResult.finish()` when your work is complete
      * - Recommended: Use WorkManager for reliable long-running work

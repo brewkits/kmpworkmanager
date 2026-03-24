@@ -12,6 +12,8 @@ import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /**
  * Built-in worker for JSON synchronization (POST/GET JSON data).
@@ -29,7 +31,7 @@ import kotlinx.serialization.json.Json
  * **Startup Time:** <50ms
  * **Default Timeout:** 60 seconds
  *
- * **Performance Optimization (v2.3.5+):**
+ * **Performance Optimization:**
  * - Uses singleton HttpClient for connection pool reuse
  * - 60-86% faster than previous version
  *
@@ -70,7 +72,7 @@ import kotlinx.serialization.json.Json
  * ```
  *
  * @param httpClient Optional HttpClient (defaults to optimized singleton)
- * @since 2.3.4 Uses singleton HttpClient by default for optimal performance
+ * Uses singleton HttpClient by default for optimal performance
  */
 class HttpSyncWorker(
     private val httpClient: HttpClient = HttpClientProvider.instance
@@ -148,12 +150,12 @@ class HttpSyncWorker(
 
                 WorkerResult.Success(
                     message = "Sync completed - HTTP $statusCode",
-                    data = mapOf(
-                        "statusCode" to statusCode,
-                        "method" to config.httpMethod.name,
-                        "url" to SecurityValidator.sanitizedURL(config.url),
-                        "responseLength" to responseBody.length
-                    )
+                    data = buildJsonObject {
+                        put("statusCode", statusCode)
+                        put("method", config.httpMethod.name)
+                        put("url", SecurityValidator.sanitizedURL(config.url))
+                        put("responseLength", responseBody.length)
+                    }
                 )
             } else {
                 Logger.w("HttpSyncWorker", "Sync completed with non-success status $statusCode")

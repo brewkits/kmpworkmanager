@@ -18,6 +18,10 @@ import kotlin.time.Duration.Companion.milliseconds
 
 import androidx.work.OneTimeWorkRequestBuilder
 
+// Use the library's Worker implementations so built-in workers (HttpUploadWorker, etc.) are dispatched correctly
+import dev.brewkits.kmpworkmanager.background.data.KmpWorker as LibKmpWorker
+import dev.brewkits.kmpworkmanager.background.data.KmpHeavyWorker as LibKmpHeavyWorker
+
 /**
  * The `actual` implementation for the Android platform.
  * This class acts as a bridge between the shared KMP domain logic and the
@@ -105,7 +109,7 @@ actual class NativeTaskScheduler(private val context: Context) : BackgroundTaskS
             ExistingPolicy.REPLACE -> ExistingPeriodicWorkPolicy.REPLACE
         }
 
-        // Pass the target worker's class name and any input data to the KmpWorker
+        // Pass the target worker class name and input data — LibKmpWorker will dispatch via DemoWorkerFactory
         val workData = Data.Builder()
             .putString("workerClassName", workerClassName)
             .apply { inputJson?.let { putString("inputJson", it) } }
@@ -123,7 +127,7 @@ actual class NativeTaskScheduler(private val context: Context) : BackgroundTaskS
             .setRequiresCharging(constraints.requiresCharging)
             .build()
 
-        val workRequest = PeriodicWorkRequestBuilder<KmpWorker>(
+        val workRequest = PeriodicWorkRequestBuilder<LibKmpWorker>(
             trigger.intervalMs,
             TimeUnit.MILLISECONDS
         )
@@ -226,10 +230,10 @@ actual class NativeTaskScheduler(private val context: Context) : BackgroundTaskS
 
         val workRequest = if (constraints.isHeavyTask) {
             Logger.d(LogTags.SCHEDULER, "Creating HEAVY one-time task")
-            OneTimeWorkRequestBuilder<KmpHeavyWorker>()
+            OneTimeWorkRequestBuilder<LibKmpHeavyWorker>()
         } else {
             Logger.d(LogTags.SCHEDULER, "Creating REGULAR one-time task")
-            OneTimeWorkRequestBuilder<KmpWorker>()
+            OneTimeWorkRequestBuilder<LibKmpWorker>()
         }
             .setInitialDelay(trigger.initialDelayMs, TimeUnit.MILLISECONDS)
             .setConstraints(wmConstraints)
@@ -287,10 +291,10 @@ actual class NativeTaskScheduler(private val context: Context) : BackgroundTaskS
 
         val workRequest = if (constraints.isHeavyTask) {
             Logger.d(LogTags.SCHEDULER, "Creating HEAVY ContentUri task")
-            OneTimeWorkRequestBuilder<KmpHeavyWorker>()
+            OneTimeWorkRequestBuilder<LibKmpHeavyWorker>()
         } else {
             Logger.d(LogTags.SCHEDULER, "Creating REGULAR ContentUri task")
-            OneTimeWorkRequestBuilder<KmpWorker>()
+            OneTimeWorkRequestBuilder<LibKmpWorker>()
         }
             .setConstraints(wmConstraints)
             .setInputData(workData)
@@ -344,9 +348,9 @@ actual class NativeTaskScheduler(private val context: Context) : BackgroundTaskS
             .build()
 
         val workRequest = if (constraints.isHeavyTask) {
-            OneTimeWorkRequestBuilder<KmpHeavyWorker>()
+            OneTimeWorkRequestBuilder<LibKmpHeavyWorker>()
         } else {
-            OneTimeWorkRequestBuilder<KmpWorker>()
+            OneTimeWorkRequestBuilder<LibKmpWorker>()
         }
             .setConstraints(wmConstraints)
             .setInputData(workData)
@@ -401,9 +405,9 @@ actual class NativeTaskScheduler(private val context: Context) : BackgroundTaskS
             .build()
 
         val workRequest = if (constraints.isHeavyTask) {
-            OneTimeWorkRequestBuilder<KmpHeavyWorker>()
+            OneTimeWorkRequestBuilder<LibKmpHeavyWorker>()
         } else {
-            OneTimeWorkRequestBuilder<KmpWorker>()
+            OneTimeWorkRequestBuilder<LibKmpWorker>()
         }
             .setConstraints(wmConstraints)
             .setInputData(workData)
@@ -455,9 +459,9 @@ actual class NativeTaskScheduler(private val context: Context) : BackgroundTaskS
             .build()
 
         val workRequest = if (constraints.isHeavyTask) {
-            OneTimeWorkRequestBuilder<KmpHeavyWorker>()
+            OneTimeWorkRequestBuilder<LibKmpHeavyWorker>()
         } else {
-            OneTimeWorkRequestBuilder<KmpWorker>()
+            OneTimeWorkRequestBuilder<LibKmpWorker>()
         }
             .setConstraints(wmConstraints)
             .setInputData(workData)
@@ -508,9 +512,9 @@ actual class NativeTaskScheduler(private val context: Context) : BackgroundTaskS
             .build()
 
         val workRequest = if (constraints.isHeavyTask) {
-            OneTimeWorkRequestBuilder<KmpHeavyWorker>()
+            OneTimeWorkRequestBuilder<LibKmpHeavyWorker>()
         } else {
-            OneTimeWorkRequestBuilder<KmpWorker>()
+            OneTimeWorkRequestBuilder<LibKmpWorker>()
         }
             .setConstraints(wmConstraints)
             .setInputData(workData)
@@ -654,10 +658,10 @@ actual class NativeTaskScheduler(private val context: Context) : BackgroundTaskS
 
         val workRequestBuilder = if (constraints?.isHeavyTask == true) {
             Logger.d(LogTags.CHAIN, "Creating HEAVY task in chain: ${task.workerClassName}")
-            OneTimeWorkRequestBuilder<KmpHeavyWorker>()
+            OneTimeWorkRequestBuilder<LibKmpHeavyWorker>()
         } else {
             Logger.d(LogTags.CHAIN, "Creating REGULAR task in chain: ${task.workerClassName}")
-            OneTimeWorkRequestBuilder<KmpWorker>()
+            OneTimeWorkRequestBuilder<LibKmpWorker>()
         }
 
         return workRequestBuilder

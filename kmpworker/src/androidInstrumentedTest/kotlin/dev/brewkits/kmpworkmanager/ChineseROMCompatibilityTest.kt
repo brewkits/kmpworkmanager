@@ -31,7 +31,7 @@ import kotlin.test.assertTrue
  * These ROMs have aggressive battery optimization and background task restrictions
  * that can prevent WorkManager tasks from executing properly.
  *
- * Added in v2.3.2
+ * Added
  */
 class ChineseROMCompatibilityTest {
 

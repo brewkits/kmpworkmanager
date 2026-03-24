@@ -4,11 +4,18 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 /**
+ * Android WorkManager enforces a 10 KB limit on Data objects.
+ * We apply the same limit on both platforms for consistency.
+ */
+@PublishedApi
+internal const val MAX_INPUT_JSON_BYTES = 10 * 1024 // 10 KB
+
+/**
  * Extension functions for BackgroundTaskScheduler to provide type-safe serialization.
  *
  * These extensions allow you to pass objects directly instead of manually converting to JSON strings.
  *
- * v4.1.0+: Sugar syntax for better developer experience
+ * Sugar syntax for better developer experience
  *
  * Example:
  * ```kotlin
@@ -67,6 +74,13 @@ suspend inline fun <reified T> BackgroundTaskScheduler.enqueue(
     policy: ExistingPolicy = ExistingPolicy.KEEP
 ): ScheduleResult {
     val inputJson = input?.let { Json.encodeToString(it) }
+    if (inputJson != null) {
+        val byteCount = inputJson.encodeToByteArray().size
+        require(byteCount <= MAX_INPUT_JSON_BYTES) {
+            "Serialized input is $byteCount bytes, exceeds the $MAX_INPUT_JSON_BYTES-byte limit. " +
+                "Reduce the size of your input object or store large data separately."
+        }
+    }
     return enqueue(
         id = id,
         trigger = trigger,

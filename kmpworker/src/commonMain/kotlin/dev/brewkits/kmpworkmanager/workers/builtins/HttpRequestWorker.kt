@@ -12,6 +12,8 @@ import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /**
  * Built-in worker for executing HTTP requests (GET, POST, PUT, DELETE, PATCH).
@@ -26,7 +28,7 @@ import kotlinx.serialization.json.Json
  * **Memory Usage:** ~2-3MB RAM
  * **Startup Time:** <50ms
  *
- * **Performance Optimization (v2.3.5+):**
+ * **Performance Optimization:**
  * - Uses singleton HttpClient for connection pool reuse
  * - 60-86% faster than previous version
  * - SSL session resumption enabled
@@ -63,7 +65,7 @@ import kotlinx.serialization.json.Json
  * ```
  *
  * @param httpClient Optional HttpClient (defaults to optimized singleton)
- * @since 2.3.4 Uses singleton HttpClient by default for optimal performance
+ * Uses singleton HttpClient by default for optimal performance
  */
 class HttpRequestWorker(
     private val httpClient: HttpClient = HttpClientProvider.instance
@@ -127,11 +129,11 @@ class HttpRequestWorker(
                 Logger.i("HttpRequestWorker", "Request completed successfully with status $statusCode")
                 WorkerResult.Success(
                     message = "HTTP $statusCode - ${config.httpMethod} ${SecurityValidator.sanitizedURL(config.url)}",
-                    data = mapOf(
-                        "statusCode" to statusCode,
-                        "method" to config.httpMethod.name,
-                        "url" to SecurityValidator.sanitizedURL(config.url)
-                    )
+                    data = buildJsonObject {
+                        put("statusCode", statusCode)
+                        put("method", config.httpMethod.name)
+                        put("url", SecurityValidator.sanitizedURL(config.url))
+                    }
                 )
             } else {
                 Logger.w("HttpRequestWorker", "Request completed with non-success status $statusCode")
@@ -152,7 +154,7 @@ class HttpRequestWorker(
          *
          * @deprecated Use HttpClientProvider.instance instead for better performance.
          * This method creates a new client each time, which is inefficient.
-         * Will be removed in v3.0.0.
+         * Will be removed
          */
         @Deprecated(
             message = "Use HttpClientProvider.instance for connection pool reuse",

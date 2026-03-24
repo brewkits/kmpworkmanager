@@ -14,9 +14,9 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * v2.3.3 Bug Fixes — Documentation and Verification Tests
+ * Bug Fixes — Documentation and Verification Tests
  *
- * Documents all 3 critical bug fixes shipped in v2.3.3:
+ * Documents all 3 critical bug fixes shipped:
  *
  * Fix #1: KmpWorker missing getForegroundInfo() override
  *   - WorkManager 2.10.0+ calls getForegroundInfoAsync() for all expedited tasks
@@ -238,7 +238,7 @@ class V233BugFixesTest {
 
     @Test
     fun `V233 all fixes are production ready`() {
-        // v2.3.3 Release Summary
+        // Release Summary
         //
         // Fix #1: KmpWorker.getForegroundInfo()
         //   Fixes: IllegalStateException on WorkManager 2.10.0+ with expedited tasks
@@ -260,7 +260,7 @@ class V233BugFixesTest {
         //   Impact: Apps in non-English markets can override strings per locale
         //   Backward compatible: yes (English defaults preserved)
 
-        assertTrue(true, "v2.3.3 is production ready")
+        assertTrue(true, "production ready")
     }
 
     // ─────────────────────────────────────────────────────────────────────────

@@ -66,7 +66,7 @@ class AndroidEventStore(
     private val fileLock = Any()
 
     /**
-     * FIX: Track last cleanup time for deterministic cleanup (v2.2.2+)
+     * FIX: Track last cleanup time for deterministic cleanup
      * Replaces probabilistic 10% cleanup with time-based strategy
      */
     @Volatile
@@ -89,7 +89,7 @@ class AndroidEventStore(
 
                 Logger.d(LogTags.SCHEDULER, "AndroidEventStore: Saved event $eventId for task ${event.taskName}")
 
-                // FIX: Deterministic cleanup (v2.2.2+) - time-based or size-based
+                // FIX: Deterministic cleanup - time-based or size-based
                 if (config.autoCleanup && shouldPerformCleanup()) {
                     performCleanup()
                     lastCleanupTimeMs = System.currentTimeMillis()
@@ -110,28 +110,26 @@ class AndroidEventStore(
                     return@withContext emptyList()
                 }
 
-                // FIX: Use streaming reader instead of readLines() to prevent OOM
-                val allEvents = mutableListOf<StoredEvent>()
+                // Stream line-by-line and filter during parsing — consumed events are never
+                // added to the list, so peak RAM scales with unconsumed count, not file size.
+                val unconsumed = mutableListOf<StoredEvent>()
+                var totalLines = 0
                 eventsFile.bufferedReader().use { reader ->
                     reader.forEachLine { line ->
                         if (line.isNotBlank()) {
+                            totalLines++
                             try {
-                                allEvents.add(json.decodeFromString<StoredEvent>(line))
+                                val event = json.decodeFromString<StoredEvent>(line)
+                                if (!event.consumed) unconsumed.add(event)
                             } catch (e: Exception) {
                                 Logger.w(LogTags.SCHEDULER, "AndroidEventStore: Failed to parse event, skipping: ${e.message}")
-                                // Skip corrupted lines
                             }
                         }
                     }
                 }
 
-                // Filter unconsumed events and sort by timestamp
-                val unconsumed = allEvents
-                    .filter { !it.consumed }
-                    .sortedBy { it.timestamp }
-
-                Logger.d(LogTags.SCHEDULER, "AndroidEventStore: Retrieved ${unconsumed.size} unconsumed events (${allEvents.size} total)")
-
+                unconsumed.sortBy { it.timestamp }
+                Logger.d(LogTags.SCHEDULER, "AndroidEventStore: Retrieved ${unconsumed.size} unconsumed events ($totalLines total lines)")
                 unconsumed
             } catch (e: Exception) {
                 Logger.e(LogTags.SCHEDULER, "AndroidEventStore: Failed to read events", e)
@@ -253,7 +251,7 @@ class AndroidEventStore(
     }
 
     /**
-     * FIX: Deterministic cleanup check (v2.2.2+)
+     * FIX: Deterministic cleanup check
      * Replaces probabilistic 10% cleanup with time-based + size-based strategy
      *
      * Triggers cleanup if:

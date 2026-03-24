@@ -10,6 +10,8 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -20,10 +22,11 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.Serializable
 import platform.Foundation.*
+import platform.darwin.*
 import kotlin.concurrent.AtomicInt
 
 /**
- * Transaction record for chain operations (v2.2.2+ Race Condition Fix)
+ * Transaction record for chain operations
  * Logs all chain mutations for debugging and recovery
  */
 @Serializable
@@ -36,7 +39,7 @@ internal data class ChainTransaction(
 )
 
 /**
- * Configuration for IosFileStorage (v2.2.2+)
+ * Configuration for IosFileStorage
  *
  * @param diskSpaceBufferBytes Safety margin for disk space checks.
  *        Default: 50MB (reduced from 100MB for better mobile device compatibility)
@@ -66,7 +69,7 @@ internal data class IosFileStorageConfig(
  * - Chain size limits (max 10MB per chain)
  * - Automatic garbage collection
  * - No third-party dependencies (pure iOS APIs)
- * - Configurable disk space safety margin (v2.2.2+)
+ * - Configurable disk space safety margin
  *
  * File Structure:
  * ```
@@ -99,13 +102,31 @@ internal class IosFileStorage(
 
     private val queue: AppendOnlyQueue by lazy {
         // Create queue subdirectory for better organization
-        val queueDirURL = baseDir.URLByAppendingPathComponent("queue")!!
+        val queueDirURL = baseDir.safeAppend("queue")
         ensureDirectoryExists(queueDirURL)
         AppendOnlyQueue(queueDirURL)
     }
 
-    // In-memory mutex for queue operations (complements file coordinator)
-    // Note: AppendOnlyQueue has its own mutex, but we keep this for coordinated operations
+    // ==================== Lock-Ordering Invariant ====================
+    // This class uses three coroutine mutexes. To prevent deadlock, they must NEVER
+    // be acquired in conflicting orders across code paths. The only permitted ordering is:
+    //
+    //   queueMutex  →  enqueueMutex     (replaceChainAtomic holds queueMutex, calls
+    //                                    enqueueChainInternal which is lock-free)
+    //
+    // progressMutex is COMPLETELY INDEPENDENT from queueMutex and enqueueMutex.
+    // No code path may hold both progressMutex and queueMutex simultaneously.
+    //
+    // AppendOnlyQueue has its own internal lock hierarchy (corruptionMutex → queueMutex).
+    // IosFileStorage.queueMutex wraps AppendOnlyQueue calls, giving the outer ordering:
+    //   IosFileStorage.queueMutex  →  AppendOnlyQueue.corruptionMutex  →  AppendOnlyQueue.queueMutex
+    //
+    // IMPORTANT: Any new code that acquires two of these mutexes must follow this order.
+    // Acquiring in reverse order will cause a coroutine deadlock (all involved coroutines
+    // suspend forever, no error is thrown, the BGTask is killed by iOS watchdog).
+    // ===================================================================
+
+    // Protects coordinated queue operations (dequeue, replaceChainAtomic, etc.)
     private val queueMutex = Mutex()
 
     /**
@@ -136,7 +157,7 @@ internal class IosFileStorage(
     private val queueSizeCounter = AtomicInt(UNINITIALIZED_COUNTER)
 
     /**
-     * v2.2.2+ Buffered I/O for progress saves
+     * Buffered I/O for progress saves
      * In-memory buffer to batch NSFileCoordinator calls (90% I/O reduction)
      */
     private val progressBuffer = mutableMapOf<String, ChainProgress>()
@@ -144,10 +165,29 @@ internal class IosFileStorage(
     private var flushJob: kotlinx.coroutines.Job? = null
     private var flushCompletionSignal: kotlinx.coroutines.CompletableDeferred<Unit>? = null
 
+    // Tracks chain IDs whose progress file was deleted by self-healing during this process lifetime.
+    // Used by executeChain to prevent non-idempotent chains from silently restarting after corruption.
+    // Protected by progressMutex — only written inside loadChainProgress, only read via
+    // wasProgressCorrupted() which is called from executeChain before execution begins.
+    private val selfHealedProgressChains = mutableSetOf<String>()
+
+    // Disk space cache — `attributesOfFileSystemForPath` is an OS-level I/O syscall.
+    // Calling it on every file write (e.g. every saveChainDefinition) adds measurable
+    // latency on I/O-bound devices. Cache the result for DISK_SPACE_CACHE_TTL_MS and
+    // re-query only when the TTL expires.
+    // Thread-safety: reads are allowed without a lock (stale reads are safe — the
+    // consequence is one extra syscall, not a correctness error). Writes use @Volatile
+    // so the updated pair is visible to all threads without a mutex.
+    @kotlin.concurrent.Volatile
+    private var diskSpaceCacheFreeBytes: Long = -1L
+    @kotlin.concurrent.Volatile
+    private var diskSpaceCacheExpiryMs: Long = 0L
+
     companion object {
         const val MAX_QUEUE_SIZE = 1000
         const val MAX_CHAIN_SIZE_BYTES = 10_485_760L // 10MB
         private const val UNINITIALIZED_COUNTER = -1  // Sentinel: counter not yet set from disk
+        private const val DISK_SPACE_CACHE_TTL_MS = 10_000L  // 10 seconds
 
         /**
          * Default max age for deleted markers (now configurable via IosFileStorageConfig)
@@ -192,7 +232,7 @@ internal class IosFileStorage(
             val appSupportDir = urls.firstOrNull() as? NSURL
                 ?: throw IllegalStateException("Could not locate Application Support directory")
 
-            val path = appSupportDir.URLByAppendingPathComponent(BASE_DIR_NAME)!!
+            val path = appSupportDir.safeAppend(BASE_DIR_NAME)
             ensureDirectoryExists(path)
             path
         }
@@ -201,35 +241,35 @@ internal class IosFileStorage(
         basePath
     }
 
-    private val queueFileURL: NSURL by lazy { baseDir.URLByAppendingPathComponent(QUEUE_FILE_NAME)!! }
+    private val queueFileURL: NSURL by lazy { baseDir.safeAppend(QUEUE_FILE_NAME) }
     private val chainsDirURL: NSURL by lazy {
-        val url = baseDir.URLByAppendingPathComponent(CHAINS_DIR_NAME)!!
+        val url = baseDir.safeAppend(CHAINS_DIR_NAME)
         ensureDirectoryExists(url)
         url
     }
     private val metadataDirURL: NSURL by lazy {
-        val url = baseDir.URLByAppendingPathComponent(METADATA_DIR_NAME)!!
+        val url = baseDir.safeAppend(METADATA_DIR_NAME)
         ensureDirectoryExists(url)
         url
     }
     private val tasksDirURL: NSURL by lazy {
-        val url = metadataDirURL.URLByAppendingPathComponent(TASKS_DIR_NAME)!!
+        val url = metadataDirURL.safeAppend(TASKS_DIR_NAME)
         ensureDirectoryExists(url)
         url
     }
     private val periodicDirURL: NSURL by lazy {
-        val url = metadataDirURL.URLByAppendingPathComponent(PERIODIC_DIR_NAME)!!
+        val url = metadataDirURL.safeAppend(PERIODIC_DIR_NAME)
         ensureDirectoryExists(url)
         url
     }
     private val deletedChainsDirURL: NSURL by lazy {
-        val url = metadataDirURL.URLByAppendingPathComponent(DELETED_CHAINS_DIR_NAME)!!
+        val url = metadataDirURL.safeAppend(DELETED_CHAINS_DIR_NAME)
         ensureDirectoryExists(url)
         url
     }
 
     private val maintenanceTimestampURL: NSURL by lazy {
-        baseDir.URLByAppendingPathComponent("last_maintenance.txt")!!
+        baseDir.safeAppend("last_maintenance.txt")
     }
 
     init {
@@ -275,37 +315,37 @@ internal class IosFileStorage(
     /**
      * Internal enqueue without enqueueMutex — called from replaceChainAtomic (under queueMutex).
      *
-     * Handles UNINITIALIZED_COUNTER sentinel. If the init coroutine hasn't finished
-     * yet (counter == -1), reads actual size from disk (O(N), one-time) to prevent
-     * enqueues past capacity on first access after restart.
+     * **Cross-process safety:** [queueSizeCounter] is an in-process AtomicInt. If two
+     * OS processes share the same storage path (e.g. main app + Notification Service
+     * Extension), each process holds an independent counter that diverges after any
+     * enqueue/dequeue in the other process. Using the counter for the MAX_QUEUE_SIZE
+     * check would allow the limit to be exceeded by the number of concurrent processes.
+     *
+     * Fix: always read the actual size from disk for the limit check. The counter is
+     * still updated for in-process approximations (e.g. debug logging), but the
+     * authoritative check is the disk size. Enqueue is not a hot path (called once
+     * per chain schedule), so the O(disk) overhead is acceptable.
      */
     private suspend fun enqueueChainInternal(chainId: String) {
-        // Use actual disk size if counter not yet initialized (startup race)
-        val currentSize = if (queueSizeCounter.value == UNINITIALIZED_COUNTER) {
-            Logger.d(LogTags.CHAIN, "Counter uninitialized at enqueue — reading actual size from disk (one-time)")
-            queue.getSize()
-        } else {
-            queueSizeCounter.value
-        }
+        // Always read disk size for the limit check — cross-process safe.
+        val currentSize = queue.getSize()
 
         if (currentSize >= MAX_QUEUE_SIZE) {
             Logger.e(LogTags.CHAIN, "Queue size limit reached ($MAX_QUEUE_SIZE). Cannot enqueue chain: $chainId")
             throw IllegalStateException("Queue size limit exceeded")
         }
 
-        // O(1) enqueue operation
         queue.enqueue(chainId)
 
-        // Increment counter. If still uninitialized (extremely rare: init not done yet AND
-        // disk read above was 0), compareAndSet from -1 → 1 won't happen here; just use
-        // getAndAdd which correctly handles any starting value.
+        // Keep in-process counter roughly in sync for diagnostic logging.
+        // Not used for enforcement — disk read above is authoritative.
         if (queueSizeCounter.value == UNINITIALIZED_COUNTER) {
             queueSizeCounter.value = currentSize + 1
         } else {
             queueSizeCounter.incrementAndGet()
         }
 
-        Logger.v(LogTags.CHAIN, "Enqueued chain $chainId. Queue size: ${queueSizeCounter.value}")
+        Logger.v(LogTags.CHAIN, "Enqueued chain $chainId. Queue size (disk): $currentSize → ${currentSize + 1}")
     }
 
     /**
@@ -329,16 +369,18 @@ internal class IosFileStorage(
     }
 
     /**
-     * Get current queue size (O(1) lock-free operation in steady state).
-     * Returns actual disk size when counter is uninitialized.
+     * Get current queue size — always reads from disk for correctness.
+     *
+     * Multiple IosFileStorage instances sharing the same path (e.g. NativeTaskScheduler
+     * and ChainExecutor) each have an independent in-memory queueSizeCounter that can
+     * diverge after any enqueue/dequeue performed by the other instance.  Reading from
+     * disk on every call prevents stale-counter bugs at the cost of a single I/O per call,
+     * which is acceptable since getQueueSize() is called infrequently (once per BGTask).
      */
-    suspend fun getQueueSize(): Int {
-        val v = queueSizeCounter.value
-        return if (v == UNINITIALIZED_COUNTER) queue.getSize() else v
-    }
+    suspend fun getQueueSize(): Int = queue.getSize()
 
     /**
-     * Replace chain atomically (v2.2.2+ Race Condition Fix)
+     * Replace chain atomically
      *
      * **Problem:** Old REPLACE implementation had TOCTOU race condition:
      * 1. Mark deleted
@@ -401,14 +443,14 @@ internal class IosFileStorage(
     }
 
     /**
-     * Log transaction for debugging (v2.2.2+)
+     * Log transaction for debugging
      * Append-only log for auditing chain operations
      *
      * FIX: Wrapped in NSFileCoordinator for safe concurrent access
      */
     private fun logTransaction(txn: ChainTransaction) {
         try {
-            val logFile = baseDir.URLByAppendingPathComponent("transactions.jsonl")!!
+            val logFile = baseDir.safeAppend("transactions.jsonl")
             val json = Json.encodeToString(txn)
             val line = "$json\n"
 
@@ -425,7 +467,7 @@ internal class IosFileStorage(
                     val errorPtr = alloc<ObjCObjectVar<NSError?>>()
                     val fileHandle = NSFileHandle.fileHandleForWritingToURL(safeUrl, errorPtr.ptr)
 
-                    // FIX: Handle null fileHandle (v2.2.2+ Lifecycle Safety)
+                    // FIX: Handle null fileHandle
                     if (fileHandle == null) {
                         val error = errorPtr.value
                         Logger.w(LogTags.CHAIN, "Failed to open transaction log: ${error?.localizedDescription}")
@@ -460,7 +502,7 @@ internal class IosFileStorage(
      * Save chain definition to file
      */
     fun saveChainDefinition(id: String, steps: List<List<TaskRequest>>) {
-        val chainFile = chainsDirURL.URLByAppendingPathComponent("$id.json")!!
+        val chainFile = chainsDirURL.safeAppend("$id.json")
         val json = Json.encodeToString(steps)
 
         // Use actual UTF-8 byte count, not String.length (UTF-16 char count).
@@ -485,7 +527,7 @@ internal class IosFileStorage(
      * Load chain definition from file with self-healing for corrupt data
      */
     fun loadChainDefinition(id: String): List<List<TaskRequest>>? {
-        val chainFile = chainsDirURL.URLByAppendingPathComponent("$id.json")!!
+        val chainFile = chainsDirURL.safeAppend("$id.json")
 
         return coordinated(chainFile, write = false) { safeUrl ->
             val json = readStringFromFile(safeUrl) ?: return@coordinated null
@@ -510,7 +552,7 @@ internal class IosFileStorage(
      * Delete chain definition
      */
     fun deleteChainDefinition(id: String) {
-        val chainFile = chainsDirURL.URLByAppendingPathComponent("$id.json")!!
+        val chainFile = chainsDirURL.safeAppend("$id.json")
         deleteFile(chainFile)
         Logger.d(LogTags.CHAIN, "Deleted chain definition $id")
     }
@@ -519,12 +561,12 @@ internal class IosFileStorage(
      * Check if chain definition exists
      */
     fun chainExists(id: String): Boolean {
-        val chainFile = chainsDirURL.URLByAppendingPathComponent("$id.json")!!
+        val chainFile = chainsDirURL.safeAppend("$id.json")
         val path = chainFile.path ?: return false
         return fileManager.fileExistsAtPath(path)
     }
 
-    // ==================== Deleted Chain Markers (v2.1.3+) ====================
+    // ==================== Deleted Chain Markers ====================
 
     /**
      * Mark a chain as deleted to prevent duplicate execution during REPLACE policy.
@@ -532,7 +574,7 @@ internal class IosFileStorage(
      *
      */
     fun markChainAsDeleted(chainId: String) {
-        val markerFile = deletedChainsDirURL.URLByAppendingPathComponent("$chainId.marker")!!
+        val markerFile = deletedChainsDirURL.safeAppend("$chainId.marker")
         val timestamp = NSDate().timeIntervalSince1970.toLong()
 
         coordinated(markerFile, write = true) { safeUrl ->
@@ -548,7 +590,7 @@ internal class IosFileStorage(
      *
      */
     fun isChainDeleted(chainId: String): Boolean {
-        val markerFile = deletedChainsDirURL.URLByAppendingPathComponent("$chainId.marker")!!
+        val markerFile = deletedChainsDirURL.safeAppend("$chainId.marker")
         val path = markerFile.path ?: return false
         return fileManager.fileExistsAtPath(path)
     }
@@ -559,7 +601,7 @@ internal class IosFileStorage(
      *
      */
     fun clearDeletedMarker(chainId: String) {
-        val markerFile = deletedChainsDirURL.URLByAppendingPathComponent("$chainId.marker")!!
+        val markerFile = deletedChainsDirURL.safeAppend("$chainId.marker")
         deleteFile(markerFile)
         Logger.d(LogTags.CHAIN, "Cleared deleted marker for chain $chainId")
     }
@@ -569,7 +611,7 @@ internal class IosFileStorage(
      * Prevents disk space leaks from accumulated markers.
      *
      * CRITICAL: Called from performMaintenanceTasks() to prevent accumulation
-     * FIX: Configurable via IosFileStorageConfig (v2.2.2+)
+     * FIX: Configurable via IosFileStorageConfig
      */
     fun cleanupStaleDeletedMarkers() {
         val path = deletedChainsDirURL.path ?: return
@@ -582,7 +624,7 @@ internal class IosFileStorage(
             if (fileName !is String) return@forEach
             if (!fileName.endsWith(".marker")) return@forEach
 
-            val markerFile = deletedChainsDirURL.URLByAppendingPathComponent(fileName)!!
+            val markerFile = deletedChainsDirURL.safeAppend(fileName)
             val markerPath = markerFile.path ?: return@forEach
 
             // Read marker via coordinated() to match the write path in
@@ -683,15 +725,15 @@ internal class IosFileStorage(
     // ==================== Chain Progress Operations ====================
 
     /**
-     * Save chain progress to file (v2.2.2+ Buffered I/O).
+     * Save chain progress to file.
      *
-     * **v2.2.2 Performance Upgrade:**
+     * **Performance Upgrade:**
      * - Buffers progress updates in-memory (O(1) operation)
      * - Debounced flush after 100ms (batches multiple saves)
      * - Reduces NSFileCoordinator overhead by 90% for parallel tasks
      * - Immediate flush available via flushNow() for critical points
      *
-     * **v2.3.5 Fix:**
+     * **Fix:**
      * - Now a suspend function to ensure buffer update is immediate and safe
      * - Removed backgroundScope.launch to honor NonCancellable contexts
      *
@@ -720,7 +762,7 @@ internal class IosFileStorage(
 
     /**
      * Flush buffered progress to disk (batched write)
-     * v2.2.2+ Internal method for debounced flush
+     * Internal method for debounced flush
      *
      * Performance: Writes all buffered progress in one batch operation,
      * reducing NSFileCoordinator overhead from N calls to 1 coordinated block.
@@ -751,7 +793,12 @@ internal class IosFileStorage(
         // Write all progress files in batch (outside mutex to allow concurrent saves)
         try {
             bufferSnapshot.forEach { (chainId, progress) ->
-                val progressFile = chainsDirURL.URLByAppendingPathComponent("${chainId}_progress.json")!!
+                // Check cancellation before each file write. This ensures that if
+                // withTimeoutOrNull fires, we exit as soon as the current NSFileCoordinator
+                // call returns (the coordinator itself cannot be interrupted mid-call).
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+
+                val progressFile = chainsDirURL.safeAppend("${chainId}_progress.json")
                 val json = Json.encodeToString(progress)
 
                 try {
@@ -794,7 +841,7 @@ internal class IosFileStorage(
 
     /**
      * Flush buffered progress immediately (blocking)
-     * v2.2.2+ Use before critical points: chain completion, shutdown, BGTask expiration
+     * Use before critical points: chain completion, shutdown, BGTask expiration
      *
      * **When to call:**
      * - Chain completion (ensure final progress is persisted)
@@ -841,43 +888,134 @@ internal class IosFileStorage(
      * - Guarantees persistence before suspension
      * - No data loss on aggressive app termination
      *
-     * @since 2.3.4
      */
     fun flushAllPendingProgress() {
-        Logger.i(LogTags.CHAIN, "🚨 Emergency progress flush requested (app suspension/shutdown)")
+        val callerThread = NSThread.currentThread
+        Logger.i(
+            LogTags.CHAIN,
+            "Emergency progress flush requested — thread: '${callerThread.name}', isMain: ${NSThread.isMainThread}"
+        )
 
-        // Use runBlocking to ensure flush completes before app suspends
-        // This is one of the few valid uses of runBlocking (graceful shutdown)
-        kotlinx.coroutines.runBlocking {
-            flushNow()
+        // I/O is dispatched to a HIGH-PRIORITY GCD queue so the system preempts lower-priority
+        // work (iCloud sync, app-refresh tasks) and completes our flush as fast as possible.
+        //
+        // Main thread parks on a lightweight semaphore (OS-level park, no event-loop overhead)
+        // rather than blocking inside runBlocking's coroutine scheduler.
+        //
+        // Timeout: 450ms — leaves 50ms headroom before the iOS 500ms Watchdog kills the app.
+        //
+        // ⚠️ NSFileCoordinator BLOCKING RISK: coordinate() is synchronous with no cancellation
+        // API. On timeout, the high-priority thread may still be blocked inside NSFileCoordinator.
+        // We force-release flushCompletionSignal so future saveChainProgress() calls can
+        // schedule a new flush; the orphaned I/O eventually completes on its own.
+        val semaphore = dispatch_semaphore_create(0)
+        val highQueue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH.toLong(), 0u)
+
+        dispatch_async(highQueue) {
+            kotlinx.coroutines.runBlocking { flushNow() }
+            dispatch_semaphore_signal(semaphore)
         }
 
-        Logger.i(LogTags.CHAIN, "✅ Emergency progress flush completed")
+        val timeout = dispatch_time(DISPATCH_TIME_NOW, 450_000_000L) // 450ms in nanoseconds
+        val timedOut = dispatch_semaphore_wait(semaphore, timeout) != 0L
+
+        if (timedOut) {
+            // Force-release completion signal so saveChainProgress() is not permanently stuck.
+            kotlinx.coroutines.runBlocking {
+                withContext(Dispatchers.Default) {
+                    progressMutex.withLock {
+                        flushCompletionSignal?.complete(Unit)
+                        flushCompletionSignal = null
+                    }
+                    flushJob?.cancel()
+                }
+            }
+            Logger.w(
+                LogTags.CHAIN,
+                "⚠️ Progress flush timed out after 450ms — likely NSFileCoordinator contention " +
+                    "(iCloud sync or file lock). Signal force-released; in-flight I/O continues " +
+                    "on high-priority GCD queue. Main thread safe (Watchdog respected)."
+            )
+        }
+
+        Logger.i(LogTags.CHAIN, "Emergency progress flush ${if (timedOut) "timed out (I/O orphaned)" else "completed"}")
     }
 
     /**
      * Load chain progress from file with self-healing for corrupt data.
      *
+     * **Schema evolution:** If [ChainProgress.schemaVersion] in the file is older than
+     * [ChainProgress.CURRENT_SCHEMA_VERSION], logs a warning and attempts to load the
+     * data anyway (additive changes survive via [ignoreUnknownKeys]). If the schema gap
+     * is too large to handle gracefully, add an explicit migration branch here before
+     * bumping [ChainProgress.CURRENT_SCHEMA_VERSION].
+     *
      * @param chainId The chain ID
      * @return The progress state, or null if no progress file exists or is corrupt
      */
     fun loadChainProgress(chainId: String): ChainProgress? {
-        val progressFile = chainsDirURL.URLByAppendingPathComponent("${chainId}_progress.json")!!
+        val progressFile = chainsDirURL.safeAppend("${chainId}_progress.json")
 
         return coordinated(progressFile, write = false) { safeUrl ->
             val json = readStringFromFile(safeUrl) ?: return@coordinated null
 
             try {
-                persistenceJson.decodeFromString<ChainProgress>(json)
+                val progress = persistenceJson.decodeFromString<ChainProgress>(json)
+
+                // Schema version check — warn on version mismatch but do not self-heal
+                // for additive changes. Only bump CURRENT_SCHEMA_VERSION for breaking changes
+                // and add a migration branch below.
+                val fileVersion = progress.schemaVersion
+                val currentVersion = ChainProgress.CURRENT_SCHEMA_VERSION
+                if (fileVersion < currentVersion) {
+                    Logger.w(
+                        LogTags.CHAIN,
+                        "Chain $chainId progress schema v$fileVersion < current v$currentVersion. " +
+                            "Loaded successfully (additive change). " +
+                            "Add migration logic here if fields were removed or types changed."
+                    )
+                    // ── Future migration example ──────────────────────────────────────────
+                    // when (fileVersion) {
+                    //     0 -> migrateFromV0(progress)
+                    //     else -> progress
+                    // }
+                }
+
+                progress
             } catch (e: Exception) {
                 Logger.e(LogTags.CHAIN, "🩹 Self-healing: Corrupt chain progress detected for $chainId. Deleting corrupt file...", e)
 
-                // Delete corrupt progress file - chain will restart from beginning
+                // Delete corrupt progress file
                 deleteFile(progressFile)
 
-                Logger.w(LogTags.CHAIN, "Corrupt progress for chain $chainId has been removed. Chain will restart from beginning on next execution.")
+                // Record that this chain's progress was self-healed so that executeChain can
+                // refuse to restart non-idempotent chains (e.g. payment workflows).
+                // Uses progressMutex for thread-safety — same mutex that protects progressBuffer.
+                kotlinx.coroutines.runBlocking {
+                    progressMutex.withLock { selfHealedProgressChains.add(chainId) }
+                }
+
+                Logger.w(
+                    LogTags.CHAIN,
+                    "Corrupt progress for chain $chainId removed. " +
+                    "Chain restart will be allowed only if all tasks are idempotent."
+                )
                 null
             }
+        }
+    }
+
+    /**
+     * Returns `true` (and clears the flag) if this chain's progress file was deleted by
+     * self-healing corruption recovery since this process started.
+     *
+     * Call this once, immediately before executing a chain. A `true` result means the
+     * chain has lost its execution history — callers must check [TaskRequest.isIdempotent]
+     * for every task in the chain before deciding whether to restart or quarantine.
+     */
+    suspend fun consumeSelfHealedFlag(chainId: String): Boolean {
+        return progressMutex.withLock {
+            selfHealedProgressChains.remove(chainId)
         }
     }
 
@@ -892,7 +1030,7 @@ internal class IosFileStorage(
      * @param chainId The chain ID
      */
     fun deleteChainProgress(chainId: String) {
-        val progressFile = chainsDirURL.URLByAppendingPathComponent("${chainId}_progress.json")!!
+        val progressFile = chainsDirURL.safeAppend("${chainId}_progress.json")
         deleteFile(progressFile)
         Logger.d(LogTags.CHAIN, "Deleted chain progress $chainId")
     }
@@ -904,7 +1042,7 @@ internal class IosFileStorage(
      */
     fun saveTaskMetadata(id: String, metadata: Map<String, String>, periodic: Boolean) {
         val dir = if (periodic) periodicDirURL else tasksDirURL
-        val metaFile = dir.URLByAppendingPathComponent("$id.json")!!
+        val metaFile = dir.safeAppend("$id.json")
         val json = Json.encodeToString(metadata)
 
         coordinated(metaFile, write = true) { safeUrl ->
@@ -919,7 +1057,7 @@ internal class IosFileStorage(
      */
     fun loadTaskMetadata(id: String, periodic: Boolean): Map<String, String>? {
         val dir = if (periodic) periodicDirURL else tasksDirURL
-        val metaFile = dir.URLByAppendingPathComponent("$id.json")!!
+        val metaFile = dir.safeAppend("$id.json")
 
         return coordinated(metaFile, write = false) { safeUrl ->
             val json = readStringFromFile(safeUrl) ?: return@coordinated null
@@ -940,11 +1078,41 @@ internal class IosFileStorage(
     }
 
     /**
+     * List all non-periodic task IDs that have saved metadata.
+     * Used by the catch-up executor to find missed exact-alarm tasks.
+     *
+     * Uses [NSFileManager.enumeratorAtURL] for lazy streaming rather than loading
+     * all filenames into memory at once. This avoids an O(N) heap allocation when
+     * the metadata directory contains thousands of files (e.g. after extended use
+     * without cleanup). The enumerator yields one entry at a time and is depth-1
+     * (shallow=true), so subdirectories are not traversed.
+     */
+    fun listTaskIds(): List<String> {
+        val enumerator = fileManager.enumeratorAtURL(
+            tasksDirURL,
+            includingPropertiesForKeys = null,
+            options = NSDirectoryEnumerationSkipsSubdirectoryDescendants or
+                      NSDirectoryEnumerationSkipsHiddenFiles,
+            errorHandler = null
+        ) ?: return emptyList()
+
+        val ids = mutableListOf<String>()
+        while (true) {
+            val next = enumerator.nextObject() as? NSURL ?: break
+            val name = next.lastPathComponent ?: continue
+            if (name.endsWith(".json")) {
+                ids.add(name.removeSuffix(".json"))
+            }
+        }
+        return ids
+    }
+
+    /**
      * Delete task metadata
      */
     fun deleteTaskMetadata(id: String, periodic: Boolean) {
         val dir = if (periodic) periodicDirURL else tasksDirURL
-        val metaFile = dir.URLByAppendingPathComponent("$id.json")!!
+        val metaFile = dir.safeAppend("$id.json")
         deleteFile(metaFile)
         Logger.d(LogTags.SCHEDULER, "Deleted ${if (periodic) "periodic" else "task"} metadata for $id")
     }
@@ -1001,7 +1169,7 @@ internal class IosFileStorage(
     }
 
     /**
-     * Check if sufficient disk space is available (v2.2.2+ Configurable)
+     * Check if sufficient disk space is available
      *
      * **Safety margin:** Requires configurable buffer (default 50MB) + actual size to prevent
      * system-wide issues and ensure smooth operation.
@@ -1010,37 +1178,51 @@ internal class IosFileStorage(
      * @throws InsufficientDiskSpaceException if space unavailable
      */
     private fun checkDiskSpace(requiredBytes: Long) {
-        memScoped {
-            val errorPtr = alloc<ObjCObjectVar<NSError?>>()
+        val nowMs = (NSDate().timeIntervalSince1970 * 1000).toLong()
 
-            // Get filesystem attributes
-            val attributes = fileManager.attributesOfFileSystemForPath(
-                baseDir.path!!,
-                error = errorPtr.ptr
-            ) as? Map<*, *>
-
-            if (attributes == null) {
-                Logger.w(LogTags.CHAIN, "Cannot read filesystem attributes - skipping disk space check")
+        // Use cached free-space value if still fresh (avoids attributesOfFileSystemForPath syscall
+        // on every file write — stale reads within the TTL are intentional and safe).
+        val freeSpace: Long = if (nowMs < diskSpaceCacheExpiryMs && diskSpaceCacheFreeBytes >= 0L) {
+            Logger.v(LogTags.CHAIN, "Disk space cache hit: ${diskSpaceCacheFreeBytes / 1024 / 1024}MB free")
+            diskSpaceCacheFreeBytes
+        } else {
+            // Cache miss — query the filesystem and refresh the cache.
+            val basePath = baseDir.path ?: run {
+                Logger.w(LogTags.CHAIN, "Cannot read filesystem attributes — baseDir has no path, skipping disk space check")
                 return
             }
+            val fresh = memScoped {
+                val errorPtr = alloc<ObjCObjectVar<NSError?>>()
+                val attributes = fileManager.attributesOfFileSystemForPath(
+                    basePath,
+                    error = errorPtr.ptr
+                ) as? Map<*, *>
 
-            // Get free space
-            val freeSpace = (attributes[NSFileSystemFreeSize] as? NSNumber)?.longValue ?: 0L
-
-            // FIX: Use configurable buffer (default 50MB, was hardcoded 100MB)
-            val requiredWithBuffer = requiredBytes + config.diskSpaceBufferBytes
-
-            if (freeSpace < requiredWithBuffer) {
-                val freeMB = freeSpace / 1024 / 1024
-                val requiredMB = requiredWithBuffer / 1024 / 1024
-                val bufferMB = config.diskSpaceBufferBytes / 1024 / 1024
-
-                Logger.e(LogTags.CHAIN, "Insufficient disk space: ${freeMB}MB available, ${requiredMB}MB required (${bufferMB}MB buffer)")
-                throw InsufficientDiskSpaceException(requiredWithBuffer, freeSpace)
+                if (attributes == null) {
+                    Logger.w(LogTags.CHAIN, "Cannot read filesystem attributes - skipping disk space check")
+                    return
+                }
+                (attributes[NSFileSystemFreeSize] as? NSNumber)?.longValue ?: 0L
             }
-
-            Logger.d(LogTags.CHAIN, "Disk space check passed: ${freeSpace / 1024 / 1024}MB available, ${requiredWithBuffer / 1024 / 1024}MB required")
+            // Update cache (Volatile writes are immediately visible to other threads)
+            diskSpaceCacheFreeBytes = fresh
+            diskSpaceCacheExpiryMs = nowMs + DISK_SPACE_CACHE_TTL_MS
+            Logger.d(LogTags.CHAIN, "Disk space cache refreshed: ${fresh / 1024 / 1024}MB free (TTL ${DISK_SPACE_CACHE_TTL_MS / 1000}s)")
+            fresh
         }
+
+        val requiredWithBuffer = requiredBytes + config.diskSpaceBufferBytes
+
+        if (freeSpace < requiredWithBuffer) {
+            val freeMB = freeSpace / 1024 / 1024
+            val requiredMB = requiredWithBuffer / 1024 / 1024
+            val bufferMB = config.diskSpaceBufferBytes / 1024 / 1024
+
+            Logger.e(LogTags.CHAIN, "Insufficient disk space: ${freeMB}MB available, ${requiredMB}MB required (${bufferMB}MB buffer)")
+            throw InsufficientDiskSpaceException(requiredWithBuffer, freeSpace)
+        }
+
+        Logger.d(LogTags.CHAIN, "Disk space OK: ${freeSpace / 1024 / 1024}MB available, ${requiredWithBuffer / 1024 / 1024}MB required")
     }
 
     /**
@@ -1097,7 +1279,7 @@ internal class IosFileStorage(
     }
 
     /**
-     * Atomic write with temp file + POSIX rename (v2.2.2+ Cancellation Safety)
+     * Atomic write with temp file + POSIX rename
      *
      * **Guarantees:**
      * - Write to temp file first (isolated from target)
@@ -1120,7 +1302,7 @@ internal class IosFileStorage(
         // when two files with the same name exist in different directories. Previously,
         // "chains/abc.json" and "metadata/tasks/abc.json" would share "abc.json.tmp".
         val pathHash = fileURL.path.hashCode().toUInt().toString(16)
-        val tempURL = baseDir.URLByAppendingPathComponent("${fileURL.lastPathComponent}_${pathHash}.tmp")!!
+        val tempURL = baseDir.safeAppend("${fileURL.lastPathComponent}_${pathHash}.tmp")
 
         try {
             // Step 1: Write to temp file (safe if cancelled here)
@@ -1130,8 +1312,10 @@ internal class IosFileStorage(
 
             // Step 2: Atomic rename (protected from cancellation)
             withContext(NonCancellable) {
-                val targetPath = fileURL.path!!
-                val tempPath = tempURL.path!!
+                val targetPath = fileURL.path
+                    ?: throw IllegalStateException("Cannot rename: fileURL has no path component")
+                val tempPath = tempURL.path
+                    ?: throw IllegalStateException("Cannot rename: tempURL has no path component")
 
                 memScoped {
                     val errorPtr = alloc<ObjCObjectVar<NSError?>>()
@@ -1192,7 +1376,7 @@ internal class IosFileStorage(
      * - iCloud synchronization safety
      * - System file operation conflicts (Spotlight, etc.)
      *
-     * **v2.3.5 Refactor:** Uses shared IosFileCoordinator.
+     * **Refactor:** Uses shared IosFileCoordinator.
      */
     private fun <T> coordinated(url: NSURL, write: Boolean, block: (NSURL) -> T): T {
         return IosFileCoordinator.coordinate(
@@ -1205,7 +1389,7 @@ internal class IosFileStorage(
     }
 
     /**
-     * Close and cleanup resources (v2.2.2+)
+     * Close and cleanup resources
      *
      * **FIX:** Properly cancel backgroundScope to prevent resource leaks
      *
@@ -1244,6 +1428,16 @@ class InsufficientDiskSpaceException(
     "Insufficient disk space. Required: ${required / 1024 / 1024}MB, " +
     "Available: ${available / 1024 / 1024}MB"
 )
+
+/**
+ * Safe URL path component appending.
+ * Replaces `URLByAppendingPathComponent(x)!!` — throws with context instead of NPE.
+ * In practice URLByAppendingPathComponent only returns null for empty components or
+ * file-reference URLs; this provides a clearer crash message when that invariant breaks.
+ */
+private fun NSURL.safeAppend(component: String): NSURL =
+    URLByAppendingPathComponent(component)
+        ?: throw IllegalStateException("Failed to construct URL: base='$path' component='$component'")
 
 /**
  * Extension: Convert String to NSData (UTF-8 encoding)

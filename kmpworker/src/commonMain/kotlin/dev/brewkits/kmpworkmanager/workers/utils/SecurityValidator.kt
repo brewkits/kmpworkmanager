@@ -75,9 +75,11 @@ object SecurityValidator {
                 // Check if it looks like an IPv6 address (multiple colons)
                 val colonCount = hostnameWithPort.count { it == ':' }
                 if (colonCount >= 2) {
-                    // Malformed IPv6 without brackets (e.g., 0:0:0:0:0:0:0:1)
-                    // Return the whole thing for validation
-                    hostnameWithPort
+                    // Unbracketed IPv6 — RFC 2732 requires brackets for IPv6 in URLs.
+                    // Any unbracketed multi-colon hostname is malformed; return null to reject.
+                    // This also prevents SSRF bypass via e.g. http://::1:8080/ where the port
+                    // suffix prevents simple blocklist matching against "::1".
+                    return null
                 } else {
                     // Regular hostname or IPv4 with port
                     hostnameWithPort.substringBefore(":")
@@ -105,8 +107,11 @@ object SecurityValidator {
             return true
         }
 
-        // AWS/Cloud metadata endpoints
-        if (hostname == "169.254.169.254" || hostname == "fd00:ec2::254") {
+        // Cloud metadata endpoints (AWS, GCP, Azure, Alibaba Cloud)
+        if (hostname == "169.254.169.254" ||   // AWS / GCP / Azure instance metadata
+            hostname == "fd00:ec2::254" ||       // AWS IPv6 metadata
+            hostname == "100.100.100.200" ||     // Alibaba Cloud ECS metadata
+            hostname == "metadata.google.internal") {
             return true
         }
 
@@ -238,12 +243,39 @@ object SecurityValidator {
     /**
      * Validates that a file path doesn't contain path traversal attempts.
      *
+     * Checks performed:
+     * - Blank / empty path
+     * - Literal `..` segments
+     * - URL-encoded `..` variants: `%2e%2e`, `%252e%252e` (double-encoded)
+     * - Backslash normalisation (Windows-style separators)
+     * - Null-byte injection (`\u0000`)
+     * - Absolute paths targeting sensitive system directories
+     *
      * @param path The file path to validate
-     * @return true if path is safe, false if it contains ".." or other suspicious patterns
+     * @return true if path is safe, false if it contains a suspicious pattern
      */
     fun validateFilePath(path: String): Boolean {
-        // Check for path traversal attempts
-        return !path.contains("..") && path.isNotBlank()
+        if (path.isBlank()) return false
+
+        // Normalise to a canonical form before checking, covering the most common
+        // bypass techniques without requiring platform-specific APIs.
+        val normalised = path
+            .replace("\\", "/")                         // Windows separators
+            .replace("\u0000", "")                      // Null-byte injection
+            .replace("%252e", ".", ignoreCase = true)   // Double URL-encoded dot
+            .replace("%2e", ".", ignoreCase = true)     // URL-encoded dot
+            .replace("%2f", "/", ignoreCase = true)     // URL-encoded slash
+            .replace("%5c", "/", ignoreCase = true)     // URL-encoded backslash
+
+        if (normalised.contains("..")) return false
+
+        // Block absolute paths that target sensitive OS directories.
+        // This is a defence-in-depth measure: the storage sandbox should be the
+        // primary enforcement point, but this catches misconfigured callers early.
+        val sensitiveRoots = listOf("/etc", "/proc", "/sys", "/dev", "/private/etc")
+        if (sensitiveRoots.any { normalised.startsWith(it) }) return false
+
+        return true
     }
 
     /**

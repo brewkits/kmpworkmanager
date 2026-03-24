@@ -15,6 +15,8 @@ import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.utils.io.*
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import okio.FileSystem
 import okio.Path.Companion.toPath
 import okio.buffer
@@ -33,7 +35,7 @@ import okio.use
  * **Memory Usage:** ~3-5MB RAM
  * **Default Timeout:** 300 seconds (5 minutes)
  *
- * **Performance Optimization (v2.3.5+):**
+ * **Performance Optimization:**
  * - Uses singleton HttpClient for connection pool reuse
  * - 60-86% faster than previous version
  *
@@ -67,7 +69,7 @@ import okio.use
  * @param httpClient Optional HttpClient (defaults to optimized singleton)
  * @param fileSystem Optional FileSystem implementation (defaults to platform default)
  * @param progressListener Optional progress listener for download tracking
- * @since 2.3.4 Uses singleton HttpClient by default for optimal performance
+ * Uses singleton HttpClient by default for optimal performance
  */
 class HttpDownloadWorker(
     private val httpClient: HttpClient = HttpClientProvider.instance,
@@ -171,11 +173,11 @@ class HttpDownloadWorker(
 
             WorkerResult.Success(
                 message = "Downloaded ${SecurityValidator.formatByteSize(downloadedBytes)}",
-                data = mapOf(
-                    "fileSize" to downloadedBytes,
-                    "filePath" to config.savePath,
-                    "url" to SecurityValidator.sanitizedURL(config.url)
-                )
+                data = buildJsonObject {
+                    put("fileSize", downloadedBytes)
+                    put("filePath", config.savePath)
+                    put("url", SecurityValidator.sanitizedURL(config.url))
+                }
             )
         } catch (e: Exception) {
             // Cleanup temp file on error
@@ -199,7 +201,7 @@ class HttpDownloadWorker(
          *
          * @deprecated Use HttpClientProvider.instance instead for better performance.
          * This method creates a new client each time, which is inefficient.
-         * Will be removed in v3.0.0.
+         * Will be removed
          */
         @Deprecated(
             message = "Use HttpClientProvider.instance for connection pool reuse",
