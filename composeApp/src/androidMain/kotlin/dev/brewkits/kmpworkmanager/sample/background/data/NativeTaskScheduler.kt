@@ -109,7 +109,7 @@ actual class NativeTaskScheduler(private val context: Context) : BackgroundTaskS
             ExistingPolicy.REPLACE -> ExistingPeriodicWorkPolicy.REPLACE
         }
 
-        // Pass the target worker's class name and any input data to the KmpWorker
+        // Pass the target worker class name and input data — LibKmpWorker will dispatch via DemoWorkerFactory
         val workData = Data.Builder()
             .putString("workerClassName", workerClassName)
             .apply { inputJson?.let { putString("inputJson", it) } }
