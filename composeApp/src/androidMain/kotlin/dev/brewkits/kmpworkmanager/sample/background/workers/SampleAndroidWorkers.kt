@@ -4,6 +4,8 @@ import dev.brewkits.kmpworkmanager.background.domain.AndroidWorker
 import dev.brewkits.kmpworkmanager.background.domain.TaskCompletionEvent
 import dev.brewkits.kmpworkmanager.background.domain.TaskEventBus
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
+import dev.brewkits.kmpworkmanager.sample.utils.Logger
+import dev.brewkits.kmpworkmanager.sample.utils.LogTags
 import kotlinx.coroutines.delay
 import kotlin.math.sqrt
 import kotlin.time.measureTime
@@ -12,7 +14,7 @@ class SyncAndroidWorker : AndroidWorker {
     override suspend fun doWork(input: String?): WorkerResult {
         val steps = listOf("Fetching data", "Processing", "Saving")
         for ((index, step) in steps.withIndex()) {
-            println("Android: [$step] ${index + 1}/${steps.size}")
+            Logger.d(LogTags.WORKER, "Android: [$step] ${index + 1}/${steps.size}")
             delay(800)
         }
         TaskEventBus.emit(TaskCompletionEvent(taskName = "Sync", success = true, message = "Data synced successfully"))
@@ -27,7 +29,7 @@ class UploadAndroidWorker : AndroidWorker {
         while (uploaded < totalSize) {
             delay(300)
             uploaded += 10
-            println("Android: Upload progress: $uploaded/$totalSize MB")
+            Logger.d(LogTags.WORKER, "Android: Upload progress: $uploaded/$totalSize MB")
         }
         TaskEventBus.emit(TaskCompletionEvent(taskName = "Upload", success = true, message = "Uploaded ${totalSize}MB successfully"))
         return WorkerResult.Success(message = "Uploaded ${totalSize}MB successfully")
@@ -58,7 +60,7 @@ class DatabaseAndroidWorker : AndroidWorker {
         while (processed < totalRecords) {
             delay(500)
             processed += batchSize
-            println("Android: Database progress: $processed/$totalRecords records")
+            Logger.d(LogTags.WORKER, "Android: Database progress: $processed/$totalRecords records")
         }
         TaskEventBus.emit(TaskCompletionEvent(taskName = "Database", success = true, message = "Inserted $totalRecords records successfully"))
         return WorkerResult.Success(message = "Inserted $totalRecords records successfully")
@@ -88,7 +90,7 @@ class ImageProcessingAndroidWorker : AndroidWorker {
         for (imageNum in 1..imageCount) {
             for (size in imageSizes) {
                 delay(600)
-                println("Android: Processing image $imageNum - $size")
+                Logger.d(LogTags.WORKER, "Android: Processing image $imageNum - $size")
             }
         }
         val message = "Processed $imageCount images in ${imageSizes.size} sizes"
@@ -105,7 +107,7 @@ class LocationSyncAndroidWorker : AndroidWorker {
         while (synced < locationPoints) {
             delay(500)
             synced = minOf(synced + batchSize, locationPoints)
-            println("Android: Location sync: $synced/$locationPoints points")
+            Logger.d(LogTags.WORKER, "Android: Location sync: $synced/$locationPoints points")
         }
         val message = "Synced $locationPoints location points"
         TaskEventBus.emit(TaskCompletionEvent(taskName = "LocationSync", success = true, message = message))
@@ -138,7 +140,7 @@ class BatchUploadAndroidWorker : AndroidWorker {
             while (uploaded < size) {
                 delay(300)
                 uploaded++
-                println("Android: $name: $uploaded/${size}MB")
+                Logger.d(LogTags.WORKER, "Android: $name: $uploaded/${size}MB")
             }
         }
         val totalSize = files.sumOf { it.second }
