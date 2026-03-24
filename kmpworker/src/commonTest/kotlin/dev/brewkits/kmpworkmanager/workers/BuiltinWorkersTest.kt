@@ -401,9 +401,10 @@ class BuiltinWorkersTest {
     }
 
     @Test
-    fun `BuiltinWorkerRegistry should throw for unknown workers`() {
-        assertFailsWith<IllegalArgumentException> { BuiltinWorkerRegistry.createWorker("UnknownWorker") }
-        assertFailsWith<IllegalArgumentException> { BuiltinWorkerRegistry.createWorker("CustomWorker") }
+    fun `BuiltinWorkerRegistry should return null for unknown workers`() {
+        assertNull(BuiltinWorkerRegistry.createWorker("UnknownWorker"))
+        assertNull(BuiltinWorkerRegistry.createWorker("CustomWorker"))
+        assertNull(BuiltinWorkerRegistry.createWorker("dev.example.SomeCustomWorker"))
     }
 
     @Test
