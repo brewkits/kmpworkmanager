@@ -8,12 +8,29 @@ import kotlinx.serialization.Serializable
  *
  * @property workerClassName Name of the worker class to run
  * @property inputJson Optional JSON data to pass to the worker
+ * @property constraints Optional execution constraints
+ * @property isIdempotent Whether this task is safe to re-run from the beginning if progress
+ *   data is lost or corrupt. Defaults to `true`.
+ *
+ *   **Set this to `false` for non-idempotent operations** such as:
+ *   - Payment charges / financial transactions
+ *   - One-time-use tokens or nonces
+ *   - Side-effecting calls with no deduplication
+ *
+ *   When `false` and a corrupt progress file is detected during self-healing, the entire
+ *   chain is **quarantined** (abandoned without restarting) and an ERROR is logged.
+ *   This prevents the "double charge" scenario where a payment step silently re-executes
+ *   after the progress file that recorded its completion was corrupted.
+ *
+ *   If all tasks in a chain are idempotent, the chain safely restarts from the beginning
+ *   when progress is lost — the same outcome as today.
  */
 @Serializable
 data class TaskRequest(
     val workerClassName: String,
     val inputJson: String? = null,
-    val constraints: Constraints? = null
+    val constraints: Constraints? = null,
+    val isIdempotent: Boolean = true
 )
 
 /**
@@ -32,21 +49,6 @@ class TaskChain internal constructor(
     internal val existingPolicy: ExistingPolicy = ExistingPolicy.REPLACE
 ) {
     private val steps: MutableList<List<TaskRequest>> = mutableListOf(initialTasks)
-
-    /**
-     */
-    @Suppress("UNUSED_PARAMETER")
-    private constructor(
-        scheduler: BackgroundTaskScheduler,
-        steps: MutableList<List<TaskRequest>>,
-        chainId: String?,
-        existingPolicy: ExistingPolicy,
-        @Suppress("UNUSED_PARAMETER") dummy: Unit = Unit
-    ) : this(scheduler, steps.firstOrNull() ?: emptyList(), chainId, existingPolicy) {
-        // Replace the single-item steps with the full steps list
-        this.steps.clear()
-        this.steps.addAll(steps)
-    }
 
     /**
      * Appends a single task to be executed sequentially after all previous tasks in the chain have completed.
@@ -79,15 +81,25 @@ class TaskChain internal constructor(
      * @param policy How to handle if a chain with this ID already exists
      * @return A new [TaskChain] instance with the specified ID and policy
      */
-    fun withId(id: String, policy: ExistingPolicy = ExistingPolicy.REPLACE): TaskChain {
-        return TaskChain(scheduler, steps.toMutableList(), id, policy, Unit)
+    fun withId(id: String, policy: ExistingPolicy = ExistingPolicy.REPLACE): TaskChain =
+        copyWith(chainId = id, existingPolicy = policy)
+
+    /**
+     * Creates a copy of this chain with a new ID and/or policy, preserving all steps.
+     * Replaces the awkward private dummy-parameter constructor pattern.
+     */
+    private fun copyWith(chainId: String?, existingPolicy: ExistingPolicy): TaskChain {
+        val copy = TaskChain(scheduler, steps.first(), chainId, existingPolicy)
+        copy.steps.clear()
+        copy.steps.addAll(this.steps)
+        return copy
     }
 
     /**
      * Enqueues the constructed task chain for execution.
      * The actual scheduling is delegated to the `BackgroundTaskScheduler`.
      *
-     * **Breaking Change (v2.3.5):** This method is now suspending to prevent deadlock risks.
+     * **Breaking Change:** This method is now suspending to prevent deadlock risks.
      *
      * Migration:
      * ```kotlin
@@ -97,7 +109,7 @@ class TaskChain internal constructor(
      *     chain.enqueue()  // Blocking
      * }
      *
-     * // After (v2.3.5+):
+     * // After:
      * suspend fun scheduleChain() {
      *     val chain = scheduler.beginWith(task1).then(task2)
      *     chain.enqueue()  // Suspending
@@ -112,7 +124,7 @@ class TaskChain internal constructor(
      * }
      * ```
      *
-     * @since 2.3.4 Now suspending to prevent deadlock risks
+     * Now suspending to prevent deadlock risks
      */
     suspend fun enqueue() {
         scheduler.enqueueChain(this, chainId, existingPolicy)
@@ -123,14 +135,15 @@ class TaskChain internal constructor(
      *
      * **DEPRECATED:** Use suspending `enqueue()` instead.
      * This blocking version is provided for backward compatibility only
-     * and will be removed in v3.0.0.
+     * and will be removed
      *
      * @deprecated Use suspending enqueue() to avoid blocking and potential deadlocks
      */
     @Deprecated(
-        message = "Use suspending enqueue() instead to avoid blocking and potential deadlocks",
+        message = "Use suspending enqueue() instead. enqueueBlocking() causes ANR on Android main thread " +
+            "and deadlocks when called from a coroutine. This method will be removed in v3.0.0.",
         replaceWith = ReplaceWith("enqueue()"),
-        level = DeprecationLevel.WARNING
+        level = DeprecationLevel.ERROR
     )
     fun enqueueBlocking() {
         kotlinx.coroutines.runBlocking {

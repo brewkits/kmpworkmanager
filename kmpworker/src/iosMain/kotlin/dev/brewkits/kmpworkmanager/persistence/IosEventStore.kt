@@ -38,6 +38,9 @@ class IosEventStore(
     private val fileManager = NSFileManager.defaultManager
     private val fileLock = Mutex()
 
+    @kotlin.concurrent.Volatile
+    private var lastCleanupTimeMs: Long = 0L
+
     /**
      * Base directory: Library/Application Support/dev.brewkits.kmpworkmanager/events/
      */
@@ -50,8 +53,8 @@ class IosEventStore(
             ?: throw IllegalStateException("Could not locate Application Support directory")
 
         val eventsDirURL = appSupportDir
-            .URLByAppendingPathComponent("dev.brewkits.kmpworkmanager")!!
-            .URLByAppendingPathComponent("events")!!
+            .safeAppend("dev.brewkits.kmpworkmanager")
+            .safeAppend("events")
 
         ensureDirectoryExists(eventsDirURL)
 
@@ -63,7 +66,7 @@ class IosEventStore(
      * Events file: events.jsonl
      */
     private val eventsFileURL: NSURL by lazy {
-        baseDir.URLByAppendingPathComponent("events.jsonl")!!.also { url ->
+        baseDir.safeAppend("events.jsonl").also { url ->
             if (!fileManager.fileExistsAtPath(url.path ?: "")) {
                 memScoped {
                     val errorPtr = alloc<ObjCObjectVar<NSError?>>()
@@ -110,9 +113,10 @@ class IosEventStore(
 
             Logger.d(LogTags.SCHEDULER, "IosEventStore: Saved event $eventId for task ${event.taskName}")
 
-            // Auto-cleanup if enabled (probabilistic - 10% of writes)
-            if (config.autoCleanup && kotlin.random.Random.nextDouble() < 0.1) {
+            // Auto-cleanup if enabled (deterministic - time-based or size-based, matching Android)
+            if (config.autoCleanup && shouldPerformCleanup()) {
                 performCleanup()
+                lastCleanupTimeMs = (NSDate().timeIntervalSince1970 * 1000).toLong()
             }
 
             eventId
@@ -244,6 +248,34 @@ class IosEventStore(
     }
 
     /**
+     * Deterministic cleanup check (mirrors Android logic).
+     * Triggers if cleanup interval has elapsed OR file size exceeds threshold.
+     * Must be called while holding [fileLock].
+     */
+    private fun shouldPerformCleanup(): Boolean {
+        val now = (NSDate().timeIntervalSince1970 * 1000).toLong()
+
+        // Check 1: Time-based (cleanup interval elapsed)
+        if (now - lastCleanupTimeMs >= config.cleanupIntervalMs) {
+            Logger.d(LogTags.SCHEDULER, "IosEventStore: Cleanup triggered by time (${now - lastCleanupTimeMs}ms since last)")
+            return true
+        }
+
+        // Check 2: Size-based (file exceeds threshold)
+        val filePath = eventsFileURL.path ?: return false
+        memScoped {
+            val attrs = NSFileManager.defaultManager.attributesOfItemAtPath(filePath, error = null)
+            val fileSize = (attrs?.get(NSFileSize) as? NSNumber)?.longValue ?: 0L
+            if (fileSize >= config.cleanupFileSizeThresholdBytes) {
+                Logger.d(LogTags.SCHEDULER, "IosEventStore: Cleanup triggered by file size (${fileSize / 1024}KB)")
+                return true
+            }
+        }
+
+        return false
+    }
+
+    /**
      * Performs cleanup of consumed and old events.
      */
     private fun performCleanup() {
@@ -364,3 +396,10 @@ class IosEventStore(
         }
     }
 }
+
+/**
+ * Safe URL path component appending — replaces URLByAppendingPathComponent(x)!!
+ */
+private fun NSURL.safeAppend(component: String): NSURL =
+    URLByAppendingPathComponent(component)
+        ?: throw IllegalStateException("Failed to construct URL: base='$path' component='$component'")

@@ -41,10 +41,10 @@ kotlin {
     
     sourceSets {
         androidMain.dependencies {
+            implementation(libs.kotlinx.serialization.json)
             implementation(compose.uiTooling)
             implementation(compose.preview)
             implementation(libs.androidx.activity.compose)
-
             // Koin for Android
             implementation(libs.koin.android)
             // AndroidX WorkManager for native background tasks

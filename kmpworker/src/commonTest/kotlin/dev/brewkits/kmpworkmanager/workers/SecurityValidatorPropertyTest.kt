@@ -14,7 +14,7 @@ import kotlin.test.assertTrue
  * These tests verify security validation logic across a wide range of generated inputs,
  * ensuring robustness against edge cases and malicious inputs.
  *
- * Added in v2.3.2
+ * Added
  */
 class SecurityValidatorPropertyTest {
 

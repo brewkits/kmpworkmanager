@@ -3,6 +3,7 @@ package dev.brewkits.kmpworkmanager
 import dev.brewkits.kmpworkmanager.background.domain.TaskCompletionEvent
 import dev.brewkits.kmpworkmanager.background.domain.TaskEventBus
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
@@ -72,12 +73,9 @@ class TaskEventBusTest {
     }
 
     @Test
-    fun `TaskEventBus replay should provide last 5 events to new subscribers`() = runTest {
-        // Collect events in background
-        val receivedEvents = mutableListOf<TaskCompletionEvent>()
-
-        // Emit 7 events first
-        repeat(7) { index ->
+    fun `TaskEventBus replay should provide last event to new subscribers`() = runTest {
+        // Emit 3 events first
+        repeat(3) { index ->
             TaskEventBus.emit(
                 TaskCompletionEvent(
                     taskName = "ReplayTask$index",
@@ -87,27 +85,27 @@ class TaskEventBusTest {
             )
         }
 
-        // Small delay to ensure events are emitted
-        delay(100)
+        // Small delay to ensure events are processed
+        delay(50)
 
-        // New subscriber should receive last 5 events from replay buffer
-        TaskEventBus.events.take(5).toList(receivedEvents)
+        // New subscriber should receive the last event from replay buffer (replay = 1)
+        val receivedEvents = mutableListOf<TaskCompletionEvent>()
+        val job = backgroundScope.launch {
+            TaskEventBus.events.take(1).toList(receivedEvents)
+        }
+        
+        // Wait for collection to finish
+        job.join()
 
-        // With replay=5, should receive the last 5 of the 7 emitted events
-        assertEquals(5, receivedEvents.size)
-
-        // Verify we got some of the replayed events
-        assertTrue(receivedEvents.isNotEmpty())
-        assertTrue(receivedEvents.all { it.taskName.startsWith("ReplayTask") })
+        // With replay=1, should receive exactly the last emitted event (index 2)
+        assertEquals(1, receivedEvents.size)
+        assertEquals("ReplayTask2", receivedEvents[0].taskName)
     }
 
     @Test
-    fun `TaskEventBus replay configuration should be set to 5`() {
+    fun `TaskEventBus replay configuration should be set to 1`() {
         // This test verifies the replay configuration through behavioral testing
-        // The replay=5 parameter allows late subscribers to receive up to 5 recent events
-
-        // Note: Direct testing of SharedFlow replay is complex due to its internal behavior
-        // Production usage shows replay=5 provides event buffering for late UI subscribers
+        // The replay=1 parameter allows late subscribers to receive the most recent event
 
         // Verify events flow is accessible
         kotlin.test.assertNotNull(TaskEventBus.events)

@@ -15,7 +15,7 @@ import androidx.work.WorkManager
 
 /**
  * Android-specific diagnostics implementation
- * v2.2.2+ feature for debugging task execution
+ * feature for debugging task execution
  *
  * **Android-specific health checks:**
  * - Doze mode detection (affects WorkManager scheduling)
@@ -60,17 +60,28 @@ class AndroidWorkerDiagnostics(
             networkAvailable = networkAvailable,
             storageAvailable = storageInfo.first,
             isStorageLow = storageInfo.second,
-            isLowPowerMode = false, // iOS only
+            isLowPowerMode = isPowerSaveMode(),
             deviceInDozeMode = dozeMode
         )
     }
 
     override suspend fun getTaskStatus(id: String): TaskStatusDetail? {
+        // Try lookup by UUID first (for tasks enqueued without a unique name)
         val workInfo = try {
             workManager.getWorkInfoById(java.util.UUID.fromString(id)).get()
-        } catch (e: Exception) {
-            return null
-        } ?: return null // WorkInfo is null
+        } catch (_: IllegalArgumentException) {
+            // id is not a UUID — fall through to named work lookup
+            null
+        } catch (_: Exception) {
+            null
+        } ?: run {
+            // Fallback: look up by unique work name (used for chains and named tasks)
+            try {
+                workManager.getWorkInfosForUniqueWork(id).get().firstOrNull()
+            } catch (_: Exception) {
+                null
+            }
+        } ?: return null
 
         return TaskStatusDetail(
             taskId = id,
@@ -84,7 +95,7 @@ class AndroidWorkerDiagnostics(
                 WorkInfo.State.BLOCKED -> "BLOCKED"
             },
             retryCount = workInfo.runAttemptCount,
-            lastExecutionTime = null, // Not directly available from WorkInfo
+            lastExecutionTime = null,
             lastError = workInfo.outputData.getString("error")
         )
     }
@@ -140,6 +151,16 @@ class AndroidWorkerDiagnostics(
             val activeNetwork = connectivityManager.activeNetworkInfo
             activeNetwork?.isConnected == true
         }
+    }
+
+    /**
+     * Check if device is in Battery Saver (Low Power) mode.
+     * Battery Saver restricts background activity, equivalent to iOS Low Power Mode.
+     * Available API 21+; minSdk is 24 so no version guard needed.
+     */
+    private fun isPowerSaveMode(): Boolean {
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        return powerManager?.isPowerSaveMode == true
     }
 
     /**

@@ -40,13 +40,13 @@ class NetworkRetryWorker : IosWorker {
                         message = "🌐 Network request succeeded on attempt $attempt"
                     )
                 )
-
-                return WorkerResult.Success(
-                    message = "Network request succeeded on attempt $attempt",
-                    data = mapOf(
-                        "attempts" to attempt,
-                        "maxAttempts" to maxAttempts
-                    )
+return WorkerResult.Success(
+    message = "Network request succeeded on attempt $attempt",
+    data = buildJsonObject {
+        put("attempt", attempt)
+        put("maxAttempts", maxAttempts)
+    }
+)
                 )
             } catch (e: Exception) {
                 Logger.w(LogTags.WORKER, "Attempt $attempt failed: ${e.message}")

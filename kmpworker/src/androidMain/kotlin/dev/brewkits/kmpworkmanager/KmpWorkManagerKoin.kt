@@ -1,6 +1,12 @@
 package dev.brewkits.kmpworkmanager
 
 import android.content.Context
+import androidx.work.Configuration
+import androidx.work.DelegatingWorkerFactory
+import androidx.work.WorkManager
+import dev.brewkits.kmpworkmanager.background.data.KmpHeavyWorker
+import dev.brewkits.kmpworkmanager.background.data.KmpWorker
+import dev.brewkits.kmpworkmanager.background.data.KmpWorkerFactory
 import dev.brewkits.kmpworkmanager.background.data.NativeTaskScheduler
 import dev.brewkits.kmpworkmanager.background.domain.AndroidWorkerFactory
 import dev.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
@@ -15,29 +21,29 @@ import org.koin.dsl.koinApplication
 import org.koin.dsl.module
 
 /**
- * Private Koin instance for KMP WorkManager (v2.2.2+)
+ * Private Koin instance for KMP WorkManager
  *
  * **Breaking Change:** Isolated Koin to prevent conflicts with host app's Koin.
  *
- * **Problem (v2.2.1):**
+ * **Problem:**
  * - Used global Koin (startKoin)
  * - Conflicts with host app's Koin = instant crash
  * - "A KoinApplication has already been started" error
  *
- * **Solution (v2.2.2+):**
+ * **Solution:**
  * - Private KoinApplication (not global)
  * - Host app's Koin is completely independent
  * - No conflicts, no crashes
  *
  * **Migration:**
  * ```kotlin
- * // OLD (v2.2.1 and earlier)
+ * // OLD
  * startKoin {
  *     androidContext(this@Application)
  *     modules(kmpWorkerModule(workerFactory = MyWorkerFactory()))
  * }
  *
- * // NEW (v2.2.2+)
+ * // NEW
  * KmpWorkManager.initialize(
  *     context = this@Application,
  *     workerFactory = MyWorkerFactory(),
@@ -87,6 +93,34 @@ internal object KmpWorkManagerKoin {
             // Initialize logger with config
             Logger.setMinLevel(config.logLevel)
             config.customLogger?.let { Logger.setCustomLogger(it) }
+
+            // Propagate optional foreground notification title to KmpWorker
+            KmpWorker.configNotificationTitle = config.androidForegroundNotificationTitle
+
+            // Register KmpWorkerFactory with WorkManager so KmpWorker / KmpHeavyWorker receive
+            // AndroidWorkerFactory via constructor injection instead of a Service Locator lookup.
+            // Only attempted when WorkManager has not yet been initialized by the host app.
+            val androidWorkerFactory = workerFactory as? AndroidWorkerFactory
+            if (androidWorkerFactory != null) {
+                if (!WorkManager.isInitialized()) {
+                    val delegating = DelegatingWorkerFactory()
+                    delegating.addFactory(KmpWorkerFactory(androidWorkerFactory))
+                    WorkManager.initialize(
+                        context,
+                        Configuration.Builder()
+                            .setWorkerFactory(delegating)
+                            .build()
+                    )
+                    Logger.i("KmpWorkManager", "✅ WorkManager initialized with KmpWorkerFactory")
+                } else {
+                    Logger.w(
+                        "KmpWorkManager",
+                        "WorkManager already initialized by host app — KmpWorkerFactory not registered. " +
+                            "Add KmpWorkerFactory to your DelegatingWorkerFactory to eliminate the Koin " +
+                            "Service Locator fallback. See KmpWorkerFactory KDoc for setup instructions."
+                    )
+                }
+            }
 
             // Create private Koin instance (not global!)
             koinApp = koinApplication {
@@ -176,7 +210,7 @@ internal object KmpWorkManagerKoin {
 }
 
 /**
- * Public API for KmpWorkManager initialization (v2.2.2+)
+ * Public API for KmpWorkManager initialization
  *
  * **Usage:**
  * ```kotlin

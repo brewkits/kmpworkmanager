@@ -7,6 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.7] - 2026-03-24
+
+### Fixed
+
+**iOS: FileCompressionWorker silently returns Success with uncompressed copy (HIGH)**
+- `compressUsingFoundation` fell back to `NSFileManager.copyItemAtPath` when ZIPFoundation not present
+- Consumer received `WorkerResult.Success(compressionRatio=0%)` — indistinguishable from real compression
+- Fixed to return `WorkerResult.Failure` with explicit message and setup instructions
+
+**iOS: IosWorkerDiagnostics always reports 1 GB available disk space (MEDIUM)**
+- `getAvailableDiskSpace()` returned hardcoded `1_000_000_000L` — any disk-space-aware logic was broken
+- Fixed using `NSFileManager.defaultManager.attributesOfFileSystemForPath("/")` with `NSFileSystemFreeSize`
+- Falls back to `0` (conservative, signals low storage) on error
+
+**iOS: IosWorkerDiagnostics always reports Low Power Mode = false (MEDIUM)**
+- `isLowPowerMode` was hardcoded `false` — Low Power Mode affects BGTask scheduling frequency
+- Fixed using `NSProcessInfo.processInfo.lowPowerModeEnabled` (available since iOS 9)
+
+**iOS: IosFileCoordinator bypasses NSFileCoordinator in apps with "Test" in process name (MEDIUM)**
+- `processName.contains("Test")` matched production apps named e.g. "MyTestApp"
+- These apps silently used `DirectCoordinationStrategy` instead of `NSFileCoordinationStrategy`
+- Fixed to only match `processName.endsWith("test.kexe")` (Kotlin/Native test runner binary)
+
+**Android: AndroidWorkerDiagnostics.getTaskStatus only matches UUID-format IDs (LOW)**
+- `UUID.fromString(id)` threw for chain IDs and named tasks — always returned `null`
+- Fixed by adding fallback to `workManager.getWorkInfosForUniqueWork(id)` when UUID parse fails
+
+### Security
+
+**Input JSON size not validated before passing to WorkManager (MEDIUM)**
+- Serialized input could exceed Android WorkManager's 10 KB `Data` limit, causing silent failures
+- Added 10 KB byte-length check in `BackgroundTaskSchedulerExt.enqueue()` — throws `IllegalArgumentException` with descriptive message
+
+**SSRF: Alibaba Cloud ECS metadata endpoint not blocked (LOW)**
+- `SecurityValidator` blocked AWS/GCP/Azure metadata but missed Alibaba Cloud (`100.100.100.200`)
+- Added to blocked hostname list alongside `169.254.169.254` and `fd00:ec2::254`
+
+### Changed
+
+**Deprecated triggers raised to `DeprecationLevel.ERROR`**
+- `TaskTrigger.StorageLow`, `BatteryLow`, `BatteryOkay`, `DeviceIdle` now cause compile error
+- Migration: use `Constraints(systemConstraints = setOf(...))` as documented in KDoc `replaceWith`
+
+**`TaskChain.enqueueBlocking()` raised to `DeprecationLevel.ERROR`**
+- Calling from Android main thread causes ANR; calling from a coroutine causes deadlock
+- Migration: use `suspend fun enqueue()` inside a coroutine scope
+
+### Tests
+
+- Added `V236BugFixesTest` (commonTest) — 20 regression tests for all 7 v2.3.6 fixes
+- Added `V236ChainExecutorTest` (iosTest) — 7 iOS-specific ChainExecutor regression tests (CE-1/CE-2/CE-3)
+
 ## [2.3.6] - 2026-03-07
 
 ### Fixed

@@ -1,3 +1,5 @@
+@file:OptIn(dev.brewkits.kmpworkmanager.background.domain.AndroidOnly::class) // androidMain intentionally handles Android-only triggers (ContentUri, SystemConstraint)
+
 package dev.brewkits.kmpworkmanager.background.data
 
 import android.app.AlarmManager
@@ -27,21 +29,89 @@ import androidx.work.OneTimeWorkRequestBuilder
  * **Extensibility**: For exact alarms or custom scheduling needs, extend this class
  * and override the relevant methods.
  */
-open actual class NativeTaskScheduler(private val context: Context) : BackgroundTaskScheduler {
+open class NativeTaskScheduler(private val context: Context) : BackgroundTaskScheduler {
 
     private val workManager = WorkManager.getInstance(context)
 
     companion object {
         const val TAG_KMP_TASK = "KMP_TASK"
+
+        /**
+         * WorkManager's hard limit for `Data` payload size is 10 240 bytes (10 KB).
+         * We use 8 KB as the overflow threshold to leave headroom for other keys
+         * (`workerClassName`, tags) and serialization overhead.
+         */
+        private const val OVERFLOW_THRESHOLD_BYTES = 8_192
+
+        /**
+         * Key used to pass the path of an overflow input-JSON temp file.
+         * Workers check for this key first and read the file contents as `inputJson`.
+         */
+        internal const val KEY_INPUT_JSON_FILE = "inputJsonFile"
     }
+
+    /**
+     * Builds a WorkManager [Data] payload for the given worker and input.
+     *
+     * **10 KB overflow guard:**
+     * WorkManager throws [IllegalStateException] at enqueue time when the total `Data`
+     * size exceeds 10 240 bytes. Large `inputJson` values (e.g. a list of 100 objects,
+     * a Base64-encoded image) would crash the host app.
+     *
+     * Strategy:
+     * - ≤ 8 KB  → pass `inputJson` inline via `Data` (fast path, no I/O)
+     * - > 8 KB  → write the JSON to a temp file in `cacheDir`, pass only the file path.
+     *             Workers call [resolveInputJson] to transparently read and delete the file.
+     */
+    private fun buildWorkData(workerClassName: String, inputJson: String?): Data {
+        val builder = Data.Builder().putString("workerClassName", workerClassName)
+
+        if (inputJson == null) return builder.build()
+
+        val bytes = inputJson.encodeToByteArray()
+        return if (bytes.size <= OVERFLOW_THRESHOLD_BYTES) {
+            builder.putString("inputJson", inputJson).build()
+        } else {
+            // Overflow: spill to a temp file. Name includes timestamp + hash to avoid collisions.
+            val tempFile = java.io.File(
+                context.cacheDir,
+                "kmp_input_${System.currentTimeMillis()}_${workerClassName.hashCode()}.json"
+            )
+            try {
+                tempFile.writeText(inputJson)
+                Logger.d(
+                    LogTags.SCHEDULER,
+                    "Input JSON overflow (${bytes.size}B > ${OVERFLOW_THRESHOLD_BYTES}B) — " +
+                        "spilled to temp file: ${tempFile.name}"
+                )
+                builder.putString(KEY_INPUT_JSON_FILE, tempFile.absolutePath).build()
+            } catch (e: Exception) {
+                Logger.e(
+                    LogTags.SCHEDULER,
+                    "Failed to spill overflow JSON to cacheDir — truncating to ${OVERFLOW_THRESHOLD_BYTES}B",
+                    e
+                )
+                // Last-resort truncation so enqueue doesn't crash the host app.
+                builder.putString("inputJson", inputJson.take(OVERFLOW_THRESHOLD_BYTES)).build()
+            }
+        }
+    }
+
+    // Maps KMP BackoffPolicy → WorkManager BackoffPolicy.
+    // Extracted to avoid repeating the same conditional in three builder sites.
+    private fun dev.brewkits.kmpworkmanager.background.domain.Constraints.toWorkManagerBackoffPolicy(): BackoffPolicy =
+        if (backoffPolicy == dev.brewkits.kmpworkmanager.background.domain.BackoffPolicy.EXPONENTIAL)
+            BackoffPolicy.EXPONENTIAL
+        else
+            BackoffPolicy.LINEAR
 
     /**
      * Enqueues a task based on its trigger type.
      * - `Periodic` triggers use WorkManager for efficient, deferrable background work.
      * - `Exact` triggers use AlarmManager for time-critical, user-facing events like reminders.
-     * - **v3.0.0+**: Deprecated triggers (BatteryLow, StorageLow, etc.) are auto-converted to SystemConstraints
+     * - Deprecated triggers (BatteryLow, StorageLow, etc.) are auto-converted to SystemConstraints
      */
-    actual override suspend fun enqueue(
+    override suspend fun enqueue(
         id: String,
         trigger: TaskTrigger,
         workerClassName: String,
@@ -64,8 +134,39 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
             }
 
             is TaskTrigger.Windowed -> {
-                Logger.w(LogTags.SCHEDULER, "Windowed triggers not yet implemented on Android")
-                ScheduleResult.REJECTED_OS_POLICY
+                // Deadline guard: reject immediately if the window has already closed.
+                val nowMs = System.currentTimeMillis()
+                if (actualTrigger.latest < nowMs) {
+                    Logger.e(
+                        LogTags.SCHEDULER,
+                        "❌ Windowed task '$id' DEADLINE_ALREADY_PASSED — latest=${actualTrigger.latest}ms is in the past " +
+                            "by ${nowMs - actualTrigger.latest}ms. The business window is gone; the task will not be scheduled."
+                    )
+                    return ScheduleResult.DEADLINE_ALREADY_PASSED
+                }
+
+                // Android has no native "window" concept. Map to OneTime with a delay to the
+                // earliest start time. The 'latest' deadline is not OS-enforced — warn the caller.
+                val delayMs = maxOf(0L, actualTrigger.earliest - nowMs)
+                val windowMinutes = (actualTrigger.latest - maxOf(actualTrigger.earliest, nowMs)) / 60_000
+                if (windowMinutes < 30) {
+                    Logger.w(
+                        LogTags.SCHEDULER,
+                        "⚠️ Windowed task '$id' has a tight window (~${windowMinutes}min). " +
+                            "Android WorkManager does not enforce 'latest' — the task may run after the deadline. " +
+                            "Use TaskTrigger.Exact for deadline-critical work."
+                    )
+                } else {
+                    Logger.w(
+                        LogTags.SCHEDULER,
+                        "Windowed trigger '$id': 'latest' deadline not enforced on Android. " +
+                            "Scheduling as OneTime with ${delayMs}ms delay to earliest."
+                    )
+                }
+                scheduleOneTimeWork(
+                    id, TaskTrigger.OneTime(initialDelayMs = delayMs),
+                    workerClassName, updatedConstraints, inputJson, policy
+                )
             }
 
             is TaskTrigger.OneTime -> {
@@ -76,63 +177,17 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
                 scheduleContentUriWork(id, actualTrigger, workerClassName, updatedConstraints, inputJson, policy)
             }
 
-            // Will be removed in v3.0.0
-            @Suppress("DEPRECATION")
-            TaskTrigger.StorageLow,
-            @Suppress("DEPRECATION")
-            TaskTrigger.BatteryLow,
-            @Suppress("DEPRECATION")
-            TaskTrigger.BatteryOkay,
-            @Suppress("DEPRECATION")
-            TaskTrigger.DeviceIdle -> {
-                Logger.e(LogTags.SCHEDULER, "Deprecated trigger ${trigger::class.simpleName} reached unreachable code - this is a bug")
-                ScheduleResult.REJECTED_OS_POLICY
-            }
         }
     }
 
     /**
-     * Maps legacy deprecated triggers to SystemConstraints (v3.0.0+ backward compatibility)
+     * Maps legacy deprecated triggers to SystemConstraints
      * @return Pair of (converted trigger, updated constraints)
      */
-    @Suppress("DEPRECATION")  // Keep backward compatibility for deprecated triggers until v3.0.0
     private fun mapLegacyTrigger(
         trigger: TaskTrigger,
         constraints: Constraints
-    ): Pair<TaskTrigger, Constraints> {
-        return when (trigger) {
-            TaskTrigger.StorageLow -> {
-                Logger.w(LogTags.SCHEDULER, "⚠️ DEPRECATED: TaskTrigger.StorageLow. Use Constraints(systemConstraints = setOf(SystemConstraint.ALLOW_LOW_STORAGE))")
-                TaskTrigger.OneTime() to constraints.copy(
-                    systemConstraints = constraints.systemConstraints + dev.brewkits.kmpworkmanager.background.domain.SystemConstraint.ALLOW_LOW_STORAGE
-                )
-            }
-
-            TaskTrigger.BatteryLow -> {
-                Logger.w(LogTags.SCHEDULER, "⚠️ DEPRECATED: TaskTrigger.BatteryLow. Use Constraints(systemConstraints = setOf(SystemConstraint.ALLOW_LOW_BATTERY))")
-                TaskTrigger.OneTime() to constraints.copy(
-                    systemConstraints = constraints.systemConstraints + dev.brewkits.kmpworkmanager.background.domain.SystemConstraint.ALLOW_LOW_BATTERY
-                )
-            }
-
-            TaskTrigger.BatteryOkay -> {
-                Logger.w(LogTags.SCHEDULER, "⚠️ DEPRECATED: TaskTrigger.BatteryOkay. Use Constraints(systemConstraints = setOf(SystemConstraint.REQUIRE_BATTERY_NOT_LOW))")
-                TaskTrigger.OneTime() to constraints.copy(
-                    systemConstraints = constraints.systemConstraints + dev.brewkits.kmpworkmanager.background.domain.SystemConstraint.REQUIRE_BATTERY_NOT_LOW
-                )
-            }
-
-            TaskTrigger.DeviceIdle -> {
-                Logger.w(LogTags.SCHEDULER, "⚠️ DEPRECATED: TaskTrigger.DeviceIdle. Use Constraints(systemConstraints = setOf(SystemConstraint.DEVICE_IDLE))")
-                TaskTrigger.OneTime() to constraints.copy(
-                    systemConstraints = constraints.systemConstraints + dev.brewkits.kmpworkmanager.background.domain.SystemConstraint.DEVICE_IDLE
-                )
-            }
-
-            // Not a legacy trigger, return as-is
-            else -> trigger to constraints
-        }
-    }
+    ): Pair<TaskTrigger, Constraints> = trigger to constraints
 
     /**
      * Builds WorkManager Constraints from KMP Constraints.
@@ -192,13 +247,11 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
             ExistingPolicy.REPLACE -> ExistingPeriodicWorkPolicy.REPLACE
         }
 
-        // Pass the target worker's class name and any input data to the KmpWorker
-        val workData = Data.Builder()
-            .putString("workerClassName", workerClassName)
-            .apply { inputJson?.let { putString("inputJson", it) } }
-            .build()
+        // Pass the target worker's class name and any input data to the KmpWorker.
+        // buildWorkData() handles the 10KB Data limit automatically.
+        val workData = buildWorkData(workerClassName, inputJson)
 
-        // Build WorkManager constraints (v3.0.0+ with SystemConstraints support)
+        // Build WorkManager constraints
         val wmConstraints = buildWorkManagerConstraints(constraints)
 
         val periodicBuilder = if (trigger.flexMs != null) {
@@ -216,10 +269,7 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
             .setConstraints(wmConstraints)
             .setInputData(workData)
             .setBackoffCriteria(
-                if (constraints.backoffPolicy == dev.brewkits.kmpworkmanager.background.domain.BackoffPolicy.EXPONENTIAL)
-                    BackoffPolicy.EXPONENTIAL
-                else
-                    BackoffPolicy.LINEAR,
+                constraints.toWorkManagerBackoffPolicy(),
                 constraints.backoffDelayMs,
                 TimeUnit.MILLISECONDS
             )
@@ -238,7 +288,7 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
     /**
      * Schedules an exact alarm with automatic fallback to WorkManager.
      *
-     * **v3.0.0+ Behavior:**
+     * **Behavior:**
      * - Android 12+ (API 31+): Checks `SCHEDULE_EXACT_ALARM` permission
      * - If permission granted: Uses AlarmManager for exact scheduling
      * - If permission denied: Falls back to WorkManager OneTime task with delay
@@ -375,7 +425,7 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
     /**
      * Override this method to provide your custom AlarmReceiver class.
      *
-     * **v3.0.0+**: Return your BroadcastReceiver that extends AlarmReceiver.
+     * Return your BroadcastReceiver that extends AlarmReceiver.
      *
      * @return Your AlarmReceiver class, or null to use WorkManager fallback
      */
@@ -458,10 +508,7 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
         initialDelayMs: Long = 0L,
         wmConstraints: androidx.work.Constraints
     ): OneTimeWorkRequest {
-        val workData = Data.Builder()
-            .putString("workerClassName", workerClassName)
-            .apply { inputJson?.let { putString("inputJson", it) } }
-            .build()
+        val workData = buildWorkData(workerClassName, inputJson)
 
         // Use KmpHeavyWorker for heavy tasks (foreground service with notification)
         // Use KmpWorker for regular tasks (background execution)
@@ -472,10 +519,7 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
                 .setConstraints(wmConstraints)
                 .setInputData(workData)
                 .setBackoffCriteria(
-                    if (constraints.backoffPolicy == dev.brewkits.kmpworkmanager.background.domain.BackoffPolicy.EXPONENTIAL)
-                        BackoffPolicy.EXPONENTIAL
-                    else
-                        BackoffPolicy.LINEAR,
+                    constraints.toWorkManagerBackoffPolicy(),
                     constraints.backoffDelayMs,
                     TimeUnit.MILLISECONDS
                 )
@@ -504,10 +548,7 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
                 .setConstraints(wmConstraints)
                 .setInputData(workData)
                 .setBackoffCriteria(
-                    if (constraints.backoffPolicy == dev.brewkits.kmpworkmanager.background.domain.BackoffPolicy.EXPONENTIAL)
-                        BackoffPolicy.EXPONENTIAL
-                    else
-                        BackoffPolicy.LINEAR,
+                    constraints.toWorkManagerBackoffPolicy(),
                     constraints.backoffDelayMs,
                     TimeUnit.MILLISECONDS
                 )
@@ -528,9 +569,9 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
     /**
      * Cancels a task by its unique ID.
      *
-     * **v3.0.0+**: Cancels both WorkManager tasks and exact alarms.
+     * Cancels both WorkManager tasks and exact alarms.
      */
-    actual override fun cancel(id: String) {
+    override fun cancel(id: String) {
         Logger.i(LogTags.SCHEDULER, "Cancelling task with ID '$id'")
 
         // Cancel WorkManager task
@@ -559,17 +600,20 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
     }
 
     /**
-     * Cancels all scheduled tasks.
+     * Cancels all tasks scheduled by this library.
+     *
+     * Only cancels work tagged with [TAG_KMP_TASK] — host-app WorkManager tasks are unaffected.
+     * Exact alarms (AlarmManager) must be cancelled individually via [cancel].
      */
-    actual override fun cancelAll() {
-        Logger.w(LogTags.SCHEDULER, "Cancelling ALL background tasks")
-        workManager.cancelAllWork()
-        Logger.d(LogTags.SCHEDULER, "Cancelled all WorkManager tasks (alarms require individual cancellation)")
+    override fun cancelAll() {
+        Logger.w(LogTags.SCHEDULER, "Cancelling all KMP-managed background tasks (tag: $TAG_KMP_TASK)")
+        workManager.cancelAllWorkByTag(TAG_KMP_TASK)
+        Logger.d(LogTags.SCHEDULER, "Cancelled all KMP WorkManager tasks (alarms require individual cancellation)")
     }
 
     /**
      * Flush all pending progress updates immediately.
-     * v2.3.5+ Implementation for Android.
+     * Implementation for Android.
      *
      * **Note for Android:**
      * WorkManager automatically persists progress updates via Room database.
@@ -580,26 +624,26 @@ open actual class NativeTaskScheduler(private val context: Context) : Background
      * - Automatic transaction management by WorkManager
      * - Crash-safe persistence
      */
-    actual override fun flushPendingProgress() {
+    override fun flushPendingProgress() {
         // No-op on Android: WorkManager handles progress persistence automatically
         Logger.v(LogTags.SCHEDULER, "flushPendingProgress called (no-op on Android - WorkManager auto-persists)")
     }
 
-    actual override fun beginWith(task: dev.brewkits.kmpworkmanager.background.domain.TaskRequest): dev.brewkits.kmpworkmanager.background.domain.TaskChain {
+    override fun beginWith(task: dev.brewkits.kmpworkmanager.background.domain.TaskRequest): dev.brewkits.kmpworkmanager.background.domain.TaskChain {
         return dev.brewkits.kmpworkmanager.background.domain.TaskChain(this, listOf(task))
     }
 
-    actual override fun beginWith(tasks: List<dev.brewkits.kmpworkmanager.background.domain.TaskRequest>): dev.brewkits.kmpworkmanager.background.domain.TaskChain {
+    override fun beginWith(tasks: List<dev.brewkits.kmpworkmanager.background.domain.TaskRequest>): dev.brewkits.kmpworkmanager.background.domain.TaskChain {
         return dev.brewkits.kmpworkmanager.background.domain.TaskChain(this, tasks)
     }
 
     /**
      * Enqueues a task chain for execution.
      *
-     * v2.3.5: Now suspending for consistency with iOS implementation.
+     * Now suspending for consistency with iOS implementation.
      * Android WorkManager handles the async nature internally.
      */
-    actual override suspend fun enqueueChain(
+    override suspend fun enqueueChain(
         chain: dev.brewkits.kmpworkmanager.background.domain.TaskChain,
         id: String?,
         policy: dev.brewkits.kmpworkmanager.background.domain.ExistingPolicy

@@ -1,3 +1,5 @@
+@file:OptIn(dev.brewkits.kmpworkmanager.background.domain.AndroidOnly::class)
+
 package dev.brewkits.kmpworkmanager
 
 import android.content.Context

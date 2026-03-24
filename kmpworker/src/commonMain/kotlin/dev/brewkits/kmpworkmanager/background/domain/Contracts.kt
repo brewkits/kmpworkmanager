@@ -45,12 +45,28 @@ sealed interface TaskTrigger {
     data class Exact(val atEpochMillis: Long) : TaskTrigger
 
     /**
-     * Triggers within a time window - **NOT IMPLEMENTED**.
+     * Triggers within a time window.
      *
-     * Allows the OS to optimize execution by choosing best time within window.
+     * Allows the OS to optimize execution by choosing the best time within the window.
+     *
+     * **Android**: Maps to a OneTime task with an initial delay to [earliest].
+     * The [latest] bound is not enforced by the OS scheduler, but is used as a
+     * **deadline guard**: scheduling is rejected immediately if `latest < now`.
+     *
+     * **iOS**: Uses `earliestBeginDate = earliest`. [latest] is not enforceable by
+     * BGTaskScheduler (opportunistic scheduling), but is used as a **deadline guard**
+     * at two points:
+     * 1. Scheduling time — rejected if `latest < now` → `ScheduleResult.DEADLINE_ALREADY_PASSED`
+     * 2. Runtime — task is skipped (DEADLINE_MISSED log) if the OS runs it after the deadline
+     *
+     * **Window size warning**: If the window (`latest - earliest`) is shorter than 30 minutes,
+     * a warning is logged recommending [Exact] with [ExactAlarmIOSBehavior] instead.
+     *
+     * **Note**: Neither platform guarantees execution within [earliest..latest].
+     * For strict timing use [Exact] with [ExactAlarmIOSBehavior].
      *
      * @param earliest Earliest time to execute (Unix epoch milliseconds)
-     * @param latest Latest time to execute (Unix epoch milliseconds)
+     * @param latest Deadline (Unix epoch milliseconds) — used as a guard, not OS-enforced
      */
     data class Windowed(val earliest: Long, val latest: Long) : TaskTrigger
 
@@ -145,121 +161,21 @@ sealed interface TaskTrigger {
         val uriString: String,
         val triggerForDescendants: Boolean = false
     ) : TaskTrigger
-
-    /**
-     * Triggers when device storage is low - **ANDROID ONLY**.
-     *
-     * **⚠️ DEPRECATED**: Use `Constraints(systemConstraints = setOf(SystemConstraint.ALLOW_LOW_STORAGE))` instead.
-     *
-     * This incorrectly represented a constraint as a trigger. The new API correctly models this
-     * as a constraint that allows tasks to run when storage is low.
-     *
-     * **Migration**:
-     * ```kotlin
-     * // Old (v2.x):
-     * scheduler.enqueue(id, trigger = TaskTrigger.StorageLow, ...)
-     *
-     * // New (v3.0.0+):
-     * scheduler.enqueue(
-     *     id,
-     *     trigger = TaskTrigger.OneTime(),
-     *     constraints = Constraints(systemConstraints = setOf(SystemConstraint.ALLOW_LOW_STORAGE))
-     * )
-     * ```
-     */
-    @Deprecated(
-        message = "StorageLow is a constraint, not a trigger. Use Constraints(systemConstraints = setOf(SystemConstraint.ALLOW_LOW_STORAGE))",
-        replaceWith = ReplaceWith("Constraints(systemConstraints = setOf(SystemConstraint.ALLOW_LOW_STORAGE))"),
-        level = DeprecationLevel.WARNING
-    )
-    data object StorageLow : TaskTrigger
-
-    /**
-     * Triggers when battery is low - **ANDROID ONLY**.
-     *
-     * **⚠️ DEPRECATED**: Use `Constraints(systemConstraints = setOf(SystemConstraint.ALLOW_LOW_BATTERY))` instead.
-     *
-     * **Migration**:
-     * ```kotlin
-     * // Old (v2.x):
-     * scheduler.enqueue(id, trigger = TaskTrigger.BatteryLow, ...)
-     *
-     * // New (v3.0.0+):
-     * scheduler.enqueue(
-     *     id,
-     *     trigger = TaskTrigger.OneTime(),
-     *     constraints = Constraints(systemConstraints = setOf(SystemConstraint.ALLOW_LOW_BATTERY))
-     * )
-     * ```
-     */
-    @Deprecated(
-        message = "BatteryLow is a constraint. Use Constraints(systemConstraints = setOf(SystemConstraint.ALLOW_LOW_BATTERY))",
-        replaceWith = ReplaceWith("Constraints(systemConstraints = setOf(SystemConstraint.ALLOW_LOW_BATTERY))"),
-        level = DeprecationLevel.WARNING
-    )
-    data object BatteryLow : TaskTrigger
-
-    /**
-     * Triggers when battery is okay/not low - **ANDROID ONLY**.
-     *
-     * **⚠️ DEPRECATED**: Use `Constraints(systemConstraints = setOf(SystemConstraint.REQUIRE_BATTERY_NOT_LOW))` instead.
-     *
-     * **Migration**:
-     * ```kotlin
-     * // Old (v2.x):
-     * scheduler.enqueue(id, trigger = TaskTrigger.BatteryOkay, ...)
-     *
-     * // New (v3.0.0+):
-     * scheduler.enqueue(
-     *     id,
-     *     trigger = TaskTrigger.OneTime(),
-     *     constraints = Constraints(systemConstraints = setOf(SystemConstraint.REQUIRE_BATTERY_NOT_LOW))
-     * )
-     * ```
-     */
-    @Deprecated(
-        message = "BatteryOkay is a constraint. Use Constraints(systemConstraints = setOf(SystemConstraint.REQUIRE_BATTERY_NOT_LOW))",
-        replaceWith = ReplaceWith("Constraints(systemConstraints = setOf(SystemConstraint.REQUIRE_BATTERY_NOT_LOW))"),
-        level = DeprecationLevel.WARNING
-    )
-    data object BatteryOkay : TaskTrigger
-
-    /**
-     * Triggers when device is idle/dozing - **ANDROID ONLY**.
-     *
-     * **⚠️ DEPRECATED**: Use `Constraints(systemConstraints = setOf(SystemConstraint.DEVICE_IDLE))` instead.
-     *
-     * **Migration**:
-     * ```kotlin
-     * // Old (v2.x):
-     * scheduler.enqueue(id, trigger = TaskTrigger.DeviceIdle, ...)
-     *
-     * // New (v3.0.0+):
-     * scheduler.enqueue(
-     *     id,
-     *     trigger = TaskTrigger.OneTime(),
-     *     constraints = Constraints(systemConstraints = setOf(SystemConstraint.DEVICE_IDLE))
-     * )
-     * ```
-     */
-    @Deprecated(
-        message = "DeviceIdle is a constraint. Use Constraints(systemConstraints = setOf(SystemConstraint.DEVICE_IDLE))",
-        replaceWith = ReplaceWith("Constraints(systemConstraints = setOf(SystemConstraint.DEVICE_IDLE))"),
-        level = DeprecationLevel.WARNING
-    )
-    data object DeviceIdle : TaskTrigger
 }
 
 /**
  * System-level constraints for task execution.
  * These are conditions that must be met for a task to run.
  *
- * **Platform Support**: Android only (iOS ignores these)
+ * **Platform Support**: Android only (iOS ignores these entirely).
  *
- * **v3.0.0+**: Replaces deprecated TaskTrigger variants (BatteryLow, StorageLow, etc.)
+ * This enum is intentionally in common code so it can be referenced in the shared
+ * [Constraints] data class. Only use values of this enum when writing Android-specific
+ * scheduling logic, or wrap the call site with `@OptIn(AndroidOnly::class)`.
+ *
+ * Replaces deprecated TaskTrigger variants (BatteryLow, StorageLow, etc.)
  * which incorrectly represented constraints as triggers.
  */
-@AndroidOnly
 @Serializable
 enum class SystemConstraint {
     /**
@@ -311,12 +227,18 @@ data class Constraints(
     val requiresNetwork: Boolean = false,
 
     /**
-     * Requires unmetered network (typically Wi-Fi) - **ANDROID ONLY**.
+     * Requires unmetered network (typically Wi-Fi).
      *
-     * **Android**: Uses `NetworkType.UNMETERED` constraint
-     * **iOS**: Not supported, falls back to `requiresNetwork`
+     * **Android**: Uses `NetworkType.UNMETERED` constraint — enforced by the OS at
+     *   scheduling time; the task does not start until Wi-Fi is available.
      *
-     * **Use Cases**: Large uploads/downloads, video processing
+     * **iOS**: `BGTaskScheduler` has no Wi-Fi-only constraint. The library enforces
+     *   this at **execution time** inside `ChainExecutor`: if the device is on cellular
+     *   when the BGTask fires, the task returns `Failure(shouldRetry=true)` without
+     *   executing, and the chain is re-queued for the next BGTask window.
+     *   This prevents accidental cellular data charges for large uploads/downloads.
+     *
+     * **Use Cases**: Large uploads/downloads, video processing, background sync > 100 MB
      *
      * Default: false
      */
@@ -419,7 +341,7 @@ data class Constraints(
     /**
      * System-level constraints for task execution - **ANDROID ONLY**.
      *
-     * **v3.0.0+**: Replaces deprecated TaskTrigger variants (BatteryLow, StorageLow, etc.)
+     * Replaces deprecated TaskTrigger variants (BatteryLow, StorageLow, etc.)
      *
      * **Android**: Maps to WorkManager constraint methods:
      * - `ALLOW_LOW_STORAGE` → `setRequiresStorageNotLow(false)`
@@ -446,7 +368,7 @@ data class Constraints(
     /**
      * iOS-specific behavior for TaskTrigger.Exact alarms - **iOS ONLY**.
      *
-     * **v2.1.1+**: Added to provide transparency about iOS exact alarm limitations.
+     * Added to provide transparency about iOS exact alarm limitations.
      *
      * **Problem**: iOS does NOT support background code execution at exact times.
      * Android can execute worker code via AlarmManager, but iOS can only:
@@ -457,7 +379,7 @@ data class Constraints(
      * **Android**: This field is ignored (Android always executes worker code)
      * **iOS**: Determines how TaskTrigger.Exact is handled
      *
-     * **Migration from v2.1.0**:
+     * **Migration.0**:
      * - Old behavior: iOS always showed notification (silent, undocumented)
      * - New behavior: Explicit configuration with fail-fast option
      *
@@ -564,7 +486,7 @@ enum class Qos {
  * background execution policies. This enum provides transparency and control over how exact
  * alarms are handled on iOS.
  *
- * **v2.1.1+**: Added to address platform parity issues and prevent silent failures.
+ * Added to address platform parity issues and prevent silent failures.
  *
  * **Platform Support**: iOS only (Android always executes code)
  */
@@ -720,6 +642,18 @@ enum class ScheduleResult {
      * - Invalid parameters (e.g., negative delay)
      */
     REJECTED_OS_POLICY,
+
+    /**
+     * The task's deadline has already passed at the time of scheduling.
+     *
+     * Returned when [TaskTrigger.Windowed.latest] < current time, meaning
+     * the window has expired before the task could be enqueued.
+     *
+     * **Action**: Callers should not retry — the business window is gone.
+     * Log or surface this to the user if the operation was time-critical
+     * (e.g., pre-flight data sync that missed its deadline).
+     */
+    DEADLINE_ALREADY_PASSED,
 
     /**
      * The OS is currently throttling background work for this app.

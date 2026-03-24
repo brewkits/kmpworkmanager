@@ -7,7 +7,7 @@ import platform.Foundation.*
 
 /**
  * Persistent index for AppendOnlyQueue line positions
- * v2.2.2+ Performance optimization: O(1) startup instead of O(N) sequential scan
+ * Performance optimization: O(1) startup instead of O(N) sequential scan
  *
  * **File Format (Binary):**
  * ```

@@ -9,9 +9,12 @@ A robust, production-ready Kotlin Multiplatform library for scheduling and manag
 
 ---
 
-## ⚠️ Version 1.0.0 Breaking Changes
+## ⚠️ Migrating to Factory Pattern
 
-**v1.0.0** introduces a cleaner, more extensible worker registration system via factory pattern.
+The library uses a **worker factory pattern** (introduced in v2.x) that replaces the old hardcoded worker registration. If you are upgrading from an early version, follow the guide below.
+
+> **Note on versioning**: `v2.x.y` is the Maven artifact version (e.g. `2.3.7`).
+> The migration steps below apply if you are coming from a pre-v2.0 release.
 
 ### Key Changes
 - ✅ **Worker factory pattern** replaces hardcoded workers
@@ -24,14 +27,14 @@ Follow the quick start guide below to integrate KMP WorkManager in your project.
 
 ### Quick Migration Example
 
-**Before (v3.x)**:
+**Before (pre-v2.0)**:
 ```kotlin
 startKoin {
     modules(kmpWorkerModule())  // ❌ No longer works
 }
 ```
 
-**After (v1.0.0)**:
+**After (v2.x+)**:
 ```kotlin
 // 1. Create worker factory
 class MyWorkerFactory : AndroidWorkerFactory {
@@ -54,7 +57,7 @@ startKoin {
 ## Features
 
 ✅ **Unified API** - Single interface for both platforms
-✅ **Multiple Trigger Types** - OneTime, Periodic, Exact, ContentUri, Battery, Storage, DeviceIdle
+✅ **Multiple Trigger Types** - OneTime, Periodic, Exact, Windowed, ContentUri (Android)
 ✅ **Task Chains** - Sequential and parallel task execution with state restoration
 ✅ **Constraints** - Network, charging, battery, storage requirements
 ✅ **ExistingPolicy** - KEEP or REPLACE duplicate tasks

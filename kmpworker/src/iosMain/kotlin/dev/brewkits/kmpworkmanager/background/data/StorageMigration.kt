@@ -8,7 +8,7 @@ import platform.Foundation.NSUserDefaults
 
 /**
  * One-time migration from NSUserDefaults to file storage.
- * Runs automatically on first launch of v3.0.0.
+ * Runs automatically on first launch
  *
  * Migration Strategy:
  * 1. Check if migration has already been performed

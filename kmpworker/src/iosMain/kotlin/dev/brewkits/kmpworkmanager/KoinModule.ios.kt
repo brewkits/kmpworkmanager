@@ -13,8 +13,8 @@ import org.koin.dsl.module
 /**
  * iOS implementation of the Koin module.
  *
- * v4.0.0+ Breaking Change: Now requires WorkerFactory parameter
- * v2.2.2+ New: Optional config parameter for logging configuration
+ * Breaking Change: Now requires WorkerFactory parameter
+ * New: Optional config parameter for logging configuration
  *
  * Usage:
  * ```kotlin
@@ -78,7 +78,10 @@ actual fun kmpWorkerModule(
     }
 
     single<BackgroundTaskScheduler> {
-        NativeTaskScheduler(additionalPermittedTaskIds = iosTaskIds)
+        NativeTaskScheduler(
+            additionalPermittedTaskIds = iosTaskIds,
+            diskSpaceBufferBytes = config.minFreeDiskSpaceBytes
+        )
     }
 
     // Register the user's worker factory (already validated above)

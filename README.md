@@ -116,7 +116,7 @@ Add to your `build.gradle.kts`:
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("dev.brewkits:kmpworkmanager:2.3.6")
+            implementation("dev.brewkits:kmpworkmanager:2.3.7")
         }
     }
 }
@@ -378,19 +378,18 @@ Check the [`/composeApp`](composeApp/) directory for a complete demo app with:
 
 ---
 
-## What's New in v2.3.6
+## What's New in v2.3.7
 
-🐛 **Critical Bug Fixes**
-- Fixed iOS chain execution always treating chains as succeeded (withTimeout return discarded)
-- Fixed CancellationException swallowed in task executor — timeouts/cancellation now propagate correctly
-- Fixed batch execution loop never breaking early on failure
-- Fixed Android exact trigger using epoch timestamp as delay (scheduled far in the future)
-- Fixed iOS chain BGTask requiring network unnecessarily
-- Fixed Android periodic work ignoring flexMs
-- Fixed Android DEVICE_IDLE constraint detection inverted
-- Fixed Android ContentUri trigger missing systemConstraints
-- Fixed IosFileStorage.close() not awaiting background scope cancellation (caused real-device crashes)
-- Fixed IosEventStore initial file creation silently ignoring write errors
+🐛 **Security & Reliability Fixes**
+- Fixed iOS FileCompressionWorker silently returning Success with uncompressed copy (now returns Failure)
+- Fixed IosWorkerDiagnostics always reporting 1 GB disk space (now uses real NSFileManager value)
+- Fixed IosWorkerDiagnostics always reporting Low Power Mode = false (now uses NSProcessInfo)
+- Fixed IosFileCoordinator bypassing NSFileCoordinator in production apps with "Test" in their name
+- Fixed AndroidWorkerDiagnostics.getTaskStatus not finding tasks by chain ID (only matched UUIDs)
+- Added 10 KB input size validation to prevent Android WorkManager Data overflow
+- Added Alibaba Cloud ECS metadata endpoint (100.100.100.200) to SSRF blocklist
+- Deprecated triggers (StorageLow/BatteryLow/BatteryOkay/DeviceIdle) now DeprecationLevel.ERROR
+- TaskChain.enqueueBlocking() now DeprecationLevel.ERROR to prevent ANR on Android main thread
 
 **→ Full changelog:** [CHANGELOG.md](CHANGELOG.md)
 

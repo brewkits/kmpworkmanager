@@ -35,7 +35,7 @@ class SingleTaskExecutor(private val workerFactory: IosWorkerFactory) {
     /**
      * Creates and runs a worker based on its class name with timeout protection.
      *
-     * v2.3.0+: Returns WorkerResult with data instead of Boolean
+     * Returns WorkerResult with data instead of Boolean
      *
      * @param workerClassName The fully qualified name of the worker class.
      * @param input Optional input data for the worker.
@@ -49,10 +49,16 @@ class SingleTaskExecutor(private val workerFactory: IosWorkerFactory) {
     ): WorkerResult {
         Logger.i(LogTags.WORKER, "Executing task: $workerClassName (timeout: ${timeoutMs}ms)")
 
-        val worker = workerFactory.createWorker(workerClassName)
-        if (worker == null) {
-            Logger.e(LogTags.WORKER, "Failed to create worker: $workerClassName")
-            val result = WorkerResult.Failure("Worker factory returned null")
+        val worker = try {
+            workerFactory.createWorker(workerClassName)
+        } catch (e: IllegalArgumentException) {
+            Logger.e(LogTags.WORKER, "Worker not registered: $workerClassName — ${e.message}")
+            val result = WorkerResult.Failure("Worker not registered: $workerClassName")
+            emitEvent(workerClassName, result)
+            return result
+        } ?: run {
+            Logger.e(LogTags.WORKER, "Worker not found: $workerClassName")
+            val result = WorkerResult.Failure("Worker not found: $workerClassName")
             emitEvent(workerClassName, result)
             return result
         }
@@ -81,6 +87,11 @@ class SingleTaskExecutor(private val workerFactory: IosWorkerFactory) {
             val result = WorkerResult.Failure("Timed out after ${timeoutMs}ms")
             emitEvent(workerClassName, result)
             result
+        } catch (e: CancellationException) {
+            // CancellationException MUST be rethrown — swallowing it prevents the parent
+            // coroutine scope from cancelling correctly, causing resource leaks.
+            Logger.w(LogTags.WORKER, "Task cancelled by coroutine scope: $workerClassName")
+            throw e
         } catch (e: Exception) {
             Logger.e(LogTags.WORKER, "Task threw exception: $workerClassName", e)
             val result = WorkerResult.Failure("Exception: ${e.message}")
@@ -92,7 +103,7 @@ class SingleTaskExecutor(private val workerFactory: IosWorkerFactory) {
     /**
      * Emit task completion event to TaskEventBus for UI notification
      *
-     * v2.3.0+: Emits both success and failure events with outputData
+     * Emits both success and failure events with outputData
      */
     private fun emitEvent(workerClassName: String, result: WorkerResult) {
         coroutineScope.launch(Dispatchers.Main) {
