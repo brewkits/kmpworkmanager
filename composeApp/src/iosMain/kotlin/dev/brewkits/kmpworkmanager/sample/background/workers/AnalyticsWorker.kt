@@ -53,14 +53,13 @@ class AnalyticsWorker : IosWorker {
 
             WorkerResult.Success(
                 message = "Synced $eventCount events (${compressedSize}KB)",
-                data = mapOf(
-                    "eventCount" to eventCount,
-                    "batchCount" to batchCount,
-                    "originalSizeKB" to originalSize,
-                    "compressedSizeKB" to compressedSize,
-                    "compressionRatio" to "70%"
-                )
-            )
+                data = buildJsonObject {
+                    put("eventCount", eventCount)
+                    put("batchCount", batchCount)
+                    put("originalSizeKB", originalSize)
+                    put("compressedSizeKB", compressedSize)
+                    put("compressionRatio", "70%")
+                }            )
         } catch (e: Exception) {
             Logger.e(LogTags.WORKER, "AnalyticsWorker failed: ${e.message}", e)
             TaskEventBus.emit(

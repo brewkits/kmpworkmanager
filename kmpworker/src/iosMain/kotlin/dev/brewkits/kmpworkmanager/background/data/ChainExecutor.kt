@@ -12,6 +12,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.cinterop.*
+import platform.Foundation.*
 import platform.CoreFoundation.CFRelease
 import platform.Foundation.NSDate
 import platform.Foundation.timeIntervalSince1970
