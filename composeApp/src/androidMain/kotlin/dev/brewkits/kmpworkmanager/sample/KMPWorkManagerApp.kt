@@ -13,6 +13,16 @@ import dev.brewkits.kmpworkmanager.sample.debug.AndroidDebugSource
 import dev.brewkits.kmpworkmanager.sample.debug.DebugSource
 import dev.brewkits.kmpworkmanager.sample.di.initKoin
 import dev.brewkits.kmpworkmanager.utils.Logger
+import dev.brewkits.kmpworkmanager.sample.background.workers.AnalyticsAndroidWorker
+import dev.brewkits.kmpworkmanager.sample.background.workers.BatchUploadAndroidWorker
+import dev.brewkits.kmpworkmanager.sample.background.workers.CleanupAndroidWorker
+import dev.brewkits.kmpworkmanager.sample.background.workers.DatabaseAndroidWorker
+import dev.brewkits.kmpworkmanager.sample.background.workers.HeavyProcessingAndroidWorker
+import dev.brewkits.kmpworkmanager.sample.background.workers.ImageProcessingAndroidWorker
+import dev.brewkits.kmpworkmanager.sample.background.workers.LocationSyncAndroidWorker
+import dev.brewkits.kmpworkmanager.sample.background.workers.NetworkRetryAndroidWorker
+import dev.brewkits.kmpworkmanager.sample.background.workers.SyncAndroidWorker
+import dev.brewkits.kmpworkmanager.sample.background.workers.UploadAndroidWorker
 import dev.brewkits.kmpworkmanager.workers.BuiltinWorkerRegistry
 import org.koin.android.ext.koin.androidContext
 import org.koin.android.ext.koin.androidLogger
@@ -33,13 +43,22 @@ private class WrapperWorker(private val delegate: Worker) : AndroidWorker {
  */
 class DemoWorkerFactory : AndroidWorkerFactory {
     override fun createWorker(workerClassName: String): AndroidWorker? {
+        // 1. Built-in library workers (HttpUploadWorker, HttpDownloadWorker, etc.)
         val builtinWorker = BuiltinWorkerRegistry.createWorker(workerClassName)
         if (builtinWorker != null) return WrapperWorker(builtinWorker)
 
+        // 2. Sample app workers — mapped by FQN (as defined in WorkerTypes)
         return when (workerClassName) {
-            "SampleUploadWorker" -> WrapperWorker(dev.brewkits.kmpworkmanager.workers.builtins.HttpUploadWorker())
-            "SampleDownloadWorker" -> WrapperWorker(dev.brewkits.kmpworkmanager.workers.builtins.HttpDownloadWorker())
-            "SampleSyncWorker" -> WrapperWorker(dev.brewkits.kmpworkmanager.workers.builtins.HttpSyncWorker())
+            "dev.brewkits.kmpworkmanager.sample.background.workers.SyncWorker" -> SyncAndroidWorker()
+            "dev.brewkits.kmpworkmanager.sample.background.workers.UploadWorker" -> UploadAndroidWorker()
+            "dev.brewkits.kmpworkmanager.sample.background.workers.HeavyProcessingWorker" -> HeavyProcessingAndroidWorker()
+            "dev.brewkits.kmpworkmanager.sample.background.workers.DatabaseWorker" -> DatabaseAndroidWorker()
+            "dev.brewkits.kmpworkmanager.sample.background.workers.NetworkRetryWorker" -> NetworkRetryAndroidWorker()
+            "dev.brewkits.kmpworkmanager.sample.background.workers.ImageProcessingWorker" -> ImageProcessingAndroidWorker()
+            "dev.brewkits.kmpworkmanager.sample.background.workers.LocationSyncWorker" -> LocationSyncAndroidWorker()
+            "dev.brewkits.kmpworkmanager.sample.background.workers.CleanupWorker" -> CleanupAndroidWorker()
+            "dev.brewkits.kmpworkmanager.sample.background.workers.BatchUploadWorker" -> BatchUploadAndroidWorker()
+            "dev.brewkits.kmpworkmanager.sample.background.workers.AnalyticsWorker" -> AnalyticsAndroidWorker()
             else -> null
         }
     }
