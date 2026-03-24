@@ -61,8 +61,7 @@ object BuiltinWorkerRegistry : WorkerFactory {
      * fully qualified names (e.g., "dev.brewkits.kmpworkmanager.workers.builtins.HttpRequestWorker").
      *
      * @param workerClassName The class name of the worker
-     * @return Worker instance for a recognised built-in class name
-     * @throws IllegalArgumentException if [workerClassName] is not a built-in worker
+     * @return Worker instance for a recognised built-in class name, or `null` if not a built-in worker
      */
     override fun createWorker(workerClassName: String): Worker? {
         // Normalize class name (support both simple and fully qualified names)
@@ -74,7 +73,7 @@ object BuiltinWorkerRegistry : WorkerFactory {
             "HttpDownloadWorker" -> HttpDownloadWorker()
             "HttpUploadWorker" -> HttpUploadWorker()
             "FileCompressionWorker" -> FileCompressionWorker()
-            else -> throw IllegalArgumentException("'$workerClassName' is not a built-in worker. Register it in your WorkerFactory.")
+            else -> null
         }
     }
 
