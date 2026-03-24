@@ -31,7 +31,7 @@ import kotlinx.serialization.json.put
  * **Startup Time:** <50ms
  * **Default Timeout:** 60 seconds
  *
- * **Performance Optimization (v2.3.5+):**
+ * **Performance Optimization:**
  * - Uses singleton HttpClient for connection pool reuse
  * - 60-86% faster than previous version
  *
@@ -72,7 +72,7 @@ import kotlinx.serialization.json.put
  * ```
  *
  * @param httpClient Optional HttpClient (defaults to optimized singleton)
- * @since 2.3.4 Uses singleton HttpClient by default for optimal performance
+ * Uses singleton HttpClient by default for optimal performance
  */
 class HttpSyncWorker(
     private val httpClient: HttpClient = HttpClientProvider.instance

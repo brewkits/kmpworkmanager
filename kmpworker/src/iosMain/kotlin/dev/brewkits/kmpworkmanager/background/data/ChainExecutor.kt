@@ -11,8 +11,14 @@ import kotlin.concurrent.AtomicInt
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.cinterop.*
+import platform.CoreFoundation.CFRelease
 import platform.Foundation.NSDate
 import platform.Foundation.timeIntervalSince1970
+import platform.SystemConfiguration.SCNetworkReachabilityCreateWithName
+import platform.SystemConfiguration.SCNetworkReachabilityFlagsVar
+import platform.SystemConfiguration.SCNetworkReachabilityGetFlags
+import platform.SystemConfiguration.kSCNetworkReachabilityFlagsIsWWAN
 
 /**
  * Executes task chains on the iOS platform with batch processing support.
@@ -25,7 +31,7 @@ import platform.Foundation.timeIntervalSince1970
  * - Task completion event emission
  * - Memory-safe coroutine scope management
  *
- * **v2.2.1+ Usage with automatic cleanup:**
+ * **Usage with automatic cleanup:**
  * ```kotlin
  * ChainExecutor(factory, taskType).use { executor ->
  *     executor.executeChainsInBatch()
@@ -36,16 +42,47 @@ import platform.Foundation.timeIntervalSince1970
  * @param workerFactory Factory for creating worker instances
  * @param taskType Type of BGTask (APP_REFRESH or PROCESSING) - determines timeout limits
  */
+/**
+ * Executes task chains on the iOS platform with batch processing support.
+ *
+ * **Memory safety — Swift callers MUST use `[weak self]`:**
+ * The `onContinuationNeeded` closure is retained by this executor until `close()` is called.
+ * If the closure captures a view controller or any object that in turn holds a strong reference
+ * to this executor, a retain cycle will prevent both from being deallocated.
+ *
+ * ```swift
+ * // ✅ Correct — capture self weakly
+ * let executor = ChainExecutor(
+ *     workerFactory: factory,
+ *     taskType: .processing,
+ *     onContinuationNeeded: { [weak self] in
+ *         self?.scheduleNextBGTask()
+ *     }
+ * )
+ *
+ * // ❌ Wrong — strong capture creates a retain cycle if self holds executor
+ * let executor = ChainExecutor(
+ *     workerFactory: factory,
+ *     onContinuationNeeded: {
+ *         self.scheduleNextBGTask()  // strong capture — leak!
+ *     }
+ * )
+ * ```
+ */
 class ChainExecutor(
     private val workerFactory: IosWorkerFactory,
     private val taskType: BGTaskType = BGTaskType.PROCESSING,
-    private val onContinuationNeeded: (() -> Unit)? = null
+    onContinuationNeeded: (() -> Unit)? = null
 ) : AutoCloseable {
 
     // AtomicInt for lock-free isClosed check in synchronous close().
     // compareAndSet(0, 1) ensures only one caller wins the race, avoiding double-flush.
     private val closedFlag = AtomicInt(0)
     private val closeMutex = Mutex()
+
+    // Stored as var so close() can null it out, breaking any Swift strong-reference cycle.
+    // Never read after close() because closedFlag prevents re-entry.
+    private var continuationCallback: (() -> Unit)? = onContinuationNeeded
 
     /** Tracks the async cleanup job started by close() */
     private var closeCleanupJob: Job? = null
@@ -61,13 +98,18 @@ class ChainExecutor(
     private val activeChainsMutex = Mutex()
     private val activeChains = mutableSetOf<String>()
 
-    private val shutdownMutex = Mutex()
-    // to prevent race conditions
-    private var isShuttingDown = false
+    // AtomicInt for lock-free shutdown flag.
+    // Using AtomicInt (not Mutex) is critical: requestShutdown() is called from the iOS
+    // BGTask expiration handler which must complete instantly. If all Dispatchers.Default
+    // threads are occupied by blocking NSFileCoordinator I/O, a Mutex.withLock suspension
+    // would queue behind those blocked calls and never run — causing iOS to kill the process
+    // before progress is saved.  An AtomicInt write is always immediate, regardless of
+    // thread-pool saturation.
+    private val isShuttingDown = AtomicInt(0)
 
     /**
      * Measured cleanup duration from previous batch execution
-     * Used for adaptive time budget calculation (v2.2.2+)
+     * Used for adaptive time budget calculation
      */
     private var lastCleanupDurationMs: Long = 0L
 
@@ -130,15 +172,14 @@ class ChainExecutor(
     suspend fun requestShutdown() {
         checkNotClosed()
 
-        shutdownMutex.withLock {
-            if (isShuttingDown) {
-                Logger.w(LogTags.CHAIN, "Shutdown already in progress")
-                return
-            }
-
-            isShuttingDown = true
-            Logger.w(LogTags.CHAIN, "🛑 Graceful shutdown requested - cancelling active chains")
+        // compareAndSet is atomic and non-blocking — safe to call from iOS expiration handler
+        // even when all coroutine threads are blocked on NSFileCoordinator I/O.
+        if (!isShuttingDown.compareAndSet(0, 1)) {
+            Logger.w(LogTags.CHAIN, "Shutdown already in progress")
+            return
         }
+
+        Logger.w(LogTags.CHAIN, "🛑 Graceful shutdown requested - cancelling active chains")
 
         // Cancel all running chains — NonCancellable progress saves in executeChain will complete
         job.cancelChildren()
@@ -151,15 +192,13 @@ class ChainExecutor(
     }
 
     /**
-     * Thread-safe version using mutex to prevent race conditions
+     * Resets shutdown state so the executor can process a new BGTask batch.
+     * Call this at the start of each new BGTask handler, before executeChainsInBatch().
      */
-    suspend fun resetShutdownState() {
+    fun resetShutdownState() {
         checkNotClosed()
-
-        shutdownMutex.withLock {
-            isShuttingDown = false
-            Logger.d(LogTags.CHAIN, "Shutdown state reset")
-        }
+        isShuttingDown.compareAndSet(1, 0)
+        Logger.d(LogTags.CHAIN, "Shutdown state reset")
     }
 
     /**
@@ -203,7 +242,7 @@ class ChainExecutor(
     /**
      * Calculate adaptive time budget based on measured cleanup duration
      *
-     * **v2.2.2+ Adaptive Strategy:**
+     * **Adaptive Strategy:**
      * - Base: 85% of total time (15% buffer)
      * - If cleanup history available: Reserve measured cleanup time + 20% safety buffer
      * - Floor: Never go below 70% to ensure meaningful work time
@@ -255,8 +294,7 @@ class ChainExecutor(
      * This optimizes iOS BGTask usage by processing as many chains as possible
      * before the OS time limit is reached.
      *
-     *
-     * **Time-slicing strategy (v2.2.2+ Adaptive):**
+     * **Time-slicing strategy:**
      * - Uses adaptive time budget based on measured cleanup duration
      * - Checks minimum time before each chain
      * - Stops early to prevent system kills
@@ -282,11 +320,9 @@ class ChainExecutor(
         // Check shutdown flag — if set, skip execution (called from expirationHandler or stale state).
         // Callers starting a new BGTask should call resetShutdownState() first to clear stale state
         // from the previous task's expiration.
-        shutdownMutex.withLock {
-            if (isShuttingDown) {
-                Logger.w(LogTags.CHAIN, "Batch execution skipped - shutdown in progress")
-                return 0
-            }
+        if (isShuttingDown.value != 0) {
+            Logger.w(LogTags.CHAIN, "Batch execution skipped - shutdown in progress")
+            return 0
         }
 
         val startTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
@@ -326,14 +362,10 @@ class ChainExecutor(
         try {
             withTimeout(conservativeTimeout) {
                 for (iteration in 0 until maxChains) {
-                    // Check shutdown every 5 iterations instead of every iteration (80% fewer lock acquisitions)
-                    // Shutdown is a rare event, so this optimization is safe
-                    if (iteration % 5 == 0) {
-                        val shouldStop = shutdownMutex.withLock { isShuttingDown }
-                        if (shouldStop) {
-                            Logger.w(LogTags.CHAIN, "Stopping batch execution - shutdown requested")
-                            break
-                        }
+                    // Check shutdown flag — AtomicInt read is always immediate, no suspension needed.
+                    if (isShuttingDown.value != 0) {
+                        Logger.w(LogTags.CHAIN, "Stopping batch execution - shutdown requested")
+                        break
                     }
 
                     val elapsedTime = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime
@@ -383,7 +415,7 @@ class ChainExecutor(
             throw e // Re-throw to propagate cancellation
         }
 
-        // Measure cleanup time for adaptive budget (v2.2.2+)
+        // Measure cleanup time for adaptive budget
         val cleanupStartTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
 
         // Calculate metrics
@@ -413,7 +445,7 @@ class ChainExecutor(
             scheduleNextBGTask()
         }
 
-        // Record cleanup duration for next run (v2.2.2+)
+        // Record cleanup duration for next run
         val cleanupEndTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
         lastCleanupDurationMs = cleanupEndTime - cleanupStartTime
 
@@ -499,8 +531,64 @@ class ChainExecutor(
                 return false
             }
 
+            // 3b. Windowed deadline guard — iOS BGTaskScheduler is opportunistic and cannot
+            //     honour the `latest` field of TaskTrigger.Windowed. The system may delay the
+            //     BGTask well past the business deadline (e.g. "must sync before 08:00").
+            //     Check here at actual execution time and skip stale chains so workers never
+            //     produce data the app can no longer use.
+            val nowMs = (NSDate().timeIntervalSince1970 * 1000).toLong()
+            val windowLatestMs = fileStorage.loadTaskMetadata(chainId, periodic = false)
+                ?.get("windowLatest")
+                ?.toLongOrNull()
+            if (windowLatestMs != null && nowMs > windowLatestMs) {
+                Logger.e(
+                    LogTags.CHAIN,
+                    "⏰ Chain $chainId DEADLINE_EXCEEDED — window closed at " +
+                        "${NSDate.dateWithTimeIntervalSince1970(windowLatestMs / 1000.0)}, " +
+                        "now=${NSDate.dateWithTimeIntervalSince1970(nowMs / 1000.0)}. " +
+                        "Task would produce stale data; skipping execution and cleaning up."
+                )
+                fileStorage.deleteChainDefinition(chainId)
+                fileStorage.deleteChainProgress(chainId)
+                fileStorage.deleteTaskMetadata(chainId, periodic = false)
+                TaskEventBus.emit(
+                    TaskCompletionEvent(
+                        taskName = "Chain-$chainId",
+                        success = false,
+                        message = "Deadline exceeded — windowed task ran after its latest time"
+                    )
+                )
+                return false
+            }
+
             // 4. Load or create progress
-            var progress = fileStorage.loadChainProgress(chainId) ?: ChainProgress(
+            val rawProgress = fileStorage.loadChainProgress(chainId)
+
+            // 4b. Self-healing guard: if progress was absent because it was DELETED by corruption
+            //     recovery, refuse to restart any chain that contains a non-idempotent task.
+            //     Silently restarting a payment step, for example, would cause a double charge.
+            if (rawProgress == null && fileStorage.consumeSelfHealedFlag(chainId)) {
+                val nonIdempotentTasks = steps.flatten().filter { !it.isIdempotent }
+                if (nonIdempotentTasks.isNotEmpty()) {
+                    Logger.e(
+                        LogTags.CHAIN,
+                        "🚨 Chain $chainId QUARANTINED — progress file was corrupt and deleted, " +
+                        "but the chain contains non-idempotent task(s): " +
+                        "${nonIdempotentTasks.map { it.workerClassName }}. " +
+                        "Restarting from scratch could cause duplicate side-effects (e.g. double charge). " +
+                        "Manual intervention required. Chain definition preserved for inspection."
+                    )
+                    // Leave definition on disk for operator inspection; only remove progress.
+                    fileStorage.deleteChainProgress(chainId)
+                    return false
+                }
+                Logger.w(
+                    LogTags.CHAIN,
+                    "⚠️ Chain $chainId progress was corrupt and deleted. All tasks are idempotent — safe to restart from beginning."
+                )
+            }
+
+            var progress = rawProgress ?: ChainProgress(
                 chainId = chainId,
                 totalSteps = steps.size
             )
@@ -525,6 +613,22 @@ class ChainExecutor(
                 )
             } else {
                 Logger.d(LogTags.CHAIN, "Executing chain $chainId with ${steps.size} steps")
+            }
+
+            // 6b. Warn early if the remaining work cannot fit within a single BGTask window.
+            // Example: 3 pending steps × 120s task timeout = 360s > 300s chain timeout.
+            // The chain will always time out and never finish unless the task implementation
+            // is made faster or the chain is split into smaller pieces.
+            val remainingSteps = steps.size - progress.completedSteps.size
+            val worstCaseMs = taskTimeout * remainingSteps
+            if (worstCaseMs > chainTimeout) {
+                Logger.w(
+                    LogTags.CHAIN,
+                    "⚠️ Chain $chainId: $remainingSteps remaining step(s) × ${taskTimeout}ms task timeout " +
+                    "= ${worstCaseMs}ms worst-case > ${chainTimeout}ms chain timeout. " +
+                    "Chain will time out and retry until retries are exhausted. " +
+                    "Consider splitting the chain or reducing per-task execution time."
+                )
             }
 
             // 7. Execute steps sequentially with timeout protection
@@ -579,14 +683,42 @@ class ChainExecutor(
                     allStepsSucceeded
                 }
             } catch (e: TimeoutCancellationException) {
-                Logger.e(LogTags.CHAIN, "Chain $chainId timed out after ${chainTimeout}ms")
+                // Chain-level timeout: the aggregate wall-clock time of all steps exceeded
+                // chainTimeout. This is different from a single task timeout — progress WAS
+                // saved after each completed step, so we can resume.
+                //
+                // We re-enqueue (not just return false) because the chain was already dequeued
+                // at the top of executeNextChainFromQueue. Without re-enqueue it would be
+                // silently lost — definition and progress files remain on disk but nothing
+                // would ever trigger execution again.
+                //
+                // We also increment retryCount to prevent infinite loops: a chain whose steps
+                // individually fit within taskTimeout but whose total time always exceeds
+                // chainTimeout would loop forever without this guard.
+                val failedStep = progress.getNextStepIndex() ?: (steps.size - 1)
+                withContext(NonCancellable) {
+                    progress = progress.withFailure(failedStep, "Chain timed out (${chainTimeout}ms)")
+                    fileStorage.saveChainProgress(progress)
+                }
 
-                // Progress already saved after last successful step — allow resume
-                Logger.i(
-                    LogTags.CHAIN,
-                    "Chain $chainId progress saved. Will resume from step ${progress.getNextStepIndex()} on next execution."
-                )
-
+                if (progress.hasExceededRetries()) {
+                    Logger.e(
+                        LogTags.CHAIN,
+                        "Chain $chainId abandoned — timed out ${progress.retryCount} time(s). " +
+                        "Each attempt exceeds the ${chainTimeout}ms chain budget. " +
+                        "Consider splitting the chain or reducing task execution time."
+                    )
+                    fileStorage.deleteChainDefinition(chainId)
+                    fileStorage.deleteChainProgress(chainId)
+                } else {
+                    fileStorage.enqueueChain(chainId)
+                    Logger.i(
+                        LogTags.CHAIN,
+                        "Chain $chainId timed out after ${chainTimeout}ms — re-queued for retry " +
+                        "${progress.retryCount}/${progress.maxRetries} " +
+                        "(completed ${progress.completedSteps.size}/${steps.size} steps)"
+                    )
+                }
                 return false
             } catch (e: CancellationException) {
                 Logger.w(LogTags.CHAIN, "🛑 Chain $chainId cancelled due to graceful shutdown")
@@ -613,7 +745,7 @@ class ChainExecutor(
                 return false
             }
 
-            // v2.2.2+: Flush buffered progress before cleanup
+            // Flush buffered progress before cleanup
             fileStorage.flushNow()
 
             fileStorage.deleteChainDefinition(chainId)
@@ -623,7 +755,7 @@ class ChainExecutor(
 
         } finally {
             // 9. Always remove from active set (even on failure/timeout) - thread-safe
-            // v2.2.2+: Flush buffered progress before removing from active set
+            // Flush buffered progress before removing from active set
             // CRITICAL FIX: Wrap flushNow() in try-catch to guarantee cleanup
             try {
                 fileStorage.flushNow()
@@ -645,10 +777,21 @@ class ChainExecutor(
      *
      * Tasks that already completed in a previous attempt (recorded in progress)
      * are skipped, making retry of partially-failed parallel steps idempotent.
-     * Each task's completion is persisted individually so that a crash mid-step
-     * still preserves the already-succeeded tasks.
      *
-     * @return Pair of (stepSucceeded, updatedProgress)
+     * **Per-task progress persistence (intentional design):**
+     * Each task saves progress to the buffer immediately after it succeeds — not after
+     * the entire step completes. This preserves partial progress on mid-step crashes:
+     * if 3 out of 5 parallel tasks complete and the app is killed, only the 2 pending
+     * tasks are retried on resume rather than all 5.
+     *
+     * **Why [progressMutex] contention is minimal:**
+     * [fileStorage.saveChainProgress] writes to a debounced in-memory buffer (100ms TTL)
+     * rather than calling NSFileCoordinator directly. Each lock hold is ~1ms regardless
+     * of the number of parallel tasks, so N concurrent completions serialise through
+     * the mutex in ~N ms total — negligible compared to typical task durations (100ms–60s).
+     * The physical I/O is batched: N saves in a 100ms window = 1 actual disk write.
+     *
+     * @return Triple of (stepSucceeded, updatedProgress, firstErrorMessage?)
      */
     private suspend fun executeStep(
         tasks: List<TaskRequest>,
@@ -682,7 +825,7 @@ class ChainExecutor(
                     val result = executeTask(task)
                     val success = result is WorkerResult.Success
                     if (success) {
-                        // v2.2.2+: Protect progress save from cancellation
+                        // Protect progress save from cancellation
                         withContext(NonCancellable) {
                             progressMutex.withLock {
                                 currentProgress = currentProgress.withCompletedTaskInStep(stepIndex, taskIndex)
@@ -705,10 +848,56 @@ class ChainExecutor(
     }
 
     /**
-     * Execute a single task with timeout protection and detailed logging
+     * Returns `true` when the current network path is WWAN (cellular / mobile data).
+     *
+     * Uses the synchronous `SCNetworkReachability` API — safe to call from any thread
+     * including background coroutine dispatchers. Deprecated on iOS 17 but still
+     * functional; replace with `NWPathMonitor` when Kotlin/Native gains async interop.
+     *
+     * Returns `false` (conservative / allow execution) on any error so a failure to
+     * detect the network type does not silently block legitimate work.
+     */
+    @OptIn(ExperimentalForeignApi::class)
+    private fun isNetworkCellular(): Boolean {
+        val reachability = SCNetworkReachabilityCreateWithName(null, "1.1.1.1") ?: return false
+        return try {
+            memScoped {
+                val flags = alloc<SCNetworkReachabilityFlagsVar>()
+                SCNetworkReachabilityGetFlags(reachability, flags.ptr) &&
+                    (flags.value and kSCNetworkReachabilityFlagsIsWWAN) != 0u
+            }
+        } catch (e: Exception) {
+            Logger.w(LogTags.CHAIN, "isNetworkCellular() check failed — assuming non-cellular: ${e.message}")
+            false
+        } finally {
+            CFRelease(reachability)
+        }
+    }
+
+    /**
+     * Execute a single task with timeout protection and detailed logging.
+     *
+     * [Worker.close] is called in a `finally` block under [NonCancellable] so resource
+     * cleanup is guaranteed regardless of success, failure, timeout, or cancellation.
      */
     private suspend fun executeTask(task: TaskRequest): WorkerResult {
         Logger.d(LogTags.CHAIN, "▶️ Starting task: ${task.workerClassName} (timeout: ${taskTimeout}ms)")
+
+        // Unmetered-network guard: iOS BGTaskScheduler has no Wi-Fi-only constraint.
+        // We enforce it here at execution time to prevent silent cellular data usage.
+        // The Constraints KDoc says "iOS: Not supported, falls back to requiresNetwork" —
+        // this check makes the fallback explicit: retry instead of running on cellular.
+        if (task.constraints?.requiresUnmeteredNetwork == true && isNetworkCellular()) {
+            Logger.w(
+                LogTags.CHAIN,
+                "⚠️ Task ${task.workerClassName} requires unmetered network but cellular is active — " +
+                    "returning Failure(shouldRetry=true). Will be retried on next BGTask execution."
+            )
+            return WorkerResult.Failure(
+                message = "Requires unmetered (Wi-Fi) network but cellular is active",
+                shouldRetry = true
+            )
+        }
 
         val worker = workerFactory.createWorker(task.workerClassName)
         if (worker == null) {
@@ -718,78 +907,83 @@ class ChainExecutor(
 
         val startTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
 
-        return try {
-            withTimeout(taskTimeout) {
-                val result = worker.doWork(task.inputJson)
-                val duration = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime
-                val percentage = (duration * 100 / taskTimeout).toInt()
+        try {
+            return try {
+                withTimeout(taskTimeout) {
+                    val result = worker.doWork(task.inputJson)
+                    val duration = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime
+                    val percentage = (duration * 100 / taskTimeout).toInt()
 
-                // Warn if task used > 80% of timeout
-                if (duration > taskTimeout * 0.8) {
-                    Logger.w(LogTags.CHAIN, "⚠️ Task ${task.workerClassName} used ${duration}ms / ${taskTimeout}ms (${percentage}%) - approaching timeout!")
+                    if (duration > taskTimeout * 0.8) {
+                        Logger.w(LogTags.CHAIN, "⚠️ Task ${task.workerClassName} used ${duration}ms / ${taskTimeout}ms (${percentage}%) - approaching timeout!")
+                    }
+
+                    when (result) {
+                        is WorkerResult.Success -> {
+                            val message = result.message ?: "Task succeeded in ${duration}ms"
+                            Logger.d(LogTags.CHAIN, "✅ Task ${task.workerClassName} - $message (${percentage}%)")
+                            TaskEventBus.emit(
+                                TaskCompletionEvent(
+                                    taskName = task.workerClassName,
+                                    success = true,
+                                    message = message,
+                                    outputData = result.data
+                                )
+                            )
+                            result
+                        }
+                        is WorkerResult.Failure -> {
+                            Logger.w(LogTags.CHAIN, "❌ Task ${task.workerClassName} failed: ${result.message} (${duration}ms)")
+                            TaskEventBus.emit(
+                                TaskCompletionEvent(
+                                    taskName = task.workerClassName,
+                                    success = false,
+                                    message = result.message,
+                                    outputData = null
+                                )
+                            )
+                            result
+                        }
+                    }
                 }
-
-                when (result) {
-                    is WorkerResult.Success -> {
-                        val message = result.message ?: "Task succeeded in ${duration}ms"
-                        Logger.d(LogTags.CHAIN, "✅ Task ${task.workerClassName} - $message (${percentage}%)")
-
-                        TaskEventBus.emit(
-                            TaskCompletionEvent(
-                                taskName = task.workerClassName,
-                                success = true,
-                                message = message,
-                                outputData = result.data
-                            )
-                        )
-                        result  // Return the WorkerResult
-                    }
-                    is WorkerResult.Failure -> {
-                        Logger.w(LogTags.CHAIN, "❌ Task ${task.workerClassName} failed: ${result.message} (${duration}ms)")
-
-                        TaskEventBus.emit(
-                            TaskCompletionEvent(
-                                taskName = task.workerClassName,
-                                success = false,
-                                message = result.message,
-                                outputData = null
-                            )
-                        )
-                        result  // Return the WorkerResult
-                    }
+            } catch (e: TimeoutCancellationException) {
+                val duration = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime
+                Logger.e(LogTags.CHAIN, "⏱️ Task ${task.workerClassName} timed out after ${duration}ms (limit: ${taskTimeout}ms)")
+                TaskEventBus.emit(
+                    TaskCompletionEvent(
+                        taskName = task.workerClassName,
+                        success = false,
+                        message = "⏱️ Timeout after ${duration}ms",
+                        outputData = null
+                    )
+                )
+                WorkerResult.Failure("Timeout after ${duration}ms")
+            } catch (e: CancellationException) {
+                // Must re-throw — swallowing breaks coroutine cancellation protocol.
+                throw e
+            } catch (e: Exception) {
+                val duration = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime
+                Logger.e(LogTags.CHAIN, "💥 Task ${task.workerClassName} threw exception after ${duration}ms", e)
+                TaskEventBus.emit(
+                    TaskCompletionEvent(
+                        taskName = task.workerClassName,
+                        success = false,
+                        message = "💥 Exception: ${e.message}",
+                        outputData = null
+                    )
+                )
+                WorkerResult.Failure("Exception: ${e.message}")
+            }
+        } finally {
+            // Guarantee resource cleanup regardless of outcome (success, failure, timeout, cancel).
+            // NonCancellable ensures this runs even during coroutine cancellation.
+            withContext(NonCancellable) {
+                try {
+                    worker.close()
+                } catch (e: Exception) {
+                    Logger.w(LogTags.CHAIN, "Worker.close() threw for ${task.workerClassName}: ${e.message}")
                 }
             }
-        } catch (e: TimeoutCancellationException) {
-            val duration = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime
-            Logger.e(LogTags.CHAIN, "⏱️ Task ${task.workerClassName} timed out after ${duration}ms (limit: ${taskTimeout}ms)")
-
-            // Emit failure event with timeout details
-            TaskEventBus.emit(
-                TaskCompletionEvent(
-                    taskName = task.workerClassName,
-                    success = false,
-                    message = "⏱️ Timeout after ${duration}ms",
-                    outputData = null
-                )
-            )
-            WorkerResult.Failure("Timeout after ${duration}ms")
-        } catch (e: CancellationException) {
-            // Re-throw CancellationException — must not be swallowed so coroutine cancellation propagates
-            throw e
-        } catch (e: Exception) {
-            val duration = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime
-            Logger.e(LogTags.CHAIN, "💥 Task ${task.workerClassName} threw exception after ${duration}ms", e)
-
-            // Emit failure event with exception details
-            TaskEventBus.emit(
-                TaskCompletionEvent(
-                    taskName = task.workerClassName,
-                    success = false,
-                    message = "💥 Exception: ${e.message}",
-                    outputData = null
-                )
-            )
-            WorkerResult.Failure("Exception: ${e.message}")
         }
     }
 
@@ -849,7 +1043,7 @@ class ChainExecutor(
     /**
      * Schedule next BGTask for continuation
      *
-     * **v2.3.1+:** Now calls the onContinuationNeeded callback if provided.
+     * Now calls the onContinuationNeeded callback if provided.
      *
      * **Usage from Swift:**
      * ```swift
@@ -867,9 +1061,10 @@ class ChainExecutor(
     private fun scheduleNextBGTask() {
         Logger.i(LogTags.CHAIN, "📅 Continuation needed: Queue has remaining chains")
 
-        if (onContinuationNeeded != null) {
+        val callback = continuationCallback
+        if (callback != null) {
             Logger.d(LogTags.CHAIN, "Invoking continuation callback to schedule next BGTask")
-            onContinuationNeeded.invoke()
+            callback.invoke()
         } else {
             Logger.w(LogTags.CHAIN, """
                 ⚠️ No continuation callback provided!
@@ -911,7 +1106,7 @@ class ChainExecutor(
      * - Subsequent calls are no-ops
      * - Thread-safe with mutex protection
      *
-     * **v2.3.1+:** Non-blocking close to prevent deadlocks. Progress flush happens
+     * Non-blocking close to prevent deadlocks. Progress flush happens
      * asynchronously. For guaranteed cleanup, use closeAsync() instead.
      */
     override fun close() {
@@ -922,6 +1117,10 @@ class ChainExecutor(
         }
 
         Logger.d(LogTags.CHAIN, "Closing ChainExecutor")
+
+        // Null the callback to break any Swift strong-reference cycle before the
+        // coroutine scope is cancelled and the executor becomes unreachable.
+        continuationCallback = null
 
         // Cancel all running coroutines first (non-blocking)
         job.cancel()
@@ -947,7 +1146,7 @@ class ChainExecutor(
      * Async version of close() that guarantees cleanup completion.
      * Use this when you need to ensure all resources are flushed before proceeding.
      *
-     * **v2.3.1+:** Recommended for critical cleanup paths (app shutdown, etc.)
+     * Recommended for critical cleanup paths (app shutdown, etc.)
      */
     suspend fun closeAsync() {
         closeMutex.withLock {
@@ -957,6 +1156,8 @@ class ChainExecutor(
             }
 
             Logger.d(LogTags.CHAIN, "Closing ChainExecutor (async)")
+
+            continuationCallback = null  // Break Swift retain cycle
 
             // Cancel all running coroutines
             job.cancel()

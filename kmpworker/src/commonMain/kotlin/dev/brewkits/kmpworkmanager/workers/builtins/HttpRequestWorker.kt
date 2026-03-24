@@ -28,7 +28,7 @@ import kotlinx.serialization.json.put
  * **Memory Usage:** ~2-3MB RAM
  * **Startup Time:** <50ms
  *
- * **Performance Optimization (v2.3.5+):**
+ * **Performance Optimization:**
  * - Uses singleton HttpClient for connection pool reuse
  * - 60-86% faster than previous version
  * - SSL session resumption enabled
@@ -65,7 +65,7 @@ import kotlinx.serialization.json.put
  * ```
  *
  * @param httpClient Optional HttpClient (defaults to optimized singleton)
- * @since 2.3.4 Uses singleton HttpClient by default for optimal performance
+ * Uses singleton HttpClient by default for optimal performance
  */
 class HttpRequestWorker(
     private val httpClient: HttpClient = HttpClientProvider.instance
@@ -154,7 +154,7 @@ class HttpRequestWorker(
          *
          * @deprecated Use HttpClientProvider.instance instead for better performance.
          * This method creates a new client each time, which is inefficient.
-         * Will be removed in v3.0.0.
+         * Will be removed
          */
         @Deprecated(
             message = "Use HttpClientProvider.instance for connection pool reuse",

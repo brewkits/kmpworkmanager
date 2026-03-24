@@ -17,7 +17,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * iOS-specific regression tests for v2.3.6 ChainExecutor bug fixes.
+ * iOS-specific regression tests for ChainExecutor bug fixes.
  *
  * Fix CE-1: withTimeout return value captured — chainSucceeded now reflects real outcome
  * Fix CE-2: CancellationException explicitly rethrown — shutdown propagates correctly

@@ -35,7 +35,7 @@ import okio.use
  * **Memory Usage:** ~3-5MB RAM
  * **Default Timeout:** 300 seconds (5 minutes)
  *
- * **Performance Optimization (v2.3.5+):**
+ * **Performance Optimization:**
  * - Uses singleton HttpClient for connection pool reuse
  * - 60-86% faster than previous version
  *
@@ -69,7 +69,7 @@ import okio.use
  * @param httpClient Optional HttpClient (defaults to optimized singleton)
  * @param fileSystem Optional FileSystem implementation (defaults to platform default)
  * @param progressListener Optional progress listener for download tracking
- * @since 2.3.4 Uses singleton HttpClient by default for optimal performance
+ * Uses singleton HttpClient by default for optimal performance
  */
 class HttpDownloadWorker(
     private val httpClient: HttpClient = HttpClientProvider.instance,
@@ -201,7 +201,7 @@ class HttpDownloadWorker(
          *
          * @deprecated Use HttpClientProvider.instance instead for better performance.
          * This method creates a new client each time, which is inefficient.
-         * Will be removed in v3.0.0.
+         * Will be removed
          */
         @Deprecated(
             message = "Use HttpClientProvider.instance for connection pool reuse",

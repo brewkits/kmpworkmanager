@@ -22,7 +22,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
- * Android instrumented tests for v2.3.3 Fix #1:
+ * Android instrumented tests 
  * KmpWorker.getForegroundInfo() override for WorkManager 2.10.0+ compatibility.
  *
  * These tests verify that:

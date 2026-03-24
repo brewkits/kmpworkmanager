@@ -7,8 +7,8 @@ import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
  *
  * Implement this interface for each type of background work you want to perform on iOS.
  *
- * v2.3.0+: Changed return type from Boolean to WorkerResult
- * v4.0.0+: Now extends common Worker interface
+ * Changed return type from Boolean to WorkerResult
+ * Now extends common Worker interface
  *
  * Example:
  * ```kotlin
@@ -33,7 +33,7 @@ interface IosWorker : dev.brewkits.kmpworkmanager.background.domain.Worker {
     /**
      * Performs the background work.
      *
-     * v2.3.0+: Return type changed from Boolean to WorkerResult
+     * Return type changed from Boolean to WorkerResult
      *
      * **Important**: This method has timeout protection:
      * - Chain tasks: 20 seconds per task (ChainExecutor.TASK_TIMEOUT_MS)
@@ -55,7 +55,7 @@ interface IosWorker : dev.brewkits.kmpworkmanager.background.domain.Worker {
  *
  * Implement this to provide your custom worker implementations.
  *
- * v4.0.0+: Now extends common WorkerFactory interface
+ * Now extends common WorkerFactory interface
  *
  * Example:
  * ```kotlin
@@ -74,9 +74,12 @@ interface IosWorkerFactory : dev.brewkits.kmpworkmanager.background.domain.Worke
     /**
      * Creates a worker instance based on the class name.
      *
+     * Return `null` to signal that this factory does not handle [workerClassName],
+     * allowing the caller to fall through to another factory or fail gracefully.
+     * Throw [IllegalArgumentException] only when the class name is known but invalid.
+     *
      * @param workerClassName The fully qualified class name or simple name
-     * @return IosWorker instance — never null
-     * @throws IllegalArgumentException if [workerClassName] is not registered
+     * @return IosWorker instance, or null if this factory does not handle the class name
      */
-    override fun createWorker(workerClassName: String): IosWorker
+    override fun createWorker(workerClassName: String): IosWorker?
 }

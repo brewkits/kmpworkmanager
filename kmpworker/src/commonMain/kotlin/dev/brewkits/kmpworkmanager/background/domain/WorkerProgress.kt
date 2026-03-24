@@ -3,7 +3,11 @@ package dev.brewkits.kmpworkmanager.background.domain
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.TimeSource
 
 /**
  * Represents the progress of a background task.
@@ -15,7 +19,7 @@ import kotlinx.serialization.Serializable
  * - Batch operations
  * - Image compression
  *
- * **Usage in Worker (v2.3.0+):**
+ * **Usage in Worker:**
  * ```kotlin
  * class FileDownloadWorker(
  *     private val progressListener: ProgressListener?
@@ -183,8 +187,40 @@ object TaskProgressBus {
     )
     val events: SharedFlow<TaskProgressEvent> = _events.asSharedFlow()
 
+    /**
+     * Per-task throttle gate — prevents UI flooding when workers emit many small progress
+     * increments (e.g. 1% per network chunk × 10 parallel workers = 1 000 events/second).
+     *
+     * **Rate limit:** At most one event per [MIN_EMIT_INTERVAL] per task name.
+     * Events emitted more frequently are **dropped** (not queued). The consumer always
+     * sees the most-recent event via `replay = 1`; it never sees a stale value.
+     *
+     * The gate is protected by [emitGateMutex] so concurrent workers share it safely
+     * across coroutines. Lock hold time is O(1) (map read + mark creation).
+     */
+    private val emitGateMutex = Mutex()
+    private val lastEmittedAt = mutableMapOf<String, TimeSource.Monotonic.ValueTimeMark>()
+    private val MIN_EMIT_INTERVAL = 100.milliseconds  // max 10 updates/second per task
+
     suspend fun emit(event: TaskProgressEvent) {
-        // emit() suspends when the buffer (extraBufferCapacity=32) is full — no silent drops
-        _events.emit(event)
+        val shouldEmit = emitGateMutex.withLock {
+            val last = lastEmittedAt[event.taskId]
+            if (last == null || last.elapsedNow() >= MIN_EMIT_INTERVAL) {
+                lastEmittedAt[event.taskId] = TimeSource.Monotonic.markNow()
+                true
+            } else {
+                false
+            }
+        }
+        if (shouldEmit) _events.emit(event)
+    }
+
+    /**
+     * Clears the per-task throttle map when a task completes, freeing memory
+     * and ensuring the next task with the same name starts with a clean gate.
+     * Call this from the worker executor when a task finishes.
+     */
+    suspend fun clearThrottle(taskId: String) {
+        emitGateMutex.withLock { lastEmittedAt.remove(taskId) }
     }
 }

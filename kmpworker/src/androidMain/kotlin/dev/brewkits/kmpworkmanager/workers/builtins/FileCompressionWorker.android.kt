@@ -17,7 +17,7 @@ import java.util.zip.ZipOutputStream
 /**
  * Android implementation of file compression using java.util.zip.
  *
- * v2.3.0+: Returns WorkerResult with compression statistics
+ * Returns WorkerResult with compression statistics
  */
 internal actual suspend fun platformCompress(config: FileCompressionConfig): WorkerResult {
     val inputFile = File(config.inputPath)

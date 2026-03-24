@@ -14,7 +14,7 @@ import platform.Foundation.timeIntervalSince1970
 import kotlin.test.*
 
 /**
- * v2.1.0: Tests for graceful shutdown and resume functionality.
+ * Tests for graceful shutdown and resume functionality.
  *
  * Scenarios tested:
  * 1. Shutdown prevents new chains from starting

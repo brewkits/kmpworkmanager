@@ -3,7 +3,7 @@ package dev.brewkits.kmpworkmanager.utils
 /**
  * CRC32 checksum calculator for data integrity verification
  *
- * **v2.2.2 Performance Upgrade:**
+ * **Performance Upgrade:**
  * - Now uses platform-native implementations for 5-10x speedup
  * - iOS: zlib.crc32 (native C implementation)
  * - Android: java.util.zip.CRC32 (optimized JVM implementation)

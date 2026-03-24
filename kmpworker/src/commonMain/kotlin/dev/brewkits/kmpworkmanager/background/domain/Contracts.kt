@@ -50,17 +50,23 @@ sealed interface TaskTrigger {
      * Allows the OS to optimize execution by choosing the best time within the window.
      *
      * **Android**: Maps to a OneTime task with an initial delay to [earliest].
-     * The [latest] bound is not enforced — identical behaviour to iOS, keeping
-     * cross-platform semantics consistent. A warning is logged at scheduling time.
+     * The [latest] bound is not enforced by the OS scheduler, but is used as a
+     * **deadline guard**: scheduling is rejected immediately if `latest < now`.
      *
-     * **iOS**: Uses `earliestBeginDate = earliest`. [latest] is logged but ignored —
-     * BGTaskScheduler decides the actual execution time opportunistically.
+     * **iOS**: Uses `earliestBeginDate = earliest`. [latest] is not enforceable by
+     * BGTaskScheduler (opportunistic scheduling), but is used as a **deadline guard**
+     * at two points:
+     * 1. Scheduling time — rejected if `latest < now` → `ScheduleResult.DEADLINE_ALREADY_PASSED`
+     * 2. Runtime — task is skipped (DEADLINE_MISSED log) if the OS runs it after the deadline
+     *
+     * **Window size warning**: If the window (`latest - earliest`) is shorter than 30 minutes,
+     * a warning is logged recommending [Exact] with [ExactAlarmIOSBehavior] instead.
      *
      * **Note**: Neither platform guarantees execution within [earliest..latest].
-     * For time-critical work use [Exact] with [ExactAlarmIOSBehavior].
+     * For strict timing use [Exact] with [ExactAlarmIOSBehavior].
      *
      * @param earliest Earliest time to execute (Unix epoch milliseconds)
-     * @param latest Latest time to execute (Unix epoch milliseconds) — hint only, not enforced
+     * @param latest Deadline (Unix epoch milliseconds) — used as a guard, not OS-enforced
      */
     data class Windowed(val earliest: Long, val latest: Long) : TaskTrigger
 
@@ -167,7 +173,7 @@ sealed interface TaskTrigger {
  * [Constraints] data class. Only use values of this enum when writing Android-specific
  * scheduling logic, or wrap the call site with `@OptIn(AndroidOnly::class)`.
  *
- * **v3.0.0+**: Replaces deprecated TaskTrigger variants (BatteryLow, StorageLow, etc.)
+ * Replaces deprecated TaskTrigger variants (BatteryLow, StorageLow, etc.)
  * which incorrectly represented constraints as triggers.
  */
 @Serializable
@@ -221,12 +227,18 @@ data class Constraints(
     val requiresNetwork: Boolean = false,
 
     /**
-     * Requires unmetered network (typically Wi-Fi) - **ANDROID ONLY**.
+     * Requires unmetered network (typically Wi-Fi).
      *
-     * **Android**: Uses `NetworkType.UNMETERED` constraint
-     * **iOS**: Not supported, falls back to `requiresNetwork`
+     * **Android**: Uses `NetworkType.UNMETERED` constraint — enforced by the OS at
+     *   scheduling time; the task does not start until Wi-Fi is available.
      *
-     * **Use Cases**: Large uploads/downloads, video processing
+     * **iOS**: `BGTaskScheduler` has no Wi-Fi-only constraint. The library enforces
+     *   this at **execution time** inside `ChainExecutor`: if the device is on cellular
+     *   when the BGTask fires, the task returns `Failure(shouldRetry=true)` without
+     *   executing, and the chain is re-queued for the next BGTask window.
+     *   This prevents accidental cellular data charges for large uploads/downloads.
+     *
+     * **Use Cases**: Large uploads/downloads, video processing, background sync > 100 MB
      *
      * Default: false
      */
@@ -329,7 +341,7 @@ data class Constraints(
     /**
      * System-level constraints for task execution - **ANDROID ONLY**.
      *
-     * **v3.0.0+**: Replaces deprecated TaskTrigger variants (BatteryLow, StorageLow, etc.)
+     * Replaces deprecated TaskTrigger variants (BatteryLow, StorageLow, etc.)
      *
      * **Android**: Maps to WorkManager constraint methods:
      * - `ALLOW_LOW_STORAGE` → `setRequiresStorageNotLow(false)`
@@ -356,7 +368,7 @@ data class Constraints(
     /**
      * iOS-specific behavior for TaskTrigger.Exact alarms - **iOS ONLY**.
      *
-     * **v2.1.1+**: Added to provide transparency about iOS exact alarm limitations.
+     * Added to provide transparency about iOS exact alarm limitations.
      *
      * **Problem**: iOS does NOT support background code execution at exact times.
      * Android can execute worker code via AlarmManager, but iOS can only:
@@ -367,7 +379,7 @@ data class Constraints(
      * **Android**: This field is ignored (Android always executes worker code)
      * **iOS**: Determines how TaskTrigger.Exact is handled
      *
-     * **Migration from v2.1.0**:
+     * **Migration.0**:
      * - Old behavior: iOS always showed notification (silent, undocumented)
      * - New behavior: Explicit configuration with fail-fast option
      *
@@ -474,7 +486,7 @@ enum class Qos {
  * background execution policies. This enum provides transparency and control over how exact
  * alarms are handled on iOS.
  *
- * **v2.1.1+**: Added to address platform parity issues and prevent silent failures.
+ * Added to address platform parity issues and prevent silent failures.
  *
  * **Platform Support**: iOS only (Android always executes code)
  */
@@ -630,6 +642,18 @@ enum class ScheduleResult {
      * - Invalid parameters (e.g., negative delay)
      */
     REJECTED_OS_POLICY,
+
+    /**
+     * The task's deadline has already passed at the time of scheduling.
+     *
+     * Returned when [TaskTrigger.Windowed.latest] < current time, meaning
+     * the window has expired before the task could be enqueued.
+     *
+     * **Action**: Callers should not retry — the business window is gone.
+     * Log or surface this to the user if the operation was time-critical
+     * (e.g., pre-flight data sync that missed its deadline).
+     */
+    DEADLINE_ALREADY_PASSED,
 
     /**
      * The OS is currently throttling background work for this app.

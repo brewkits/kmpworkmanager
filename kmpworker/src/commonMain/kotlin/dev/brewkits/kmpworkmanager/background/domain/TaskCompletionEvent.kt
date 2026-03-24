@@ -3,14 +3,15 @@ package dev.brewkits.kmpworkmanager.background.domain
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 
 /**
  * Event emitted when a background task completes.
  *
- * v2.3.0+: Added outputData field to support returning data from workers
- * v2.3.7+: outputData changed from Map<String, @Contextual Any?> to JsonObject
+ * Added outputData field to support returning data from workers
+ * outputData changed from Map<String, @Contextual Any?> to JsonObject
  *           — eliminates runtime SerializationException on non-serializable types
  */
 @Serializable
@@ -25,22 +26,27 @@ data class TaskCompletionEvent(
  * Global event bus for task completion events.
  * Workers can emit events here, and the UI can listen to them.
  *
- * Configuration:
- * - replay=5: Keeps last 5 events in memory for late subscribers (~1-2 minutes of history)
- * - extraBufferCapacity=64: Additional buffer for high-frequency events
+ * Configuration rationale:
+ * - replay=1: One event cached for late subscribers — enough for UI to show latest result
+ *   without holding multiple large outputData JsonObjects in RAM per subscriber.
+ * - extraBufferCapacity=32: Burst buffer for concurrent workers finishing simultaneously.
+ * - onBufferOverflow=DROP_OLDEST: Workers never block waiting for slow UI consumers.
+ *   DROP_OLDEST is safe here because completion events are idempotent notifications —
+ *   the durable record lives in AndroidEventStore/IosFileStorage, not in this bus.
  *
- * Note: For long-term event persistence across app restarts, see EventStore (Issue #1).
+ * Note: For long-term event persistence across app restarts, see EventStore.
  */
 object TaskEventBus {
     private val _events = MutableSharedFlow<TaskCompletionEvent>(
-        replay = 5,  // Keep last 5 events for late subscribers
-        extraBufferCapacity = 64
+        replay = 1,
+        extraBufferCapacity = 32,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
     )
     val events: SharedFlow<TaskCompletionEvent> = _events.asSharedFlow()
 
-    suspend fun emit(event: TaskCompletionEvent) {
-        // emit() suspends when the buffer (extraBufferCapacity=64) is full — no silent drops
-        _events.emit(event)
+    fun emit(event: TaskCompletionEvent) {
+        // tryEmit always succeeds with DROP_OLDEST overflow policy — never blocks workers.
+        _events.tryEmit(event)
     }
 
     /**

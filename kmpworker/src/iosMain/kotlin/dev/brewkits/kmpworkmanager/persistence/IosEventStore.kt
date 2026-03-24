@@ -38,7 +38,7 @@ class IosEventStore(
     private val fileManager = NSFileManager.defaultManager
     private val fileLock = Mutex()
 
-    @Volatile
+    @kotlin.concurrent.Volatile
     private var lastCleanupTimeMs: Long = 0L
 
     /**
@@ -113,7 +113,7 @@ class IosEventStore(
 
             Logger.d(LogTags.SCHEDULER, "IosEventStore: Saved event $eventId for task ${event.taskName}")
 
-            // Auto-cleanup if enabled (deterministic - time-based or size-based, matching Android v2.2.2+)
+            // Auto-cleanup if enabled (deterministic - time-based or size-based, matching Android)
             if (config.autoCleanup && shouldPerformCleanup()) {
                 performCleanup()
                 lastCleanupTimeMs = (NSDate().timeIntervalSince1970 * 1000).toLong()
@@ -248,7 +248,7 @@ class IosEventStore(
     }
 
     /**
-     * Deterministic cleanup check (mirrors Android v2.2.2+ logic).
+     * Deterministic cleanup check (mirrors Android logic).
      * Triggers if cleanup interval has elapsed OR file size exceeds threshold.
      * Must be called while holding [fileLock].
      */

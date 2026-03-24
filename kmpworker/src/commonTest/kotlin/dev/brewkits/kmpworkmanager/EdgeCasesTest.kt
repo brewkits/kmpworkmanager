@@ -1,6 +1,7 @@
 package dev.brewkits.kmpworkmanager
 
 import dev.brewkits.kmpworkmanager.background.domain.*
+import dev.brewkits.kmpworkmanager.background.domain.AndroidOnly
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -70,12 +71,14 @@ class EdgeCasesTest {
         assertEquals(1000L, trigger.latest)
     }
 
+    @OptIn(AndroidOnly::class)
     @Test
     fun `TaskTrigger ContentUri with empty string should accept value`() {
         val trigger = TaskTrigger.ContentUri(uriString = "")
         assertEquals("", trigger.uriString)
     }
 
+    @OptIn(AndroidOnly::class)
     @Test
     fun `TaskTrigger ContentUri with very long URI should accept value`() {
         val longUri = "content://media/" + "a".repeat(10000)

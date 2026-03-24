@@ -64,7 +64,7 @@ object BuiltinWorkerRegistry : WorkerFactory {
      * @return Worker instance — never null
      * @throws IllegalArgumentException if [workerClassName] is not a built-in worker
      */
-    override fun createWorker(workerClassName: String): Worker {
+    override fun createWorker(workerClassName: String): Worker? {
         // Normalize class name (support both simple and fully qualified names)
         val simpleName = workerClassName.substringAfterLast('.')
 
@@ -124,10 +124,11 @@ class CompositeWorkerFactory(
     private vararg val factories: WorkerFactory
 ) : WorkerFactory {
 
-    override fun createWorker(workerClassName: String): Worker {
+    override fun createWorker(workerClassName: String): Worker? {
         for (factory in factories) {
             try {
-                return factory.createWorker(workerClassName)
+                val worker = factory.createWorker(workerClassName)
+                if (worker != null) return worker
             } catch (_: IllegalArgumentException) {
                 // This factory doesn't know this worker — try the next one
             }

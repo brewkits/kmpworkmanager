@@ -7,7 +7,7 @@ import org.koin.dsl.module
 /**
  * Koin dependency injection module for KMP WorkManager.
  *
- * v4.0.0+ Breaking Change: Now requires WorkerFactory parameter
+ * Breaking Change: Now requires WorkerFactory parameter
  *
  * Usage in your app:
  * ```kotlin
@@ -23,8 +23,8 @@ import org.koin.dsl.module
 /**
  * Creates a Koin module for KMP WorkManager with platform-specific scheduler and worker factory.
  *
- * v4.0.0+ Breaking Change: Now requires WorkerFactory parameter
- * v2.2.2+ New: Optional config parameter for logging configuration
+ * Breaking Change: Now requires WorkerFactory parameter
+ * New: Optional config parameter for logging configuration
  *
  * @param workerFactory User-provided factory for creating worker instances
  * @param config Configuration for logging and other settings. Default: KmpWorkManagerConfig()

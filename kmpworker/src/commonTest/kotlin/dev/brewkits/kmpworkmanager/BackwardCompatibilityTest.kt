@@ -12,7 +12,7 @@ import kotlin.test.assertNotNull
  * Backward compatibility tests for the current stable API surface.
  *
  * Note: Tests for deprecated triggers (StorageLow, BatteryLow, BatteryOkay, DeviceIdle)
- * were removed when those types were deleted from TaskTrigger in v2.3.7.
+ * were removed when those types were deleted from TaskTrigger
  * Use Constraints.systemConstraints with SystemConstraint instead.
  */
 class BackwardCompatibilityTest {

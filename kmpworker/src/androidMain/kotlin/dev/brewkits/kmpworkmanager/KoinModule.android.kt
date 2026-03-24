@@ -14,12 +14,12 @@ import org.koin.dsl.module
 /**
  * Android implementation of the Koin module.
  *
- * **⚠️ DEPRECATED in v2.2.2** - Use `KmpWorkManager.initialize()` instead
+ * **⚠️ DEPRECATED** - Use `KmpWorkManager.initialize()` instead
  *
- * v4.0.0+ Breaking Change: Now requires WorkerFactory parameter
- * v2.2.2+ DEPRECATED: Replaced with isolated Koin to prevent conflicts
+ * Breaking Change: Now requires WorkerFactory parameter
+ * DEPRECATED: Replaced with isolated Koin to prevent conflicts
  *
- * **Migration (v2.2.2+):**
+ * **Migration:**
  * ```kotlin
  * // OLD (causes Koin conflicts)
  * startKoin {
@@ -59,7 +59,7 @@ actual fun kmpWorkerModule(
     Logger.w(
         "KmpWorkManager",
         """
-        ⚠️ DEPRECATED: kmpWorkerModule() is deprecated in v2.2.2
+        ⚠️ DEPRECATED: kmpWorkerModule() is deprecated
 
         Using global Koin can cause conflicts with your app's Koin instance.
 

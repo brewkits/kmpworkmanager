@@ -21,8 +21,7 @@ import kotlin.concurrent.Volatile
  * }
  * ```
  *
- * @since 2.3.4
- * @since 2.3.7 Replaced `by lazy` with @Volatile var so close() + re-access
+ * Replaced `by lazy` with @Volatile var so close() + re-access
  *              creates a fresh client instead of silently returning a closed one.
  */
 object HttpClientProvider {

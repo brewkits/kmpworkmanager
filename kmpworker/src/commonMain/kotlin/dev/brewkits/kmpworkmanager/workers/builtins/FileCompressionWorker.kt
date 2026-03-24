@@ -82,7 +82,7 @@ class FileCompressionWorker : Worker {
  * Platform-specific compression function.
  * Must be implemented in androidMain and iosMain source sets.
  *
- * v2.3.0+: Returns WorkerResult with compression statistics
+ * Returns WorkerResult with compression statistics
  *
  * @param config Compression configuration
  * @return WorkerResult with compression details (original size, compressed size, compression ratio)

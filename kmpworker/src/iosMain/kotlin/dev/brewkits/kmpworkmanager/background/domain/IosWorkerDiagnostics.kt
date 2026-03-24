@@ -6,6 +6,7 @@ import platform.Foundation.NSFileManager
 import platform.Foundation.NSFileSystemFreeSize
 import platform.Foundation.NSNumber
 import platform.Foundation.NSProcessInfo
+import platform.Foundation.NSSelectorFromString
 import platform.Foundation.timeIntervalSince1970
 import platform.UIKit.UIDevice
 import platform.UIKit.UIDeviceBatteryState
@@ -13,7 +14,7 @@ import kotlinx.cinterop.*
 
 /**
  * iOS-specific diagnostics implementation
- * v2.2.2+ feature for debugging task execution
+ * feature for debugging task execution
  *
  * **iOS-specific health checks:**
  * - Low power mode detection (affects BGTask scheduling)
@@ -48,7 +49,10 @@ internal class IosWorkerDiagnostics(
                         batteryState == UIDeviceBatteryState.UIDeviceBatteryStateFull
 
         // Low power mode detection via NSProcessInfo (available iOS 9+)
-        val isLowPowerMode = NSProcessInfo.processInfo.lowPowerModeEnabled
+        @Suppress("UNCHECKED_CAST")
+        val isLowPowerMode = NSProcessInfo.processInfo.performSelector(
+            NSSelectorFromString("isLowPowerModeEnabled")
+        ) as? Boolean ?: false
 
         // Storage check
         val freeSpace = fileStorage.getAvailableDiskSpace()

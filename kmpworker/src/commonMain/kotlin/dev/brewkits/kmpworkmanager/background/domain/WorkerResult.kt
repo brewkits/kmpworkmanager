@@ -13,8 +13,8 @@ import kotlinx.serialization.json.put
  * - Pass output data back to the caller
  * - Control retry behavior
  *
- * v2.3.0+: Introduced to support returning data from workers
- * v2.3.7+: data changed from Map<String, Any?> to JsonObject for safe serialization
+ * Introduced to support returning data from workers
+ * data changed from Map<String, Any?> to JsonObject for safe serialization
  *
  * Example:
  * ```kotlin

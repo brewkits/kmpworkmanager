@@ -243,7 +243,7 @@ object SecurityValidator {
     /**
      * Validates that a file path doesn't contain path traversal attempts.
      *
-     * Checks performed (v2.3.7+):
+     * Checks performed:
      * - Blank / empty path
      * - Literal `..` segments
      * - URL-encoded `..` variants: `%2e%2e`, `%252e%252e` (double-encoded)

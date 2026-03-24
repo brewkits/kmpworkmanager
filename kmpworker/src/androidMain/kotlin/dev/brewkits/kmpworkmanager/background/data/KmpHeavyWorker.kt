@@ -58,7 +58,6 @@ import dev.brewkits.kmpworkmanager.utils.LogTags
  * )
  * ```
  *
- *
  * Android 14+ requires explicit foregroundServiceType declaration. The default is DATA_SYNC,
  * but if your app uses location tracking, media playback, or camera, you MUST specify the
  * correct type to avoid SecurityException crashes.
@@ -152,14 +151,36 @@ import dev.brewkits.kmpworkmanager.utils.LogTags
  * </application>
  * ```
  *
- * **v3.0.0+**: Moved to library (previously in composeApp only)
+ * Moved to library (previously in composeApp only)
  */
-class KmpHeavyWorker(
-    appContext: Context,
-    workerParams: WorkerParameters
-) : CoroutineWorker(appContext, workerParams) {
+class KmpHeavyWorker : CoroutineWorker {
 
-    private val workerFactory: AndroidWorkerFactory = KmpWorkManagerKoin.getKoin().get()
+    private val workerFactory: AndroidWorkerFactory
+
+    /**
+     * Preferred constructor — called by [KmpWorkerFactory].
+     * Receives [AndroidWorkerFactory] directly without a Service Locator lookup.
+     */
+    constructor(
+        appContext: Context,
+        workerParams: WorkerParameters,
+        workerFactory: AndroidWorkerFactory
+    ) : super(appContext, workerParams) {
+        this.workerFactory = workerFactory
+    }
+
+    /**
+     * Fallback constructor — used by WorkManager's default reflective factory when
+     * [KmpWorkerFactory] is not registered. Falls back to [KmpWorkManagerKoin].
+     *
+     * Prefer registering [KmpWorkerFactory] to eliminate this Koin dependency.
+     */
+    constructor(
+        appContext: Context,
+        workerParams: WorkerParameters
+    ) : super(appContext, workerParams) {
+        this.workerFactory = KmpWorkManagerKoin.getKoin().get()
+    }
 
     companion object {
         const val CHANNEL_ID = "kmp_heavy_worker_channel"
@@ -218,6 +239,31 @@ class KmpHeavyWorker(
         private const val DEFAULT_NOTIFICATION_TEXT = "Processing heavy task..."
     }
 
+    /**
+     * Resolves the worker's input JSON, handling overflow from cacheDir if needed.
+     * See [KmpWorker.resolveInputJson] for the overflow protocol.
+     */
+    private fun resolveInputJson(): String? {
+        val overflowPath = inputData.getString(NativeTaskScheduler.KEY_INPUT_JSON_FILE)
+        if (overflowPath != null) {
+            val file = java.io.File(overflowPath)
+            return try {
+                if (file.exists()) {
+                    val content = file.readText()
+                    file.delete()
+                    content
+                } else {
+                    Logger.w(LogTags.WORKER, "Overflow input file missing: $overflowPath")
+                    null
+                }
+            } catch (e: Exception) {
+                Logger.e(LogTags.WORKER, "Failed to read overflow input file: $overflowPath", e)
+                null
+            }
+        }
+        return inputData.getString(INPUT_JSON_KEY)
+    }
+
     override suspend fun doWork(): Result {
         Logger.i(LogTags.WORKER, "KmpHeavyWorker starting foreground service")
 
@@ -255,9 +301,9 @@ class KmpHeavyWorker(
             return Result.failure()
         }
 
-        // 2. Get worker class name and input
+        // 2. Get worker class name and input (resolveInputJson handles overflow files)
         val workerClassName = inputData.getString(WORKER_CLASS_KEY)
-        val inputJson = inputData.getString(INPUT_JSON_KEY)
+        val inputJson = resolveInputJson()
 
         if (workerClassName == null) {
             Logger.e(LogTags.WORKER, "KmpHeavyWorker missing workerClassName")
@@ -429,8 +475,8 @@ class KmpHeavyWorker(
     /**
      * Executes the actual heavy work by delegating to the specified worker class.
      *
-     * v1.0.0+: Now uses AndroidWorkerFactory from Koin
-     * v2.3.0+: Returns WorkerResult instead of Boolean
+     * Now uses AndroidWorkerFactory from Koin
+     * Returns WorkerResult instead of Boolean
      *
      * @param workerClassName Fully qualified worker class name
      * @param inputJson Optional JSON input data
@@ -439,6 +485,7 @@ class KmpHeavyWorker(
     private suspend fun executeHeavyWork(workerClassName: String, inputJson: String?): WorkerResult {
         return try {
             val worker = workerFactory.createWorker(workerClassName)
+                ?: return WorkerResult.Failure("Worker not found: $workerClassName")
             worker.doWork(inputJson)
         } catch (e: IllegalArgumentException) {
             Logger.e(LogTags.WORKER, "Worker not registered: $workerClassName — ${e.message}")
@@ -554,7 +601,6 @@ class KmpHeavyWorker(
 
     /**
      * Check if app has a specific permission
-     * v2.1.3+
      */
     private fun hasPermission(permission: String): Boolean {
         return applicationContext.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
