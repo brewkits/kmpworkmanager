@@ -257,6 +257,20 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             return
         }
 
+        // Runtime deadline guard for Windowed tasks.
+        // BGTaskScheduler is opportunistic — it may fire the task after 'latest'.
+        // If the business deadline has passed, skip execution to avoid stale work
+        // (e.g. pre-flight sync that runs after the plane has departed).
+        if let latestStr = taskMeta?["windowLatest"], let latestMs = Double(latestStr) {
+            let nowMs = Date().timeIntervalSince1970 * 1000
+            if nowMs > latestMs {
+                let overdueSeconds = Int((nowMs - latestMs) / 1000)
+                print("⚠️ iOS BGTask: DEADLINE_MISSED — Windowed task '\(taskId)' ran \(overdueSeconds)s past its 'latest' deadline. Skipping worker execution to prevent stale work.")
+                task.setTaskCompleted(success: false)
+                return
+            }
+        }
+
         // Execute the task using the KMP SingleTaskExecutor
         let executor = koinIos.getSingleTaskExecutor()
         Task {

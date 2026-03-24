@@ -9,7 +9,7 @@ import kotlin.test.*
 import kotlin.time.TimeSource
 
 /**
- * v2.1.0: Performance benchmark comparing old O(N) vs new O(1) queue implementation
+ * Performance benchmark comparing old O(N) vs new O(1) queue implementation
  *
  * This test demonstrates the performance improvement from AppendOnlyQueue integration.
  * Results should show significant improvement for queue sizes > 100 items.
@@ -41,7 +41,7 @@ class QueuePerformanceBenchmark {
         }
 
         val duration = startTime.elapsedNow()
-        println("✅ v2.1.0: Enqueued 100 chains in ${duration.inWholeMilliseconds}ms (was ~1000ms before)")
+        println("✅ Enqueued 100 chains in ${duration.inWholeMilliseconds}ms (was ~1000ms before)")
 
         // Just verify it's reasonably fast - don't enforce strict limits
         assertTrue(duration.inWholeMilliseconds < 500, "Expected <500ms, got ${duration.inWholeMilliseconds}ms")
@@ -61,7 +61,7 @@ class QueuePerformanceBenchmark {
         }
 
         val duration = startTime.elapsedNow()
-        println("✅ v2.1.0: Dequeued 100 chains in ${duration.inWholeMilliseconds}ms (was ~5000ms before)")
+        println("✅ Dequeued 100 chains in ${duration.inWholeMilliseconds}ms (was ~5000ms before)")
 
         // Just verify it's reasonably fast
         assertTrue(duration.inWholeMilliseconds < 2000, "Expected <2s, got ${duration.inWholeMilliseconds}ms")
@@ -92,7 +92,7 @@ class QueuePerformanceBenchmark {
         }
 
         val duration = startTime.elapsedNow()
-        println("✅ v2.1.0: Mixed 400 enqueue + 300 dequeue in ${duration.inWholeMilliseconds}ms (was ~30s+ before)")
+        println("✅ Mixed 400 enqueue + 300 dequeue in ${duration.inWholeMilliseconds}ms (was ~30s+ before)")
 
         // Just verify it's reasonably fast
         assertTrue(duration.inWholeMilliseconds < 5000, "Expected <5s, got ${duration.inWholeSeconds}s")
@@ -115,7 +115,7 @@ class QueuePerformanceBenchmark {
         val duration = startTime.elapsedNow()
         println("✅ Called getQueueSize() 100 times on 500-item queue in ${duration.inWholeMilliseconds}ms")
 
-        // v2.1.0: Should be fast (O(1) operation)
+        // Should be fast (O(1) operation)
         assertTrue(duration.inWholeMilliseconds < 500, "Expected <500ms, got ${duration.inWholeMilliseconds}ms")
     }
 
@@ -143,11 +143,11 @@ class QueuePerformanceBenchmark {
         }
         val duration200 = start200.elapsedNow().inWholeMilliseconds
 
-        println("✅ v2.1.0: 100 dequeues: ${duration100}ms | 200 dequeues: ${duration200}ms")
+        println("✅ 100 dequeues: ${duration100}ms | 200 dequeues: ${duration200}ms")
         println("   Ratio: ${duration200.toDouble() / duration100} (should be ~2 for O(1), was ~10+ for O(N))")
 
         // Just print the results - don't enforce strict assertions
-        // v2.1.0: Ratio should be close to 2 (linear growth with operations count)
+        // Ratio should be close to 2 (linear growth with operations count)
         // Old O(N): Ratio would be ~4-10 (queue size dependent)
     }
 }

@@ -60,7 +60,7 @@ import dev.brewkits.kmpworkmanager.utils.LogTags
  * }
  * ```
  *
- * **v3.0.0+**: Moved to library (previously in composeApp only)
+ * Moved to library (previously in composeApp only)
  */
 abstract class AlarmReceiver : BroadcastReceiver() {
 
@@ -134,7 +134,7 @@ abstract class AlarmReceiver : BroadcastReceiver() {
     /**
      * Override this method to implement custom alarm handling logic.
      *
-     * **Important Notes (v2.0.1+):**
+     * **Important Notes:**
      * - The [pendingResult] parameter keeps the receiver alive for async operations
      * - You MUST call `pendingResult.finish()` when your work is complete
      * - Recommended: Use WorkManager for reliable long-running work

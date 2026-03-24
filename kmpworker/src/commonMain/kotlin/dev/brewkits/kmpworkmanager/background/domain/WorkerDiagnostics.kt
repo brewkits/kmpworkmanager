@@ -2,7 +2,7 @@ package dev.brewkits.kmpworkmanager.background.domain
 
 /**
  * Worker diagnostics interface for debugging "why didn't my task run?"
- * v2.2.2+ feature to improve developer experience
+ * feature to improve developer experience
  *
  * **Use cases:**
  * - Debug screen in sample app

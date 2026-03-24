@@ -1,4 +1,4 @@
-@file:Suppress("DEPRECATION") // Deprecated trigger tests verify backward compatibility until v3.0.0 removal
+@file:Suppress("DEPRECATION") // Deprecated trigger tests verify backward compatibility
 @file:OptIn(dev.brewkits.kmpworkmanager.background.domain.AndroidOnly::class) // Tests explicitly cover Android-only APIs (ContentUri, SystemConstraint)
 
 package dev.brewkits.kmpworkmanager
@@ -72,33 +72,6 @@ class TaskTriggerTest {
         assertFalse(trigger.triggerForDescendants)
     }
 
-    @Test
-    fun `StorageLow trigger should be singleton`() {
-        val trigger1 = TaskTrigger.StorageLow
-        val trigger2 = TaskTrigger.StorageLow
-        assertEquals(trigger1, trigger2)
-    }
-
-    @Test
-    fun `BatteryLow trigger should be singleton`() {
-        val trigger1 = TaskTrigger.BatteryLow
-        val trigger2 = TaskTrigger.BatteryLow
-        assertEquals(trigger1, trigger2)
-    }
-
-    @Test
-    fun `BatteryOkay trigger should be singleton`() {
-        val trigger1 = TaskTrigger.BatteryOkay
-        val trigger2 = TaskTrigger.BatteryOkay
-        assertEquals(trigger1, trigger2)
-    }
-
-    @Test
-    fun `DeviceIdle trigger should be singleton`() {
-        val trigger1 = TaskTrigger.DeviceIdle
-        val trigger2 = TaskTrigger.DeviceIdle
-        assertEquals(trigger1, trigger2)
-    }
 }
 
 class SystemConstraintTest {

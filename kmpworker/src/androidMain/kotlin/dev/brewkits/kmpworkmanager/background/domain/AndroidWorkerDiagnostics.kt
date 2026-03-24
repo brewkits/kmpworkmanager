@@ -15,7 +15,7 @@ import androidx.work.WorkManager
 
 /**
  * Android-specific diagnostics implementation
- * v2.2.2+ feature for debugging task execution
+ * feature for debugging task execution
  *
  * **Android-specific health checks:**
  * - Doze mode detection (affects WorkManager scheduling)
@@ -67,7 +67,7 @@ class AndroidWorkerDiagnostics(
 
     override suspend fun getTaskStatus(id: String): TaskStatusDetail? {
         // Try lookup by UUID first (for tasks enqueued without a unique name)
-        val workInfo: WorkInfo? = try {
+        val workInfo = try {
             workManager.getWorkInfoById(java.util.UUID.fromString(id)).get()
         } catch (_: IllegalArgumentException) {
             // id is not a UUID — fall through to named work lookup

@@ -35,7 +35,7 @@ class SingleTaskExecutor(private val workerFactory: IosWorkerFactory) {
     /**
      * Creates and runs a worker based on its class name with timeout protection.
      *
-     * v2.3.0+: Returns WorkerResult with data instead of Boolean
+     * Returns WorkerResult with data instead of Boolean
      *
      * @param workerClassName The fully qualified name of the worker class.
      * @param input Optional input data for the worker.
@@ -54,6 +54,11 @@ class SingleTaskExecutor(private val workerFactory: IosWorkerFactory) {
         } catch (e: IllegalArgumentException) {
             Logger.e(LogTags.WORKER, "Worker not registered: $workerClassName — ${e.message}")
             val result = WorkerResult.Failure("Worker not registered: $workerClassName")
+            emitEvent(workerClassName, result)
+            return result
+        } ?: run {
+            Logger.e(LogTags.WORKER, "Worker not found: $workerClassName")
+            val result = WorkerResult.Failure("Worker not found: $workerClassName")
             emitEvent(workerClassName, result)
             return result
         }
@@ -98,7 +103,7 @@ class SingleTaskExecutor(private val workerFactory: IosWorkerFactory) {
     /**
      * Emit task completion event to TaskEventBus for UI notification
      *
-     * v2.3.0+: Emits both success and failure events with outputData
+     * Emits both success and failure events with outputData
      */
     private fun emitEvent(workerClassName: String, result: WorkerResult) {
         coroutineScope.launch(Dispatchers.Main) {

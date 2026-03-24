@@ -27,7 +27,6 @@ import dev.brewkits.kmpworkmanager.background.domain.TaskTrigger
  * assertTrue(fakeScheduler.cancelledIds.isEmpty())
  * ```
  *
- * @since 2.3.7
  */
 class FakeBackgroundTaskScheduler(
     /** Default result returned by [enqueue]. Override per test if needed. */

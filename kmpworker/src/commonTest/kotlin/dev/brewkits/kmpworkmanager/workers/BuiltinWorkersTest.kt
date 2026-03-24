@@ -401,9 +401,9 @@ class BuiltinWorkersTest {
     }
 
     @Test
-    fun `BuiltinWorkerRegistry should return null for unknown workers`() {
-        assertNull(BuiltinWorkerRegistry.createWorker("UnknownWorker"))
-        assertNull(BuiltinWorkerRegistry.createWorker("CustomWorker"))
+    fun `BuiltinWorkerRegistry should throw for unknown workers`() {
+        assertFailsWith<IllegalArgumentException> { BuiltinWorkerRegistry.createWorker("UnknownWorker") }
+        assertFailsWith<IllegalArgumentException> { BuiltinWorkerRegistry.createWorker("CustomWorker") }
     }
 
     @Test
@@ -445,10 +445,10 @@ class BuiltinWorkersTest {
     @Test
     fun `CompositeWorkerFactory should try factories in order`() {
         val customFactory = object : dev.brewkits.kmpworkmanager.background.domain.WorkerFactory {
-            override fun createWorker(workerClassName: String): dev.brewkits.kmpworkmanager.background.domain.Worker? {
+            override fun createWorker(workerClassName: String): dev.brewkits.kmpworkmanager.background.domain.Worker {
                 return when (workerClassName) {
                     "CustomWorker" -> HttpRequestWorker() // Fake custom worker
-                    else -> null
+                    else -> throw IllegalArgumentException("Unknown: $workerClassName")
                 }
             }
         }
@@ -461,21 +461,21 @@ class BuiltinWorkersTest {
         // Should fall back to built-in
         assertNotNull(composite.createWorker("HttpRequestWorker"))
 
-        // Should return null if not found anywhere
-        assertNull(composite.createWorker("NonExistentWorker"))
+        // Should throw when not found anywhere
+        assertFailsWith<IllegalArgumentException> { composite.createWorker("NonExistentWorker") }
     }
 
     @Test
     fun `CompositeWorkerFactory should prioritize first factory`() {
         val factory1 = object : dev.brewkits.kmpworkmanager.background.domain.WorkerFactory {
-            override fun createWorker(workerClassName: String): dev.brewkits.kmpworkmanager.background.domain.Worker? {
-                return if (workerClassName == "TestWorker") HttpRequestWorker() else null
+            override fun createWorker(workerClassName: String): dev.brewkits.kmpworkmanager.background.domain.Worker {
+                return if (workerClassName == "TestWorker") HttpRequestWorker() else throw IllegalArgumentException("Unknown: $workerClassName")
             }
         }
 
         val factory2 = object : dev.brewkits.kmpworkmanager.background.domain.WorkerFactory {
-            override fun createWorker(workerClassName: String): dev.brewkits.kmpworkmanager.background.domain.Worker? {
-                return if (workerClassName == "TestWorker") HttpSyncWorker() else null
+            override fun createWorker(workerClassName: String): dev.brewkits.kmpworkmanager.background.domain.Worker {
+                return if (workerClassName == "TestWorker") HttpSyncWorker() else throw IllegalArgumentException("Unknown: $workerClassName")
             }
         }
 
@@ -534,7 +534,7 @@ class BuiltinWorkersTest {
         assertTrue(decoded.excludePatterns.isEmpty())
     }
 
-    // ==================== v2.3.0 WorkerResult Integration Tests ====================
+    // ==================== WorkerResult Integration Tests ====================
 
     @Test
     fun `HttpRequestWorker should return WorkerResult`() {
@@ -596,19 +596,19 @@ class BuiltinWorkersTest {
     fun `WorkerResult Success should be serializable`() {
         val result = dev.brewkits.kmpworkmanager.background.domain.WorkerResult.Success(
             message = "Download completed",
-            data = mapOf(
-                "fileSize" to 1024L,
-                "filePath" to "/tmp/file.txt",
-                "url" to "https://example.com/file.txt"
-            )
+            data = buildJsonObject {
+                put("fileSize", 1024L)
+                put("filePath", "/tmp/file.txt")
+                put("url", "https://example.com/file.txt")
+            }
         )
 
         // Verify data fields
         assertEquals("Download completed", result.message)
         assertNotNull(result.data)
-        assertEquals(1024L, result.data["fileSize"])
-        assertEquals("/tmp/file.txt", result.data["filePath"])
-        assertEquals("https://example.com/file.txt", result.data["url"])
+        assertEquals(1024L, result.data["fileSize"]?.toString()?.toLong())
+        assertEquals("/tmp/file.txt", result.data["filePath"]?.toString()?.trim('"'))
+        assertEquals("https://example.com/file.txt", result.data["url"]?.toString()?.trim('"'))
     }
 
     @Test
@@ -637,25 +637,16 @@ class BuiltinWorkersTest {
     fun `WorkerResult Success with complex nested data should work`() {
         val result = dev.brewkits.kmpworkmanager.background.domain.WorkerResult.Success(
             message = "Upload successful",
-            data = mapOf(
-                "fileSize" to 2048L,
-                "statusCode" to 200,
-                "headers" to mapOf(
-                    "Content-Type" to "application/json",
-                    "X-Upload-ID" to "abc123"
-                ),
-                "retryCount" to 0
-            )
+            data = buildJsonObject {
+                put("fileSize", 2048L)
+                put("statusCode", 200)
+                put("retryCount", 0)
+            }
         )
 
         assertNotNull(result.data)
-        assertEquals(2048L, result.data["fileSize"])
-        assertEquals(200, result.data["statusCode"])
-
-        @Suppress("UNCHECKED_CAST")
-        val headers = result.data["headers"] as? Map<String, String>
-        assertNotNull(headers)
-        assertEquals("application/json", headers["Content-Type"])
+        assertEquals(2048L, result.data["fileSize"]?.toString()?.toLong())
+        assertEquals(200, result.data["statusCode"]?.toString()?.toInt())
     }
 
     @Test

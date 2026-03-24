@@ -19,15 +19,18 @@ package dev.brewkits.kmpworkmanager.background.domain
  * }
  * ```
  *
- * v1.0.0+: Required for registering custom workers with KMP WorkManager
+ * Required for registering custom workers with KMP WorkManager
  */
 interface AndroidWorkerFactory : dev.brewkits.kmpworkmanager.background.domain.WorkerFactory {
     /**
      * Creates an Android worker instance based on the class name.
      *
+     * Return `null` to signal that this factory does not handle [workerClassName],
+     * allowing the caller to fall through to another factory or fail gracefully.
+     * Throw [IllegalArgumentException] only when the class name is known but invalid.
+     *
      * @param workerClassName The fully qualified class name or simple name
-     * @return AndroidWorker instance — never null
-     * @throws IllegalArgumentException if [workerClassName] is not registered
+     * @return AndroidWorker instance, or null if this factory does not handle the class name
      */
-    override fun createWorker(workerClassName: String): AndroidWorker
+    override fun createWorker(workerClassName: String): AndroidWorker?
 }

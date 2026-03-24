@@ -13,6 +13,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.yield
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -21,9 +22,9 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
- * v2.3.6 Bug Fixes — Documentation and Regression Tests
+ * Bug Fixes — Documentation and Regression Tests
  *
- * Documents and verifies all 8 critical bug fixes shipped in v2.3.6:
+ * Documents and verifies all 8 critical bug fixes shipped:
  *
  * **ChainExecutor (iOS) — CE-1, CE-2, CE-3:**
  *   - CE-1: withTimeout return value was discarded → chain success/failure not tracked
@@ -177,6 +178,7 @@ class V236BugFixesTest {
                         throw e // Critical: must rethrow
                     }
                 }
+                yield() // Allow launched coroutine to start and suspend at delay
                 job.cancel() // Cancel the job (like BGTask expiry signal)
                 job.join()
             }
@@ -567,7 +569,7 @@ class V236BugFixesTest {
 
     @Test
     fun `V236 - all fixes are verified and production ready`() {
-        // v2.3.6 Release Summary:
+        // Release Summary:
         //
         // Fix CE-1: ChainExecutor withTimeout return value captured
         //   Fixes: Chain always reported success=false after execution regardless of actual outcome
@@ -604,6 +606,6 @@ class V236BugFixesTest {
         //   Impact: Offline-capable chains now execute correctly on iOS
         //   Backward compatible: yes
 
-        assertTrue(true, "v2.3.6 all fixes verified and production ready")
+        assertTrue(true, "all fixes verified and production ready")
     }
 }
