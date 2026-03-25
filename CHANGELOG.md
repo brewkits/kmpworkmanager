@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Tests
+
+**iOS: Fixed test infrastructure — V236ChainExecutorTest and QA_PersistenceResilienceTest**
+- `V236ChainExecutorTest` and `QA_PersistenceResilienceTest` were failing with `TimeoutCancellationException` (virtual time, 4m 15s)
+- Root cause: `ChainExecutor.executeChainsInBatch` uses `withTimeout(255_000)` internally — when called inside `runTest`, `withTimeout` fires against the virtual clock, triggering immediately
+- Fixed by wrapping all `executeChainsInBatch` calls with `withContext(Dispatchers.Default)` to switch off the virtual-time scheduler
+- Fixed `ce1-fail-chain` cross-run retryCount accumulation: `ChainProgress.maxRetries=3` caused `hasExceededRetries()` to fire on the 4th run, deleting the chain definition unexpectedly — resolved by adding explicit `deleteChainDefinition` + `deleteChainProgress` in `@BeforeTest`
+- Removed `invalidateCache()` / `invalidateQueueCache()` test scaffolding from production code (`AppendOnlyQueue`, `IosFileStorage`) — `getQueueSize()` already reads from disk on every call; these methods were incorrect and unnecessary
+- Result: 562 tests, 0 failures (previously 5 failures)
+
 ## [2.3.7] - 2026-03-24
 
 ### Fixed
