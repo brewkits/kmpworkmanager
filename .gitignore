@@ -41,6 +41,7 @@ DEPLOYMENT_GUIDE.md
 # Internal working docs (not shipped with the library)
 internal-docs/
 docs/internal/
+docs/archive/
 
 # Internal documentation (notes for development only)
 FIXES_SUMMARY.md

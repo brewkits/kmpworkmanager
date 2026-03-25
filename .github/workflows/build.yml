@@ -1,4 +1,4 @@
-name: Build and Test
+name: CI
 
 on:
   push:
@@ -7,35 +7,45 @@ on:
     branches: [ main ]
 
 jobs:
-  build:
+  test:
     runs-on: macos-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Set up JDK 17
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
 
-    - name: Grant execute permission for gradlew
-      run: chmod +x gradlew
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
 
-    - name: Build library
-      run: ./gradlew :kmpworker:build
+      - name: Build library
+        run: ./gradlew :kmpworker:build
 
-    - name: Build demo app (Android)
-      run: ./gradlew :composeApp:assembleDebug
+      - name: Run tests
+        run: ./gradlew :kmpworker:allTests
 
-    - name: Run tests
-      run: ./gradlew :kmpworker:test
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            kmpworker/build/reports/tests/
+            kmpworker/build/test-results/
+          retention-days: 7
 
-    - name: Upload build artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: build-artifacts
-        path: |
-          kmpworker/build/libs/
-          kmpworker/build/outputs/aar/
+      - name: Build demo app (Android)
+        run: ./gradlew :composeApp:assembleDebug
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts
+          path: |
+            kmpworker/build/libs/
+            kmpworker/build/outputs/aar/
