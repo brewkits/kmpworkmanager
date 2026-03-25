@@ -104,7 +104,16 @@ internal class IosFileStorage(
         // Create queue subdirectory for better organization
         val queueDirURL = baseDir.safeAppend("queue")
         ensureDirectoryExists(queueDirURL)
-        AppendOnlyQueue(queueDirURL)
+        
+        // Auto-detect test mode based on process name
+        val processName = NSProcessInfo.processInfo.processName
+        val isTest = processName.endsWith("test.kexe")
+        
+        AppendOnlyQueue(
+            baseDirectoryURL = queueDirURL,
+            compactionScope = backgroundScope,
+            isTestMode = isTest
+        )
     }
 
     // ==================== Lock-Ordering Invariant ====================

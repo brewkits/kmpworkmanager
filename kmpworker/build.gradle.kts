@@ -13,7 +13,7 @@ plugins {
 }
 
 group = "dev.brewkits"
-version = "2.3.7"
+version = rootProject.findProperty("VERSION_NAME") as String
 
 kotlin {
     androidTarget()
@@ -123,7 +123,7 @@ afterEvaluate {
             withType<MavenPublication> {
                 groupId = "dev.brewkits"
                 artifactId = artifactId.replace("kmpworker", "kmpworkmanager")
-                version = "2.3.7"
+                version = rootProject.findProperty("VERSION_NAME") as String
 
                 pom {
                     name.set("KMP WorkManager")

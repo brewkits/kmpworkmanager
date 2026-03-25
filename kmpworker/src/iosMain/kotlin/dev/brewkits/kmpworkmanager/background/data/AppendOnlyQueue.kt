@@ -50,7 +50,8 @@ import dev.brewkits.kmpworkmanager.utils.crc32
 @OptIn(ExperimentalForeignApi::class)
 internal class AppendOnlyQueue(
     private val baseDirectoryURL: NSURL,
-    private val compactionScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val compactionScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+    private val isTestMode: Boolean = false
 ) {
     private val queueMutex = Mutex()
     private val fileManager = NSFileManager.defaultManager
@@ -106,15 +107,17 @@ internal class AppendOnlyQueue(
         // Auto-migrate from old format if needed
         migrateQueueIfNeeded()
 
-        // Load persisted index for O(1) startup
-        val savedIndex = queueIndex.loadIndex()
-        if (savedIndex.isNotEmpty()) {
-            linePositionCache.putAll(savedIndex)
-            cacheValid = true
-            Logger.i(
-                LogTags.QUEUE,
-                "🚀 Queue index loaded: ${savedIndex.size} entries - O(1) startup! (40x faster)"
-            )
+        // Load persisted index for O(1) startup (skip in test mode to prevent contamination)
+        if (!isTestMode) {
+            val savedIndex = queueIndex.loadIndex()
+            if (savedIndex.isNotEmpty()) {
+                linePositionCache.putAll(savedIndex)
+                cacheValid = true
+                Logger.i(
+                    LogTags.QUEUE,
+                    "🚀 Queue index loaded: ${savedIndex.size} entries - O(1) startup! (40x faster)"
+                )
+            }
         }
     }
 
@@ -369,6 +372,8 @@ internal class AppendOnlyQueue(
      * Non-blocking - runs in background scope
      */
     private fun saveIndexAsync() {
+        if (isTestMode) return // Don't save index in test mode to prevent data contamination
+        
         val snapshot = HashMap(linePositionCache) // snapshot while caller holds queueMutex
         compactionScope.launch {
             try {
