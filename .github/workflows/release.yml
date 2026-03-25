@@ -1,0 +1,194 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump_type:
+        description: 'Version bump type'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      dry_run:
+        description: 'Dry run — build bundle but do NOT commit/tag/release'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history required for git-cliff CHANGELOG
+
+      # ── 2. Java ───────────────────────────────────────────────────────────────
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      # ── 3. Compute new version ────────────────────────────────────────────────
+      - name: Compute new version
+        id: version
+        run: |
+          CURRENT=$(grep '^VERSION_NAME=' gradle.properties | cut -d= -f2)
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+          case "${{ inputs.bump_type }}" in
+            major) NEW="$((MAJOR + 1)).0.0" ;;
+            minor) NEW="${MAJOR}.$((MINOR + 1)).0" ;;
+            patch) NEW="${MAJOR}.${MINOR}.$((PATCH + 1))" ;;
+          esac
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "new=$NEW"         >> "$GITHUB_OUTPUT"
+          echo "tag=v${NEW}"      >> "$GITHUB_OUTPUT"
+          echo "bump_type=${{ inputs.bump_type }}" >> "$GITHUB_OUTPUT"
+          echo "Bumping $CURRENT → $NEW (${{ inputs.bump_type }})"
+
+      # ── 4. Bump version in gradle.properties ─────────────────────────────────
+      - name: Bump version
+        run: |
+          sed -i '' "s/^VERSION_NAME=.*/VERSION_NAME=${{ steps.version.outputs.new }}/" gradle.properties
+          echo "gradle.properties now contains:"
+          grep VERSION_NAME gradle.properties
+
+      # ── 5. Generate CHANGELOG with git-cliff ─────────────────────────────────
+      - name: Install git-cliff
+        run: brew install git-cliff
+
+      - name: Generate CHANGELOG
+        run: |
+          git-cliff \
+            --config cliff.toml \
+            --tag "${{ steps.version.outputs.tag }}" \
+            --output CHANGELOG.md
+          echo "--- CHANGELOG preview (first 60 lines) ---"
+          head -60 CHANGELOG.md
+
+      # ── 6. Commit + tag (skip on dry run) ────────────────────────────────────
+      - name: Commit and tag
+        if: ${{ inputs.dry_run == false }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add gradle.properties CHANGELOG.md
+          git commit -m "release: ${{ steps.version.outputs.tag }}"
+          git tag "${{ steps.version.outputs.tag }}"
+          git push origin HEAD:main
+          git push origin "${{ steps.version.outputs.tag }}"
+
+      # ── 7. Build + sign all publications → local staging ─────────────────────
+      - name: Build and sign (publish to local staging)
+        env:
+          SIGNING_KEY:      ${{ secrets.SIGNING_KEY_BASE64 }}
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+        run: |
+          ./gradlew :kmpworker:publishAllPublicationsToMavenCentralLocalRepository \
+            -Psigning.key="$SIGNING_KEY" \
+            -Psigning.password="$SIGNING_PASSWORD" \
+            --no-configuration-cache
+
+      # ── 8. Generate checksums (MD5 + SHA1) ───────────────────────────────────
+      - name: Generate checksums
+        run: ./gradlew :kmpworker:generateChecksums --no-configuration-cache
+
+      # ── 9. Create Maven bundle ZIP ───────────────────────────────────────────
+      - name: Create Maven bundle ZIP
+        id: bundle
+        run: |
+          VERSION="${{ steps.version.outputs.new }}"
+          BUNDLE_NAME="kmpworkmanager-${VERSION}-maven-bundle.zip"
+          STAGING_DIR="kmpworker/build/maven-central-staging"
+
+          # Verify staging dir exists and contains expected structure
+          if [ ! -d "${STAGING_DIR}/dev/brewkits" ]; then
+            echo "ERROR: staging dir missing: ${STAGING_DIR}/dev/brewkits"
+            ls -la "${STAGING_DIR}" || true
+            exit 1
+          fi
+
+          # Count artifacts and signatures
+          ARTIFACTS=$(find "${STAGING_DIR}/dev/brewkits" -type f \
+            \( -name "*.jar" -o -name "*.aar" -o -name "*.klib" \
+               -o -name "*.pom" -o -name "*.module" -o -name "*.json" \) \
+            ! -name "*.asc" | wc -l | tr -d ' ')
+          SIGNATURES=$(find "${STAGING_DIR}/dev/brewkits" -type f -name "*.asc" | wc -l | tr -d ' ')
+          CHECKSUMS=$(find "${STAGING_DIR}/dev/brewkits" -type f \
+            \( -name "*.md5" -o -name "*.sha1" \) | wc -l | tr -d ' ')
+
+          echo "Artifacts:  $ARTIFACTS"
+          echo "Signatures: $SIGNATURES"
+          echo "Checksums:  $CHECKSUMS"
+
+          if [ "$ARTIFACTS" -ne "$SIGNATURES" ]; then
+            echo "ERROR: artifact count ($ARTIFACTS) != signature count ($SIGNATURES)"
+            exit 1
+          fi
+
+          # Create ZIP
+          cd "${STAGING_DIR}"
+          zip -q -r "${BUNDLE_NAME}" dev/
+          cd "$GITHUB_WORKSPACE"
+
+          BUNDLE_PATH="$GITHUB_WORKSPACE/${BUNDLE_NAME}"
+          cp "${STAGING_DIR}/${BUNDLE_NAME}" "${BUNDLE_PATH}"
+
+          BUNDLE_SIZE=$(du -h "${BUNDLE_PATH}" | cut -f1)
+          TOTAL_FILES=$(unzip -l "${BUNDLE_PATH}" | tail -1 | awk '{print $2}')
+
+          echo "bundle_name=${BUNDLE_NAME}"   >> "$GITHUB_OUTPUT"
+          echo "bundle_path=${BUNDLE_PATH}"   >> "$GITHUB_OUTPUT"
+          echo "bundle_size=${BUNDLE_SIZE}"   >> "$GITHUB_OUTPUT"
+          echo "total_files=${TOTAL_FILES}"   >> "$GITHUB_OUTPUT"
+          echo "artifacts=${ARTIFACTS}"       >> "$GITHUB_OUTPUT"
+          echo "signatures=${SIGNATURES}"     >> "$GITHUB_OUTPUT"
+
+          echo "Bundle created: ${BUNDLE_NAME} (${BUNDLE_SIZE}, ${TOTAL_FILES} files)"
+
+      # ── 10. Upload bundle as workflow artifact (always, including dry run) ────
+      - name: Upload bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.bundle.outputs.bundle_name }}
+          path: ${{ steps.bundle.outputs.bundle_path }}
+          retention-days: 30
+
+      # ── 11. Create GitHub Release with bundle attached (skip on dry run) ──────
+      - name: Create GitHub Release
+        if: ${{ inputs.dry_run == false }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
+          body: |
+            ## Upload to Maven Central
+
+            1. Download **`${{ steps.bundle.outputs.bundle_name }}`** from the assets below
+            2. Go to https://central.sonatype.com/ → **Publish** → **Upload Bundle**
+            3. Upload the ZIP — validation takes ~1-2 minutes
+            4. Click **Publish** — available on Maven Central in ~15-30 minutes
+
+            ```kotlin
+            implementation("dev.brewkits:kmpworkmanager:${{ steps.version.outputs.new }}")
+            ```
+
+            ---
+            Bundle: `${{ steps.bundle.outputs.bundle_name }}`
+            Size: ${{ steps.bundle.outputs.bundle_size }} · Files: ${{ steps.bundle.outputs.total_files }} · Signed: ${{ steps.bundle.outputs.signatures }} .asc
+          files: ${{ steps.bundle.outputs.bundle_path }}
+          draft: false
+          prerelease: false

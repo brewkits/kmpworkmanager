@@ -8,12 +8,15 @@ import dev.brewkits.kmpworkmanager.background.data.IosWorker
 import dev.brewkits.kmpworkmanager.background.data.IosWorkerFactory
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -61,8 +64,13 @@ class V236ChainExecutorTest {
     @BeforeTest
     fun setup() = runTest {
         storage = IosFileStorage()
-        // Drain queue from any previous test
+        // Drain queue and reset chain state from any previous test run.
+        // "ce1-fail-chain" intentionally fails; its progress/definition persists on disk and
+        // accumulates retryCount across runs. Without cleanup, hasExceededRetries() fires on
+        // run 4, causing the executor to delete the definition — breaking assertNotNull(chainDef).
         while (storage.dequeueChain() != null) { /* drain */ }
+        storage.deleteChainDefinition("ce1-fail-chain")
+        storage.deleteChainProgress("ce1-fail-chain")
     }
 
     @AfterTest
@@ -89,7 +97,7 @@ class V236ChainExecutorTest {
 
         assertEquals(1, storage.getQueueSize(), "Chain enqueued")
 
-        val executed = executor.executeChainsInBatch(maxChains = 1)
+        val executed = withContext(Dispatchers.Default) { executor.executeChainsInBatch(maxChains = 1) }
         assertEquals(1, executed, "One chain attempted")
 
         // CE-1 fix: since workers all succeed, chain should be cleaned up
@@ -110,14 +118,14 @@ class V236ChainExecutorTest {
         storage.saveChainDefinition(chainId, steps)
         storage.enqueueChain(chainId)
 
-        val executed = executor.executeChainsInBatch(maxChains = 1)
-        assertEquals(1, executed, "One chain attempted")
+        val succeeded = withContext(Dispatchers.Default) { executor.executeChainsInBatch(maxChains = 1) }
+        // executeChainsInBatch returns chainsSucceeded (not chainsAttempted); failed chain → 0
+        assertEquals(0, succeeded, "Failed chain must not count as succeeded")
 
-        // When a step fails, chain is not dequeued — progress saved for retry
-        // The chain definition should still exist for future retry
+        // CE-1 fix: chainSucceeded correctly = false on failure → deleteChainDefinition NOT called
+        // Chain definition must be preserved on disk for future retry/recovery
         val chainDef = storage.loadChainDefinition(chainId)
-        assertTrue(chainDef != null || storage.getQueueSize() >= 0,
-            "Failed chain progress is preserved for retry")
+        assertNotNull(chainDef, "Failed chain definition must be preserved for retry (CE-1: no false cleanup)")
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -140,7 +148,7 @@ class V236ChainExecutorTest {
 
         assertEquals(2, storage.getQueueSize(), "2 chains in queue")
 
-        val executed = executor.executeChainsInBatch(maxChains = 10)
+        val executed = withContext(Dispatchers.Default) { executor.executeChainsInBatch(maxChains = 10) }
 
         // CE-3 fix: loop breaks when queue is empty (after 2 chains), not continues 10 iterations
         // Executed should be 2, not 10 (would timeout or over-count without the fix)
@@ -208,7 +216,7 @@ class V236ChainExecutorTest {
             storage.enqueueChain(chainId)
         }
 
-        val executed = executor.executeChainsInBatch(maxChains = 10)
+        val executed = withContext(Dispatchers.Default) { executor.executeChainsInBatch(maxChains = 10) }
 
         // CE-3: loop stopped at chainCount (queue empty), not maxChains
         assertTrue(executed <= chainCount, "Batch stopped at queue size (CE-3)")
