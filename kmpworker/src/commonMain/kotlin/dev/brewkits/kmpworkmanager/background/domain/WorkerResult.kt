@@ -46,12 +46,10 @@ sealed class WorkerResult {
      * @param message Optional success message
      * @param data Optional output data to be passed to listeners via TaskCompletionEvent.
      *             Use [buildJsonObject] to construct: `buildJsonObject { put("key", value) }`
-     * @param dataClass Optional hint for the data class name (for future typed deserialization)
      */
     data class Success(
         val message: String? = null,
-        val data: JsonObject? = null,
-        val dataClass: String? = null
+        val data: JsonObject? = null
     ) : WorkerResult()
 
     /**

@@ -3,6 +3,7 @@ package dev.brewkits.kmpworkmanager.background.data
 import dev.brewkits.kmpworkmanager.background.domain.BGTaskType
 import dev.brewkits.kmpworkmanager.background.domain.TaskCompletionEvent
 import dev.brewkits.kmpworkmanager.background.domain.TaskEventBus
+import dev.brewkits.kmpworkmanager.background.domain.TaskProgressBus
 import dev.brewkits.kmpworkmanager.background.domain.TaskRequest
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.utils.Logger
@@ -984,6 +985,8 @@ class ChainExecutor(
                 } catch (e: Exception) {
                     Logger.w(LogTags.CHAIN, "Worker.close() threw for ${task.workerClassName}: ${e.message}")
                 }
+                // Release the per-task throttle entry so the map doesn't grow unbounded.
+                TaskProgressBus.clearThrottle(task.workerClassName)
             }
         }
     }

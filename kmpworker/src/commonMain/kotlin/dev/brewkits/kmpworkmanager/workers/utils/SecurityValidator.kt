@@ -67,13 +67,19 @@ object SecurityValidator {
             // Check if we have a valid hostname
             if (hostnameWithPort.isBlank()) return null
 
+            // Strip RFC 3986 UserInfo (e.g. "user:pass@host" or "evil.com@127.0.0.1" → "127.0.0.1").
+            // Must happen before port/hostname splitting: without this, the full "evil.com@127.0.0.1"
+            // string fails looksLikeIPv4() (contains non-digit chars), so the private-IP check is
+            // never reached and the URL is allowed — SSRF bypass.
+            val strippedUserInfo = hostnameWithPort.substringAfterLast("@")
+
             // Remove port if present
-            val hostname = if (hostnameWithPort.startsWith("[")) {
+            val hostname = if (strippedUserInfo.startsWith("[")) {
                 // IPv6 address like [::1]:8080
-                hostnameWithPort.substringAfter("[").substringBefore("]")
+                strippedUserInfo.substringAfter("[").substringBefore("]")
             } else {
                 // Check if it looks like an IPv6 address (multiple colons)
-                val colonCount = hostnameWithPort.count { it == ':' }
+                val colonCount = strippedUserInfo.count { it == ':' }
                 if (colonCount >= 2) {
                     // Unbracketed IPv6 — RFC 2732 requires brackets for IPv6 in URLs.
                     // Any unbracketed multi-colon hostname is malformed; return null to reject.
@@ -82,7 +88,7 @@ object SecurityValidator {
                     return null
                 } else {
                     // Regular hostname or IPv4 with port
-                    hostnameWithPort.substringBefore(":")
+                    strippedUserInfo.substringBefore(":")
                 }
             }
 

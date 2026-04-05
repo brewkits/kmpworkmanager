@@ -103,6 +103,20 @@ class SecurityValidatorTest {
     }
 
     @Test
+    fun testSSRF_UserInfoBypass_shouldBeBlocked() {
+        // RFC 3986 UserInfo bypass: browser/HTTP client connects to the host AFTER '@',
+        // but a naive parser may use the part BEFORE '@' for hostname validation.
+        assertFalse(SecurityValidator.validateURL("https://evil.com@127.0.0.1/"))
+        assertFalse(SecurityValidator.validateURL("https://evil.com@127.0.0.1:8080/admin"))
+        assertFalse(SecurityValidator.validateURL("http://attacker@10.0.0.1/internal"))
+        assertFalse(SecurityValidator.validateURL("http://x@192.168.1.1/"))
+        assertFalse(SecurityValidator.validateURL("http://user:pass@169.254.169.254/latest/meta-data/"))
+        assertFalse(SecurityValidator.validateURL("https://good.example.com@localhost/"))
+        // Public host after @ should still pass
+        assertTrue(SecurityValidator.validateURL("https://user@api.example.com/data"))
+    }
+
+    @Test
     fun testEdgeCases_malformedURLs() {
         // Malformed URLs should fail
         assertFalse(SecurityValidator.validateURL("http://"))
