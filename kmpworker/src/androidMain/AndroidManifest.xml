@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+        ACCESS_NETWORK_STATE is a PROTECTION_NORMAL permission (auto-granted on declaration,
+        no runtime request needed). Required by AndroidWorkerDiagnostics.isNetworkAvailable()
+        which calls ConnectivityManager.getActiveNetwork() and getNetworkCapabilities().
+    -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!--
+        RECEIVE_BOOT_COMPLETED is required by AlarmReceiver to reschedule exact-alarm tasks
+        after device reboot.
+    -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+</manifest>
