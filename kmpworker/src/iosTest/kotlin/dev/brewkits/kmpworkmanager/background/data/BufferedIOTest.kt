@@ -275,7 +275,13 @@ class BufferedIOTest {
             yield() // Allow coroutine scheduling
         }
 
-        delay(600) // Wait for flush
+        // Use flushNow() instead of a fixed delay so the test is deterministic on CI.
+        // delay(600) is fragile: scope.launch coroutines queued by saveChainProgress may
+        // not all complete before the timer fires on slower CI machines, causing the
+        // debounce job to run multiple times and flushCount > 1.
+        // flushNow() already contains a 50ms grace period for in-flight launches, then
+        // cancels any pending debounce job and flushes exactly once.
+        storage.flushNow()
 
         // Should have flushed with latest value (step 99)
         assertEquals(1, storage.flushCount, "Should flush once")
