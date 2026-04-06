@@ -23,11 +23,20 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Set VERSION_NAME from git tag
+      - name: Configure gradle.properties for CI
         run: |
           VERSION=$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "0.0.0-SNAPSHOT")
-          echo "VERSION_NAME=$VERSION" >> gradle.properties
-          echo "VERSION_NAME set to: $VERSION"
+          cat >> gradle.properties <<EOF
+          VERSION_NAME=$VERSION
+          android.useAndroidX=true
+          android.enableJetifier=false
+          kotlin.mpp.androidSourceSetLayoutVersion=2
+          org.gradle.jvmargs=-Xmx4096m -Dfile.encoding=UTF-8
+          kotlin.daemon.jvm.options=-Xmx4096m
+          org.gradle.parallel=true
+          org.gradle.caching=true
+          EOF
+          echo "gradle.properties configured with VERSION_NAME=$VERSION"
 
       - name: Build library
         run: ./gradlew :kmpworker:build
