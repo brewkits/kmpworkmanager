@@ -94,6 +94,9 @@ internal object KmpWorkManagerKoin {
             Logger.setMinLevel(config.logLevel)
             config.customLogger?.let { Logger.setCustomLogger(it) }
 
+            // Propagate runtime-accessible config (telemetry, battery guard, etc.)
+            KmpWorkManagerRuntime.configure(config)
+
             // Propagate optional foreground notification title to KmpWorker
             KmpWorker.configNotificationTitle = config.androidForegroundNotificationTitle
 

@@ -1,5 +1,6 @@
 package dev.brewkits.kmpworkmanager.background.data
 
+import dev.brewkits.kmpworkmanager.background.domain.TaskPriority
 import dev.brewkits.kmpworkmanager.background.domain.TaskRequest
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.utils.LogTags
@@ -387,6 +388,52 @@ internal class IosFileStorage(
      * which is acceptable since getQueueSize() is called infrequently (once per BGTask).
      */
     suspend fun getQueueSize(): Int = queue.getSize()
+
+    /**
+     * Sort the execution queue by task priority (highest first).
+     *
+     * Drains all chain IDs from the queue, sorts them by the maximum [TaskPriority]
+     * weight of their tasks, then re-enqueues in descending priority order.
+     * This ensures CRITICAL and HIGH priority chains execute before NORMAL/LOW ones
+     * within the same BGTask window.
+     *
+     * **Crash safety:** Chain definitions remain on disk throughout — only queue order
+     * changes. If the process is killed mid-sort, chains may be orphaned in the queue
+     * (definition files exist but queue is partially empty). The next BGTask invocation
+     * will process whichever chains were successfully re-enqueued.
+     *
+     * Should be called once at the start of each batch execution window.
+     */
+    suspend fun sortQueueByPriority() {
+        val size = queue.getSize()
+        if (size <= 1) return  // Nothing to sort
+
+        // Drain all chain IDs from queue
+        val chainIds = mutableListOf<String>()
+        repeat(size) {
+            val id = queue.dequeue() ?: return@repeat
+            chainIds.add(id)
+        }
+
+        if (chainIds.isEmpty()) return
+
+        // Sort by max priority weight (highest first), stable (preserves FIFO for equal priorities)
+        val sorted = chainIds.sortedByDescending { chainId ->
+            loadChainDefinition(chainId)
+                ?.flatten()
+                ?.maxOfOrNull { it.priority.weight }
+                ?: TaskPriority.NORMAL.weight
+        }
+
+        // Re-enqueue in priority order (bypass size check — we just drained the same items)
+        sorted.forEach { chainId ->
+            queue.enqueue(chainId)
+        }
+
+        if (sorted.first() != chainIds.first()) {
+            Logger.d(LogTags.CHAIN, "Queue reordered by priority: ${sorted.take(3).joinToString()} ...")
+        }
+    }
 
     /**
      * Replace chain atomically

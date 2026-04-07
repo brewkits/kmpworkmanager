@@ -1,13 +1,18 @@
 package dev.brewkits.kmpworkmanager.background.data
 
+import dev.brewkits.kmpworkmanager.KmpWorkManagerRuntime
 import dev.brewkits.kmpworkmanager.background.domain.BGTaskType
 import dev.brewkits.kmpworkmanager.background.domain.TaskCompletionEvent
 import dev.brewkits.kmpworkmanager.background.domain.TaskEventBus
 import dev.brewkits.kmpworkmanager.background.domain.TaskProgressBus
 import dev.brewkits.kmpworkmanager.background.domain.TaskRequest
+import dev.brewkits.kmpworkmanager.background.domain.TelemetryHook
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.utils.LogTags
+import platform.UIKit.UIDevice
+import platform.UIKit.UIDeviceBatteryStateUnknown
+import platform.UIKit.UIDeviceBatteryStateUnplugged
 import kotlin.concurrent.AtomicInt
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
@@ -356,6 +361,10 @@ class ChainExecutor(
             return 0
         }
 
+        // Sort queue by priority before processing — CRITICAL/HIGH chains execute first.
+        // Safe to call here because batch execution is single-threaded per BGTask.
+        fileStorage.sortQueueByPriority()
+
         var chainsAttempted = 0
         var chainsSucceeded = 0
         var chainsFailed = 0
@@ -482,6 +491,9 @@ class ChainExecutor(
         if (fileStorage.isChainDeleted(chainId)) {
             Logger.i(LogTags.CHAIN, "Chain $chainId was deleted (REPLACE policy). Skipping execution...")
             fileStorage.clearDeletedMarker(chainId)
+            KmpWorkManagerRuntime.telemetryHook?.onChainSkipped(
+                TelemetryHook.ChainSkippedEvent(chainId = chainId, platform = "ios", reason = "REPLACE_POLICY")
+            )
             return NextChainResult.SKIPPED
         }
 
@@ -560,6 +572,9 @@ class ChainExecutor(
                         message = "Deadline exceeded — windowed task ran after its latest time"
                     )
                 )
+                KmpWorkManagerRuntime.telemetryHook?.onChainSkipped(
+                    TelemetryHook.ChainSkippedEvent(chainId = chainId, platform = "ios", reason = "DEADLINE_EXCEEDED")
+                )
                 return false
             }
 
@@ -634,6 +649,7 @@ class ChainExecutor(
             }
 
             // 7. Execute steps sequentially with timeout protection
+            val chainStartMs = (NSDate().timeIntervalSince1970 * 1000).toLong()
             var chainSucceeded = false
             try {
                 chainSucceeded = withTimeout(chainTimeout) {
@@ -647,7 +663,7 @@ class ChainExecutor(
 
                         Logger.i(LogTags.CHAIN, "Executing step ${index + 1}/${steps.size} for chain $chainId (${step.size} tasks)")
 
-                        val (stepSuccess, updatedProgress, stepError) = executeStep(step, index, progress)
+                        val (stepSuccess, updatedProgress, stepError) = executeStep(step, index, progress, chainId)
                         progress = updatedProgress
                         if (!stepSuccess) {
                             Logger.e(LogTags.CHAIN, "Step ${index + 1} failed. Updating progress for chain $chainId")
@@ -668,6 +684,16 @@ class ChainExecutor(
                                 fileStorage.deleteChainProgress(chainId)
                             }
 
+                            KmpWorkManagerRuntime.telemetryHook?.onChainFailed(
+                                TelemetryHook.ChainFailedEvent(
+                                    chainId = chainId,
+                                    failedStep = index,
+                                    platform = "ios",
+                                    error = stepError ?: "Unknown failure",
+                                    retryCount = progress.retryCount,
+                                    willRetry = !progress.hasExceededRetries()
+                                )
+                            )
                             allStepsSucceeded = false
                             break
                         }
@@ -721,6 +747,16 @@ class ChainExecutor(
                         "(completed ${progress.completedSteps.size}/${steps.size} steps)"
                     )
                 }
+                KmpWorkManagerRuntime.telemetryHook?.onChainFailed(
+                    TelemetryHook.ChainFailedEvent(
+                        chainId = chainId,
+                        failedStep = progress.getNextStepIndex() ?: (steps.size - 1),
+                        platform = "ios",
+                        error = "Chain timed out (${chainTimeout}ms)",
+                        retryCount = progress.retryCount,
+                        willRetry = !progress.hasExceededRetries()
+                    )
+                )
                 return false
             } catch (e: CancellationException) {
                 Logger.w(LogTags.CHAIN, "🛑 Chain $chainId cancelled due to graceful shutdown")
@@ -753,6 +789,14 @@ class ChainExecutor(
             fileStorage.deleteChainDefinition(chainId)
             fileStorage.deleteChainProgress(chainId)
             Logger.i(LogTags.CHAIN, "Chain $chainId completed all ${steps.size} steps successfully")
+            KmpWorkManagerRuntime.telemetryHook?.onChainCompleted(
+                TelemetryHook.ChainCompletedEvent(
+                    chainId = chainId,
+                    totalSteps = steps.size,
+                    platform = "ios",
+                    durationMs = (NSDate().timeIntervalSince1970 * 1000).toLong() - chainStartMs
+                )
+            )
             return true
 
         } finally {
@@ -798,7 +842,8 @@ class ChainExecutor(
     private suspend fun executeStep(
         tasks: List<TaskRequest>,
         stepIndex: Int,
-        progress: ChainProgress
+        progress: ChainProgress,
+        chainId: String
     ): Triple<Boolean, ChainProgress, String?> {
         if (tasks.isEmpty()) return Triple(true, progress, null)
 
@@ -824,7 +869,7 @@ class ChainExecutor(
                         return@async Pair(true, null)
                     }
 
-                    val result = executeTask(task)
+                    val result = executeTask(task, chainId, stepIndex, progress.retryCount)
                     val success = result is WorkerResult.Success
                     if (success) {
                         // Protect progress save from cancellation
@@ -882,7 +927,12 @@ class ChainExecutor(
      * [Worker.close] is called in a `finally` block under [NonCancellable] so resource
      * cleanup is guaranteed regardless of success, failure, timeout, or cancellation.
      */
-    private suspend fun executeTask(task: TaskRequest): WorkerResult {
+    private suspend fun executeTask(
+        task: TaskRequest,
+        chainId: String? = null,
+        stepIndex: Int? = null,
+        retryCount: Int = 0
+    ): WorkerResult {
         Logger.d(LogTags.CHAIN, "▶️ Starting task: ${task.workerClassName} (timeout: ${taskTimeout}ms)")
 
         // Unmetered-network guard: iOS BGTaskScheduler has no Wi-Fi-only constraint.
@@ -907,7 +957,40 @@ class ChainExecutor(
             return WorkerResult.Failure("Worker not found: ${task.workerClassName}")
         }
 
+        // Battery guard: defer task when battery is critically low and not charging.
+        // Protects device battery from drain during background execution.
+        val minBattery = KmpWorkManagerRuntime.minBatteryLevelPercent
+        if (minBattery > 0) {
+            UIDevice.currentDevice().batteryMonitoringEnabled = true
+            val batteryFloat = UIDevice.currentDevice().batteryLevel
+            val batteryState = UIDevice.currentDevice().batteryState
+            val isCharging = batteryState != UIDeviceBatteryStateUnplugged &&
+                batteryState != UIDeviceBatteryStateUnknown
+            val batteryPct = if (batteryFloat >= 0f) (batteryFloat * 100).toInt() else -1
+            if (batteryPct in 0 until minBattery && !isCharging) {
+                Logger.w(
+                    LogTags.CHAIN,
+                    "🔋 Task ${task.workerClassName} deferred — battery at ${batteryPct}% " +
+                        "(min: ${minBattery}%, not charging)"
+                )
+                return WorkerResult.Failure(
+                    message = "Battery too low (${batteryPct}% < ${minBattery}%)",
+                    shouldRetry = true
+                )
+            }
+        }
+
         val startTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
+
+        KmpWorkManagerRuntime.telemetryHook?.onTaskStarted(
+            TelemetryHook.TaskStartedEvent(
+                taskName = task.workerClassName,
+                chainId = chainId,
+                stepIndex = stepIndex,
+                platform = "ios",
+                startedAtMs = startTime
+            )
+        )
 
         try {
             return try {
@@ -932,6 +1015,16 @@ class ChainExecutor(
                                     outputData = result.data
                                 )
                             )
+                            KmpWorkManagerRuntime.telemetryHook?.onTaskCompleted(
+                                TelemetryHook.TaskCompletedEvent(
+                                    taskName = task.workerClassName,
+                                    chainId = chainId,
+                                    stepIndex = stepIndex,
+                                    platform = "ios",
+                                    success = true,
+                                    durationMs = duration
+                                )
+                            )
                             result
                         }
                         is WorkerResult.Failure -> {
@@ -942,6 +1035,28 @@ class ChainExecutor(
                                     success = false,
                                     message = result.message,
                                     outputData = null
+                                )
+                            )
+                            KmpWorkManagerRuntime.telemetryHook?.onTaskCompleted(
+                                TelemetryHook.TaskCompletedEvent(
+                                    taskName = task.workerClassName,
+                                    chainId = chainId,
+                                    stepIndex = stepIndex,
+                                    platform = "ios",
+                                    success = false,
+                                    durationMs = duration,
+                                    errorMessage = result.message
+                                )
+                            )
+                            KmpWorkManagerRuntime.telemetryHook?.onTaskFailed(
+                                TelemetryHook.TaskFailedEvent(
+                                    taskName = task.workerClassName,
+                                    chainId = chainId,
+                                    stepIndex = stepIndex,
+                                    platform = "ios",
+                                    error = result.message ?: "Unknown failure",
+                                    durationMs = duration,
+                                    retryCount = retryCount
                                 )
                             )
                             result
@@ -959,6 +1074,17 @@ class ChainExecutor(
                         outputData = null
                     )
                 )
+                KmpWorkManagerRuntime.telemetryHook?.onTaskFailed(
+                    TelemetryHook.TaskFailedEvent(
+                        taskName = task.workerClassName,
+                        chainId = chainId,
+                        stepIndex = stepIndex,
+                        platform = "ios",
+                        error = "Timeout after ${duration}ms",
+                        durationMs = duration,
+                        retryCount = retryCount
+                    )
+                )
                 WorkerResult.Failure("Timeout after ${duration}ms")
             } catch (e: CancellationException) {
                 // Must re-throw — swallowing breaks coroutine cancellation protocol.
@@ -972,6 +1098,17 @@ class ChainExecutor(
                         success = false,
                         message = "💥 Exception: ${e.message}",
                         outputData = null
+                    )
+                )
+                KmpWorkManagerRuntime.telemetryHook?.onTaskFailed(
+                    TelemetryHook.TaskFailedEvent(
+                        taskName = task.workerClassName,
+                        chainId = chainId,
+                        stepIndex = stepIndex,
+                        platform = "ios",
+                        error = e.message ?: "Unknown exception",
+                        durationMs = duration,
+                        retryCount = retryCount
                     )
                 )
                 WorkerResult.Failure("Exception: ${e.message}")

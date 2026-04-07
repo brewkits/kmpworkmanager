@@ -30,7 +30,17 @@ data class TaskRequest(
     val workerClassName: String,
     val inputJson: String? = null,
     val constraints: Constraints? = null,
-    val isIdempotent: Boolean = true
+    val isIdempotent: Boolean = true,
+    /**
+     * Execution priority for this task.
+     *
+     * - **iOS**: chains are sorted by the highest-priority task they contain before each
+     *   BGTask execution window — [TaskPriority.CRITICAL] chains run first.
+     * - **Android**: [TaskPriority.HIGH] and [TaskPriority.CRITICAL] map to expedited work.
+     *
+     * Default: [TaskPriority.NORMAL]
+     */
+    val priority: TaskPriority = TaskPriority.NORMAL
 )
 
 /**

@@ -3,17 +3,20 @@ package dev.brewkits.kmpworkmanager.background.data
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
+import android.os.BatteryManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import kotlinx.coroutines.CancellationException
-import dev.brewkits.kmpworkmanager.R
 import dev.brewkits.kmpworkmanager.KmpWorkManagerKoin
+import dev.brewkits.kmpworkmanager.KmpWorkManagerRuntime
+import dev.brewkits.kmpworkmanager.R
 import dev.brewkits.kmpworkmanager.background.domain.AndroidWorkerFactory
 import dev.brewkits.kmpworkmanager.background.domain.TaskCompletionEvent
 import dev.brewkits.kmpworkmanager.background.domain.TaskEventBus
+import dev.brewkits.kmpworkmanager.background.domain.TelemetryHook
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.utils.LogTags
 import dev.brewkits.kmpworkmanager.utils.Logger
@@ -158,10 +161,34 @@ class KmpWorker : CoroutineWorker {
 
         Logger.i(LogTags.WORKER, "KmpWorker executing: $workerClassName")
 
+        // Battery guard: supplementary check for stricter thresholds than WorkManager's
+        // built-in REQUIRE_BATTERY_NOT_LOW (which triggers at ~15-20%).
+        val minBattery = KmpWorkManagerRuntime.minBatteryLevelPercent
+        if (minBattery > 0) {
+            val bm = applicationContext.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+            val level = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+            val isCharging = bm.isCharging
+            if (level in 0 until minBattery && !isCharging) {
+                Logger.w(LogTags.WORKER, "🔋 Worker deferred — battery at $level% (min: $minBattery%)")
+                return Result.retry()
+            }
+        }
+
+        val startTime = System.currentTimeMillis()
+
+        KmpWorkManagerRuntime.telemetryHook?.onTaskStarted(
+            TelemetryHook.TaskStartedEvent(
+                taskName = workerClassName,
+                platform = "android",
+                startedAtMs = startTime
+            )
+        )
+
         return try {
             val worker = workerFactory.createWorker(workerClassName)
                 ?: return Result.failure()
             val result = worker.doWork(inputJson)
+            val duration = System.currentTimeMillis() - startTime
 
             when (result) {
                 is WorkerResult.Success -> {
@@ -174,6 +201,14 @@ class KmpWorker : CoroutineWorker {
                             success = true,
                             message = message,
                             outputData = result.data
+                        )
+                    )
+                    KmpWorkManagerRuntime.telemetryHook?.onTaskCompleted(
+                        TelemetryHook.TaskCompletedEvent(
+                            taskName = workerClassName,
+                            platform = "android",
+                            success = true,
+                            durationMs = duration
                         )
                     )
                     Result.success()
@@ -189,6 +224,24 @@ class KmpWorker : CoroutineWorker {
                             outputData = null
                         )
                     )
+                    KmpWorkManagerRuntime.telemetryHook?.onTaskCompleted(
+                        TelemetryHook.TaskCompletedEvent(
+                            taskName = workerClassName,
+                            platform = "android",
+                            success = false,
+                            durationMs = duration,
+                            errorMessage = result.message
+                        )
+                    )
+                    KmpWorkManagerRuntime.telemetryHook?.onTaskFailed(
+                        TelemetryHook.TaskFailedEvent(
+                            taskName = workerClassName,
+                            platform = "android",
+                            error = result.message ?: "Unknown failure",
+                            durationMs = duration,
+                            retryCount = runAttemptCount
+                        )
+                    )
 
                     if (result.shouldRetry) {
                         Result.retry()
@@ -199,12 +252,22 @@ class KmpWorker : CoroutineWorker {
             }
         } catch (e: IllegalArgumentException) {
             // Worker class not registered in WorkerFactory — fail fast and visibly.
+            val duration = System.currentTimeMillis() - startTime
             Logger.e(LogTags.WORKER, "Worker not registered: $workerClassName — ${e.message}")
             TaskEventBus.emit(
                 TaskCompletionEvent(
                     taskName = workerClassName,
                     success = false,
                     message = "Worker not registered: $workerClassName"
+                )
+            )
+            KmpWorkManagerRuntime.telemetryHook?.onTaskFailed(
+                TelemetryHook.TaskFailedEvent(
+                    taskName = workerClassName,
+                    platform = "android",
+                    error = "Worker not registered: $workerClassName",
+                    durationMs = duration,
+                    retryCount = runAttemptCount
                 )
             )
             Result.failure()
@@ -214,12 +277,22 @@ class KmpWorker : CoroutineWorker {
             Logger.w(LogTags.WORKER, "Worker cancelled by coroutine scope: $workerClassName")
             throw e
         } catch (e: Exception) {
+            val duration = System.currentTimeMillis() - startTime
             Logger.e(LogTags.WORKER, "Worker execution failed: ${e.message}")
             TaskEventBus.emit(
                 TaskCompletionEvent(
                     taskName = workerClassName,
                     success = false,
                     message = "Failed: ${e.message}"
+                )
+            )
+            KmpWorkManagerRuntime.telemetryHook?.onTaskFailed(
+                TelemetryHook.TaskFailedEvent(
+                    taskName = workerClassName,
+                    platform = "android",
+                    error = e.message ?: "Unknown exception",
+                    durationMs = duration,
+                    retryCount = runAttemptCount
                 )
             )
             Result.failure()

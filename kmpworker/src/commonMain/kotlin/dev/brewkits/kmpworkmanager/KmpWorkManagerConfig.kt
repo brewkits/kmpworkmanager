@@ -1,5 +1,6 @@
 package dev.brewkits.kmpworkmanager
 
+import dev.brewkits.kmpworkmanager.background.domain.TelemetryHook
 import dev.brewkits.kmpworkmanager.utils.CustomLogger
 import dev.brewkits.kmpworkmanager.utils.Logger
 
@@ -36,5 +37,41 @@ data class KmpWorkManagerConfig(
     val logLevel: Logger.Level = Logger.Level.INFO,
     val customLogger: CustomLogger? = null,
     val minFreeDiskSpaceBytes: Long = 50_000_000L,
-    val androidForegroundNotificationTitle: String? = null
+    val androidForegroundNotificationTitle: String? = null,
+
+    /**
+     * Plug-in hook for routing task lifecycle events to Sentry, Firebase Crashlytics,
+     * Datadog, or any custom analytics backend.
+     *
+     * ```kotlin
+     * KmpWorkManagerConfig(
+     *     telemetryHook = object : TelemetryHook {
+     *         override fun onTaskFailed(event: TelemetryHook.TaskFailedEvent) {
+     *             Sentry.captureMessage("Task failed: ${event.taskName} — ${event.error}")
+     *         }
+     *     }
+     * )
+     * ```
+     *
+     * Default: null (no telemetry)
+     */
+    val telemetryHook: TelemetryHook? = null,
+
+    /**
+     * Minimum battery level (0–100) required to execute a background task.
+     *
+     * When the device battery falls below this threshold **and** is not charging,
+     * the task returns `Failure(shouldRetry = true)` without running, preserving
+     * battery for foreground use.
+     *
+     * - **iOS**: enforced in `ChainExecutor` before each task execution.
+     * - **Android**: supplementary guard on top of WorkManager's built-in
+     *   `REQUIRE_BATTERY_NOT_LOW` constraint (which triggers around 15–20%).
+     *   Use this to enforce a stricter threshold (e.g. 10%) for non-critical tasks.
+     *
+     * Set to `0` to disable the guard entirely.
+     *
+     * Default: 5 (stop background tasks when battery ≤ 5%)
+     */
+    val minBatteryLevelPercent: Int = 5
 )

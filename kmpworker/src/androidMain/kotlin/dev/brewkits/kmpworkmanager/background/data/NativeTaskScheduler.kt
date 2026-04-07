@@ -13,6 +13,7 @@ import dev.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
 import dev.brewkits.kmpworkmanager.background.domain.Constraints
 import dev.brewkits.kmpworkmanager.background.domain.ExistingPolicy
 import dev.brewkits.kmpworkmanager.background.domain.ScheduleResult
+import dev.brewkits.kmpworkmanager.background.domain.TaskPriority
 import dev.brewkits.kmpworkmanager.background.domain.TaskTrigger
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.utils.LogTags
@@ -697,12 +698,28 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
             OneTimeWorkRequestBuilder<KmpWorker>()
         }
 
-        return workRequestBuilder
+        val builder = workRequestBuilder
             .setConstraints(wmConstraints)
             .setInputData(workData)
             .addTag(TAG_KMP_TASK)
             .addTag("type-chain-member")
             .addTag("worker-${task.workerClassName}")
-            .build()
+
+        // Map HIGH/CRITICAL priority to expedited work for faster execution.
+        // Expedited work runs sooner but has quota limits — only use for time-sensitive tasks.
+        // Incompatible constraints (charging, device-idle, battery) skip expedited silently.
+        if (task.priority >= TaskPriority.HIGH && constraints?.isHeavyTask != true) {
+            val hasIncompatibleConstraints = constraints?.requiresCharging == true ||
+                constraints?.systemConstraints?.any {
+                    it == dev.brewkits.kmpworkmanager.background.domain.SystemConstraint.DEVICE_IDLE ||
+                        it == dev.brewkits.kmpworkmanager.background.domain.SystemConstraint.REQUIRE_BATTERY_NOT_LOW
+                } == true
+            if (!hasIncompatibleConstraints) {
+                Logger.d(LogTags.CHAIN, "Setting expedited for ${task.priority} task: ${task.workerClassName}")
+                builder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+            }
+        }
+
+        return builder.build()
     }
 }

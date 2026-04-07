@@ -52,6 +52,9 @@ actual fun kmpWorkerModule(
     // Initialize logger with config
     Logger.setMinLevel(config.logLevel)
     config.customLogger?.let { Logger.setCustomLogger(it) }
+
+    // Propagate runtime-accessible config (telemetry, battery guard, etc.)
+    KmpWorkManagerRuntime.configure(config)
     // Validate factory type early (fail-fast on iOS)
     require(workerFactory is IosWorkerFactory) {
         """
