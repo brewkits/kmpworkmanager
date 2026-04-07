@@ -23,7 +23,7 @@ class BuiltinWorkersTest {
     // ==================== HttpMethod Tests ====================
 
     @Test
-    fun `HttpMethod should have all standard methods`() {
+    fun HttpMethod_should_have_all_standard_methods() {
         val methods = HttpMethod.values()
         assertTrue(methods.contains(HttpMethod.GET))
         assertTrue(methods.contains(HttpMethod.POST))
@@ -34,7 +34,7 @@ class BuiltinWorkersTest {
     }
 
     @Test
-    fun `HttpMethod fromString should parse correctly`() {
+    fun HttpMethod_fromString_should_parse_correctly() {
         assertEquals(HttpMethod.GET, HttpMethod.fromString("GET"))
         assertEquals(HttpMethod.POST, HttpMethod.fromString("post"))
         assertEquals(HttpMethod.PUT, HttpMethod.fromString("Put"))
@@ -43,7 +43,7 @@ class BuiltinWorkersTest {
     }
 
     @Test
-    fun `HttpMethod fromString should throw on invalid method`() {
+    fun HttpMethod_fromString_should_throw_on_invalid_method() {
         assertFailsWith<IllegalArgumentException> {
             HttpMethod.fromString("INVALID")
         }
@@ -52,7 +52,7 @@ class BuiltinWorkersTest {
     // ==================== HttpRequestConfig Tests ====================
 
     @Test
-    fun `HttpRequestConfig should validate URL scheme`() {
+    fun HttpRequestConfig_should_validate_URL_scheme() {
         // Valid URLs
         assertNotNull(HttpRequestConfig(url = "https://example.com"))
         assertNotNull(HttpRequestConfig(url = "http://example.com"))
@@ -67,7 +67,7 @@ class BuiltinWorkersTest {
     }
 
     @Test
-    fun `HttpRequestConfig should validate timeout`() {
+    fun HttpRequestConfig_should_validate_timeout() {
         // Valid timeout
         assertNotNull(HttpRequestConfig(url = "https://example.com", timeoutMs = 30000))
 
@@ -81,7 +81,7 @@ class BuiltinWorkersTest {
     }
 
     @Test
-    fun `HttpRequestConfig should serialize and deserialize correctly`() {
+    fun HttpRequestConfig_should_serialize_and_deserialize_correctly() {
         val config = HttpRequestConfig(
             url = "https://api.example.com/test",
             method = "POST",
@@ -101,7 +101,7 @@ class BuiltinWorkersTest {
     }
 
     @Test
-    fun `HttpRequestConfig should default to GET method`() {
+    fun HttpRequestConfig_should_default_to_GET_method() {
         val config = HttpRequestConfig(url = "https://example.com")
         assertEquals("GET", config.method)
         assertEquals(HttpMethod.GET, config.httpMethod)
@@ -110,7 +110,7 @@ class BuiltinWorkersTest {
     // ==================== HttpSyncConfig Tests ====================
 
     @Test
-    fun `HttpSyncConfig should serialize JSON body`() {
+    fun HttpSyncConfig_should_serialize_JSON_body() {
         val requestBody = buildJsonObject {
             put("key1", "value1")
             put("key2", 123)
@@ -131,7 +131,7 @@ class BuiltinWorkersTest {
     }
 
     @Test
-    fun `HttpSyncConfig should handle null request body for GET`() {
+    fun HttpSyncConfig_should_handle_null_request_body_for_GET() {
         val config = HttpSyncConfig(
             url = "https://api.example.com/sync",
             method = "GET",
@@ -148,7 +148,7 @@ class BuiltinWorkersTest {
     // ==================== HttpDownloadConfig Tests ====================
 
     @Test
-    fun `HttpDownloadConfig should validate URL`() {
+    fun HttpDownloadConfig_should_validate_URL() {
         assertNotNull(HttpDownloadConfig(
             url = "https://example.com/file.zip",
             savePath = "/path/to/file.zip"
@@ -160,7 +160,7 @@ class BuiltinWorkersTest {
     }
 
     @Test
-    fun `HttpDownloadConfig should validate save path is not empty`() {
+    fun HttpDownloadConfig_should_validate_save_path_is_not_empty() {
         assertFailsWith<IllegalArgumentException> {
             HttpDownloadConfig(url = "https://example.com/file.zip", savePath = "")
         }
@@ -171,7 +171,7 @@ class BuiltinWorkersTest {
     }
 
     @Test
-    fun `HttpDownloadConfig should have default timeout of 5 minutes`() {
+    fun HttpDownloadConfig_should_have_default_timeout_of_5_minutes() {
         val config = HttpDownloadConfig(
             url = "https://example.com/file.zip",
             savePath = "/path/to/file.zip"
@@ -182,7 +182,7 @@ class BuiltinWorkersTest {
     // ==================== HttpUploadConfig Tests ====================
 
     @Test
-    fun `HttpUploadConfig should validate file path`() {
+    fun HttpUploadConfig_should_validate_file_path() {
         assertNotNull(HttpUploadConfig(
             url = "https://api.example.com/upload",
             filePath = "/storage/photo.jpg",
@@ -199,7 +199,7 @@ class BuiltinWorkersTest {
     }
 
     @Test
-    fun `HttpUploadConfig should validate field name`() {
+    fun HttpUploadConfig_should_validate_field_name() {
         assertFailsWith<IllegalArgumentException> {
             HttpUploadConfig(
                 url = "https://api.example.com/upload",
@@ -210,7 +210,7 @@ class BuiltinWorkersTest {
     }
 
     @Test
-    fun `HttpUploadConfig should serialize with optional fields`() {
+    fun HttpUploadConfig_should_serialize_with_optional_fields() {
         val config = HttpUploadConfig(
             url = "https://api.example.com/upload",
             filePath = "/storage/photo.jpg",
@@ -233,7 +233,7 @@ class BuiltinWorkersTest {
     // ==================== FileCompressionConfig Tests ====================
 
     @Test
-    fun `FileCompressionConfig should validate paths`() {
+    fun FileCompressionConfig_should_validate_paths() {
         assertNotNull(FileCompressionConfig(
             inputPath = "/data/logs",
             outputPath = "/data/logs.zip"
@@ -249,7 +249,7 @@ class BuiltinWorkersTest {
     }
 
     @Test
-    fun `FileCompressionConfig should validate compression level`() {
+    fun FileCompressionConfig_should_validate_compression_level() {
         // Valid levels
         assertNotNull(FileCompressionConfig(
             inputPath = "/data/logs",
@@ -278,7 +278,7 @@ class BuiltinWorkersTest {
     }
 
     @Test
-    fun `FileCompressionConfig should default to medium compression`() {
+    fun FileCompressionConfig_should_default_to_medium_compression() {
         val config = FileCompressionConfig(
             inputPath = "/data/logs",
             outputPath = "/data/logs.zip"
@@ -288,7 +288,7 @@ class BuiltinWorkersTest {
     }
 
     @Test
-    fun `FileCompressionConfig should handle exclude patterns`() {
+    fun FileCompressionConfig_should_handle_exclude_patterns() {
         val config = FileCompressionConfig(
             inputPath = "/data/logs",
             outputPath = "/data/logs.zip",
@@ -305,7 +305,7 @@ class BuiltinWorkersTest {
     // ==================== CompressionLevel Tests ====================
 
     @Test
-    fun `CompressionLevel should have correct values`() {
+    fun CompressionLevel_should_have_correct_values() {
         assertEquals(3, CompressionLevel.values().size)
         assertTrue(CompressionLevel.values().contains(CompressionLevel.LOW))
         assertTrue(CompressionLevel.values().contains(CompressionLevel.MEDIUM))
@@ -313,14 +313,14 @@ class BuiltinWorkersTest {
     }
 
     @Test
-    fun `CompressionLevel fromString should parse correctly`() {
+    fun CompressionLevel_fromString_should_parse_correctly() {
         assertEquals(CompressionLevel.LOW, CompressionLevel.fromString("low"))
         assertEquals(CompressionLevel.MEDIUM, CompressionLevel.fromString("MEDIUM"))
         assertEquals(CompressionLevel.HIGH, CompressionLevel.fromString("High"))
     }
 
     @Test
-    fun `CompressionLevel fromString should throw on invalid level`() {
+    fun CompressionLevel_fromString_should_throw_on_invalid_level() {
         assertFailsWith<IllegalArgumentException> {
             CompressionLevel.fromString("ultra")
         }
@@ -329,7 +329,7 @@ class BuiltinWorkersTest {
     // ==================== SecurityValidator Tests ====================
 
     @Test
-    fun `SecurityValidator should validate URL schemes`() {
+    fun SecurityValidator_should_validate_URL_schemes() {
         assertTrue(SecurityValidator.validateURL("https://example.com"))
         assertTrue(SecurityValidator.validateURL("http://example.com"))
         assertFalse(SecurityValidator.validateURL("ftp://example.com"))
@@ -337,7 +337,7 @@ class BuiltinWorkersTest {
     }
 
     @Test
-    fun `SecurityValidator should sanitize URLs for logging`() {
+    fun SecurityValidator_should_sanitize_URLs_for_logging() {
         val url = "https://api.example.com/users?token=secret123&key=value"
         val sanitized = SecurityValidator.sanitizedURL(url)
 
@@ -347,7 +347,7 @@ class BuiltinWorkersTest {
     }
 
     @Test
-    fun `SecurityValidator should validate file paths`() {
+    fun SecurityValidator_should_validate_file_paths() {
         assertTrue(SecurityValidator.validateFilePath("/storage/file.txt"))
         assertTrue(SecurityValidator.validateFilePath("/data/local/file.txt"))
 
@@ -357,7 +357,7 @@ class BuiltinWorkersTest {
     }
 
     @Test
-    fun `SecurityValidator should truncate strings for logging`() {
+    fun SecurityValidator_should_truncate_strings_for_logging() {
         val longString = "a".repeat(1000)
         val truncated = SecurityValidator.truncateForLogging(longString, 100)
 
@@ -366,7 +366,7 @@ class BuiltinWorkersTest {
     }
 
     @Test
-    fun `SecurityValidator should format byte sizes correctly`() {
+    fun SecurityValidator_should_format_byte_sizes_correctly() {
         assertEquals("0 B", SecurityValidator.formatByteSize(0))
         assertEquals("1023 B", SecurityValidator.formatByteSize(1023))
 
@@ -386,7 +386,7 @@ class BuiltinWorkersTest {
     // ==================== BuiltinWorkerRegistry Tests ====================
 
     @Test
-    fun `BuiltinWorkerRegistry should create all workers`() {
+    fun BuiltinWorkerRegistry_should_create_all_workers() {
         assertNotNull(BuiltinWorkerRegistry.createWorker("HttpRequestWorker"))
         assertNotNull(BuiltinWorkerRegistry.createWorker("HttpSyncWorker"))
         assertNotNull(BuiltinWorkerRegistry.createWorker("HttpDownloadWorker"))
@@ -395,20 +395,20 @@ class BuiltinWorkersTest {
     }
 
     @Test
-    fun `BuiltinWorkerRegistry should support fully qualified names`() {
+    fun BuiltinWorkerRegistry_should_support_fully_qualified_names() {
         assertNotNull(BuiltinWorkerRegistry.createWorker("dev.brewkits.kmpworkmanager.workers.builtins.HttpRequestWorker"))
         assertNotNull(BuiltinWorkerRegistry.createWorker("dev.brewkits.kmpworkmanager.workers.builtins.HttpSyncWorker"))
     }
 
     @Test
-    fun `BuiltinWorkerRegistry should return null for unknown workers`() {
+    fun BuiltinWorkerRegistry_should_return_null_for_unknown_workers() {
         assertNull(BuiltinWorkerRegistry.createWorker("UnknownWorker"))
         assertNull(BuiltinWorkerRegistry.createWorker("CustomWorker"))
         assertNull(BuiltinWorkerRegistry.createWorker("dev.example.SomeCustomWorker"))
     }
 
     @Test
-    fun `BuiltinWorkerRegistry should list all workers`() {
+    fun BuiltinWorkerRegistry_should_list_all_workers() {
         val workers = BuiltinWorkerRegistry.listWorkers()
         assertEquals(5, workers.size)
         assertTrue(workers.contains("dev.brewkits.kmpworkmanager.workers.builtins.HttpRequestWorker"))
@@ -419,7 +419,7 @@ class BuiltinWorkersTest {
     }
 
     @Test
-    fun `BuiltinWorkerRegistry should create worker instances`() {
+    fun BuiltinWorkerRegistry_should_create_worker_instances() {
         val httpRequestWorker = BuiltinWorkerRegistry.createWorker("HttpRequestWorker")
         assertNotNull(httpRequestWorker)
         assertTrue(httpRequestWorker is HttpRequestWorker)
@@ -444,7 +444,7 @@ class BuiltinWorkersTest {
     // ==================== CompositeWorkerFactory Tests ====================
 
     @Test
-    fun `CompositeWorkerFactory should try factories in order`() {
+    fun CompositeWorkerFactory_should_try_factories_in_order() {
         val customFactory = object : dev.brewkits.kmpworkmanager.background.domain.WorkerFactory {
             override fun createWorker(workerClassName: String): dev.brewkits.kmpworkmanager.background.domain.Worker {
                 return when (workerClassName) {
@@ -467,7 +467,7 @@ class BuiltinWorkersTest {
     }
 
     @Test
-    fun `CompositeWorkerFactory should prioritize first factory`() {
+    fun CompositeWorkerFactory_should_prioritize_first_factory() {
         val factory1 = object : dev.brewkits.kmpworkmanager.background.domain.WorkerFactory {
             override fun createWorker(workerClassName: String): dev.brewkits.kmpworkmanager.background.domain.Worker {
                 return if (workerClassName == "TestWorker") HttpRequestWorker() else throw IllegalArgumentException("Unknown: $workerClassName")
@@ -491,7 +491,7 @@ class BuiltinWorkersTest {
     // ==================== Edge Cases ====================
 
     @Test
-    fun `Config should handle special characters in strings`() {
+    fun Config_should_handle_special_characters_in_strings() {
         val config = HttpRequestConfig(
             url = "https://example.com/path?q=hello%20world",
             headers = mapOf("X-Custom" to "value with spaces"),
@@ -507,7 +507,7 @@ class BuiltinWorkersTest {
     }
 
     @Test
-    fun `Config should handle empty collections`() {
+    fun Config_should_handle_empty_collections() {
         val config = HttpRequestConfig(
             url = "https://example.com",
             headers = emptyMap()
@@ -521,7 +521,7 @@ class BuiltinWorkersTest {
     }
 
     @Test
-    fun `FileCompressionConfig should handle empty exclude patterns`() {
+    fun FileCompressionConfig_should_handle_empty_exclude_patterns() {
         val config = FileCompressionConfig(
             inputPath = "/data/logs",
             outputPath = "/data/logs.zip",
@@ -538,7 +538,7 @@ class BuiltinWorkersTest {
     // ==================== WorkerResult Integration Tests ====================
 
     @Test
-    fun `HttpRequestWorker should return WorkerResult`() {
+    fun HttpRequestWorker_should_return_WorkerResult() {
         val worker = HttpRequestWorker()
 
         // Verify worker instance is created
@@ -549,7 +549,7 @@ class BuiltinWorkersTest {
     }
 
     @Test
-    fun `HttpSyncWorker should return WorkerResult with expected data structure`() {
+    fun HttpSyncWorker_should_return_WorkerResult_with_expected_data_structure() {
         val worker = HttpSyncWorker()
         assertNotNull(worker)
 
@@ -560,7 +560,7 @@ class BuiltinWorkersTest {
     }
 
     @Test
-    fun `HttpDownloadWorker should return WorkerResult with download metadata`() {
+    fun HttpDownloadWorker_should_return_WorkerResult_with_download_metadata() {
         val worker = HttpDownloadWorker()
         assertNotNull(worker)
 
@@ -571,7 +571,7 @@ class BuiltinWorkersTest {
     }
 
     @Test
-    fun `HttpUploadWorker should return WorkerResult with upload metadata`() {
+    fun HttpUploadWorker_should_return_WorkerResult_with_upload_metadata() {
         val worker = HttpUploadWorker()
         assertNotNull(worker)
 
@@ -582,7 +582,7 @@ class BuiltinWorkersTest {
     }
 
     @Test
-    fun `FileCompressionWorker should return WorkerResult with compression stats`() {
+    fun FileCompressionWorker_should_return_WorkerResult_with_compression_stats() {
         val worker = FileCompressionWorker()
         assertNotNull(worker)
 
@@ -594,7 +594,7 @@ class BuiltinWorkersTest {
     }
 
     @Test
-    fun `WorkerResult Success should be serializable`() {
+    fun WorkerResult_Success_should_be_serializable() {
         val result = dev.brewkits.kmpworkmanager.background.domain.WorkerResult.Success(
             message = "Download completed",
             data = buildJsonObject {
@@ -613,7 +613,7 @@ class BuiltinWorkersTest {
     }
 
     @Test
-    fun `WorkerResult Failure should contain error details`() {
+    fun WorkerResult_Failure_should_contain_error_details() {
         val result = dev.brewkits.kmpworkmanager.background.domain.WorkerResult.Failure(
             message = "Network timeout after 30000ms",
             shouldRetry = true
@@ -624,7 +624,7 @@ class BuiltinWorkersTest {
     }
 
     @Test
-    fun `WorkerResult Success with null data should be valid`() {
+    fun WorkerResult_Success_with_null_data_should_be_valid() {
         val result = dev.brewkits.kmpworkmanager.background.domain.WorkerResult.Success(
             message = "Task completed",
             data = null
@@ -635,7 +635,7 @@ class BuiltinWorkersTest {
     }
 
     @Test
-    fun `WorkerResult Success with complex nested data should work`() {
+    fun WorkerResult_Success_with_complex_nested_data_should_work() {
         val result = dev.brewkits.kmpworkmanager.background.domain.WorkerResult.Success(
             message = "Upload successful",
             data = buildJsonObject {
@@ -651,7 +651,7 @@ class BuiltinWorkersTest {
     }
 
     @Test
-    fun `BuiltinWorkerRegistry should create workers that return WorkerResult`() {
+    fun BuiltinWorkerRegistry_should_create_workers_that_return_WorkerResult() {
         // Verify all built-in workers are created correctly
         val httpRequestWorker = BuiltinWorkerRegistry.createWorker("HttpRequestWorker")
         assertNotNull(httpRequestWorker)
@@ -675,7 +675,7 @@ class BuiltinWorkersTest {
     }
 
     @Test
-    fun `HttpRequestConfig validation should prevent invalid configurations`() {
+    fun HttpRequestConfig_validation_should_prevent_invalid_configurations() {
         // Valid config should work
         assertNotNull(HttpRequestConfig(url = "https://api.example.com/test"))
 
@@ -696,7 +696,7 @@ class BuiltinWorkersTest {
     }
 
     @Test
-    fun `HttpDownloadConfig validation should ensure safe file paths`() {
+    fun HttpDownloadConfig_validation_should_ensure_safe_file_paths() {
         // Valid config
         assertNotNull(HttpDownloadConfig(
             url = "https://example.com/file.zip",

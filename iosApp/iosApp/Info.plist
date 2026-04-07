@@ -34,6 +34,13 @@
 		<string>demo-builtin-httpdownload</string>
 		<string>demo-builtin-httpupload</string>
 		<string>demo-builtin-filecompression</string>
+		<string>v236-and2-periodic-flex</string>
+		<string>v236-and3-battery-not-low</string>
+		<string>battery-okay-task</string>
+		<string>device-idle-task</string>
+		<string>v233-fix1-expedited</string>
+		<string>v233-i18n-notification</string>
+		<string>task-from-push</string>
 	</array>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>

@@ -114,11 +114,11 @@ class GracefulShutdownTest {
         // Progress durability is guaranteed by withContext(NonCancellable) in executeChain(),
         // so a blocking delay is unnecessary and harmful (could outlive the BGTask).
         kotlinx.coroutines.runBlocking {
-            val startTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
+            val startTime = (NSDate().timeIntervalSince1970() * 1000).toLong()
 
             executor.requestShutdown() // Should complete quickly (no delay)
 
-            val endTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
+            val endTime = (NSDate().timeIntervalSince1970() * 1000).toLong()
             val duration = endTime - startTime
 
             // Shutdown should be fast (< 2s) — no blocking delay
@@ -145,7 +145,7 @@ class GracefulShutdownTest {
         }
 
         // Start batch execution and shutdown mid-batch
-        val job = GlobalScope.launch {
+        val job = launch {
             executor.executeChainsInBatch(maxChains = 5, totalTimeoutMs = 10_000L)
         }
 
@@ -167,14 +167,14 @@ class GracefulShutdownTest {
     fun `multiple shutdown calls are idempotent`() {
         // Note: Using runBlocking instead of runTest to measure real time (not virtual time)
         kotlinx.coroutines.runBlocking {
-            val startTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
+            val startTime = (NSDate().timeIntervalSince1970() * 1000).toLong()
 
             // Call shutdown multiple times
             executor.requestShutdown() // First call - triggers grace period
             executor.requestShutdown() // Second call - should be no-op
             executor.requestShutdown() // Third call - should be no-op
 
-            val endTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
+            val endTime = (NSDate().timeIntervalSince1970() * 1000).toLong()
             val duration = endTime - startTime
 
             // Should only wait one grace period, not 3x

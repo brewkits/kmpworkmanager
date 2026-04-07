@@ -65,7 +65,7 @@ class SingleTaskExecutor(private val workerFactory: IosWorkerFactory) {
         return try {
             withTimeout(timeoutMs) {
                 val startTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
-                val result = worker.doWork(input)
+                val result = worker.doWork(input, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
                 val duration = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime
 
                 val success = result is WorkerResult.Success

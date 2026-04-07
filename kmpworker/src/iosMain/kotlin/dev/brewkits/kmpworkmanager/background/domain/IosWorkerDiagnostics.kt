@@ -40,13 +40,19 @@ internal class IosWorkerDiagnostics(
     }
 
     override suspend fun getSystemHealth(): SystemHealthReport {
-        // Enable battery monitoring temporarily
         UIDevice.currentDevice.batteryMonitoringEnabled = true
-
-        val batteryLevel = UIDevice.currentDevice.batteryLevel // 0.0-1.0
-        val batteryState = UIDevice.currentDevice.batteryState
-        val isCharging = batteryState == UIDeviceBatteryState.UIDeviceBatteryStateCharging ||
-                        batteryState == UIDeviceBatteryState.UIDeviceBatteryStateFull
+        // Always disable in finally — even if an exception is thrown mid-read,
+        // the hardware sensor must not stay active indefinitely.
+        val batteryLevel: Float
+        val isCharging: Boolean
+        try {
+            batteryLevel = UIDevice.currentDevice.batteryLevel // 0.0-1.0
+            val batteryState = UIDevice.currentDevice.batteryState
+            isCharging = batteryState == UIDeviceBatteryState.UIDeviceBatteryStateCharging ||
+                batteryState == UIDeviceBatteryState.UIDeviceBatteryStateFull
+        } finally {
+            UIDevice.currentDevice.batteryMonitoringEnabled = false
+        }
 
         // Low power mode detection via NSProcessInfo (available iOS 9+)
         @Suppress("UNCHECKED_CAST")
@@ -60,9 +66,6 @@ internal class IosWorkerDiagnostics(
 
         // Network check: conservatively returns true (NWPathMonitor requires Swift interop)
         val networkAvailable = checkNetworkReachability()
-
-        // Disable battery monitoring to save power
-        UIDevice.currentDevice.batteryMonitoringEnabled = false
 
         return SystemHealthReport(
             timestamp = nowMillis(),

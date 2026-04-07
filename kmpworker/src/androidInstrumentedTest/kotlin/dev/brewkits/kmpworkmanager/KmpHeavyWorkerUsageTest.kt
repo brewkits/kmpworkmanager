@@ -531,7 +531,7 @@ class KmpHeavyWorkerUsageTest {
     }
 
     private class TestWorker : AndroidWorker {
-        override suspend fun doWork(input: String?): WorkerResult {
+        override suspend fun doWork(input: String?, env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment): WorkerResult {
             return WorkerResult.Success(message = "Test worker completed")
         }
     }

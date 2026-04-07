@@ -1,5 +1,7 @@
 package dev.brewkits.kmpworkmanager.sample.background.domain
 
+import dev.brewkits.kmpworkmanager.background.domain.ExecutionRecord
+
 /**
  * The primary contract (interface) for all background scheduling operations.
  * The rest of the application should only interact with this interface, ensuring a clean, platform-agnostic architecture.
@@ -57,4 +59,14 @@ interface BackgroundTaskScheduler {
         id: String? = null,
         policy: ExistingPolicy = ExistingPolicy.REPLACE
     )
+
+    /**
+     * Returns up to [limit] most recent execution records, newest first.
+     */
+    suspend fun getExecutionHistory(limit: Int = 100): List<ExecutionRecord>
+
+    /**
+     * Clears all locally stored execution history records.
+     */
+    suspend fun clearExecutionHistory()
 }

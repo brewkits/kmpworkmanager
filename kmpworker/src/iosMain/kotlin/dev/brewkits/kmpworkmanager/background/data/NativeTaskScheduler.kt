@@ -67,7 +67,7 @@ import platform.UserNotifications.UNUserNotificationCenter
  * ```
  */
 @OptIn(ExperimentalForeignApi::class)
-class NativeTaskScheduler(
+public class NativeTaskScheduler(
     /**
      * Additional permitted task IDs beyond those in Info.plist.
      *
@@ -89,7 +89,11 @@ class NativeTaskScheduler(
      * Set via [KmpWorkManagerConfig.minFreeDiskSpaceBytes] when using Koin.
      * Reduce to 25_000_000 (25 MB) for apps targeting older/low-storage devices.
      */
-    diskSpaceBufferBytes: Long = 50_000_000L
+    diskSpaceBufferBytes: Long = 50_000_000L,
+    /**
+     * Custom storage implementation for testing and isolation.
+     */
+    internal val fileStorage: IosFileStorage = IosFileStorage(config = IosFileStorageConfig(diskSpaceBufferBytes = diskSpaceBufferBytes))
 ) : BackgroundTaskScheduler {
 
     private companion object {
@@ -97,7 +101,6 @@ class NativeTaskScheduler(
         const val APPLE_TO_UNIX_EPOCH_OFFSET_SECONDS = 978307200.0
     }
 
-    private val fileStorage = IosFileStorage(config = IosFileStorageConfig(diskSpaceBufferBytes = diskSpaceBufferBytes))
     private val migration = StorageMigration(fileStorage = fileStorage)
 
     /**
@@ -128,16 +131,26 @@ class NativeTaskScheduler(
         // Uses background thread to avoid blocking Main thread during app startup
         backgroundScope.launch {
             try {
-                val result = migration.migrate()
-                if (result.success) {
-                    Logger.i(LogTags.SCHEDULER, "Storage migration: ${result.message}")
-                } else {
-                    Logger.e(LogTags.SCHEDULER, "Storage migration failed: ${result.message}")
+                // 1. Check if migration is needed
+                if (!migration.isMigrated()) {
+                    val result = migration.migrate()
+                    if (result.success) {
+                        Logger.i(LogTags.SCHEDULER, "Storage migration successful: ${result.message}")
+                        // SUSTAINABILITY FIX: Clear old storage immediately after successful migration
+                        // to free up space in NSUserDefaults and prevent stale data carry-over.
+                        migration.clearOldStorage()
+                    } else {
+                        Logger.e(LogTags.SCHEDULER, "Storage migration failed: ${result.message}")
+                    }
                 }
+
+                // 2. Perform periodic maintenance (cleanup stale files, orphaned definitions)
+                // SUSTAINABILITY FIX: Handled by IosFileStorage init block.
+                fileStorage.performMaintenanceTasks()
             } catch (e: Exception) {
-                Logger.e(LogTags.SCHEDULER, "Storage migration error", e)
+                Logger.e(LogTags.SCHEDULER, "Storage initialization error", e)
             } finally {
-                // Always complete signal, even if migration fails
+                // Always complete signal, even if migration/maintenance fails
                 migrationComplete.complete(Unit)
             }
         }
@@ -149,6 +162,35 @@ class NativeTaskScheduler(
             - Additional: ${additionalPermittedTaskIds.joinToString()}
             - Total permitted: ${permittedTaskIds.size}
         """.trimIndent())
+
+        // Validate that the chain executor task ID is declared in Info.plist.
+        // This is a HARD requirement: if missing, enqueueChain() silently does nothing —
+        // iOS rejects the BGProcessingTaskRequest without error at the call site.
+        // Log the error here at init time so developers catch it during first run.
+        if (NSBundle.mainBundle.bundleIdentifier != null && CHAIN_EXECUTOR_IDENTIFIER !in permittedTaskIds) {
+            Logger.e(LogTags.SCHEDULER, """
+                ⚠️ CHAIN EXECUTOR TASK ID NOT CONFIGURED — enqueueChain() will fail silently!
+
+                '$CHAIN_EXECUTOR_IDENTIFIER' is missing from Info.plist > BGTaskSchedulerPermittedIdentifiers.
+
+                Fix:
+                1. Add to Info.plist:
+                   <key>BGTaskSchedulerPermittedIdentifiers</key>
+                   <array>
+                       <string>$CHAIN_EXECUTOR_IDENTIFIER</string>
+                   </array>
+
+                2. Register handler in AppDelegate/iOSApp.swift:
+                   BGTaskScheduler.shared.register(forTaskWithIdentifier: "$CHAIN_EXECUTOR_IDENTIFIER") { task in
+                       let executor = ChainExecutor(workerFactory: factory)
+                       task.expirationHandler = { executor.requestShutdownSync() }
+                       Task {
+                           await executor.executeChainsInBatch()
+                           task.setTaskCompleted(success: true)
+                       }
+                   }
+            """.trimIndent())
+        }
     }
 
     override suspend fun enqueue(
@@ -210,7 +252,19 @@ class NativeTaskScheduler(
     }
 
     /**
-     * Schedule a periodic task with automatic re-scheduling
+     * Schedule a periodic task with drift-corrected re-scheduling.
+     *
+     * **Drift correction:**
+     * Without correction: each reschedule uses `now + interval`, so iOS delays accumulate
+     * (a task delayed 2h produces the next task 2h later than intended, compounding over time).
+     *
+     * With correction: `anchoredStartMs` is saved on the FIRST schedule and preserved on every
+     * reschedule. The next fire time is always the nearest future multiple of `intervalMs` from
+     * the anchor — so iOS-caused delays do NOT compound.
+     *
+     * Example: anchor=T0, interval=1h, iOS delayed execution until T0+2.5h
+     * - Without correction: reschedule at T0+2.5h+1h = T0+3.5h (drift accumulates)
+     * - With correction:     reschedule at T0+3h (next 1h multiple after T0+2.5h) ✓
      */
     private suspend fun schedulePeriodicTask(
         id: String,
@@ -222,16 +276,39 @@ class NativeTaskScheduler(
     ): ScheduleResult {
         Logger.i(LogTags.SCHEDULER, "Scheduling periodic task - ID: '$id', Interval: ${trigger.intervalMs}ms")
 
+        // Read anchor time BEFORE handleExistingPolicy, which may delete metadata (REPLACE).
+        // If metadata already has an anchor (reschedule case), preserve it so drift correction
+        // remains anchored to the original schedule, not the reschedule time.
+        val existingMeta = fileStorage.loadTaskMetadata(id, periodic = true)
+        val nowMs = (NSDate().timeIntervalSince1970 * 1000).toLong()
+        val anchoredStartMs = existingMeta?.get("anchoredStartMs")?.toLongOrNull()
+            ?: nowMs  // First-time scheduling: anchor to now
+
         // Handle ExistingPolicy
         if (!handleExistingPolicy(id, policy, isPeriodicMetadata = true)) {
             Logger.i(LogTags.SCHEDULER, "Task '$id' already exists, KEEP policy - skipping")
             return ScheduleResult.ACCEPTED
         }
 
-        // Save metadata for re-scheduling after execution
+        // Compute drift-corrected delay:
+        // Find the next multiple of intervalMs from the anchor that is strictly in the future.
+        val intervalMs = trigger.intervalMs
+        val elapsedMs = nowMs - anchoredStartMs
+        val nextN = if (elapsedMs >= 0) elapsedMs / intervalMs + 1 else 1L
+        val nextFireMs = anchoredStartMs + nextN * intervalMs
+        val delayMs = maxOf(nextFireMs - nowMs, 60_000L) // minimum 1 minute gap
+
+        val driftSavedMs = (intervalMs - delayMs).coerceAtLeast(0)
+        if (driftSavedMs > 0) {
+            Logger.d(LogTags.SCHEDULER, "Drift correction for '$id': next fire in ${delayMs / 1000}s " +
+                "(saved ${driftSavedMs / 1000}s drift vs naive now+interval)")
+        }
+
+        // Save metadata for re-scheduling after execution; preserve anchoredStartMs
         val periodicMetadata = mapOf(
             "isPeriodic" to "true",
-            "intervalMs" to "${trigger.intervalMs}",
+            "intervalMs" to "$intervalMs",
+            "anchoredStartMs" to "$anchoredStartMs",
             "workerClassName" to workerClassName,
             "inputJson" to (inputJson ?: ""),
             "requiresNetwork" to "${constraints.requiresNetwork}",
@@ -241,7 +318,7 @@ class NativeTaskScheduler(
         fileStorage.saveTaskMetadata(id, periodicMetadata, periodic = true)
 
         val request = createBackgroundTaskRequest(id, constraints)
-        request.earliestBeginDate = NSDate().dateByAddingTimeInterval(trigger.intervalMs / 1000.0)
+        request.earliestBeginDate = NSDate().dateByAddingTimeInterval(delayMs / 1000.0)
 
         return submitTaskRequest(request, "periodic task '$id'")
     }
@@ -365,7 +442,21 @@ class NativeTaskScheduler(
     }
 
     /**
-     * Handle ExistingPolicy - returns true if should proceed with scheduling, false if should skip
+     * Handle ExistingPolicy - returns true if should proceed with scheduling, false if should skip.
+     *
+     * **Race condition note (KEEP path):**
+     * `isTaskPending()` calls `getPendingTaskRequestsWithCompletionHandler` (async) and
+     * `submitTaskRequest` follows separately — these are NOT a single atomic OS operation.
+     * In theory, another caller could submit a task between the check and the submit.
+     * In practice this window is nanoseconds wide, and iOS BGTaskScheduler semantics handle
+     * it gracefully: submitting a request for an already-pending ID silently replaces it.
+     * For KEEP, the worst case is an unintended replacement, which self-heals on the next
+     * BGTask fire. No data loss or crash results.
+     *
+     * **REPLACE path:**
+     * `cancel(id)` + subsequent `submitTaskRequest` is the closest to atomic the iOS API
+     * allows. `cancel()` removes the pending request synchronously (within the same run-loop
+     * pass), so the window between cancel and submit is negligible.
      */
     private suspend fun handleExistingPolicy(id: String, policy: ExistingPolicy, isPeriodicMetadata: Boolean): Boolean {
         val existingMetadata = fileStorage.loadTaskMetadata(id, periodic = isPeriodicMetadata)
@@ -389,6 +480,10 @@ class NativeTaskScheduler(
                 }
                 ExistingPolicy.REPLACE -> {
                     Logger.i(LogTags.SCHEDULER, "Replacing existing task '$id'")
+                    // cancel() calls BGTaskScheduler.cancelTaskRequestWithIdentifier synchronously —
+                    // this is the idempotent pre-cancel that makes REPLACE as atomic as iOS allows.
+                    // Note: cancel() also deletes metadata; callers reading metadata for reschedule
+                    // (e.g. schedulePeriodicTask) must read metadata BEFORE calling this function.
                     cancel(id)
                     return true
                 }
@@ -483,7 +578,7 @@ class NativeTaskScheduler(
      * @return ScheduleResult indicating success/failure
      * @throws UnsupportedOperationException if exactAlarmIOSBehavior is THROW_ERROR
      */
-    private fun scheduleExactAlarm(
+    private suspend fun scheduleExactAlarm(
         id: String,
         trigger: TaskTrigger.Exact,
         workerClassName: String,
@@ -553,7 +648,7 @@ class NativeTaskScheduler(
      * Worker input data may contain PII or secrets; exposing it in a system
      * notification would be a privacy/security violation.
      */
-    private fun scheduleExactNotification(
+    private suspend fun scheduleExactNotification(
         id: String,
         trigger: TaskTrigger.Exact,
         workerClassName: String,
@@ -608,7 +703,7 @@ class NativeTaskScheduler(
      * minutes to hours, or may not run at all.
      *
      */
-    private fun scheduleExactBackgroundTask(
+    private suspend fun scheduleExactBackgroundTask(
         id: String,
         trigger: TaskTrigger.Exact,
         workerClassName: String,
@@ -664,55 +759,63 @@ class NativeTaskScheduler(
      * Tasks scheduled with [ExactAlarmIOSBehavior.ATTEMPT_BACKGROUND_RUN] are also caught here
      * if iOS never ran the BGTask opportunity.
      *
-     * The method is synchronous and lightweight — it only scans metadata files and invokes
-     * [execute] for each missed task. Heavy work should be done inside [execute] on a background
-     * thread/coroutine.
+     * The scan runs on a background thread — [execute] is called from a background thread.
+     * If your worker execution needs to happen on the main thread, dispatch inside [execute].
      *
      * ```swift
      * // AppDelegate.swift
      * func applicationDidBecomeActive(_ application: UIApplication) {
      *     KmpWorkManager.shared.backgroundTaskScheduler.checkAndExecuteMissedExactAlarms { workerName, inputJson in
-     *         // Look up and run your worker
-     *         let worker = workerFactory.createWorker(workerName)
-     *         worker?.doWork(inputJson: inputJson)
+     *         // Called on a background thread — dispatch to main if needed
+     *         DispatchQueue.main.async {
+     *             let worker = workerFactory.createWorker(workerName)
+     *             worker?.doWork(inputJson: inputJson)
+     *         }
      *     }
      * }
      * ```
      *
-     * @param execute Called for each missed task. Receives the worker class name and optional
-     *   input JSON. Exceptions thrown here are caught and logged; other tasks continue.
+     * @param execute Called for each missed task on a **background thread**. Receives the worker
+     *   class name and optional input JSON. Exceptions thrown here are caught and logged; other
+     *   tasks continue.
      */
     fun checkAndExecuteMissedExactAlarms(execute: (workerClassName: String, inputJson: String?) -> Unit) {
-        val nowMs = NSDate().timeIntervalSince1970 * 1000.0
+        // Run on background scope to avoid blocking the main thread (UI jank / ANR risk).
+        // runBlocking on Main was previously used here because loadTaskMetadata is suspend.
+        // Moving to backgroundScope.launch eliminates the main-thread block while keeping
+        // all file operations off the caller's thread.
+        backgroundScope.launch {
+            val nowMs = NSDate().timeIntervalSince1970 * 1000.0
 
-        val taskIds = fileStorage.listTaskIds()
-        if (taskIds.isEmpty()) return
+            val taskIds = fileStorage.listTaskIds()
+            if (taskIds.isEmpty()) return@launch
 
-        Logger.d(LogTags.ALARM, "Catch-up scan: checking ${taskIds.size} metadata entries for missed exact alarms")
+            Logger.d(LogTags.ALARM, "Catch-up scan: checking ${taskIds.size} metadata entries for missed exact alarms")
 
-        taskIds.forEach { taskId ->
-            val metadata = fileStorage.loadTaskMetadata(taskId, periodic = false) ?: return@forEach
-            if (metadata["exactAlarm"] != "true") return@forEach
+            taskIds.forEach { taskId ->
+                val metadata = fileStorage.loadTaskMetadata(taskId, periodic = false) ?: return@forEach
+                if (metadata["exactAlarm"] != "true") return@forEach
 
-            val targetTimeMs = metadata["targetTime"]?.toDoubleOrNull() ?: return@forEach
-            if (nowMs < targetTimeMs) return@forEach  // not yet due
+                val targetTimeMs = metadata["targetTime"]?.toDoubleOrNull() ?: return@forEach
+                if (nowMs < targetTimeMs) return@forEach  // not yet due
 
-            val workerClassName = metadata["workerClassName"] ?: return@forEach
-            val inputJson = metadata["inputJson"]?.takeIf { it.isNotEmpty() }
+                val workerClassName = metadata["workerClassName"] ?: return@forEach
+                val inputJson = metadata["inputJson"]?.takeIf { it.isNotEmpty() }
 
-            val overdueSeconds = ((nowMs - targetTimeMs) / 1000.0).toLong()
-            Logger.i(LogTags.ALARM, "🔄 Catch-up: executing missed exact alarm '$taskId' " +
-                "(worker=$workerClassName, overdue=${overdueSeconds}s)")
+                val overdueSeconds = ((nowMs - targetTimeMs) / 1000.0).toLong()
+                Logger.i(LogTags.ALARM, "🔄 Catch-up: executing missed exact alarm '$taskId' " +
+                    "(worker=$workerClassName, overdue=${overdueSeconds}s)")
 
-            try {
-                execute(workerClassName, inputJson)
-                // Clean up after successful execution
-                fileStorage.deleteTaskMetadata(taskId, periodic = false)
-                cancel(taskId)  // Remove pending notification if not yet shown
-                Logger.i(LogTags.ALARM, "✅ Catch-up complete for '$taskId'")
-            } catch (e: Exception) {
-                Logger.e(LogTags.ALARM, "❌ Catch-up failed for '$taskId'", e)
-                // Leave metadata intact so the next foreground attempt can retry
+                try {
+                    execute(workerClassName, inputJson)
+                    // Clean up after successful execution
+                    fileStorage.deleteTaskMetadata(taskId, periodic = false)
+                    cancel(taskId)  // Remove pending notification if not yet shown
+                    Logger.i(LogTags.ALARM, "✅ Catch-up complete for '$taskId'")
+                } catch (e: Exception) {
+                    Logger.e(LogTags.ALARM, "❌ Catch-up failed for '$taskId'", e)
+                    // Leave metadata intact so the next foreground attempt can retry
+                }
             }
         }
     }
@@ -743,6 +846,15 @@ class NativeTaskScheduler(
         // Await migration before accessing storage, same as enqueue()
         migrationComplete.await()
 
+        // HARD REQUIREMENT: Ensure the generic chain executor task ID is declared in Info.plist.
+        // If missing, iOS rejects the BGProcessingTaskRequest without error at the call site.
+        if (NSBundle.mainBundle.bundleIdentifier != null && CHAIN_EXECUTOR_IDENTIFIER !in permittedTaskIds) {
+            val errorMsg = "CHAIN EXECUTOR TASK ID '$CHAIN_EXECUTOR_IDENTIFIER' NOT CONFIGURED. " +
+                "Add it to Info.plist > BGTaskSchedulerPermittedIdentifiers or chains will never execute."
+            Logger.e(LogTags.CHAIN, "❌ $errorMsg")
+            throw IllegalStateException(errorMsg)
+        }
+
         val steps = chain.getSteps()
         if (steps.isEmpty()) {
             Logger.w(LogTags.CHAIN, "Attempted to enqueue empty chain, ignoring")
@@ -751,6 +863,12 @@ class NativeTaskScheduler(
 
         val chainId = id ?: NSUUID.UUID().UUIDString()
         Logger.i(LogTags.CHAIN, "Enqueuing chain - ID: $chainId, Steps: ${steps.size}, Policy: $policy")
+
+        if (policy == ExistingPolicy.REPLACE) {
+            // Cancel any running execution of this chain across ALL ChainExecutor
+            // instances (e.g. a prior BGTask still running when the new request arrives).
+            ChainJobRegistry.cancel(chainId)
+        }
 
         if (fileStorage.chainExists(chainId)) {
             when (policy) {

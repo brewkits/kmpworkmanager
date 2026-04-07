@@ -5,11 +5,16 @@ import dev.brewkits.kmpworkmanager.sample.background.data.IosWorker
 import dev.brewkits.kmpworkmanager.sample.background.domain.TaskCompletionEvent
 import dev.brewkits.kmpworkmanager.sample.background.domain.TaskEventBus
 import kotlinx.coroutines.delay
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlin.math.sqrt
 import kotlin.time.measureTime
 
 class HeavyProcessingWorker : IosWorker {
-    override suspend fun doWork(input: String?): WorkerResult {
+    override suspend fun doWork(
+        input: String?,
+        env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
+    ): WorkerResult {
         println(" KMP_BG_TASK_iOS: Starting HeavyProcessingWorker...")
         println(" KMP_BG_TASK_iOS: Input: $input")
 
@@ -42,7 +47,7 @@ class HeavyProcessingWorker : IosWorker {
                 )
             )
 
-            return WorkerResult.Success(
+            WorkerResult.Success(
                 message = "Calculated ${primes.size} primes in ${duration.inWholeMilliseconds}ms",
                 data = buildJsonObject {
                     put("primeCount", primes.size)

@@ -100,7 +100,7 @@ internal object KmpWorkManagerKoin {
             KmpWorkManagerRuntime.configure(config)
 
             // Propagate optional foreground notification title to KmpWorker
-            KmpWorker.configNotificationTitle = config.androidForegroundNotificationTitle
+            dev.brewkits.kmpworkmanager.background.data.BaseKmpWorker.configNotificationTitle = config.androidForegroundNotificationTitle
 
             // Register KmpWorkerFactory with WorkManager so KmpWorker / KmpHeavyWorker receive
             // AndroidWorkerFactory via constructor injection instead of a Service Locator lookup.
@@ -164,8 +164,32 @@ internal object KmpWorkManagerKoin {
                 )
             }
 
+            // Cleanup stale overflow temp files from previous sessions.
+            // If the app was force-killed between spilling the file and the worker's finally block,
+            // the file is left orphaned in cacheDir. Clean up files older than 24 h at init time
+            // when no workers are running yet, so there's no risk of racing with an active worker.
+            cleanupStaleOverflowFiles(context)
+
             isInitialized = true
             Logger.i("KmpWorkManager", "✅ Initialized with private Koin (isolated from host app)")
+        }
+    }
+
+    private fun cleanupStaleOverflowFiles(context: Context) {
+        try {
+            val maxAgeMs = 24 * 60 * 60 * 1000L
+            val now = System.currentTimeMillis()
+            val deleted = context.cacheDir
+                .listFiles { file -> file.name.startsWith("kmp_input_") && file.name.endsWith(".json") }
+                ?.count { file ->
+                    val stale = now - file.lastModified() > maxAgeMs
+                    if (stale) file.delete() else false
+                } ?: 0
+            if (deleted > 0) {
+                Logger.d("KmpWorkManager", "Cleaned up $deleted stale overflow file(s) from cacheDir")
+            }
+        } catch (e: Exception) {
+            Logger.w("KmpWorkManager", "Error cleaning up stale overflow files", e)
         }
     }
 

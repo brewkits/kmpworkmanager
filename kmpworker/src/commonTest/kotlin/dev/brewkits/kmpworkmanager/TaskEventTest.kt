@@ -16,7 +16,7 @@ import kotlin.test.assertTrue
 class TaskCompletionEventTest {
 
     @Test
-    fun `TaskCompletionEvent should preserve all fields`() {
+    fun TaskCompletionEvent_should_preserve_all_fields() {
         val event = TaskCompletionEvent(
             taskName = "TestTask",
             success = true,
@@ -29,7 +29,7 @@ class TaskCompletionEventTest {
     }
 
     @Test
-    fun `TaskCompletionEvent with failure should set success to false`() {
+    fun TaskCompletionEvent_with_failure_should_set_success_to_false() {
         val event = TaskCompletionEvent(
             taskName = "FailedTask",
             success = false,
@@ -42,7 +42,7 @@ class TaskCompletionEventTest {
     }
 
     @Test
-    fun `TaskCompletionEvent with empty message should preserve empty string`() {
+    fun TaskCompletionEvent_with_empty_message_should_preserve_empty_string() {
         val event = TaskCompletionEvent(
             taskName = "Task",
             success = true,
@@ -53,7 +53,7 @@ class TaskCompletionEventTest {
     }
 
     @Test
-    fun `TaskCompletionEvent equality should work correctly`() {
+    fun TaskCompletionEvent_equality_should_work_correctly() {
         val event1 = TaskCompletionEvent("Task", true, "Success")
         val event2 = TaskCompletionEvent("Task", true, "Success")
         val event3 = TaskCompletionEvent("Task", false, "Failure")
@@ -66,14 +66,14 @@ class TaskCompletionEventTest {
 class TaskEventBusTest {
 
     @Test
-    fun `TaskEventBus should have events flow property`() {
+    fun TaskEventBus_should_have_events_flow_property() {
         // Verify that TaskEventBus has an events property
         val flow = TaskEventBus.events
         kotlin.test.assertNotNull(flow)
     }
 
     @Test
-    fun `TaskEventBus replay should provide last event to new subscribers`() = runTest {
+    fun TaskEventBus_replay_should_provide_last_event_to_new_subscribers() = runTest {
         // Emit 3 events first
         repeat(3) { index ->
             TaskEventBus.emit(
@@ -103,7 +103,7 @@ class TaskEventBusTest {
     }
 
     @Test
-    fun `TaskEventBus replay configuration should be set to 1`() {
+    fun TaskEventBus_replay_configuration_should_be_set_to_1() {
         // This test verifies the replay configuration through behavioral testing
         // The replay=1 parameter allows late subscribers to receive the most recent event
 

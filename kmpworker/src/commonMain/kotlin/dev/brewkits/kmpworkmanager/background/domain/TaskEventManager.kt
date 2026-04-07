@@ -3,7 +3,7 @@ package dev.brewkits.kmpworkmanager.background.domain
 import dev.brewkits.kmpworkmanager.persistence.EventStore
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.utils.LogTags
-import kotlin.concurrent.Volatile
+import kotlinx.atomicfu.atomic
 
 /**
  * Central manager for task completion events.
@@ -24,26 +24,25 @@ import kotlin.concurrent.Volatile
  */
 object TaskEventManager {
 
-    // @Volatile ensures writes from the initializing thread are immediately visible
-    // to any thread that subsequently reads eventStore (e.g. a worker's IO thread).
-    @Volatile
-    private var eventStore: EventStore? = null
+    // AtomicRef provides both visibility AND atomicity for the check-then-set
+    // in initialize().
+    private val eventStoreRef = atomic<EventStore?>(null)
 
     /**
      * Initializes the event manager with an EventStore implementation.
      * Must be called during app initialization (before any workers run).
      *
      * Duplicate calls are silently ignored — the first call wins.
+     * Thread-safe: guaranteed by [AtomicRef.compareAndSet].
      *
      * @param store The EventStore instance to use for persistence
      */
     fun initialize(store: EventStore) {
-        if (eventStore != null) {
+        if (!eventStoreRef.compareAndSet(null, store)) {
             Logger.w(LogTags.SCHEDULER, "TaskEventManager: Already initialized — ignoring duplicate call")
-            return
+        } else {
+            Logger.i(LogTags.SCHEDULER, "TaskEventManager: Initialized with EventStore")
         }
-        eventStore = store
-        Logger.i(LogTags.SCHEDULER, "TaskEventManager: Initialized with EventStore")
     }
 
     /**
@@ -51,7 +50,7 @@ object TaskEventManager {
      * @suppress
      */
     internal fun resetForTest() {
-        eventStore = null
+        eventStoreRef.value = null
     }
 
     /**
@@ -67,7 +66,7 @@ object TaskEventManager {
     suspend fun emit(event: TaskCompletionEvent): String? {
         try {
             // 1. Save to persistent storage
-            val eventId = eventStore?.saveEvent(event)
+            val eventId = eventStoreRef.value?.saveEvent(event)
 
             if (eventId != null) {
                 Logger.d(LogTags.SCHEDULER, "TaskEventManager: Saved event $eventId for task ${event.taskName}")

@@ -211,8 +211,7 @@ class RealDeviceTestSuite {
             TaskRequest(workerClassName = "Step2Worker")
         ).then(
             TaskRequest(workerClassName = "Step3Worker")
-        ).withId("real-device-chain-${System.currentTimeMillis()}")
-        .enqueue()
+        ).enqueue(id = "real-device-chain-${System.currentTimeMillis()}")
 
         println("✅ Chain scheduled with 3 steps")
         println("   Check logs for sequential execution:")
@@ -561,7 +560,7 @@ class RealDeviceTestSuite {
     }
 
     private class LogWorker : AndroidWorker {
-        override suspend fun doWork(input: String?): WorkerResult {
+        override suspend fun doWork(input: String?, env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment): WorkerResult {
             val timestamp = System.currentTimeMillis()
             println("✅ LogWorker executed at $timestamp")
             return WorkerResult.Success(message = "Logged at $timestamp")
@@ -569,7 +568,7 @@ class RealDeviceTestSuite {
     }
 
     private class StepWorker(private val stepName: String) : AndroidWorker {
-        override suspend fun doWork(input: String?): WorkerResult {
+        override suspend fun doWork(input: String?, env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment): WorkerResult {
             println("✅ $stepName executed")
             delay(500) // Simulate work
             return WorkerResult.Success(message = "$stepName completed")
@@ -577,21 +576,21 @@ class RealDeviceTestSuite {
     }
 
     private class NetworkWorker : AndroidWorker {
-        override suspend fun doWork(input: String?): WorkerResult {
+        override suspend fun doWork(input: String?, env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment): WorkerResult {
             println("✅ NetworkWorker executed (network constraint satisfied)")
             return WorkerResult.Success(message = "Network task completed")
         }
     }
 
     private class ChargingWorker : AndroidWorker {
-        override suspend fun doWork(input: String?): WorkerResult {
+        override suspend fun doWork(input: String?, env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment): WorkerResult {
             println("✅ ChargingWorker executed (device is charging)")
             return WorkerResult.Success(message = "Charging task completed")
         }
     }
 
     private class StressTestWorker : AndroidWorker {
-        override suspend fun doWork(input: String?): WorkerResult {
+        override suspend fun doWork(input: String?, env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment): WorkerResult {
             // Minimal work to test concurrency
             delay(100)
             return WorkerResult.Success(message = "Stress test task completed")
@@ -599,13 +598,13 @@ class RealDeviceTestSuite {
     }
 
     private class RapidWorker : AndroidWorker {
-        override suspend fun doWork(input: String?): WorkerResult {
+        override suspend fun doWork(input: String?, env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment): WorkerResult {
             return WorkerResult.Success(message = "Rapid reschedule task")
         }
     }
 
     private class ChineseROMTestWorker : AndroidWorker {
-        override suspend fun doWork(input: String?): WorkerResult {
+        override suspend fun doWork(input: String?, env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment): WorkerResult {
             println("✅✅✅ ChineseROMTestWorker executed successfully!")
             println("   This means your Chinese ROM permissions are configured correctly")
             return WorkerResult.Success(message = "Chinese ROM compatible")
@@ -613,13 +612,13 @@ class RealDeviceTestSuite {
     }
 
     private class PerfTestWorker : AndroidWorker {
-        override suspend fun doWork(input: String?): WorkerResult {
+        override suspend fun doWork(input: String?, env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment): WorkerResult {
             return WorkerResult.Success(message = "Perf test")
         }
     }
 
     private class TimingTestWorker : AndroidWorker {
-        override suspend fun doWork(input: String?): WorkerResult {
+        override suspend fun doWork(input: String?, env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment): WorkerResult {
             val executionTime = System.currentTimeMillis()
             println("⏰ TimingTestWorker executed at: $executionTime")
             return WorkerResult.Success(message = "Timing test completed")

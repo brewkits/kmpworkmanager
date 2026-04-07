@@ -1,0 +1,11 @@
+        } finally {
+        when (exception) {
+            null -> close()
+            else -> try {
+                close()
+            } catch (closeException: Throwable) {
+                // Suppressed exception
+            }
+        }
+    }
+}

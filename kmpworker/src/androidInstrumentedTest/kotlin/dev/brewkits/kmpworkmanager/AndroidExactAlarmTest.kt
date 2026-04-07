@@ -421,8 +421,11 @@ class AndroidExactAlarmTest {
     }
 
     private class TestWorker : AndroidWorker {
-        override suspend fun doWork(input: String?): WorkerResult {
-            return WorkerResult.Success(message = "Test worker completed")
+        override suspend fun doWork(
+            input: String?,
+            env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
+        ): dev.brewkits.kmpworkmanager.background.domain.WorkerResult {
+            return dev.brewkits.kmpworkmanager.background.domain.WorkerResult.Success(message = "Test worker completed")
         }
     }
 }

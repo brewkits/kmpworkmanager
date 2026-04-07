@@ -51,7 +51,7 @@ class V235BugFixesTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `Fix AD-1 - WorkManager tag constant must be KMP_TASK`() {
+    fun Fix_AD_1_WorkManager_tag_constant_must_be_KMP_TASK() {
         // NativeTaskScheduler (Android) adds tag "KMP_TASK" to all WorkRequests
         // AndroidWorkerDiagnostics must use the same tag for getWorkInfosByTag()
         // Before fix: used "kmp-worker" which never matched → empty results always
@@ -73,7 +73,7 @@ class V235BugFixesTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `Fix ES-DOC - clearOldEvents uses delta semantics not absolute timestamp`() {
+    fun Fix_ES_DOC_clearOldEvents_uses_delta_semantics_not_absolute_timestamp() {
         // The parameter olderThanMs is a MAX AGE in milliseconds.
         // Implementation: cutoffTime = System.currentTimeMillis() - olderThanMs
         // Example: clearOldEvents(86_400_000) deletes events older than 24h
@@ -103,7 +103,7 @@ class V235BugFixesTest {
     }
 
     @Test
-    fun `Fix ES-DOC - InMemoryEventStore clearOldEvents validates delta semantics`() {
+    fun Fix_ES_DOC_InMemoryEventStore_clearOldEvents_validates_delta_semantics() {
         // Directly test that our in-memory implementation (used in tests) uses delta
         val store = InMemoryEventStoreForTest()
 
@@ -121,7 +121,7 @@ class V235BugFixesTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `Fix EB-1 - TaskEventBus emit should deliver events to subscribers`() = runTest {
+    fun Fix_EB_1_TaskEventBus_emit_should_deliver_events_to_subscribers() = runTest {
         val event = TaskCompletionEvent(
             taskName = "EB1SingleDeliveryTask",
             success = true,
@@ -147,7 +147,7 @@ class V235BugFixesTest {
     }
 
     @Test
-    fun `Fix EB-1 - TaskProgressBus emit should deliver progress events to subscribers`() = runTest {
+    fun Fix_EB_1_TaskProgressBus_emit_should_deliver_progress_events_to_subscribers() = runTest {
         val event = TaskProgressEvent(
             taskId = "eb1-progress-task-id",
             taskName = "EB1ProgressTask",
@@ -172,7 +172,7 @@ class V235BugFixesTest {
     }
 
     @Test
-    fun `Fix EB-1 - TaskEventBus should emit multiple events without dropping`() = runTest {
+    fun Fix_EB_1_TaskEventBus_should_emit_multiple_events_without_dropping() = runTest {
         val eventCount = 10
         val prefix = "EB1Multi"  // unique prefix — filters out replay events from other tests
         val received = mutableListOf<TaskCompletionEvent>()
@@ -207,7 +207,7 @@ class V235BugFixesTest {
     }
 
     @Test
-    fun `Fix EB-1 - TaskEventBus replay buffer should hold last 1 event`() = runTest {
+    fun Fix_EB_1_TaskEventBus_replay_buffer_should_hold_last_1_event() = runTest {
         // Emit 3 events — replay=1 means only the last event is replayed to new subscribers.
         // replay=1 (not 5) prevents holding multiple large outputData JsonObjects in RAM.
         repeat(3) { i ->
@@ -223,7 +223,7 @@ class V235BugFixesTest {
     }
 
     @Test
-    fun `Fix EB-1 - TaskProgressBus replay buffer should hold last progress event`() = runTest {
+    fun Fix_EB_1_TaskProgressBus_replay_buffer_should_hold_last_progress_event() = runTest {
         // Emit a progress event — replay=1 means last progress is replayed
         TaskProgressBus.emit(
             TaskProgressEvent(
@@ -244,7 +244,7 @@ class V235BugFixesTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `Fix LT-1 - Logger emit should not crash when custom logger is set`() {
+    fun Fix_LT_1_Logger_emit_should_not_crash_when_custom_logger_is_set() {
         // Reset global state — minLevel may have been set to ERROR by LoggerTest
         dev.brewkits.kmpworkmanager.utils.Logger.setMinLevel(
             dev.brewkits.kmpworkmanager.utils.Logger.Level.VERBOSE
@@ -276,7 +276,7 @@ class V235BugFixesTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `V235 - all fixes are verified`() {
+    fun V235_all_fixes_are_verified() {
         // Release Summary:
         //
         // Fix AD-1: AndroidWorkerDiagnostics "kmp-worker" → "KMP_TASK"

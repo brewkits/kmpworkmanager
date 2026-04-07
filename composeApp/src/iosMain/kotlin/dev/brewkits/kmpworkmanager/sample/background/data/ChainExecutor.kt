@@ -278,7 +278,7 @@ class ChainExecutor(private val workerFactory: IosWorkerFactory) {
 
         return try {
             withTimeout(TASK_TIMEOUT_MS) {
-                val result = worker.doWork(task.inputJson)
+                val result = worker.doWork(task.inputJson, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
                 val duration = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime
                 val percentage = (duration * 100 / TASK_TIMEOUT_MS).toInt()
 

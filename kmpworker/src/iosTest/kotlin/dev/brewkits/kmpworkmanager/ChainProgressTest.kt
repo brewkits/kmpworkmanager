@@ -519,7 +519,7 @@ class ChainProgressTest {
             maxRetries = 5
         )
 
-        val json = Json.encodeToString(original)
+        val json = Json.encodeToString(ChainProgress.serializer(), original)
         val decoded = Json.decodeFromString<ChainProgress>(json)
 
         assertEquals(original, decoded)

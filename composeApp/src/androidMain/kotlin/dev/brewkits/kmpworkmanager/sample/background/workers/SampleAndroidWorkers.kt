@@ -3,6 +3,7 @@ package dev.brewkits.kmpworkmanager.sample.background.workers
 import dev.brewkits.kmpworkmanager.background.domain.AndroidWorker
 import dev.brewkits.kmpworkmanager.background.domain.TaskCompletionEvent
 import dev.brewkits.kmpworkmanager.background.domain.TaskEventBus
+import dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.sample.utils.Logger
 import dev.brewkits.kmpworkmanager.sample.utils.LogTags
@@ -11,7 +12,7 @@ import kotlin.math.sqrt
 import kotlin.time.measureTime
 
 class SyncAndroidWorker : AndroidWorker {
-    override suspend fun doWork(input: String?): WorkerResult {
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
         val steps = listOf("Fetching data", "Processing", "Saving")
         for ((index, step) in steps.withIndex()) {
             Logger.d(LogTags.WORKER, "Android: [$step] ${index + 1}/${steps.size}")
@@ -23,7 +24,7 @@ class SyncAndroidWorker : AndroidWorker {
 }
 
 class UploadAndroidWorker : AndroidWorker {
-    override suspend fun doWork(input: String?): WorkerResult {
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
         val totalSize = 100
         var uploaded = 0
         while (uploaded < totalSize) {
@@ -37,7 +38,7 @@ class UploadAndroidWorker : AndroidWorker {
 }
 
 class HeavyProcessingAndroidWorker : AndroidWorker {
-    override suspend fun doWork(input: String?): WorkerResult {
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
         var primes: List<Int> = emptyList()
         val duration = measureTime {
             primes = (2..10000).filter { n ->
@@ -53,7 +54,7 @@ class HeavyProcessingAndroidWorker : AndroidWorker {
 }
 
 class DatabaseAndroidWorker : AndroidWorker {
-    override suspend fun doWork(input: String?): WorkerResult {
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
         val totalRecords = 1000
         val batchSize = 100
         var processed = 0
@@ -68,7 +69,7 @@ class DatabaseAndroidWorker : AndroidWorker {
 }
 
 class NetworkRetryAndroidWorker : AndroidWorker {
-    override suspend fun doWork(input: String?): WorkerResult {
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
         val maxAttempts = 3
         for (attempt in 1..maxAttempts) {
             delay(1000)
@@ -84,7 +85,7 @@ class NetworkRetryAndroidWorker : AndroidWorker {
 }
 
 class ImageProcessingAndroidWorker : AndroidWorker {
-    override suspend fun doWork(input: String?): WorkerResult {
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
         val imageSizes = listOf("thumbnail", "medium", "large")
         val imageCount = 5
         for (imageNum in 1..imageCount) {
@@ -100,7 +101,7 @@ class ImageProcessingAndroidWorker : AndroidWorker {
 }
 
 class LocationSyncAndroidWorker : AndroidWorker {
-    override suspend fun doWork(input: String?): WorkerResult {
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
         val locationPoints = 50
         val batchSize = 10
         var synced = 0
@@ -116,7 +117,7 @@ class LocationSyncAndroidWorker : AndroidWorker {
 }
 
 class CleanupAndroidWorker : AndroidWorker {
-    override suspend fun doWork(input: String?): WorkerResult {
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
         delay(800)
         val oldFiles = 127
         var deleted = 0
@@ -133,7 +134,7 @@ class CleanupAndroidWorker : AndroidWorker {
 }
 
 class BatchUploadAndroidWorker : AndroidWorker {
-    override suspend fun doWork(input: String?): WorkerResult {
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
         val files = listOf("document.pdf" to 2, "photo.jpg" to 5, "video.mp4" to 15, "report.xlsx" to 1, "backup.zip" to 8)
         for ((name, size) in files) {
             var uploaded = 0
@@ -151,7 +152,7 @@ class BatchUploadAndroidWorker : AndroidWorker {
 }
 
 class AnalyticsAndroidWorker : AndroidWorker {
-    override suspend fun doWork(input: String?): WorkerResult {
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
         delay(500)
         val eventCount = 243
         delay(600)

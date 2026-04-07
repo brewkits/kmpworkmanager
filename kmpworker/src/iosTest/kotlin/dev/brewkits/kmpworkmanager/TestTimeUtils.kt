@@ -17,7 +17,7 @@ import platform.Foundation.timeIntervalSince1970
  */
 @OptIn(ExperimentalForeignApi::class)
 internal fun currentTimeMillis(): Long {
-    return (NSDate().timeIntervalSince1970 * 1000).toLong()
+    return (NSDate().timeIntervalSince1970() * 1000).toLong()
 }
 
 /**

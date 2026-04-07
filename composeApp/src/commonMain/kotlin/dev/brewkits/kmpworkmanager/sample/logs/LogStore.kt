@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.datetime.Clock
 import kotlin.time.Duration.Companion.milliseconds
 
 /**
@@ -42,7 +43,7 @@ object LogStore {
      */
     suspend fun add(entry: LogEntry) {
         mutex.withLock {
-            val currentTime = kotlin.time.Clock.System.now().toEpochMilliseconds()
+            val currentTime = Clock.System.now().toEpochMilliseconds()
             val updatedList = (_entries.value + entry)
                 .filter { (currentTime - it.timestamp) < MAX_AGE_MS } // Remove entries older than 1 hour
                 .takeLast(MAX_ENTRIES) // Keep only last MAX_ENTRIES

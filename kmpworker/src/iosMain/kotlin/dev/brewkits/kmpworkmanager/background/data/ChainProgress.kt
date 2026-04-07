@@ -40,8 +40,12 @@ import kotlinx.serialization.Transient
  *   Cleared for a step once that step is marked fully completed.
  * @property lastFailedStep Index of the step that last failed, if any
  * @property lastError Error message from the last failed task, if any
- * @property retryCount Number of times this chain has been retried
+ * @property retryCount Number of times this chain has been retried due to task failures
  * @property maxRetries Maximum retry attempts before abandoning (default: 3)
+ * @property crashAttemptCount Number of BGTask invocations that started executing this
+ *   chain but never finished cleanly (process killed, OOM, native crash). Incremented on
+ *   disk BEFORE any work begins so it survives process death. When this exceeds
+ *   [MAX_CRASH_ATTEMPTS] the chain is quarantined to break the crash loop.
  */
 @Serializable
 data class ChainProgress(
@@ -53,7 +57,8 @@ data class ChainProgress(
     val lastFailedStep: Int? = null,
     val lastError: String? = null,
     val retryCount: Int = 0,
-    val maxRetries: Int = 3
+    val maxRetries: Int = 3,
+    val crashAttemptCount: Int = 0
 ) {
     companion object {
         /**
@@ -65,6 +70,17 @@ data class ChainProgress(
          *  v1 — initial release
          */
         const val CURRENT_SCHEMA_VERSION = 1
+
+        /**
+         * Maximum number of BGTask invocations that can start a chain without it ever
+         * completing cleanly before the chain is considered a "poison pill".
+         *
+         * A chain that repeatedly crashes the process (OOM, native exception) would
+         * cause the app to be penalised by iOS (no more background time) if it crashes
+         * every BGTask invocation. This guard quarantines the chain after N crashes so
+         * subsequent BGTask invocations are not poisoned by the same chain.
+         */
+        const val MAX_CRASH_ATTEMPTS = 5
     }
     /**
      * Check if a specific step has been completed.
@@ -122,6 +138,7 @@ data class ChainProgress(
 
     /**
      * Create a new progress with an incremented retry count and optional error message.
+     * Used for logical failures (e.g., network error, worker exception).
      */
     fun withFailure(stepIndex: Int, errorMessage: String? = null): ChainProgress {
         return copy(
@@ -132,11 +149,43 @@ data class ChainProgress(
     }
 
     /**
+     * Create a new progress due to an OS-enforced timeout.
+     *
+     * **Sustainability fix:** Timeout does NOT increment [retryCount].
+     * A long chain that naturally exceeds the 300s iOS BGTask window should be allowed
+     * to resume as many times as needed to finish, provided each step eventually
+     * succeeds. Only actual task failures (exceptions) count towards abandonment.
+     */
+    fun withTimeout(stepIndex: Int, errorMessage: String? = null): ChainProgress {
+        return copy(
+            lastFailedStep = stepIndex,
+            lastError = errorMessage
+            // retryCount remains UNCHANGED
+        )
+    }
+
+    /**
      * Check if the chain has exceeded max retries.
      */
     fun hasExceededRetries(): Boolean {
         return retryCount >= maxRetries
     }
+
+    /**
+     * Returns a copy with [crashAttemptCount] incremented by one.
+     *
+     * Call this BEFORE any work begins and persist to disk immediately so the counter
+     * survives a process kill. If the chain completes (success or clean failure), its
+     * progress file is deleted anyway; the count only matters across process-death cycles.
+     */
+    fun withCrashAttempt(): ChainProgress = copy(crashAttemptCount = crashAttemptCount + 1)
+
+    /**
+     * Returns true when this chain has crashed enough times to be considered a poison pill.
+     * A chain that consistently crashes the process should be quarantined so it does not
+     * penalise the app's iOS background execution budget on every BGTask invocation.
+     */
+    fun isPoisonPill(): Boolean = crashAttemptCount >= MAX_CRASH_ATTEMPTS
 
     /**
      * Check if all steps are completed.

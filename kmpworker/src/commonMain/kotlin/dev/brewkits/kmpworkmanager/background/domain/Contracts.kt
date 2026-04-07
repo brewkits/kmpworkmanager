@@ -20,141 +20,26 @@ sealed interface TaskTrigger {
 
     /**
      * Triggers at a precise moment in time using exact alarm.
-     *
-     * **Use Cases**: Alarms, reminders, time-critical user-facing events
-     *
-     * **Android Implementation**:
-     * - Uses `AlarmManager.setExactAndAllowWhileIdle()`
-     * - Requires `SCHEDULE_EXACT_ALARM` permission on Android 12+ (API 31+)
-     * - Can wake device from doze mode
-     * - Accuracy: ±1 minute window on API 31+
-     *
-     * **iOS Implementation**:
-     * - Uses `UNUserNotificationCenter` for scheduled local notifications
-     * - Displays notification at exact time
-     * - Does not execute code in background (notification-based)
-     *
-     * @param atEpochMillis Unix timestamp in milliseconds when alarm should trigger
-     *
-     * **Example**:
-     * ```kotlin
-     * val targetTime = Clock.System.now().plus(1.hours).toEpochMilliseconds()
-     * TaskTrigger.Exact(atEpochMillis = targetTime)
-     * ```
      */
     data class Exact(val atEpochMillis: Long) : TaskTrigger
 
     /**
      * Triggers within a time window.
-     *
-     * Allows the OS to optimize execution by choosing the best time within the window.
-     *
-     * **Android**: Maps to a OneTime task with an initial delay to [earliest].
-     * The [latest] bound is not enforced by the OS scheduler, but is used as a
-     * **deadline guard**: scheduling is rejected immediately if `latest < now`.
-     *
-     * **iOS**: Uses `earliestBeginDate = earliest`. [latest] is not enforceable by
-     * BGTaskScheduler (opportunistic scheduling), but is used as a **deadline guard**
-     * at two points:
-     * 1. Scheduling time — rejected if `latest < now` → `ScheduleResult.DEADLINE_ALREADY_PASSED`
-     * 2. Runtime — task is skipped (DEADLINE_MISSED log) if the OS runs it after the deadline
-     *
-     * **Window size warning**: If the window (`latest - earliest`) is shorter than 30 minutes,
-     * a warning is logged recommending [Exact] with [ExactAlarmIOSBehavior] instead.
-     *
-     * **Note**: Neither platform guarantees execution within [earliest..latest].
-     * For strict timing use [Exact] with [ExactAlarmIOSBehavior].
-     *
-     * @param earliest Earliest time to execute (Unix epoch milliseconds)
-     * @param latest Deadline (Unix epoch milliseconds) — used as a guard, not OS-enforced
      */
     data class Windowed(val earliest: Long, val latest: Long) : TaskTrigger
 
     /**
      * Triggers periodically at regular intervals.
-     *
-     * **Use Cases**: Data sync, content refresh, periodic maintenance
-     *
-     * **Android Implementation**:
-     * - Uses `WorkManager.PeriodicWorkRequest`
-     * - **Minimum interval: 15 minutes (900,000ms)**
-     * - Actual execution time is opportunistic (OS decides best time)
-     * - Survives app restart and device reboot
-     * - `flexMs` creates execution window: [intervalMs - flexMs, intervalMs]
-     *
-     * **iOS Implementation**:
-     * - Uses `BGAppRefreshTask` (light tasks) or `BGProcessingTask` (heavy tasks)
-     * - **No minimum interval**, but iOS decides actual execution time
-     * - Execution heavily influenced by battery, usage patterns
-     * - Must manually re-schedule after each execution
-     * - Low Power Mode may defer execution significantly
-     *
-     * @param intervalMs Repetition interval in milliseconds (Android min: 900,000ms / 15min)
-     * @param flexMs Android-only: Flex window in milliseconds for execution optimization.
-     *               Task can execute anytime within [intervalMs - flexMs, intervalMs].
-     *               Helps battery by batching multiple tasks. iOS ignores this parameter.
-     *
-     * **Example**:
-     * ```kotlin
-     * // Sync every 15 minutes with 5-minute flex window
-     * TaskTrigger.Periodic(
-     *     intervalMs = 900_000,  // 15 minutes
-     *     flexMs = 300_000       // 5 minutes flex
-     * )
-     * ```
      */
     data class Periodic(val intervalMs: Long, val flexMs: Long? = null) : TaskTrigger
 
     /**
      * Triggers once after an optional initial delay.
-     *
-     * **Use Cases**: One-time upload, deferred processing, delayed execution
-     *
-     * **Android Implementation**:
-     * - Uses `WorkManager.OneTimeWorkRequest`
-     * - Constraints-aware (network, battery, etc.)
-     * - Survives app restart and device reboot
-     * - Can use ForegroundService for long-running tasks (isHeavyTask = true)
-     *
-     * **iOS Implementation**:
-     * - Uses `BGAppRefreshTask` (≤30s) or `BGProcessingTask` (≤60s)
-     * - iOS decides actual execution time (can be delayed)
-     * - `earliestBeginDate` = now + initialDelayMs
-     * - Execution not guaranteed if app is force-quit by user
-     *
-     * @param initialDelayMs Delay before execution in milliseconds (default: 0 = immediate)
-     *
-     * **Example**:
-     * ```kotlin
-     * // Upload data after 5 seconds
-     * TaskTrigger.OneTime(initialDelayMs = 5000)
-     * ```
      */
     data class OneTime(val initialDelayMs: Long = 0) : TaskTrigger
 
     /**
      * Triggers when a content URI changes - **ANDROID ONLY**.
-     *
-     * **Use Cases**: React to MediaStore changes, Contact updates, file modifications
-     *
-     * **Android Implementation**:
-     * - Uses `WorkManager` with `ContentUriTriggers`
-     * - Monitors content provider via `ContentObserver`
-     * - Common URIs: `content://media/external/images/media`, `content://contacts`
-     *
-     * **iOS**: Returns `ScheduleResult.REJECTED_OS_POLICY`
-     *
-     * @param uriString Content URI to observe (e.g., "content://media/external/images/media")
-     * @param triggerForDescendants If true, triggers for changes in descendant URIs as well
-     *
-     * **Example**:
-     * ```kotlin
-     * @OptIn(AndroidOnly::class)
-     * TaskTrigger.ContentUri(
-     *     uriString = "content://media/external/images/media",
-     *     triggerForDescendants = true
-     * )
-     * ```
      */
     @AndroidOnly
     data class ContentUri(
@@ -165,506 +50,74 @@ sealed interface TaskTrigger {
 
 /**
  * System-level constraints for task execution.
- * These are conditions that must be met for a task to run.
- *
- * **Platform Support**: Android only (iOS ignores these entirely).
- *
- * This enum is intentionally in common code so it can be referenced in the shared
- * [Constraints] data class. Only use values of this enum when writing Android-specific
- * scheduling logic, or wrap the call site with `@OptIn(AndroidOnly::class)`.
- *
- * Replaces deprecated TaskTrigger variants (BatteryLow, StorageLow, etc.)
- * which incorrectly represented constraints as triggers.
  */
 @Serializable
 enum class SystemConstraint {
-    /**
-     * Allow task to run even when storage is low.
-     * Android: `setRequiresStorageNotLow(false)`
-     */
     ALLOW_LOW_STORAGE,
-
-    /**
-     * Allow task to run even when battery is low.
-     * Android: `setRequiresBatteryNotLow(false)`
-     */
     ALLOW_LOW_BATTERY,
-
-    /**
-     * Require battery to be NOT low.
-     * Android: `setRequiresBatteryNotLow(true)`
-     */
     REQUIRE_BATTERY_NOT_LOW,
-
-    /**
-     * Require device to be idle/dozing.
-     * Android: `setRequiresDeviceIdle(true)`
-     */
     DEVICE_IDLE
 }
 
 /**
  * Defines the constraints under which a background task can run.
- *
- * Constraints allow fine-grained control over when tasks execute,
- * helping optimize battery life and network usage.
- *
- * **Platform Support**:
- * - Most constraints work on both platforms
- * - Some are platform-specific (see individual field docs)
  */
 @Serializable
 data class Constraints(
-    /**
-     * Requires any type of network connectivity (Wi-Fi, cellular, etc.).
-     *
-     * **Android**: Uses `NetworkType.CONNECTED` constraint
-     * **iOS**: Uses `requiresNetworkConnectivity` on `BGProcessingTask` only
-     *          (BGAppRefreshTask doesn't support network constraint)
-     *
-     * Default: false
-     */
     val requiresNetwork: Boolean = false,
-
-    /**
-     * Requires unmetered network (typically Wi-Fi).
-     *
-     * **Android**: Uses `NetworkType.UNMETERED` constraint — enforced by the OS at
-     *   scheduling time; the task does not start until Wi-Fi is available.
-     *
-     * **iOS**: `BGTaskScheduler` has no Wi-Fi-only constraint. The library enforces
-     *   this at **execution time** inside `ChainExecutor`: if the device is on cellular
-     *   when the BGTask fires, the task returns `Failure(shouldRetry=true)` without
-     *   executing, and the chain is re-queued for the next BGTask window.
-     *   This prevents accidental cellular data charges for large uploads/downloads.
-     *
-     * **Use Cases**: Large uploads/downloads, video processing, background sync > 100 MB
-     *
-     * Default: false
-     */
     val requiresUnmeteredNetwork: Boolean = false,
-
-    /**
-     * Requires device to be charging.
-     *
-     * **Android**: Uses `setRequiresCharging(true)` constraint
-     * **iOS**: Uses `requiresExternalPower` on `BGProcessingTask` only
-     *          (BGAppRefreshTask doesn't support charging constraint)
-     *
-     * **Use Cases**: Heavy processing, large syncs
-     *
-     * Default: false
-     */
     val requiresCharging: Boolean = false,
-
-    /**
-     * Hint to allow execution during device idle/doze mode - **ANDROID ONLY**.
-     *
-     * **Android**: Used with AlarmManager's `setExactAndAllowWhileIdle()`
-     * **iOS**: Not applicable (iOS decides execution timing)
-     *
-     * **Note**: This is a HINT, not a guarantee. System may still defer.
-     *
-     * Default: false
-     */
     val allowWhileIdle: Boolean = false,
-
-    /**
-     * Quality of Service hint for task priority - **iOS ONLY**.
-     *
-     * **iOS**: Maps to `DispatchQoS` for task execution priority:
-     * - `Utility`: Low priority, user not waiting
-     * - `Background`: Default, deferred execution
-     * - `UserInitiated`: Important, user may be waiting
-     * - `UserInteractive`: Critical, user actively waiting
-     *
-     * **Android**: Ignored (WorkManager handles priority automatically)
-     *
-     * Default: Qos.Background
-     */
     val qos: Qos = Qos.Background,
-
-    /**
-     * Indicates this is a long-running or heavy task requiring special handling.
-     *
-     * **Android**: Uses ForegroundService with persistent notification
-     * - Task can run indefinitely while service is foreground
-     * - Prevents system from killing the task
-     * - Requires `FOREGROUND_SERVICE` permission
-     * - Shows persistent notification to user
-     *
-     * **iOS**: Uses `BGProcessingTask` (≤60s) instead of `BGAppRefreshTask` (≤30s)
-     * - Double the execution time limit
-     * - Better for CPU-intensive work
-     * - Still limited by iOS (no indefinite execution)
-     *
-     * **Use Cases**: File upload, video processing, prime calculation
-     *
-     * Default: false
-     */
     val isHeavyTask: Boolean = false,
-
-    /**
-     * Backoff policy when task fails and needs retry - **ANDROID ONLY**.
-     *
-     * **Android**: Determines retry behavior for failed WorkManager tasks
-     * - `EXPONENTIAL`: Delay doubles after each retry (30s, 60s, 120s, ...)
-     * - `LINEAR`: Constant delay between retries
-     *
-     * **iOS**: Not applicable (manual retry required)
-     *
-     * Default: BackoffPolicy.EXPONENTIAL
-     */
     val backoffPolicy: BackoffPolicy = BackoffPolicy.EXPONENTIAL,
-
-    /**
-     * Initial backoff delay in milliseconds when task fails - **ANDROID ONLY**.
-     *
-     * **Android**: Starting delay before first retry
-     * - Minimum: 10,000ms (10 seconds)
-     * - Subsequent retries follow backoffPolicy
-     *
-     * **iOS**: Not applicable
-     *
-     * **Example**:
-     * ```kotlin
-     * Constraints(
-     *     backoffPolicy = BackoffPolicy.EXPONENTIAL,
-     *     backoffDelayMs = 30_000  // Start with 30s, then 60s, 120s, ...
-     * )
-     * ```
-     *
-     * Default: 30,000ms (30 seconds)
-     */
     val backoffDelayMs: Long = 30_000,
-
-    /**
-     * System-level constraints for task execution - **ANDROID ONLY**.
-     *
-     * Replaces deprecated TaskTrigger variants (BatteryLow, StorageLow, etc.)
-     *
-     * **Android**: Maps to WorkManager constraint methods:
-     * - `ALLOW_LOW_STORAGE` → `setRequiresStorageNotLow(false)`
-     * - `ALLOW_LOW_BATTERY` → `setRequiresBatteryNotLow(false)`
-     * - `REQUIRE_BATTERY_NOT_LOW` → `setRequiresBatteryNotLow(true)`
-     * - `DEVICE_IDLE` → `setRequiresDeviceIdle(true)`
-     *
-     * **iOS**: Ignored (no equivalent constraints)
-     *
-     * **Example**:
-     * ```kotlin
-     * Constraints(
-     *     systemConstraints = setOf(
-     *         SystemConstraint.DEVICE_IDLE,
-     *         SystemConstraint.REQUIRE_BATTERY_NOT_LOW
-     *     )
-     * )
-     * ```
-     *
-     * Default: emptySet()
-     */
     val systemConstraints: Set<SystemConstraint> = emptySet(),
-
-    /**
-     * iOS-specific behavior for TaskTrigger.Exact alarms - **iOS ONLY**.
-     *
-     * Added to provide transparency about iOS exact alarm limitations.
-     *
-     * **Problem**: iOS does NOT support background code execution at exact times.
-     * Android can execute worker code via AlarmManager, but iOS can only:
-     * 1. Show notifications (SHOW_NOTIFICATION)
-     * 2. Attempt opportunistic background run (ATTEMPT_BACKGROUND_RUN - not guaranteed)
-     * 3. Throw error to force developer awareness (THROW_ERROR)
-     *
-     * **Android**: This field is ignored (Android always executes worker code)
-     * **iOS**: Determines how TaskTrigger.Exact is handled
-     *
-     * **Migration.0**:
-     * - Old behavior: iOS always showed notification (silent, undocumented)
-     * - New behavior: Explicit configuration with fail-fast option
-     *
-     * **Example - Notification-based (Safe Default)**:
-     * ```kotlin
-     * scheduler.enqueue(
-     *     id = "morning-alarm",
-     *     trigger = TaskTrigger.Exact(morningTime),
-     *     workerClassName = "AlarmWorker", // Ignored on iOS
-     *     constraints = Constraints(
-     *         exactAlarmIOSBehavior = ExactAlarmIOSBehavior.SHOW_NOTIFICATION // Default
-     *     )
-     * )
-     * ```
-     *
-     * **Example - Fail Fast (Development)**:
-     * ```kotlin
-     * scheduler.enqueue(
-     *     id = "critical-task",
-     *     trigger = TaskTrigger.Exact(criticalTime),
-     *     workerClassName = "CriticalWorker",
-     *     constraints = Constraints(
-     *         exactAlarmIOSBehavior = ExactAlarmIOSBehavior.THROW_ERROR
-     *     )
-     * )
-     * // Throws on iOS: "iOS does not support exact alarms for code execution"
-     * ```
-     *
-     * Default: ExactAlarmIOSBehavior.SHOW_NOTIFICATION
-     */
-    val exactAlarmIOSBehavior: ExactAlarmIOSBehavior = ExactAlarmIOSBehavior.SHOW_NOTIFICATION
+    val exactAlarmIOSBehavior: ExactAlarmIOSBehavior = ExactAlarmIOSBehavior.SHOW_NOTIFICATION,
+    val extras: Map<String, String> = emptyMap()
 )
 
 /**
  * Backoff policy for task retry behavior.
- *
- * Used by Android WorkManager to determine retry intervals when tasks fail.
  */
 enum class BackoffPolicy {
-    /**
-     * Linear backoff - constant delay between retries.
-     *
-     * Retry delays: delay, delay, delay, ...
-     *
-     * **Example**: If delay = 30s: 30s, 30s, 30s, ...
-     */
     LINEAR,
-
-    /**
-     * Exponential backoff - delay doubles after each retry.
-     *
-     * Retry delays: delay, delay*2, delay*4, delay*8, ...
-     *
-     * **Example**: If delay = 30s: 30s, 60s, 120s, 240s, ...
-     */
     EXPONENTIAL
 }
 
 /**
  * Quality of Service (QoS) enumeration for task priority.
- *
- * Primarily used as a hint for iOS's DispatchQoS task priority system.
- * Android WorkManager handles priority automatically based on constraints.
  */
 enum class Qos {
-    /**
-     * Utility QoS - Low priority, user is not waiting.
-     *
-     * **iOS**: `DispatchQoS.utility`
-     * **Use Cases**: Prefetching, maintenance, non-urgent sync
-     */
     Utility,
-
-    /**
-     * Background QoS - Default priority, deferrable work.
-     *
-     * **iOS**: `DispatchQoS.background`
-     * **Use Cases**: Most background tasks, indexing, cleanup
-     */
     Background,
-
-    /**
-     * User-Initiated QoS - Important work, user may be waiting.
-     *
-     * **iOS**: `DispatchQoS.userInitiated`
-     * **Use Cases**: Explicit user action, data refresh from user request
-     */
     UserInitiated,
-
-    /**
-     * User-Interactive QoS - Critical work, user actively waiting.
-     *
-     * **iOS**: `DispatchQoS.userInteractive`
-     * **Use Cases**: UI updates, animations, immediate user-facing operations
-     * **Note**: Avoid for background tasks (defeats purpose of background work)
-     */
     UserInteractive
 }
 
 /**
  * iOS-specific behavior for TaskTrigger.Exact alarms.
- *
- * **Background**: iOS does not allow background code execution at exact times due to strict
- * background execution policies. This enum provides transparency and control over how exact
- * alarms are handled on iOS.
- *
- * Added to address platform parity issues and prevent silent failures.
- *
- * **Platform Support**: iOS only (Android always executes code)
  */
 enum class ExactAlarmIOSBehavior {
-    /**
-     * Show a local notification at the exact time (DEFAULT - Safe & Approved by Apple).
-     *
-     * **What happens**:
-     * - iOS displays a UNNotification at the specified time
-     * - No background code execution
-     * - User sees/hears notification
-     * - Tapping notification opens the app
-     *
-     * **Use Cases**:
-     * - Reminders, alarms, time-sensitive user notifications
-     * - Any user-facing event that doesn't require code execution
-     *
-     * **Guarantees**:
-     * - ✅ Notification will appear at exact time (±seconds)
-     * - ✅ Works reliably even in Low Power Mode
-     * - ✅ Survives app termination
-     *
-     * **Example**:
-     * ```kotlin
-     * scheduler.enqueue(
-     *     id = "morning-reminder",
-     *     trigger = TaskTrigger.Exact(morningTime),
-     *     workerClassName = "ReminderWorker", // Not executed on iOS
-     *     constraints = Constraints(
-     *         exactAlarmIOSBehavior = ExactAlarmIOSBehavior.SHOW_NOTIFICATION
-     *     )
-     * )
-     * ```
-     */
     SHOW_NOTIFICATION,
-
-    /**
-     * Attempt to run background code (Best Effort - NOT GUARANTEED).
-     *
-     * **What happens**:
-     * - Schedules a BGAppRefreshTask with `earliestBeginDate` = exact time
-     * - iOS MAY run the task around that time (opportunistic scheduling)
-     * - NO guarantee of exact timing
-     * - May be delayed by hours or not run at all
-     *
-     * **Use Cases**:
-     * - Non-critical background sync that benefits from timing hint
-     * - Data refresh where approximate timing is acceptable
-     *
-     * **Limitations**:
-     * - ❌ NOT suitable for time-critical operations
-     * - ❌ Timing accuracy: ±minutes to ±hours (iOS decides)
-     * - ❌ May not run if device is in Low Power Mode
-     * - ❌ May not run if app exceeded background budget
-     *
-     * **Example**:
-     * ```kotlin
-     * scheduler.enqueue(
-     *     id = "nightly-sync",
-     *     trigger = TaskTrigger.Exact(midnightTime),
-     *     workerClassName = "SyncWorker",
-     *     constraints = Constraints(
-     *         exactAlarmIOSBehavior = ExactAlarmIOSBehavior.ATTEMPT_BACKGROUND_RUN
-     *     )
-     * )
-     * // iOS will TRY to run around midnight, but may run much later
-     * ```
-     */
     ATTEMPT_BACKGROUND_RUN,
-
-    /**
-     * Throw exception immediately (Fail Fast - Development Safety).
-     *
-     * **What happens**:
-     * - Throws `UnsupportedOperationException` when scheduling
-     * - Prevents silent failures
-     * - Forces developer to handle iOS limitation explicitly
-     *
-     * **Use Cases**:
-     * - Development/testing to catch incorrect assumptions
-     * - Critical operations that MUST run at exact time (forces rethink of approach)
-     * - Ensuring iOS limitations are acknowledged
-     *
-     * **Benefits**:
-     * - ✅ Immediate feedback during development
-     * - ✅ Prevents deploying code with wrong expectations
-     * - ✅ Forces platform-aware design
-     *
-     * **Example**:
-     * ```kotlin
-     * scheduler.enqueue(
-     *     id = "critical-task",
-     *     trigger = TaskTrigger.Exact(criticalTime),
-     *     workerClassName = "CriticalWorker",
-     *     constraints = Constraints(
-     *         exactAlarmIOSBehavior = ExactAlarmIOSBehavior.THROW_ERROR
-     *     )
-     * )
-     * // Throws: "iOS does not support exact alarms for code execution.
-     * //          Use SHOW_NOTIFICATION or ATTEMPT_BACKGROUND_RUN instead."
-     * ```
-     */
     THROW_ERROR
 }
 
 /**
  * Policy for handling a new task when one with the same ID already exists.
- *
- * **Both platforms**: Enforced at scheduling time
  */
 enum class ExistingPolicy {
-    /**
-     * Keep the existing task and ignore the new request.
-     *
-     * **Android**: Uses `ExistingWorkPolicy.KEEP` / `ExistingPeriodicWorkPolicy.KEEP`
-     * **iOS**: Checks metadata existence; if present, returns `ScheduleResult.ACCEPTED` without scheduling
-     *
-     * **Use Cases**: Ensure only one instance runs, prevent duplicate scheduling
-     */
     KEEP,
-
-    /**
-     * Cancel the existing task and replace it with the new one.
-     *
-     * **Android**: Uses `ExistingWorkPolicy.REPLACE` / `ExistingPeriodicWorkPolicy.REPLACE`
-     * **iOS**: Calls `cancel(id)` before scheduling new task
-     *
-     * **Use Cases**: Update task parameters, reschedule with new constraints
-     */
     REPLACE
 }
 
 /**
  * Result of a task scheduling operation.
- *
- * Indicates whether the OS accepted, rejected, or throttled the request.
  */
 enum class ScheduleResult {
-    /**
-     * The task was successfully enqueued by the OS scheduler.
-     *
-     * **Note**: Acceptance doesn't guarantee execution (constraints may not be met).
-     */
     ACCEPTED,
-
-    /**
-     * The task was rejected due to OS limitation or policy.
-     *
-     * **Common Reasons**:
-     * - Android: Missing `SCHEDULE_EXACT_ALARM` permission
-     * - iOS: Task ID not in Info.plist `BGTaskSchedulerPermittedIdentifiers`
-     * - Platform doesn't support trigger type (e.g., ContentUri on iOS)
-     * - Invalid parameters (e.g., negative delay)
-     */
     REJECTED_OS_POLICY,
-
-    /**
-     * The task's deadline has already passed at the time of scheduling.
-     *
-     * Returned when [TaskTrigger.Windowed.latest] < current time, meaning
-     * the window has expired before the task could be enqueued.
-     *
-     * **Action**: Callers should not retry — the business window is gone.
-     * Log or surface this to the user if the operation was time-critical
-     * (e.g., pre-flight data sync that missed its deadline).
-     */
     DEADLINE_ALREADY_PASSED,
-
-    /**
-     * The OS is currently throttling background work for this app.
-     *
-     * **Common Reasons**:
-     * - Android: App in background restrictions
-     * - Android: Too many failed tasks (exponential backoff in effect)
-     * - iOS: App exceeded background execution budget
-     * - iOS: Low Power Mode enabled
-     *
-     * **Recommendation**: Retry with exponential backoff or wait for better conditions
-     */
     THROTTLED
 }

@@ -9,7 +9,7 @@ import kotlin.test.assertTrue
 class TaskTriggerHelperTest {
 
     @Test
-    fun `createTaskTriggerOneTime with zero delay should return OneTime trigger with zero delay`() {
+    fun createTaskTriggerOneTime_with_zero_delay_should_return_OneTime_trigger_with_zero_delay() {
         val trigger = createTaskTriggerOneTime(0)
 
         assertTrue(trigger is TaskTrigger.OneTime)
@@ -17,7 +17,7 @@ class TaskTriggerHelperTest {
     }
 
     @Test
-    fun `createTaskTriggerOneTime with positive delay should return OneTime trigger with correct delay`() {
+    fun createTaskTriggerOneTime_with_positive_delay_should_return_OneTime_trigger_with_correct_delay() {
         val delayMs = 5000L
         val trigger = createTaskTriggerOneTime(delayMs)
 
@@ -26,7 +26,7 @@ class TaskTriggerHelperTest {
     }
 
     @Test
-    fun `createTaskTriggerOneTime with large delay should handle value correctly`() {
+    fun createTaskTriggerOneTime_with_large_delay_should_handle_value_correctly() {
         val delayMs = Long.MAX_VALUE
         val trigger = createTaskTriggerOneTime(delayMs)
 
@@ -35,7 +35,7 @@ class TaskTriggerHelperTest {
     }
 
     @Test
-    fun `createConstraints should return default Constraints instance`() {
+    fun createConstraints_should_return_default_Constraints_instance() {
         val constraints = createConstraints()
 
         assertEquals(false, constraints.requiresNetwork)
@@ -49,7 +49,7 @@ class TaskTriggerHelperTest {
     }
 
     @Test
-    fun `createConstraints should return new instance each time`() {
+    fun createConstraints_should_return_new_instance_each_time() {
         val constraints1 = createConstraints()
         val constraints2 = createConstraints()
 

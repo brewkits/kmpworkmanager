@@ -46,7 +46,7 @@ class V236BugFixesTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `Fix CE-1 - withTimeout return value must be captured not discarded`() {
+    fun Fix_CE_1_withTimeout_return_value_must_be_captured_not_discarded() {
         // Before fix: val chainSucceeded: Boolean was declared as `var chainSucceeded = false`
         // and withTimeout { ... allStepsSucceeded } was called without capturing the return value.
         // → chainSucceeded always remained false even on success.
@@ -66,7 +66,7 @@ class V236BugFixesTest {
     }
 
     @Test
-    fun `Fix CE-1 - chain success boolean reflects actual step outcomes`() {
+    fun Fix_CE_1_chain_success_boolean_reflects_actual_step_outcomes() {
         // Models the corrected behavior: chainSucceeded reflects allStepsSucceeded from lambda.
         // Without CE-1 fix, even a fully-successful chain would report chainSucceeded = false.
 
@@ -108,7 +108,7 @@ class V236BugFixesTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `Fix CE-2 - CancellationException must propagate not be caught as Exception`() {
+    fun Fix_CE_2_CancellationException_must_propagate_not_be_caught_as_Exception() {
         // Before fix: catch (e: Exception) { ... } silently consumed CancellationException
         // → coroutine cancellation couldn't propagate
         // → parent scope couldn't properly cancel running chains on BGTask expiry
@@ -135,7 +135,7 @@ class V236BugFixesTest {
     }
 
     @Test
-    fun `Fix CE-2 - catching Exception before CancellationException demonstrates the bug`() {
+    fun Fix_CE_2_catching_Exception_before_CancellationException_demonstrates_the_bug() {
         // This test documents WHY the bug existed.
         // If catch(e: Exception) comes first, CancellationException is swallowed.
 
@@ -158,7 +158,7 @@ class V236BugFixesTest {
     }
 
     @Test
-    fun `Fix CE-2 - coroutine cancellation must propagate through chain execution`() = runTest {
+    fun Fix_CE_2_coroutine_cancellation_must_propagate_through_chain_execution() = runTest {
         // Verify that cancellation of a parent scope propagates correctly.
         // Before the fix, CancellationException being swallowed would prevent this.
 
@@ -195,7 +195,7 @@ class V236BugFixesTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `Fix CE-3 - repeat with return at repeat does NOT exit the outer loop`() {
+    fun Fix_CE_3_repeat_with_return_at_repeat_does_NOT_exit_the_outer_loop() {
         // Before fix: repeat(maxChains) { return@repeat } was used.
         // return@repeat is a local return — it only exits the current lambda iteration,
         // NOT the enclosing repeat loop. So the loop always completes all maxChains iterations.
@@ -224,7 +224,7 @@ class V236BugFixesTest {
     }
 
     @Test
-    fun `Fix CE-3 - break in for loop exits immediately on shutdown signal`() {
+    fun Fix_CE_3_break_in_for_loop_exits_immediately_on_shutdown_signal() {
         // In ChainExecutor.executeChainsInBatch(), the fixed code:
         //
         //   for (iteration in 0 until maxChains) {
@@ -255,7 +255,7 @@ class V236BugFixesTest {
     }
 
     @Test
-    fun `Fix CE-3 - return at repeat does not stop outer loop demonstrating original bug impact`() {
+    fun Fix_CE_3_return_at_repeat_does_not_stop_outer_loop_demonstrating_original_bug_impact() {
         // This is a concrete demonstration of the impact of the original bug:
         // In ChainExecutor, the "break early when queue is empty" condition was ineffective.
 
@@ -290,7 +290,7 @@ class V236BugFixesTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `Fix AND-1 - exact alarm WorkManager fallback uses delta delay not raw epoch ms`() {
+    fun Fix_AND_1_exact_alarm_WorkManager_fallback_uses_delta_delay_not_raw_epoch_ms() {
         // Before fix: scheduleOneTimeWork was called with initialDelayMs = trigger.atEpochMillis
         // → initialDelayMs was a raw epoch timestamp (e.g. 1_700_000_000_000 ms from 1970)
         // → WorkManager would schedule a task 54+ years in the future.
@@ -314,7 +314,7 @@ class V236BugFixesTest {
     }
 
     @Test
-    fun `Fix AND-1 - past exact alarm time uses coerceAtLeast 0 for immediate scheduling`() {
+    fun Fix_AND_1_past_exact_alarm_time_uses_coerceAtLeast_0_for_immediate_scheduling() {
         // If trigger.atEpochMillis is in the past (e.g. task was delayed), the delta is negative.
         // coerceAtLeast(0) ensures we schedule immediately rather than with a negative delay.
 
@@ -330,7 +330,7 @@ class V236BugFixesTest {
     }
 
     @Test
-    fun `Fix AND-1 - WorkManager fallback delay for permission-denied case is correct`() {
+    fun Fix_AND_1_WorkManager_fallback_delay_for_permission_denied_case_is_correct() {
         // Android 12+: SCHEDULE_EXACT_ALARM permission denied → fallback to WorkManager
         // The same delta calculation applies in the SecurityException fallback path.
 
@@ -352,7 +352,7 @@ class V236BugFixesTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `Fix AND-2 - TaskTrigger Periodic flex interval is available in the contract`() {
+    fun Fix_AND_2_TaskTrigger_Periodic_flex_interval_is_available_in_the_contract() {
         // Before fix: schedulePeriodicWork always used PeriodicWorkRequestBuilder(intervalMs)
         // ignoring flexMs even when it was set.
         //
@@ -373,7 +373,7 @@ class V236BugFixesTest {
     }
 
     @Test
-    fun `Fix AND-2 - flex interval must be smaller than or equal to repeat interval`() {
+    fun Fix_AND_2_flex_interval_must_be_smaller_than_or_equal_to_repeat_interval() {
         // WorkManager requirement: flexInterval must be <= repeatInterval and >= 5 minutes
         // (WorkManager enforces MIN_PERIODIC_FLEX_MILLIS = 5 minutes)
         //
@@ -388,7 +388,7 @@ class V236BugFixesTest {
     }
 
     @Test
-    fun `Fix AND-2 - null flexMs results in standard periodic scheduling path`() {
+    fun Fix_AND_2_null_flexMs_results_in_standard_periodic_scheduling_path() {
         // When flexMs is null, code falls through to the non-flex PeriodicWorkRequestBuilder.
         // This is the backward-compatible path.
 
@@ -399,7 +399,7 @@ class V236BugFixesTest {
     }
 
     @Test
-    fun `Fix AND-2 - non-null flexMs enables flex scheduling path`() {
+    fun Fix_AND_2_non_null_flexMs_enables_flex_scheduling_path() {
         val periodic = TaskTrigger.Periodic(intervalMs = 1_800_000L, flexMs = 600_000L)
 
         val useFlex = periodic.flexMs != null
@@ -411,7 +411,7 @@ class V236BugFixesTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `Fix AND-3 - REQUIRE_BATTERY_NOT_LOW is incompatible with expedited tasks`() {
+    fun Fix_AND_3_REQUIRE_BATTERY_NOT_LOW_is_incompatible_with_expedited_tasks() {
         // Before fix: incompatible constraint check was:
         //   it == DEVICE_IDLE
         //
@@ -433,7 +433,7 @@ class V236BugFixesTest {
     }
 
     @Test
-    fun `Fix AND-3 - task with DEVICE_IDLE constraint must not use expedited mode`() {
+    fun Fix_AND_3_task_with_DEVICE_IDLE_constraint_must_not_use_expedited_mode() {
         val constraints = Constraints(
             systemConstraints = setOf(SystemConstraint.DEVICE_IDLE)
         )
@@ -449,7 +449,7 @@ class V236BugFixesTest {
     }
 
     @Test
-    fun `Fix AND-3 - task with REQUIRE_BATTERY_NOT_LOW must not use expedited mode`() {
+    fun Fix_AND_3_task_with_REQUIRE_BATTERY_NOT_LOW_must_not_use_expedited_mode() {
         val constraints = Constraints(
             systemConstraints = setOf(SystemConstraint.REQUIRE_BATTERY_NOT_LOW)
         )
@@ -465,7 +465,7 @@ class V236BugFixesTest {
     }
 
     @Test
-    fun `Fix AND-3 - task requiring charging must not use expedited mode`() {
+    fun Fix_AND_3_task_requiring_charging_must_not_use_expedited_mode() {
         val constraints = Constraints(requiresCharging = true)
 
         val hasIncompatibleConstraints = constraints.requiresCharging ||
@@ -479,7 +479,7 @@ class V236BugFixesTest {
     }
 
     @Test
-    fun `Fix AND-3 - task with network constraint only can still use expedited mode`() {
+    fun Fix_AND_3_task_with_network_constraint_only_can_still_use_expedited_mode() {
         // requiresNetwork IS compatible with expedited tasks
         val constraints = Constraints(requiresNetwork = true)
 
@@ -494,7 +494,7 @@ class V236BugFixesTest {
     }
 
     @Test
-    fun `Fix AND-3 - ALLOW_LOW_STORAGE and ALLOW_LOW_BATTERY are compatible with expedited mode`() {
+    fun Fix_AND_3_ALLOW_LOW_STORAGE_and_ALLOW_LOW_BATTERY_are_compatible_with_expedited_mode() {
         // These constraints lower thresholds — they do not require device to be in a specific state.
         // They are compatible with expedited tasks.
         val constraints = Constraints(
@@ -519,7 +519,7 @@ class V236BugFixesTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `Fix IOS-1 - chain executor BGTask must not require network connectivity`() {
+    fun Fix_IOS_1_chain_executor_BGTask_must_not_require_network_connectivity() {
         // Before fix: enqueueChain() created BGProcessingTaskRequest with:
         //   requiresNetworkConnectivity = true
         //
@@ -540,7 +540,7 @@ class V236BugFixesTest {
     }
 
     @Test
-    fun `Fix IOS-1 - chain can run on offline device when workers do not need network`() {
+    fun Fix_IOS_1_chain_can_run_on_offline_device_when_workers_do_not_need_network() {
         // Before fix: a chain of file-processing workers (no network needed) would NEVER run
         // if the device was offline, because the chain executor BGTask required connectivity.
         //
@@ -568,7 +568,7 @@ class V236BugFixesTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `V236 - all fixes are verified and production ready`() {
+    fun V236_all_fixes_are_verified_and_production_ready() {
         // Release Summary:
         //
         // Fix CE-1: ChainExecutor withTimeout return value captured

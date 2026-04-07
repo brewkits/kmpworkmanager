@@ -51,8 +51,8 @@ class IosScopeAndMigrationTest {
     @BeforeTest
     fun setup() {
         val fileManager = NSFileManager.defaultManager
-        val tempDir = fileManager.temporaryDirectory
-        testDirectory = tempDir.URLByAppendingPathComponent("IosScopeMigrationTest-${NSDate().timeIntervalSince1970}")!!
+        val tempDir = fileManager.temporaryDirectory()
+        testDirectory = tempDir.URLByAppendingPathComponent("IosScopeMigrationTest-${NSDate().timeIntervalSince1970()}")!!
 
         fileManager.createDirectoryAtURL(
             testDirectory,
@@ -537,7 +537,10 @@ class IosScopeAndMigrationTest {
     private class TestWorker(
         private val delayMs: Long = 0
     ) : IosWorker {
-        override suspend fun doWork(input: String?): WorkerResult {
+        override suspend fun doWork(
+            input: String?,
+            env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
+        ): WorkerResult {
             if (delayMs > 0) {
                 delay(delayMs)
             }

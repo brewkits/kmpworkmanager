@@ -23,8 +23,8 @@ class IosRaceConditionTest {
     @BeforeTest
     fun setup() {
         val fileManager = NSFileManager.defaultManager
-        val tempDir = fileManager.temporaryDirectory
-        testDirectory = tempDir.URLByAppendingPathComponent("IosRaceConditionTest-${NSDate().timeIntervalSince1970}")!!
+        val tempDir = fileManager.temporaryDirectory()
+        testDirectory = tempDir.URLByAppendingPathComponent("IosRaceConditionTest-${NSDate().timeIntervalSince1970()}")!!
 
         fileManager.createDirectoryAtURL(
             testDirectory,
@@ -169,12 +169,12 @@ class IosRaceConditionTest {
             onContinuationNeeded = null
         )
 
-        val startTime = NSDate().timeIntervalSince1970 * 1000
+        val startTime = NSDate().timeIntervalSince1970() * 1000
 
         // close() should be non-blocking
         chainExecutor.close()
 
-        val elapsed = (NSDate().timeIntervalSince1970 * 1000) - startTime
+        val elapsed = (NSDate().timeIntervalSince1970() * 1000) - startTime
 
         // Should complete quickly (< 1 second)
         assertTrue(
@@ -184,7 +184,7 @@ class IosRaceConditionTest {
     }
 
     @Test
-    fun testCloseAsyncAwaitsCleanup() = runBlocking {
+    fun testCloseAwaitsCleanup() = runBlocking {
         val workerFactory = TestWorkerFactory()
 
         val chainExecutor = ChainExecutor(
@@ -193,11 +193,11 @@ class IosRaceConditionTest {
             onContinuationNeeded = null
         )
 
-        // closeAsync() should complete
-        chainExecutor.closeAsync()
+        // close() should complete
+        chainExecutor.close()
 
         // Should complete without deadlock
-        assertTrue(true, "closeAsync() completed successfully")
+        assertTrue(true, "close() completed successfully")
     }
 
     @Test
@@ -220,7 +220,7 @@ class IosRaceConditionTest {
     }
 
     @Test
-    fun testConcurrentCloseAndCloseAsync() = runBlocking {
+    fun testConcurrentClose() = runBlocking {
         val workerFactory = TestWorkerFactory()
 
         val chainExecutor = ChainExecutor(
@@ -230,12 +230,12 @@ class IosRaceConditionTest {
         )
 
         // Launch concurrent close operations
-        val closeJob = launch { chainExecutor.close() }
-        val closeAsyncJob = launch { chainExecutor.closeAsync() }
+        val closeJob1 = launch { chainExecutor.close() }
+        val closeJob2 = launch { chainExecutor.close() }
 
         // Wait for both
-        closeJob.join()
-        closeAsyncJob.join()
+        closeJob1.join()
+        closeJob2.join()
 
         // Should complete without deadlock
         assertTrue(true, "Concurrent close operations completed")
@@ -255,7 +255,10 @@ class IosRaceConditionTest {
     }
 
     private class TestWorker : IosWorker {
-        override suspend fun doWork(input: String?): WorkerResult {
+        override suspend fun doWork(
+            input: String?,
+            env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
+        ): WorkerResult {
             delay(50) // Simulate work
             return WorkerResult.Success(message = "Test worker completed")
         }

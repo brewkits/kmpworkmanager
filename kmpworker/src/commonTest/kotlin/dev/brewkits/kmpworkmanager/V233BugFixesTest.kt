@@ -7,6 +7,7 @@ import dev.brewkits.kmpworkmanager.background.domain.TaskChain
 import dev.brewkits.kmpworkmanager.background.domain.TaskRequest
 import dev.brewkits.kmpworkmanager.background.domain.TaskTrigger
 import dev.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
+import dev.brewkits.kmpworkmanager.background.domain.ExecutionRecord
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -44,7 +45,7 @@ class V233BugFixesTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `Fix1 - getForegroundInfo is required for WorkManager 2dot10dot0 plus expedited tasks`() {
+    fun Fix1_getForegroundInfo_is_required_for_WorkManager_2dot10dot0_plus_expedited_tasks() {
         // WorkManager changed behavior in 2.10.0:
         // Before: getForegroundInfoAsync() only called for tasks explicitly requesting foreground
         // After:  getForegroundInfoAsync() called for ALL expedited tasks as a fallback mechanism
@@ -58,7 +59,7 @@ class V233BugFixesTest {
     }
 
     @Test
-    fun `Fix1 - KmpWorker notification uses PRIORITY_MIN and setSilent to minimize UX impact`() {
+    fun Fix1_KmpWorker_notification_uses_PRIORITY_MIN_and_setSilent_to_minimize_UX_impact() {
         // The fallback notification in KmpWorker is designed to be invisible to users:
         // - NotificationCompat.PRIORITY_MIN: lowest possible priority
         // - setSilent(true): no sound or vibration
@@ -70,7 +71,7 @@ class V233BugFixesTest {
     }
 
     @Test
-    fun `Fix1 - KmpWorker and KmpHeavyWorker use separate notification channels`() {
+    fun Fix1_KmpWorker_and_KmpHeavyWorker_use_separate_notification_channels() {
         // CHANNEL_ID constants must not collide:
         val kmpWorkerChannel = "kmp_worker_tasks"          // KmpWorker (fallback)
         val kmpHeavyWorkerChannel = "kmp_heavy_worker_channel"  // KmpHeavyWorker (foreground)
@@ -82,7 +83,7 @@ class V233BugFixesTest {
     }
 
     @Test
-    fun `Fix1 - KmpWorker and KmpHeavyWorker use non-colliding notification IDs`() {
+    fun Fix1_KmpWorker_and_KmpHeavyWorker_use_non_colliding_notification_IDs() {
         // NOTIFICATION_ID constants must not collide:
         val kmpWorkerNotifId = 0x4B4D5000.toInt()  // KmpWorker (1262829568)
         val kmpHeavyWorkerNotifId = 1001             // KmpHeavyWorker
@@ -98,7 +99,7 @@ class V233BugFixesTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `Fix2 - TaskChain preserves isHeavyTask constraint`() {
+    fun Fix2_TaskChain_preserves_isHeavyTask_constraint() {
         // Before fix: createWorkRequest() always used KmpWorker regardless of isHeavyTask
         // After fix:  isHeavyTask = true → KmpHeavyWorker, false → KmpWorker
         //
@@ -113,7 +114,7 @@ class V233BugFixesTest {
     }
 
     @Test
-    fun `Fix2 - TaskRequest with heavy constraints is passed through chain correctly`() {
+    fun Fix2_TaskRequest_with_heavy_constraints_is_passed_through_chain_correctly() {
         val heavyTask = TaskRequest(
             workerClassName = "VideoProcessingWorker",
             constraints = Constraints(isHeavyTask = true)
@@ -131,7 +132,7 @@ class V233BugFixesTest {
     }
 
     @Test
-    fun `Fix2 - Chain with mixed heavy and regular tasks preserves all constraints`() = runBlocking {
+    fun Fix2_Chain_with_mixed_heavy_and_regular_tasks_preserves_all_constraints() = runBlocking {
         val scheduler = CapturingMockScheduler()
 
         val chain = scheduler
@@ -154,7 +155,7 @@ class V233BugFixesTest {
     }
 
     @Test
-    fun `Fix2 - Heavy task in chain position does not affect other chain steps`() {
+    fun Fix2_Heavy_task_in_chain_position_does_not_affect_other_chain_steps() {
         // A heavy task in the middle of a chain must not affect surrounding regular tasks
         val heavyMiddle = TaskRequest("HeavyWorker", constraints = Constraints(isHeavyTask = true))
         val regularBefore = TaskRequest("Step1Worker")
@@ -170,7 +171,7 @@ class V233BugFixesTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `Localization - String resource keys follow naming convention`() {
+    fun Localization_String_resource_keys_follow_naming_convention() {
         // All string resource keys should use the kmp_ prefix and snake_case
         val expectedKmpWorkerKeys = listOf(
             "kmp_worker_notification_channel_name",
@@ -191,7 +192,7 @@ class V233BugFixesTest {
     }
 
     @Test
-    fun `Localization - KmpHeavyWorker inputJson overrides take precedence over string resources`() {
+    fun Localization_KmpHeavyWorker_inputJson_overrides_take_precedence_over_string_resources() {
         // Priority: inputJson override > string resources > hardcoded defaults
         // This ensures backward compatibility and custom notification support
         //
@@ -209,7 +210,7 @@ class V233BugFixesTest {
     }
 
     @Test
-    fun `Localization - Empty inputJson title falls back to string resource`() {
+    fun Localization_Empty_inputJson_title_falls_back_to_string_resource() {
         val inputJsonTitle: String? = null  // Not provided
         val resourceDefault = "Background Task Running" // From strings.xml
 
@@ -222,7 +223,7 @@ class V233BugFixesTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `Fix3 - OSSRH URL must start with valid https scheme`() {
+    fun Fix3_OSSRH_URL_must_start_with_valid_https_scheme() {
         // Before: "https.s01.oss.sonatype.org/..." — not a valid URL scheme
         // After:  "https://s01.oss.sonatype.org/..." — correct
         val correctUrl = "https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/"
@@ -237,7 +238,7 @@ class V233BugFixesTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `V233 all fixes are production ready`() {
+    fun V233_all_fixes_are_production_ready() {
         // Release Summary
         //
         // Fix #1: KmpWorker.getForegroundInfo()
@@ -289,8 +290,10 @@ class V233BugFixesTest {
             capturedChain = chain
         }
 
-        override fun flushPendingProgress() {
-            // No-op for testing
-        }
+        override fun flushPendingProgress() {}
+
+        override suspend fun getExecutionHistory(limit: Int): List<ExecutionRecord> = emptyList()
+
+        override suspend fun clearExecutionHistory() {}
     }
 }

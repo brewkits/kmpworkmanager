@@ -19,7 +19,7 @@ import dev.brewkits.kmpworkmanager.sample.logs.LogEntry
 import dev.brewkits.kmpworkmanager.sample.logs.LogStore
 import dev.brewkits.kmpworkmanager.sample.utils.Logger
 import kotlinx.coroutines.launch
-import kotlin.time.Clock
+import kotlinx.datetime.Clock
 import kotlin.time.Duration.Companion.milliseconds
 
 @Composable

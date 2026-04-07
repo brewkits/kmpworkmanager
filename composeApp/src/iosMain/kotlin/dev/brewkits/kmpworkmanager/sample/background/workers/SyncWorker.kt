@@ -5,9 +5,14 @@ import dev.brewkits.kmpworkmanager.sample.background.data.IosWorker
 import dev.brewkits.kmpworkmanager.sample.background.domain.TaskCompletionEvent
 import dev.brewkits.kmpworkmanager.sample.background.domain.TaskEventBus
 import kotlinx.coroutines.delay
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 class SyncWorker : IosWorker {
-    override suspend fun doWork(input: String?): WorkerResult {
+    override suspend fun doWork(
+        input: String?,
+        env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
+    ): WorkerResult {
         println(" KMP_BG_TASK_iOS: Starting SyncWorker...")
         println(" KMP_BG_TASK_iOS: Input: $input")
 
@@ -33,7 +38,10 @@ class SyncWorker : IosWorker {
 
             WorkerResult.Success(
                 message = "Synced ${steps.size} steps successfully",
-                data = mapOf("steps" to steps.size, "duration" to 2400L)
+                data = buildJsonObject {
+                    put("steps", steps.size)
+                    put("duration", 2400L)
+                }
             )
         } catch (e: Exception) {
             println(" KMP_BG_TASK_iOS: SyncWorker failed: ${e.message}")

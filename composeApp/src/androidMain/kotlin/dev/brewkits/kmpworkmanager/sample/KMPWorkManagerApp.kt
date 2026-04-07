@@ -6,12 +6,14 @@ import dev.brewkits.kmpworkmanager.KmpWorkManagerConfig
 import dev.brewkits.kmpworkmanager.background.domain.AndroidWorker
 import dev.brewkits.kmpworkmanager.background.domain.AndroidWorkerFactory
 import dev.brewkits.kmpworkmanager.background.domain.Worker
+import dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.sample.background.data.NativeTaskScheduler
 import dev.brewkits.kmpworkmanager.sample.background.domain.BackgroundTaskScheduler
 import dev.brewkits.kmpworkmanager.sample.debug.AndroidDebugSource
 import dev.brewkits.kmpworkmanager.sample.debug.DebugSource
 import dev.brewkits.kmpworkmanager.sample.di.initKoin
+import dev.brewkits.kmpworkmanager.background.domain.TelemetryHook
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.sample.background.workers.AnalyticsAndroidWorker
 import dev.brewkits.kmpworkmanager.sample.background.workers.BatchUploadAndroidWorker
@@ -34,7 +36,7 @@ import org.koin.dsl.module
  * requires [AndroidWorker] implementations.
  */
 private class WrapperWorker(private val delegate: Worker) : AndroidWorker {
-    override suspend fun doWork(input: String?): WorkerResult = delegate.doWork(input)
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult = delegate.doWork(input, env)
 }
 
 /**
@@ -77,7 +79,29 @@ class KMPWorkManagerApp : Application() {
         KmpWorkManager.initialize(
             context = this,
             workerFactory = DemoWorkerFactory(),
-            config = KmpWorkManagerConfig(logLevel = Logger.Level.DEBUG_LEVEL)
+            config = KmpWorkManagerConfig(
+                logLevel = Logger.Level.DEBUG_LEVEL,
+                telemetryHook = object : TelemetryHook {
+                    override fun onTaskStarted(event: TelemetryHook.TaskStartedEvent) {
+                        Logger.d("DEMO_TELEMETRY", "▶ Task started: ${event.taskName} chain=${event.chainId} step=${event.stepIndex}")
+                    }
+                    override fun onTaskCompleted(event: TelemetryHook.TaskCompletedEvent) {
+                        Logger.d("DEMO_TELEMETRY", "✅ Task completed: ${event.taskName} success=${event.success} duration=${event.durationMs}ms")
+                    }
+                    override fun onTaskFailed(event: TelemetryHook.TaskFailedEvent) {
+                        Logger.w("DEMO_TELEMETRY", "❌ Task failed: ${event.taskName} error=${event.error} retry=${event.retryCount}")
+                    }
+                    override fun onChainCompleted(event: TelemetryHook.ChainCompletedEvent) {
+                        Logger.d("DEMO_TELEMETRY", "🏁 Chain completed: ${event.chainId} steps=${event.totalSteps} duration=${event.durationMs}ms")
+                    }
+                    override fun onChainFailed(event: TelemetryHook.ChainFailedEvent) {
+                        Logger.w("DEMO_TELEMETRY", "💥 Chain failed: ${event.chainId} step=${event.failedStep} willRetry=${event.willRetry}")
+                    }
+                    override fun onChainSkipped(event: TelemetryHook.ChainSkippedEvent) {
+                        Logger.d("DEMO_TELEMETRY", "⏭ Chain skipped: ${event.chainId} reason=${event.reason}")
+                    }
+                }
+            )
         )
 
         val androidModule = module {

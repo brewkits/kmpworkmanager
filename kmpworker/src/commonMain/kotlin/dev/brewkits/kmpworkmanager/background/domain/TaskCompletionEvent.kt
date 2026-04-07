@@ -9,10 +9,6 @@ import kotlinx.serialization.json.JsonObject
 
 /**
  * Event emitted when a background task completes.
- *
- * Added outputData field to support returning data from workers
- * outputData changed from Map<String, @Contextual Any?> to JsonObject
- *           — eliminates runtime SerializationException on non-serializable types
  */
 @Serializable
 data class TaskCompletionEvent(

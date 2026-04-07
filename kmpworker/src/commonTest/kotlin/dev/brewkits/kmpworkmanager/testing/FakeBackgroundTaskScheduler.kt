@@ -2,6 +2,7 @@ package dev.brewkits.kmpworkmanager.testing
 
 import dev.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
 import dev.brewkits.kmpworkmanager.background.domain.Constraints
+import dev.brewkits.kmpworkmanager.background.domain.ExecutionRecord
 import dev.brewkits.kmpworkmanager.background.domain.ExistingPolicy
 import dev.brewkits.kmpworkmanager.background.domain.ScheduleResult
 import dev.brewkits.kmpworkmanager.background.domain.TaskChain
@@ -88,6 +89,10 @@ class FakeBackgroundTaskScheduler(
         enqueuedChains += EnqueuedChain(chain, id, policy)
     }
 
+    override suspend fun getExecutionHistory(limit: Int): List<ExecutionRecord> = emptyList()
+
+    override suspend fun clearExecutionHistory() {}
+
     // ── Test helpers ───────────────────────────────────────────────────────
 
     /** Clears all recorded state. Useful for reuse across test cases. */
@@ -105,6 +110,22 @@ class FakeBackgroundTaskScheduler(
 
     /** Returns true if a task with [id] was cancelled. */
     fun hasCancelled(id: String): Boolean = id in cancelledIds
+
+    /**
+     * Returns true if a task with [id] was enqueued AND has NOT been cancelled.
+     * Used to assert that cancel() effectively removes a task from the active set.
+     */
+    fun isPending(id: String): Boolean =
+        enqueuedTasks.any { it.id == id } && id !in cancelledIds
+
+    /**
+     * Returns the number of currently pending tasks (enqueued minus cancelled).
+     * Note: if [cancelAll] was called, all enqueued tasks are considered cancelled.
+     */
+    fun pendingTaskCount(): Int {
+        if (cancelAllCalled) return 0
+        return enqueuedTasks.count { it.id !in cancelledIds }
+    }
 
     // ── Data classes ───────────────────────────────────────────────────────
 

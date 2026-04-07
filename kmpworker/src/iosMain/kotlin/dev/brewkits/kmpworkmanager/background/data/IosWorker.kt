@@ -45,9 +45,18 @@ interface IosWorker : dev.brewkits.kmpworkmanager.background.domain.Worker {
      * - Both are subject to iOS expiration handler which may fire earlier
      *
      * @param input Optional input data passed from scheduler.enqueue()
+     * @param env Environment providing progress reporting and cancellation checks
      * @return WorkerResult indicating success/failure with optional data and message
      */
-    override suspend fun doWork(input: String?): WorkerResult
+    override suspend fun doWork(
+        input: String?,
+        env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
+    ): WorkerResult
+
+    /**
+     * Called immediately after [doWork] returns.
+     */
+    override fun close() {}
 }
 
 /**

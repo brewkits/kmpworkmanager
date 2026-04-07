@@ -1,6 +1,7 @@
 package dev.brewkits.kmpworkmanager.persistence
 
 import android.content.Context
+import dev.brewkits.kmpworkmanager.KmpWorkManagerRuntime
 import dev.brewkits.kmpworkmanager.background.domain.TaskCompletionEvent
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.utils.LogTags
@@ -34,7 +35,7 @@ class AndroidEventStore(
     private val config: EventStoreConfig = EventStoreConfig()
 ) : EventStore {
 
-    private val json = Json { ignoreUnknownKeys = true }
+    private val json = KmpWorkManagerRuntime.json
 
     /**
      * Base directory: {filesDir}/dev.brewkits.kmpworkmanager/events/
@@ -83,6 +84,13 @@ class AndroidEventStore(
 
         synchronized(fileLock) {
             try {
+                // Disk space guard: avoid writing if disk is critically low (< 1MB)
+                val usableSpace = eventsFile.parentFile?.usableSpace ?: 0L
+                if (usableSpace < 1024 * 1024L) {
+                    Logger.e(LogTags.SCHEDULER, "AndroidEventStore: disk critically low ($usableSpace bytes), skipping save")
+                    return@withContext eventId
+                }
+
                 // Append event as JSONL (JSON Lines - one line per event)
                 val line = json.encodeToString(storedEvent)
                 eventsFile.appendText(line + "\n")

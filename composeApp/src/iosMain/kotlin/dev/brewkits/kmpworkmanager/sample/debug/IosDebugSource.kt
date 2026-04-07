@@ -18,7 +18,7 @@ class IosDebugSource : DebugSource {
     private val userDefaults = NSUserDefaults.standardUserDefaults
 
     private fun Map<*, *>?.toStringMap(): Map<String, String>? {
-        return (this as? Map<*, *>)?.filter { (key, value) ->
+        return this?.filter { (key, value) ->
             key is String && value is String
         }?.mapKeys { it.key as String }
         ?.mapValues { it.value as String }

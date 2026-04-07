@@ -28,13 +28,13 @@ class WorkerDiagnosticsTest {
                 totalPendingTasks = 0,
                 queueSize = 0,
                 platform = "test",
-                timestamp = 0L  // TODO: Fix time in tests
+                timestamp = 0L
             )
         }
 
         override suspend fun getSystemHealth(): SystemHealthReport {
             return mockHealth ?: SystemHealthReport(
-                timestamp = 0L,  // TODO: Fix time in tests
+                timestamp = 0L,
                 batteryLevel = 100,
                 isCharging = false,
                 networkAvailable = true,
@@ -76,7 +76,7 @@ class WorkerDiagnosticsTest {
     @Test
     fun testSystemHealthReport_LowBattery() {
         val report = SystemHealthReport(
-            timestamp = 0L,  // TODO: Fix time in tests
+            timestamp = 0L,
             batteryLevel = 15,
             isCharging = false,
             networkAvailable = true,
@@ -93,7 +93,7 @@ class WorkerDiagnosticsTest {
     @Test
     fun testSystemHealthReport_StorageLow() {
         val report = SystemHealthReport(
-            timestamp = 0L,  // TODO: Fix time in tests
+            timestamp = 0L,
             batteryLevel = 100,
             isCharging = false,
             networkAvailable = true,
@@ -114,7 +114,7 @@ class WorkerDiagnosticsTest {
             totalPendingTasks = 5,
             queueSize = 3,
             platform = "iOS",
-            timestamp = 0L  // TODO: Fix time in tests
+            timestamp = 0L
         )
 
         assertTrue(status.isReady)
@@ -130,7 +130,7 @@ class WorkerDiagnosticsTest {
             totalPendingTasks = 0,
             queueSize = 0,
             platform = "Android",
-            timestamp = 0L  // TODO: Fix time in tests
+            timestamp = 0L
         )
 
         assertFalse(status.isReady, "Scheduler should not be ready")
@@ -205,7 +205,7 @@ class WorkerDiagnosticsTest {
                 totalPendingTasks = 10,
                 queueSize = 5,
                 platform = "iOS",
-                timestamp = 0L  // TODO: Fix time in tests
+                timestamp = 0L
             )
         )
 
@@ -283,10 +283,10 @@ class WorkerDiagnosticsTest {
                 totalPendingTasks = 1,
                 queueSize = 1,
                 platform = "iOS",
-                timestamp = 0L  // TODO: Fix time in tests
+                timestamp = 0L
             ),
             mockHealth = SystemHealthReport(
-                timestamp = 0L,  // TODO: Fix time in tests
+                timestamp = 0L,
                 batteryLevel = 10, // Low battery
                 isCharging = false,
                 networkAvailable = false, // No network
@@ -300,7 +300,7 @@ class WorkerDiagnosticsTest {
                     id = "blocked-task",
                     name = "NetworkWorker",
                     state = TaskState.BLOCKED,
-                    scheduledAt = 0L,  // TODO: Fix time in tests - 60000L
+                    scheduledAt = 0L,
                     startedAt = null,
                     completedAt = null,
                     attempts = 0,
@@ -342,14 +342,14 @@ class WorkerDiagnosticsTest {
 
         // Query diagnostics 1000 times rapidly
         val queries = 1000
-        val startTime = 0L  // TODO: Fix time in tests
+        val startTime = 0L
 
         repeat(queries) {
             diagnostics.getSchedulerStatus()
             diagnostics.getSystemHealth()
         }
 
-        val duration = 0L  // TODO: Fix time in tests - startTime
+        val duration = 0L
 
         // Should handle queries efficiently (<1000ms for 2000 queries)
         assertTrue(

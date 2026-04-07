@@ -16,6 +16,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -53,7 +54,7 @@ internal data class ChainTransaction(
  *        Default: 30 seconds (30000ms). Set to 0 to disable timeout.
  */
 @Serializable
-internal data class IosFileStorageConfig(
+public data class IosFileStorageConfig(
     val diskSpaceBufferBytes: Long = 50_000_000L,  // 50MB default (was 100MB)
     val deletedMarkerMaxAgeMs: Long = 7 * 24 * 60 * 60 * 1000L,  // 7 days default
     val isTestMode: Boolean? = null,  // null = auto-detect, true/false = override
@@ -87,7 +88,7 @@ internal data class IosFileStorageConfig(
  * ```
  */
 @OptIn(ExperimentalForeignApi::class)
-internal class IosFileStorage(
+public class IosFileStorage(
     private val config: IosFileStorageConfig = IosFileStorageConfig(),
     private val baseDirectory: NSURL? = null  // null = use AppSupport/dev.brewkits.kmpworkmanager
 ) {
@@ -729,6 +730,28 @@ internal class IosFileStorage(
             Logger.e(LogTags.CHAIN, "Maintenance tasks failed", e)
         }
     }
+
+    /**
+     * Returns true when maintenance is overdue based on the given hour interval.
+     *
+     * Exposed for testing — allows tests to verify the skip-if-recent guard without
+     * waiting for the actual 24h window.
+     *
+     * @param hoursInterval The interval in hours. A value of 0 always returns true.
+     */
+    fun isMaintenanceRequired(hoursInterval: Int): Boolean {
+        if (hoursInterval == 0) return true
+        return getHoursSinceLastMaintenance() >= hoursInterval
+    }
+
+    /**
+     * Returns all chain IDs currently active in the queue (not yet dequeued).
+     *
+     * Reads the live queue from disk. Used by stress tests to verify queue
+     * integrity without relying on getQueueSize() which counts physical entries
+     * including logically-deleted REPLACE residues.
+     */
+    suspend fun getActiveChainIds(): List<String> = queue.getAllItems()
 
     /**
      * Get hours since last maintenance run
@@ -1435,13 +1458,15 @@ internal class IosFileStorage(
      * **Refactor:** Uses shared IosFileCoordinator.
      */
     private fun <T> coordinated(url: NSURL, write: Boolean, block: (NSURL) -> T): T {
-        return IosFileCoordinator.coordinate(
-            url = url,
-            write = write,
-            isTestMode = config.isTestMode ?: false,
-            timeoutMs = config.fileCoordinationTimeoutMs,
-            block = block
-        )
+        return runBlocking {
+            IosFileCoordinator.coordinate(
+                url = url,
+                write = write,
+                isTestMode = config.isTestMode ?: false,
+                timeoutMs = config.fileCoordinationTimeoutMs,
+                block = block
+            )
+        }
     }
 
     /**

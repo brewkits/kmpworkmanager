@@ -10,7 +10,7 @@ import kotlin.test.assertNotEquals
 class TaskIdsTest {
 
     @Test
-    fun `TaskIds should have correct constant values`() {
+    fun TaskIds_should_have_correct_constant_values() {
         assertEquals("heavy-task-1", TaskIds.HEAVY_TASK_1)
         assertEquals("one-time-upload", TaskIds.ONE_TIME_UPLOAD)
         assertEquals("periodic-sync-task", TaskIds.PERIODIC_SYNC_TASK)
@@ -18,7 +18,7 @@ class TaskIdsTest {
     }
 
     @Test
-    fun `TaskIds constants should be unique`() {
+    fun TaskIds_constants_should_be_unique() {
         val ids = listOf(
             TaskIds.HEAVY_TASK_1,
             TaskIds.ONE_TIME_UPLOAD,
@@ -31,7 +31,7 @@ class TaskIdsTest {
     }
 
     @Test
-    fun `TaskIds should follow kebab-case naming convention`() {
+    fun TaskIds_should_follow_kebab_case_naming_convention() {
         val ids = listOf(
             TaskIds.HEAVY_TASK_1,
             TaskIds.ONE_TIME_UPLOAD,
@@ -50,7 +50,7 @@ class TaskIdsTest {
 class LoggerEnumTest {
 
     @Test
-    fun `Logger Level enum should have all levels`() {
+    fun Logger_Level_enum_should_have_all_levels() {
         val levels = Logger.Level.entries.toList()
 
         assertEquals(5, levels.size)
@@ -62,7 +62,7 @@ class LoggerEnumTest {
     }
 
     @Test
-    fun `Logger Level values should be distinct`() {
+    fun Logger_Level_values_should_be_distinct() {
         val debug = Logger.Level.DEBUG_LEVEL
         val info = Logger.Level.INFO
         val warn = Logger.Level.WARN
@@ -77,7 +77,7 @@ class LoggerEnumTest {
     }
 
     @Test
-    fun `Logger Level should have correct names`() {
+    fun Logger_Level_should_have_correct_names() {
         assertEquals("DEBUG_LEVEL", Logger.Level.DEBUG_LEVEL.name)
         assertEquals("INFO", Logger.Level.INFO.name)
         assertEquals("WARN", Logger.Level.WARN.name)
@@ -85,7 +85,7 @@ class LoggerEnumTest {
     }
 
     @Test
-    fun `Logger Level should have correct ordinals`() {
+    fun Logger_Level_should_have_correct_ordinals() {
         assertEquals(0, Logger.Level.VERBOSE.ordinal)
         assertEquals(1, Logger.Level.DEBUG_LEVEL.ordinal)
         assertEquals(2, Logger.Level.INFO.ordinal)
@@ -97,7 +97,7 @@ class LoggerEnumTest {
 class LogTagsTest {
 
     @Test
-    fun `LogTags should have correct constant values`() {
+    fun LogTags_should_have_correct_constant_values() {
         assertEquals("TaskScheduler", LogTags.SCHEDULER)
         assertEquals("TaskWorker", LogTags.WORKER)
         assertEquals("TaskChain", LogTags.CHAIN)
@@ -109,7 +109,7 @@ class LogTagsTest {
     }
 
     @Test
-    fun `LogTags should be unique`() {
+    fun LogTags_should_be_unique() {
         val tags = listOf(
             LogTags.SCHEDULER,
             LogTags.WORKER,
@@ -126,7 +126,7 @@ class LogTagsTest {
     }
 
     @Test
-    fun `LogTags should follow consistent naming pattern`() {
+    fun LogTags_should_follow_consistent_naming_pattern() {
         val tags = listOf(
             LogTags.SCHEDULER,
             LogTags.WORKER,
@@ -145,7 +145,7 @@ class LogTagsTest {
     }
 
     @Test
-    fun `LogTags should be descriptive and not abbreviated`() {
+    fun LogTags_should_be_descriptive_and_not_abbreviated() {
         // Verify tags are not just single letters or overly abbreviated
         val tags = listOf(
             LogTags.SCHEDULER,

@@ -7,13 +7,18 @@ import dev.brewkits.kmpworkmanager.sample.background.domain.TaskEventBus
 import dev.brewkits.kmpworkmanager.sample.utils.Logger
 import dev.brewkits.kmpworkmanager.sample.utils.LogTags
 import kotlinx.coroutines.delay
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlin.random.Random
 
 /**
  * Simulates database operations with batching and progress updates
  */
 class DatabaseWorker : IosWorker {
-    override suspend fun doWork(input: String?): WorkerResult {
+    override suspend fun doWork(
+        input: String?,
+        env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
+    ): WorkerResult {
         Logger.i(LogTags.WORKER, "DatabaseWorker started")
 
         return try {

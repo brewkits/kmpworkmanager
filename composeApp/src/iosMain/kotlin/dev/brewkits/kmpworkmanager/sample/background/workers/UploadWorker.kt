@@ -5,9 +5,14 @@ import dev.brewkits.kmpworkmanager.sample.background.data.IosWorker
 import dev.brewkits.kmpworkmanager.sample.background.domain.TaskCompletionEvent
 import dev.brewkits.kmpworkmanager.sample.background.domain.TaskEventBus
 import kotlinx.coroutines.delay
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 class UploadWorker : IosWorker {
-    override suspend fun doWork(input: String?): WorkerResult {
+    override suspend fun doWork(
+        input: String?,
+        env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
+    ): WorkerResult {
         println("=".repeat(60))
         println(" KMP_BG_TASK_iOS: *** UPLOAD WORKER STARTED ***")
         println(" KMP_BG_TASK_iOS: Starting UploadWorker...")
@@ -46,10 +51,10 @@ class UploadWorker : IosWorker {
 
             WorkerResult.Success(
                 message = "Uploaded ${totalSize}MB successfully",
-                data = mapOf(
-                    "uploadedSize" to totalSize,
-                    "uploadedSizeUnit" to "MB"
-                )
+                data = buildJsonObject {
+                    put("uploadedSize", totalSize)
+                    put("uploadedSizeUnit", "MB")
+                }
             )
         } catch (e: Exception) {
             println(" KMP_BG_TASK_iOS: UploadWorker failed: ${e.message}")

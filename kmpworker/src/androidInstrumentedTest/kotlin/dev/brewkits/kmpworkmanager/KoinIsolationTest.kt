@@ -6,6 +6,7 @@ import dev.brewkits.kmpworkmanager.background.domain.AndroidWorker
 import dev.brewkits.kmpworkmanager.background.domain.AndroidWorkerFactory
 import dev.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
 import dev.brewkits.kmpworkmanager.background.domain.Constraints
+import dev.brewkits.kmpworkmanager.background.domain.ExecutionRecord
 import dev.brewkits.kmpworkmanager.background.domain.ExistingPolicy
 import dev.brewkits.kmpworkmanager.background.domain.ScheduleResult
 import dev.brewkits.kmpworkmanager.background.domain.TaskChain
@@ -331,8 +332,12 @@ class KoinIsolationTest {
     }
 
     private class TestWorker : AndroidWorker {
-        override suspend fun doWork(input: String?) =
-            dev.brewkits.kmpworkmanager.background.domain.WorkerResult.Success()
+        override suspend fun doWork(
+            input: String?,
+            env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
+        ): dev.brewkits.kmpworkmanager.background.domain.WorkerResult {
+            return dev.brewkits.kmpworkmanager.background.domain.WorkerResult.Success()
+        }
     }
 
     private class MockScheduler : BackgroundTaskScheduler {
@@ -369,8 +374,10 @@ class KoinIsolationTest {
             throw NotImplementedError("Mock scheduler stub")
         }
 
-        override fun flushPendingProgress() {
-            // Stub implementation for Koin isolation testing - not called in tests
-        }
+        override fun flushPendingProgress() {}
+
+        override suspend fun getExecutionHistory(limit: Int): List<ExecutionRecord> = emptyList()
+
+        override suspend fun clearExecutionHistory() {}
     }
 }

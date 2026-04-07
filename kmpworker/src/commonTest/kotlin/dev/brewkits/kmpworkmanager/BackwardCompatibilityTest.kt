@@ -20,7 +20,7 @@ class BackwardCompatibilityTest {
     // ==================== SystemConstraint API ====================
 
     @Test
-    fun `SystemConstraint API should work correctly`() {
+    fun SystemConstraint_API_should_work_correctly() {
         val constraints = Constraints(
             systemConstraints = setOf(
                 SystemConstraint.ALLOW_LOW_BATTERY,
@@ -34,7 +34,7 @@ class BackwardCompatibilityTest {
     }
 
     @Test
-    fun `Constraints with network and systemConstraints should work`() {
+    fun Constraints_with_network_and_systemConstraints_should_work() {
         val constraints = Constraints(
             requiresNetwork = true,
             requiresCharging = true,
@@ -48,7 +48,7 @@ class BackwardCompatibilityTest {
     }
 
     @Test
-    fun `Constraints copy should work with systemConstraints field`() {
+    fun Constraints_copy_should_work_with_systemConstraints_field() {
         val original = Constraints(
             requiresNetwork = true,
             systemConstraints = setOf(SystemConstraint.ALLOW_LOW_BATTERY)
@@ -66,7 +66,7 @@ class BackwardCompatibilityTest {
     }
 
     @Test
-    fun `Constraints with only systemConstraints should have correct defaults`() {
+    fun Constraints_with_only_systemConstraints_should_have_correct_defaults() {
         val constraints = Constraints(
             systemConstraints = setOf(SystemConstraint.REQUIRE_BATTERY_NOT_LOW)
         )
@@ -80,7 +80,7 @@ class BackwardCompatibilityTest {
     // ==================== TaskTrigger Types ====================
 
     @Test
-    fun `OneTime trigger API`() {
+    fun OneTime_trigger_API() {
         val trigger1 = TaskTrigger.OneTime()
         assertEquals(0L, trigger1.initialDelayMs)
 
@@ -89,20 +89,20 @@ class BackwardCompatibilityTest {
     }
 
     @Test
-    fun `Periodic trigger API`() {
+    fun Periodic_trigger_API() {
         val trigger = TaskTrigger.Periodic(intervalMs = 900_000L)
         assertEquals(900_000L, trigger.intervalMs)
     }
 
     @Test
-    fun `Exact trigger API`() {
+    fun Exact_trigger_API() {
         val timestamp = 1704067200000L
         val trigger = TaskTrigger.Exact(atEpochMillis = timestamp)
         assertEquals(timestamp, trigger.atEpochMillis)
     }
 
     @Test
-    fun `ContentUri trigger API`() {
+    fun ContentUri_trigger_API() {
         val trigger = TaskTrigger.ContentUri(
             uriString = "content://media/external/images",
             triggerForDescendants = true
@@ -114,19 +114,19 @@ class BackwardCompatibilityTest {
     // ==================== Other Enums ====================
 
     @Test
-    fun `ExistingPolicy values`() {
+    fun ExistingPolicy_values() {
         assertEquals("KEEP", ExistingPolicy.KEEP.name)
         assertEquals("REPLACE", ExistingPolicy.REPLACE.name)
     }
 
     @Test
-    fun `BackoffPolicy values`() {
+    fun BackoffPolicy_values() {
         assertEquals("LINEAR", BackoffPolicy.LINEAR.name)
         assertEquals("EXPONENTIAL", BackoffPolicy.EXPONENTIAL.name)
     }
 
     @Test
-    fun `Qos priority levels`() {
+    fun Qos_priority_levels() {
         assertNotNull(Qos.Utility)
         assertNotNull(Qos.Background)
         assertNotNull(Qos.UserInitiated)

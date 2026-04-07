@@ -2,55 +2,84 @@ package dev.brewkits.kmpworkmanager
 
 import dev.brewkits.kmpworkmanager.background.domain.TelemetryHook
 import dev.brewkits.kmpworkmanager.persistence.ExecutionHistoryStore
-import kotlin.concurrent.Volatile
 
 /**
- * Lightweight runtime container for configuration values that need to be accessible
- * from platform-specific executors (ChainExecutor on iOS, KmpWorker on Android)
- * without going through Koin or constructor injection.
+ * Lightweight runtime container for configuration values.
  *
- * Set once during `initialize()` / `kmpWorkerModule()` and read-only thereafter.
- * All fields are `@Volatile` for safe cross-thread visibility.
+ * Converted to a class with global singleton to bypass Kotlin K2 compiler crash
+ * on objects with delegated/private properties in commonMain.
  */
-internal object KmpWorkManagerRuntime {
-
-    @Volatile
+internal class KmpWorkManagerRuntimeContainer {
+    @kotlin.concurrent.Volatile
     var telemetryHook: TelemetryHook? = null
-        private set
-
-    /**
-     * Battery level (0–100) below which tasks are deferred (when not charging).
-     * 0 = guard disabled.
-     */
-    @Volatile
+    
+    @kotlin.concurrent.Volatile
     var minBatteryLevelPercent: Int = 5
-        private set
+    
+    @kotlin.concurrent.Volatile
+    var executionHistoryStore: ExecutionHistoryStore? = null
 
     /**
-     * Persistent store for execution history records.
-     * Set during platform initialization (after the store is created) via [setHistoryStore].
+     * Shared Json instance for all internal persistence and serialization.
+     * Reusing this instance caches class descriptors.
+     * explicitNulls = false reduces disk footprint.
      */
-    @Volatile
-    var executionHistoryStore: ExecutionHistoryStore? = null
-        private set
+    val json = kotlinx.serialization.json.Json {
+        ignoreUnknownKeys = true
+        coerceInputValues = true
+        encodeDefaults = true
+        explicitNulls = false // Skip writing null values to save disk and I/O time
+    }
 
     fun configure(config: KmpWorkManagerConfig) {
         telemetryHook = config.telemetryHook
         minBatteryLevelPercent = config.minBatteryLevelPercent
     }
 
-    /**
-     * Registers the platform-specific [ExecutionHistoryStore].
-     * Called from platform Koin modules after the store is constructed.
-     */
     fun setHistoryStore(store: ExecutionHistoryStore) {
         executionHistoryStore = store
     }
 
-    /** For tests only. */
-    internal fun reset() {
+    // ── Safe Telemetry Helpers ───────────────────────────────────────────────
+
+    fun notifyTaskStarted(event: TelemetryHook.TaskStartedEvent) {
+        runCatching { telemetryHook?.onTaskStarted(event) }
+            .onFailure { dev.brewkits.kmpworkmanager.utils.Logger.w("Telemetry", "onTaskStarted failed", it) }
+    }
+
+    fun notifyTaskCompleted(event: TelemetryHook.TaskCompletedEvent) {
+        runCatching { telemetryHook?.onTaskCompleted(event) }
+            .onFailure { dev.brewkits.kmpworkmanager.utils.Logger.w("Telemetry", "onTaskCompleted failed", it) }
+    }
+
+    fun notifyTaskFailed(event: TelemetryHook.TaskFailedEvent) {
+        runCatching { telemetryHook?.onTaskFailed(event) }
+            .onFailure { dev.brewkits.kmpworkmanager.utils.Logger.w("Telemetry", "onTaskFailed failed", it) }
+    }
+
+    fun notifyChainCompleted(event: TelemetryHook.ChainCompletedEvent) {
+        runCatching { telemetryHook?.onChainCompleted(event) }
+            .onFailure { dev.brewkits.kmpworkmanager.utils.Logger.w("Telemetry", "onChainCompleted failed", it) }
+    }
+
+    fun notifyChainFailed(event: TelemetryHook.ChainFailedEvent) {
+        runCatching { telemetryHook?.onChainFailed(event) }
+            .onFailure { dev.brewkits.kmpworkmanager.utils.Logger.w("Telemetry", "onChainFailed failed", it) }
+    }
+
+    fun notifyChainSkipped(event: TelemetryHook.ChainSkippedEvent) {
+        runCatching { telemetryHook?.onChainSkipped(event) }
+            .onFailure { dev.brewkits.kmpworkmanager.utils.Logger.w("Telemetry", "onChainSkipped failed", it) }
+    }
+
+    fun reset() {
         telemetryHook = null
         minBatteryLevelPercent = 5
         executionHistoryStore = null
     }
 }
+
+/**
+ * Global singleton instance for the runtime.
+ */
+internal val KmpWorkManagerRuntime = KmpWorkManagerRuntimeContainer()

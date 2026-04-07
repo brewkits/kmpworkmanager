@@ -1,11 +1,9 @@
-@file:OptIn(kotlin.concurrent.atomics.ExperimentalAtomicApi::class)
-
 package dev.brewkits.kmpworkmanager
 
 import dev.brewkits.kmpworkmanager.utils.CRC32
 import dev.brewkits.kmpworkmanager.utils.CustomLogger
 import dev.brewkits.kmpworkmanager.utils.Logger
-import kotlin.concurrent.atomics.AtomicInt
+import kotlinx.atomicfu.atomic
 import kotlinx.coroutines.*
 import kotlinx.coroutines.test.runTest
 import kotlin.test.*
@@ -28,10 +26,10 @@ class ErrorHandlingTest {
 
     @Test
     fun testLoggerThreadSafety() = runTest {
-        val logCount = AtomicInt(0)
+        val logCount = atomic(0)
         val customLogger = object : CustomLogger {
             override fun log(level: Logger.Level, tag: String, message: String, throwable: Throwable?) {
-                logCount.addAndFetch(1)
+                logCount.incrementAndGet()
             }
         }
 
@@ -49,7 +47,7 @@ class ErrorHandlingTest {
         jobs.joinAll()
 
         // Should have received all 1000 logs
-        assertEquals(1000, logCount.load(), "Should handle concurrent logging")
+        assertEquals(1000, logCount.value, "Should handle concurrent logging")
     }
 
     @Test
@@ -65,7 +63,7 @@ class ErrorHandlingTest {
         assertNotEquals(0u, result, "Should calculate CRC for large data")
 
         // Should complete in reasonable time (< 10s even for pure Kotlin)
-        assertTrue(duration < 10.milliseconds * 1000, "Should handle 100MB in <10s (was ${duration})")
+        assertTrue(duration.inWholeSeconds < 10L, "Should handle 100MB in <10s (was ${duration})")
     }
 
     @Test

@@ -14,7 +14,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import dev.brewkits.kmpworkmanager.sample.stats.TaskExecution
 import dev.brewkits.kmpworkmanager.sample.stats.TaskStatsManager
-import kotlin.time.Clock
+import kotlinx.datetime.Clock
 import kotlin.time.Duration.Companion.milliseconds
 
 @Composable

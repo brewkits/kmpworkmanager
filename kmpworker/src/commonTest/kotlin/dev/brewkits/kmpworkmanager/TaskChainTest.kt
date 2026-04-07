@@ -10,7 +10,7 @@ import kotlin.test.assertTrue
 class TaskRequestTest {
 
     @Test
-    fun `TaskRequest with only workerClassName should have null input and constraints`() {
+    fun TaskRequest_with_only_workerClassName_should_have_null_input_and_constraints() {
         val request = TaskRequest(workerClassName = "TestWorker")
 
         assertEquals("TestWorker", request.workerClassName)
@@ -19,7 +19,7 @@ class TaskRequestTest {
     }
 
     @Test
-    fun `TaskRequest with input JSON should preserve value`() {
+    fun TaskRequest_with_input_JSON_should_preserve_value() {
         val inputJson = """{"key": "value"}"""
         val request = TaskRequest(
             workerClassName = "DataWorker",
@@ -31,7 +31,7 @@ class TaskRequestTest {
     }
 
     @Test
-    fun `TaskRequest with constraints should preserve constraints`() {
+    fun TaskRequest_with_constraints_should_preserve_constraints() {
         val constraints = Constraints(requiresNetwork = true, requiresCharging = true)
         val request = TaskRequest(
             workerClassName = "NetworkWorker",
@@ -45,7 +45,7 @@ class TaskRequestTest {
     }
 
     @Test
-    fun `TaskRequest with all parameters should preserve all values`() {
+    fun TaskRequest_with_all_parameters_should_preserve_all_values() {
         val inputJson = """{"userId": 123}"""
         val constraints = Constraints(requiresNetwork = true)
         val request = TaskRequest(
@@ -91,13 +91,15 @@ class TaskChainTest {
             enqueueCalled = true
         }
 
-        override fun flushPendingProgress() {
-            // No-op for testing
-        }
+        override fun flushPendingProgress() {}
+
+        override suspend fun getExecutionHistory(limit: Int): List<ExecutionRecord> = emptyList()
+
+        override suspend fun clearExecutionHistory() {}
     }
 
     @Test
-    fun `TaskChain with single initial task should have one step`() {
+    fun TaskChain_with_single_initial_task_should_have_one_step() {
         val scheduler = MockScheduler()
         val task = TaskRequest("Worker1")
         val chain = scheduler.beginWith(task)
@@ -109,7 +111,7 @@ class TaskChainTest {
     }
 
     @Test
-    fun `TaskChain with multiple initial tasks should have one parallel step`() {
+    fun TaskChain_with_multiple_initial_tasks_should_have_one_parallel_step() {
         val scheduler = MockScheduler()
         val tasks = listOf(
             TaskRequest("Worker1"),
@@ -127,7 +129,7 @@ class TaskChainTest {
     }
 
     @Test
-    fun `TaskChain then with single task should add sequential step`() {
+    fun TaskChain_then_with_single_task_should_add_sequential_step() {
         val scheduler = MockScheduler()
         val chain = scheduler.beginWith(TaskRequest("Worker1"))
             .then(TaskRequest("Worker2"))
@@ -144,7 +146,7 @@ class TaskChainTest {
     }
 
     @Test
-    fun `TaskChain then with task list should add parallel step`() {
+    fun TaskChain_then_with_task_list_should_add_parallel_step() {
         val scheduler = MockScheduler()
         val parallelTasks = listOf(
             TaskRequest("Worker2"),
@@ -163,17 +165,19 @@ class TaskChainTest {
     }
 
     @Test
-    fun `TaskChain with empty task list should throw IllegalArgumentException`() {
+    fun TaskChain_then_with_empty_list_should_be_ignored() {
         val scheduler = MockScheduler()
         val chain = scheduler.beginWith(TaskRequest("Worker1"))
 
-        assertFailsWith<IllegalArgumentException> {
-            chain.then(emptyList())
-        }
+        // This should NOT throw, and the chain size should remain 1
+        chain.then(emptyList<TaskRequest>())
+        
+        val steps = chain.getSteps()
+        assertEquals(1, steps.size, "Chain size should remain 1 after then(emptyList())")
     }
 
     @Test
-    fun `TaskChain complex chain should preserve order`() {
+    fun TaskChain_complex_chain_should_preserve_order() {
         val scheduler = MockScheduler()
         // (A) -> (B, C) -> (D) -> (E, F, G)
         val chain = scheduler.beginWith(TaskRequest("A"))
@@ -205,7 +209,7 @@ class TaskChainTest {
     }
 
     @Test
-    fun `TaskChain enqueue should call scheduler enqueueChain`() = runBlocking {
+    fun TaskChain_enqueue_should_call_scheduler_enqueueChain() = runBlocking {
         val scheduler = MockScheduler()
         val chain = scheduler.beginWith(TaskRequest("Worker1"))
             .then(TaskRequest("Worker2"))
@@ -217,7 +221,7 @@ class TaskChainTest {
     }
 
     @Test
-    fun `TaskChain fluent API should return same instance for chaining`() {
+    fun TaskChain_fluent_API_should_return_same_instance_for_chaining() {
         val scheduler = MockScheduler()
         val chain = scheduler.beginWith(TaskRequest("Worker1"))
         val returnedChain = chain.then(TaskRequest("Worker2"))

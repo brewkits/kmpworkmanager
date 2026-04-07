@@ -148,6 +148,11 @@ object SecurityValidator {
             return true
         }
 
+        // Catch SSRF IP bypasses (Hex, Octal, Decimal representations)
+        if (isMalformedIPBypass(hostname)) {
+            return true
+        }
+
         // If it looks like an IPv4 address, validate it
         if (looksLikeIPv4(hostname)) {
             // Block if it's private OR invalid
@@ -164,6 +169,31 @@ object SecurityValidator {
             return true
         }
 
+        return false
+    }
+
+    /**
+     * Checks if a hostname uses malformed IP representations (Hex, Octal, Decimal)
+     * commonly used to bypass SSRF filters.
+     */
+    private fun isMalformedIPBypass(hostname: String): Boolean {
+        // Block purely numeric decimal IP bypasses (e.g. 2130706433 = 127.0.0.1)
+        if (hostname.all { it.isDigit() }) return true
+        
+        // Block hex IP bypasses (e.g. 0x7f.0.0.1)
+        if (hostname.contains("0x", ignoreCase = true) && 
+            hostname.all { it.isDigit() || it == '.' || it.lowercaseChar() in 'a'..'f' || it.lowercaseChar() == 'x' }) {
+            return true
+        }
+
+        // Block octal IP bypasses (e.g. 0177.0.0.1). 
+        // If it consists of numbers and dots, and any segment starts with '0' and has >1 length.
+        if (hostname.contains(".") && hostname.all { it.isDigit() || it == '.' }) {
+            if (hostname.split(".").any { it.length > 1 && it.startsWith("0") }) {
+                return true
+            }
+        }
+        
         return false
     }
 
@@ -255,22 +285,76 @@ object SecurityValidator {
     }
 
     /**
-     * Checks if an IPv6 address is the loopback address (::1 or its expanded forms).
-     * Handles: ::1, 0:0:0:0:0:0:0:1, 0000:0000:0000:0000:0000:0000:0000:0001, etc.
+     * Checks if an IPv6 address is the loopback address or unspecified address.
+     *
+     * Handles fully expanded form AND compressed `::` forms:
+     * - `::1` (handled by isBlockedHostname's explicit check)
+     * - `0:0:0:0:0:0:0:1` (expanded form)
+     * - `0::1`, `::0:0:0:1`, `0:0::1`, etc. (compressed forms)
+     * - `::` (unspecified address - should be blocked for safety)
      */
     private fun isIPv6Loopback(hostname: String): Boolean {
-        val parts = hostname.split(":")
-        // IPv6 should have 8 segments for full form
-        if (parts.size != 8) return false
+        // Expand compressed "::" notation to full 8-segment form before checking.
+        val expanded = if (hostname.contains("::")) expandIPv6(hostname) ?: return true else hostname // Reject if expansion fails
+        val parts = expanded.split(":")
+        if (parts.size != 8) return true // Reject malformed
 
         return try {
-            // Check if all segments are 0 except the last one which should be 1
-            val allZeros = parts.take(7).all { it.toIntOrNull(16) == 0 }
+            val allZeros = parts.all { it.toIntOrNull(16) == 0 }
+            if (allZeros) return true // Block :: (unspecified)
+
+            val first7Zeros = parts.take(7).all { it.toIntOrNull(16) == 0 }
             val lastIsOne = parts.last().toIntOrNull(16) == 1
-            allZeros && lastIsOne
+            first7Zeros && lastIsOne
         } catch (e: Exception) {
-            false
+            true // Block on error for safety
         }
+    }
+
+    /**
+     * Expands a compressed IPv6 address (containing "::") to its full 8-segment form.
+     * Returns null if the address is malformed.
+     *
+     * Examples:
+     * - `"::1"` → `"0:0:0:0:0:0:0:1"`
+     * - `"0::1"` → `"0:0:0:0:0:0:0:1"`
+     * - `"::0:0:0:1"` → `"0:0:0:0:0:0:0:1"`
+     */
+    private fun expandIPv6(hostname: String): String? {
+        // Strip scope ID (e.g. "fe80::1%eth0" → "fe80::1") before expansion
+        val stripped = hostname.substringBefore('%')
+
+        val doubleColonIdx = stripped.indexOf("::")
+        if (doubleColonIdx < 0) {
+            // No "::" — validate segments then return as-is
+            val segments = stripped.split(":")
+            if (segments.size != 8) return null  // must be exactly 8 groups
+            if (!segments.all { isValidIPv6Segment(it) }) return null
+            return stripped
+        }
+
+        // Only one "::" is allowed in a valid IPv6 address
+        if (stripped.indexOf("::", doubleColonIdx + 1) >= 0) return null
+
+        val left  = if (doubleColonIdx == 0) emptyList()
+                    else stripped.substring(0, doubleColonIdx).split(":")
+        val right = if (doubleColonIdx == stripped.length - 2) emptyList()
+                    else stripped.substring(doubleColonIdx + 2).split(":")
+
+        val missingGroups = 8 - left.size - right.size
+        if (missingGroups < 0) return null  // too many segments → malformed
+
+        val expanded = left + List(missingGroups) { "0" } + right
+        // Validate every segment is a valid hex value 0..FFFF
+        if (!expanded.all { isValidIPv6Segment(it) }) return null
+        return expanded.joinToString(":")
+    }
+
+    /** Returns true if [segment] is a valid IPv6 hex group (1-4 hex chars, value 0x0000–0xFFFF). */
+    private fun isValidIPv6Segment(segment: String): Boolean {
+        if (segment.isEmpty() || segment.length > 4) return false
+        val value = segment.toIntOrNull(16) ?: return false
+        return value in 0..0xFFFF
     }
 
     /**
@@ -303,6 +387,7 @@ object SecurityValidator {
             .replace("%2e", ".")               // URL-encoded dot
             .replace("%2f", "/")               // URL-encoded slash
             .replace("%5c", "/")               // URL-encoded backslash
+            .replace(Regex("/+"), "/")         // Collapse // → / to prevent "//etc" bypass
 
         if (normalised.contains("..")) return false
 

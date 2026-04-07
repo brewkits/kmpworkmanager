@@ -7,13 +7,18 @@ import dev.brewkits.kmpworkmanager.sample.background.domain.TaskEventBus
 import dev.brewkits.kmpworkmanager.sample.utils.Logger
 import dev.brewkits.kmpworkmanager.sample.utils.LogTags
 import kotlinx.coroutines.delay
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlin.time.Duration.Companion.seconds
 
 /**
  * Demonstrates exponential backoff retry logic for flaky network operations
  */
 class NetworkRetryWorker : IosWorker {
-    override suspend fun doWork(input: String?): WorkerResult {
+    override suspend fun doWork(
+        input: String?,
+        env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
+    ): WorkerResult {
         Logger.i(LogTags.WORKER, "NetworkRetryWorker started - demonstrating retry with exponential backoff")
 
         var attempt = 0
@@ -40,13 +45,13 @@ class NetworkRetryWorker : IosWorker {
                         message = "🌐 Network request succeeded on attempt $attempt"
                     )
                 )
-return WorkerResult.Success(
-    message = "Network request succeeded on attempt $attempt",
-    data = buildJsonObject {
-        put("attempt", attempt)
-        put("maxAttempts", maxAttempts)
-    }
-)
+
+                return WorkerResult.Success(
+                    message = "Network request succeeded on attempt $attempt",
+                    data = buildJsonObject {
+                        put("attempt", attempt)
+                        put("maxAttempts", maxAttempts)
+                    }
                 )
             } catch (e: Exception) {
                 Logger.w(LogTags.WORKER, "Attempt $attempt failed: ${e.message}")

@@ -29,9 +29,10 @@ import dev.brewkits.kmpworkmanager.sample.ui.*
 import dev.brewkits.kmpworkmanager.sample.debug.DebugSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.datetime.Clock
 import org.jetbrains.compose.ui.tooling.preview.Preview
 import org.koin.mp.KoinPlatform.getKoin
-import kotlin.time.Clock
+
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.ExperimentalTime
@@ -44,7 +45,7 @@ import kotlin.time.ExperimentalTime
  * @param scheduler The platform-specific background task scheduler instance.
  * @param pushHandler The platform-specific push notification handler instance.
  */
-@OptIn(ExperimentalTime::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalTime::class, ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun App(
     // Dependencies are injected, defaulting to Koin lookup if not provided (for production code)
@@ -68,7 +69,7 @@ fun App(
     val exactAlarmPermissionState = rememberExactAlarmPermissionState()
 
     // State for managing the horizontal pager (tab view).
-    val pagerState = rememberPagerState(pageCount = { 10 })
+    val pagerState = rememberPagerState(pageCount = { 11 })
 
     // Snackbar host state for showing toast messages
     val snackbarHostState = remember { SnackbarHostState() }
@@ -118,6 +119,7 @@ fun App(
                 Tab(selected = pagerState.currentPage == 7, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(7) } }) { Text("Timeline", modifier = Modifier.padding(12.dp)) }
                 Tab(selected = pagerState.currentPage == 8, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(8) } }) { Text("Alarms", modifier = Modifier.padding(12.dp)) }
                 Tab(selected = pagerState.currentPage == 9, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(9) } }) { Text("Debug", modifier = Modifier.padding(12.dp)) }
+                Tab(selected = pagerState.currentPage == 10, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(10) } }) { Text("History", modifier = Modifier.padding(12.dp)) }
             }
 
             // Horizontal pager to host the different tab screens
@@ -137,6 +139,7 @@ fun App(
                     7 -> TimelineScreen()
                     8 -> AlarmsAndPushTab(scheduler, coroutineScope, statusText, exactAlarmPermissionState, snackbarHostState)
                     9 -> DebugScreen()
+                    10 -> ExecutionHistoryScreen(scheduler)
                 }
             }
         }

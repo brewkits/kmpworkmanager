@@ -7,12 +7,17 @@ import dev.brewkits.kmpworkmanager.sample.background.domain.TaskEventBus
 import dev.brewkits.kmpworkmanager.sample.utils.Logger
 import dev.brewkits.kmpworkmanager.sample.utils.LogTags
 import kotlinx.coroutines.delay
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /**
  * Maintenance task that simulates cache cleanup and space reclamation
  */
 class CleanupWorker : IosWorker {
-    override suspend fun doWork(input: String?): WorkerResult {
+    override suspend fun doWork(
+        input: String?,
+        env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
+    ): WorkerResult {
         Logger.i(LogTags.WORKER, "CleanupWorker started - scanning for old cache files")
 
         return try {
@@ -53,10 +58,10 @@ class CleanupWorker : IosWorker {
 
             WorkerResult.Success(
                 message = "Deleted $oldFiles files, freed ${finalSpaceMB}MB",
-                data = mapOf(
-                    "filesDeleted" to oldFiles,
-                    "spaceFreedMB" to finalSpaceMB
-                )
+                data = buildJsonObject {
+                    put("filesDeleted", oldFiles)
+                    put("spaceFreedMB", finalSpaceMB)
+                }
             )
         } catch (e: Exception) {
             Logger.e(LogTags.WORKER, "CleanupWorker failed: ${e.message}", e)

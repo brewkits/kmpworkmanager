@@ -1,5 +1,6 @@
 package dev.brewkits.kmpworkmanager.sample
 
+import dev.brewkits.kmpworkmanager.background.domain.ExecutionRecord
 import dev.brewkits.kmpworkmanager.sample.background.domain.BackgroundTaskScheduler
 import dev.brewkits.kmpworkmanager.sample.background.domain.Constraints
 import dev.brewkits.kmpworkmanager.sample.background.domain.ExistingPolicy
@@ -42,4 +43,8 @@ class FakeBackgroundTaskScheduler : BackgroundTaskScheduler {
     override fun enqueueChain(chain: TaskChain, id: String?, policy: ExistingPolicy) {
         println("FakeBackgroundTaskScheduler: enqueueChain called with id=$id, policy=$policy")
     }
+
+    override suspend fun getExecutionHistory(limit: Int): List<ExecutionRecord> = emptyList()
+
+    override suspend fun clearExecutionHistory() {}
 }

@@ -1,5 +1,7 @@
 package dev.brewkits.kmpworkmanager.sample.di
 
+import dev.brewkits.kmpworkmanager.persistence.ExecutionHistoryStore
+import dev.brewkits.kmpworkmanager.persistence.IosExecutionHistoryStore
 import dev.brewkits.kmpworkmanager.sample.background.data.ChainExecutor
 import dev.brewkits.kmpworkmanager.sample.background.data.IosWorkerFactory
 import dev.brewkits.kmpworkmanager.sample.background.data.NativeTaskScheduler
@@ -16,9 +18,12 @@ import org.koin.dsl.module
  * Defines the platform-specific implementations of shared interfaces.
  */
 val iosModule = module {
+    // Execution history store — shared with demo's ExecutionHistoryScreen
+    single<ExecutionHistoryStore> { IosExecutionHistoryStore() }
+
     // Single instance of the BackgroundTaskScheduler using the iOS-specific implementation.
     // SingleTaskExecutor and ChainExecutor are injected for simulator fallback (see NativeTaskScheduler).
-    single<BackgroundTaskScheduler> { NativeTaskScheduler(get(), get()) }
+    single<BackgroundTaskScheduler> { NativeTaskScheduler(get(), get(), get()) }
     single<DebugSource> { IosDebugSource() }
     // Single instance of the PushNotificationHandler using the default implementation (if no specific iOS logic is needed here)
     single<PushNotificationHandler> { DefaultPushNotificationHandler() }

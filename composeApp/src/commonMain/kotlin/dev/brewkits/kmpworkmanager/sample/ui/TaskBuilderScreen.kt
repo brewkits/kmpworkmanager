@@ -6,13 +6,16 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import dev.brewkits.kmpworkmanager.background.domain.TaskPriority
 import dev.brewkits.kmpworkmanager.sample.background.data.WorkerTypes
 import dev.brewkits.kmpworkmanager.sample.background.domain.BackgroundTaskScheduler
 import dev.brewkits.kmpworkmanager.sample.background.domain.Constraints
+import dev.brewkits.kmpworkmanager.sample.background.domain.TaskRequest
 import dev.brewkits.kmpworkmanager.sample.background.domain.TaskTrigger
 import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.seconds
@@ -33,6 +36,7 @@ fun TaskBuilderScreen(scheduler: BackgroundTaskScheduler) {
     var requiresUnmetered by remember { mutableStateOf(false) }
     var requiresCharging by remember { mutableStateOf(false) }
     var isHeavyTask by remember { mutableStateOf(false) }
+    var selectedPriority by remember { mutableStateOf(TaskPriority.NORMAL) }
 
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -85,7 +89,7 @@ fun TaskBuilderScreen(scheduler: BackgroundTaskScheduler) {
                             onValueChange = {},
                             readOnly = true,
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                            modifier = Modifier.fillMaxWidth().menuAnchor(),
+                            modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable),
                             colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors()
                         )
                         ExposedDropdownMenu(
@@ -169,7 +173,7 @@ fun TaskBuilderScreen(scheduler: BackgroundTaskScheduler) {
                                     onValueChange = {},
                                     readOnly = true,
                                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = unitExpanded) },
-                                    modifier = Modifier.fillMaxWidth().menuAnchor(),
+                                    modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable),
                                     label = { Text("Unit") }
                                 )
                                 ExposedDropdownMenu(
@@ -203,6 +207,42 @@ fun TaskBuilderScreen(scheduler: BackgroundTaskScheduler) {
                 }
             }
 
+            // Priority Selection
+            Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors()) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Priority", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Android: HIGH/CRITICAL → expedited work (bypasses Doze). iOS: queue ordered by weight — CRITICAL runs first.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    TaskPriority.entries.forEach { priority ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            RadioButton(
+                                selected = selectedPriority == priority,
+                                onClick = { selectedPriority = priority }
+                            )
+                            Column(modifier = Modifier.padding(start = 8.dp)) {
+                                Text(priority.name, style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    when (priority) {
+                                        TaskPriority.LOW -> "Deferrable — runs when idle/charging"
+                                        TaskPriority.NORMAL -> "Default — standard background work"
+                                        TaskPriority.HIGH -> "Important — expedited on Android"
+                                        TaskPriority.CRITICAL -> "Mission-critical — runs first (use sparingly)"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             // Action Buttons
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -218,6 +258,7 @@ fun TaskBuilderScreen(scheduler: BackgroundTaskScheduler) {
                         requiresUnmetered = false
                         requiresCharging = false
                         isHeavyTask = false
+                        selectedPriority = TaskPriority.NORMAL
                     },
                     modifier = Modifier.weight(1f)
                 ) {
@@ -254,7 +295,7 @@ fun TaskBuilderScreen(scheduler: BackgroundTaskScheduler) {
                                     workerClassName = selectedWorker,
                                     constraints = constraints
                                 )
-                                snackbarHostState.showSnackbar("Task '$taskId' scheduled successfully!")
+                                snackbarHostState.showSnackbar("Task '$taskId' scheduled [${selectedPriority.name}]")
                             } catch (e: Exception) {
                                 snackbarHostState.showSnackbar("Error: ${e.message}")
                             }

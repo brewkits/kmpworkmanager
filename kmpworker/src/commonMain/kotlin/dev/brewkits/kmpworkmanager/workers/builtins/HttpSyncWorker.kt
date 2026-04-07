@@ -1,9 +1,10 @@
 package dev.brewkits.kmpworkmanager.workers.builtins
 
-import dev.brewkits.kmpworkmanager.background.domain.Worker
+import dev.brewkits.kmpworkmanager.KmpWorkManagerRuntime
+import dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
+import dev.brewkits.kmpworkmanager.background.domain.Worker
 import dev.brewkits.kmpworkmanager.utils.Logger
-import dev.brewkits.kmpworkmanager.workers.config.HttpMethod as WorkerHttpMethod
 import dev.brewkits.kmpworkmanager.workers.config.HttpSyncConfig
 import dev.brewkits.kmpworkmanager.workers.utils.HttpClientProvider
 import dev.brewkits.kmpworkmanager.workers.utils.SecurityValidator
@@ -11,178 +12,67 @@ import io.ktor.client.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /**
- * Built-in worker for JSON synchronization (POST/GET JSON data).
- *
- * Optimized for JSON request/response scenarios. Automatically sets Content-Type to
- * application/json and handles JSON encoding/decoding.
- *
- * Ideal for:
- * - Data synchronization with server
- * - Batch analytics uploads
- * - Periodic data sync
- * - API sync endpoints
- *
- * **Memory Usage:** ~3-5MB RAM
- * **Startup Time:** <50ms
- * **Default Timeout:** 60 seconds
- *
- * **Performance Optimization:**
- * - Uses singleton HttpClient for connection pool reuse
- * - 60-86% faster than previous version
- *
- * **Configuration Example:**
- * ```json
- * {
- *   "url": "https://api.example.com/sync",
- *   "method": "POST",
- *   "headers": {
- *     "Authorization": "Bearer token"
- *   },
- *   "requestBody": {
- *     "lastSyncTime": 1234567890,
- *     "data": [...]
- *   },
- *   "timeoutMs": 60000
- * }
- * ```
- *
- * **Usage:**
- * ```kotlin
- * val config = Json.encodeToString(HttpSyncConfig.serializer(), HttpSyncConfig(
- *     url = "https://api.example.com/sync",
- *     method = "POST",
- *     headers = mapOf("Authorization" to "Bearer token"),
- *     requestBody = buildJsonObject {
- *         put("lastSync", System.currentTimeMillis())
- *         put("deviceId", "device123")
- *     }
- * ))
- *
- * scheduler.enqueue(
- *     id = "data-sync",
- *     trigger = TaskTrigger.Periodic(intervalMs = 3600000), // Every hour
- *     workerClassName = "HttpSyncWorker",
- *     inputJson = config
- * )
- * ```
- *
- * @param httpClient Optional HttpClient (defaults to optimized singleton)
- * Uses singleton HttpClient by default for optimal performance
+ * Built-in worker for standard API data synchronization.
  */
 class HttpSyncWorker(
     private val httpClient: HttpClient = HttpClientProvider.instance
 ) : Worker {
 
-    override suspend fun doWork(input: String?): WorkerResult {
-        Logger.i("HttpSyncWorker", "Starting HTTP sync worker...")
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
+        Logger.i("HttpSyncWorker", "Starting data sync worker...")
 
         if (input == null) {
-            Logger.e("HttpSyncWorker", "Input configuration is null")
             return WorkerResult.Failure("Input configuration is null")
         }
 
-        // Note: httpClient is not closed - managed by HttpClientProvider singleton
-
         return try {
-            val config = Json.decodeFromString<HttpSyncConfig>(input)
+            val config = KmpWorkManagerRuntime.json.decodeFromString<HttpSyncConfig>(input)
 
-            // Validate URL before making request
             if (!SecurityValidator.validateURL(config.url)) {
-                Logger.e("HttpSyncWorker", "Invalid or unsafe URL: ${SecurityValidator.sanitizedURL(config.url)}")
-                return WorkerResult.Failure("Invalid or unsafe URL")
+                return WorkerResult.Failure("Invalid sync URL")
             }
 
-            Logger.i("HttpSyncWorker", "Executing ${config.method} sync to ${SecurityValidator.sanitizedURL(config.url)}")
-
-            executeSyncRequest(httpClient, config)
+            syncData(httpClient, config)
         } catch (e: Exception) {
-            Logger.e("HttpSyncWorker", "Failed to execute HTTP sync", e)
+            Logger.e("HttpSyncWorker", "Sync failed", e)
             WorkerResult.Failure("Sync failed: ${e.message}")
         }
     }
 
-    private suspend fun executeSyncRequest(client: HttpClient, config: HttpSyncConfig): WorkerResult {
+    private suspend fun syncData(client: HttpClient, config: HttpSyncConfig): WorkerResult {
         return try {
             val response: HttpResponse = client.request(config.url) {
-                method = when (config.httpMethod) {
-                    WorkerHttpMethod.GET -> HttpMethod.Get
-                    WorkerHttpMethod.POST -> HttpMethod.Post
-                    WorkerHttpMethod.PUT -> HttpMethod.Put
-                    WorkerHttpMethod.PATCH -> HttpMethod.Patch
-                    else -> HttpMethod.Post // Default to POST
+                method = when (config.method.uppercase()) {
+                    "GET" -> HttpMethod.Get
+                    "POST" -> HttpMethod.Post
+                    "PUT" -> HttpMethod.Put
+                    "PATCH" -> HttpMethod.Patch
+                    else -> HttpMethod.Post
                 }
-
-                // Always set Content-Type to application/json
-                contentType(ContentType.Application.Json)
-
-                // Set headers
-                config.headers?.forEach { (key, value) ->
-                    header(key, value)
-                }
-
-                // Set JSON body for POST/PUT/PATCH
-                if (config.requestBody != null && config.httpMethod in setOf(WorkerHttpMethod.POST, WorkerHttpMethod.PUT, WorkerHttpMethod.PATCH)) {
-                    val jsonString = config.requestBody.toString()
-                    setBody(jsonString)
-
-                    // Log truncated body for debugging
-                    val truncatedBody = SecurityValidator.truncateForLogging(jsonString, 500)
-                    Logger.d("HttpSyncWorker", "Request body: $truncatedBody")
+                config.headers?.forEach { (key, value) -> header(key, value) }
+                if (config.requestBody != null) {
+                    setBody(config.requestBody)
+                    contentType(ContentType.Application.Json)
                 }
             }
 
-            val statusCode = response.status.value
-            val responseBody = response.bodyAsText()
-
-            if (statusCode in 200..299) {
-                Logger.i("HttpSyncWorker", "Sync completed successfully with status $statusCode")
-
-                // Optionally log response (truncated)
-                if (responseBody.isNotEmpty()) {
-                    val truncatedResponse = SecurityValidator.truncateForLogging(responseBody, 500)
-                    Logger.d("HttpSyncWorker", "Response: $truncatedResponse")
-                }
-
+            if (response.status.isSuccess()) {
                 WorkerResult.Success(
-                    message = "Sync completed - HTTP $statusCode",
+                    message = "Sync complete",
                     data = buildJsonObject {
-                        put("statusCode", statusCode)
-                        put("method", config.httpMethod.name)
-                        put("url", SecurityValidator.sanitizedURL(config.url))
-                        put("responseLength", responseBody.length)
+                        put("url", config.url)
+                        put("status", response.status.value)
                     }
                 )
             } else {
-                Logger.w("HttpSyncWorker", "Sync completed with non-success status $statusCode")
-                WorkerResult.Failure(
-                    message = "HTTP $statusCode error",
-                    shouldRetry = statusCode in 500..599
-                )
+                WorkerResult.Failure("HTTP ${response.status.value} error", shouldRetry = response.status.value >= 500)
             }
         } catch (e: Exception) {
-            Logger.e("HttpSyncWorker", "HTTP sync failed", e)
-            WorkerResult.Failure("Sync failed: ${e.message}", shouldRetry = true)
-        }
-    }
-
-    companion object {
-        /**
-         * Creates a default HTTP client with reasonable timeouts.
-         */
-        @Deprecated(
-            message = "Use HttpClientProvider.instance for connection pool reuse",
-            replaceWith = ReplaceWith("HttpClientProvider.instance", "dev.brewkits.kmpworkmanager.workers.utils.HttpClientProvider"),
-            level = DeprecationLevel.WARNING
-        )
-        fun createDefaultHttpClient(): HttpClient {
-            return HttpClient {
-                expectSuccess = false
-            }
+            throw e
         }
     }
 }

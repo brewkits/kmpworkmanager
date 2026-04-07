@@ -7,6 +7,7 @@ import dev.brewkits.kmpworkmanager.background.data.IosFileStorage
 import dev.brewkits.kmpworkmanager.background.data.IosWorker
 import dev.brewkits.kmpworkmanager.background.data.IosWorkerFactory
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
+import dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
@@ -38,7 +39,7 @@ class V236ChainExecutorTest {
     private val successFactory = object : IosWorkerFactory {
         override fun createWorker(workerClassName: String): IosWorker? {
             return object : IosWorker {
-                override suspend fun doWork(input: String?): WorkerResult {
+                override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
                     return WorkerResult.Success()
                 }
             }
@@ -49,7 +50,7 @@ class V236ChainExecutorTest {
     private val failingFactory = object : IosWorkerFactory {
         override fun createWorker(workerClassName: String): IosWorker? {
             return object : IosWorker {
-                override suspend fun doWork(input: String?): WorkerResult {
+                override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
                     return WorkerResult.Failure(message = "deliberate failure for CE-1 test")
                 }
             }

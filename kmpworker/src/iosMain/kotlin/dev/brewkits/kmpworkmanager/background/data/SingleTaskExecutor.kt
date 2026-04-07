@@ -1,8 +1,8 @@
 package dev.brewkits.kmpworkmanager.background.data
 
-import dev.brewkits.kmpworkmanager.background.domain.TaskCompletionEvent
-import dev.brewkits.kmpworkmanager.background.domain.TaskEventBus
-import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
+import dev.brewkits.kmpworkmanager.background.domain.*
+import dev.brewkits.kmpworkmanager.background.domain.TaskProgressEvent
+import dev.brewkits.kmpworkmanager.background.domain.TaskProgressBus
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.utils.LogTags
 import kotlinx.coroutines.*
@@ -11,12 +11,6 @@ import platform.Foundation.timeIntervalSince1970
 
 /**
  * Executes a single, non-chained background task on the iOS platform.
- *
- * Features:
- * - Automatic timeout protection (25s for BGAppRefreshTask, 55s for BGProcessingTask)
- * - Comprehensive error handling and logging
- * - Task completion event emission
- * - Memory-safe coroutine scope management
  */
 class SingleTaskExecutor(private val workerFactory: IosWorkerFactory) {
 
@@ -24,23 +18,11 @@ class SingleTaskExecutor(private val workerFactory: IosWorkerFactory) {
     private val coroutineScope = CoroutineScope(Dispatchers.Default + job)
 
     companion object {
-        /**
-         * Default timeout for task execution (25 seconds)
-         * Provides 5s safety margin for BGAppRefreshTask (30s limit)
-         * BGProcessingTask has 60s limit, so this is even safer
-         */
         const val DEFAULT_TIMEOUT_MS = 25_000L
     }
 
     /**
      * Creates and runs a worker based on its class name with timeout protection.
-     *
-     * Returns WorkerResult with data instead of Boolean
-     *
-     * @param workerClassName The fully qualified name of the worker class.
-     * @param input Optional input data for the worker.
-     * @param timeoutMs Maximum execution time in milliseconds (default: 25s)
-     * @return WorkerResult with success/failure status and optional data
      */
     suspend fun executeTask(
         workerClassName: String,
@@ -66,7 +48,26 @@ class SingleTaskExecutor(private val workerFactory: IosWorkerFactory) {
         return try {
             withTimeout(timeoutMs) {
                 val startTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
-                val result = worker.doWork(input)
+                val currentJob = currentCoroutineContext()[Job]
+                
+                val env = WorkerEnvironment(
+                    progressListener = object : ProgressListener {
+                        override fun onProgressUpdate(progress: WorkerProgress) {
+                            coroutineScope.launch {
+                                TaskProgressBus.emit(
+                                    TaskProgressEvent(
+                                        taskId = workerClassName,
+                                        taskName = workerClassName.substringAfterLast('.'),
+                                        progress = progress
+                                    )
+                                )
+                            }
+                        }
+                    },
+                    isCancelled = { currentJob?.isCancelled == true }
+                )
+
+                val result = worker.doWork(input, env)
                 val duration = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime
 
                 when (result) {
@@ -106,7 +107,7 @@ class SingleTaskExecutor(private val workerFactory: IosWorkerFactory) {
      * Emits both success and failure events with outputData
      */
     private fun emitEvent(workerClassName: String, result: WorkerResult) {
-        coroutineScope.launch(Dispatchers.Main) {
+        coroutineScope.launch {
             val event = when (result) {
                 is WorkerResult.Success -> {
                     TaskCompletionEvent(

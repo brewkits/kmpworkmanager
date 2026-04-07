@@ -13,9 +13,6 @@ import kotlinx.serialization.json.put
  * - Pass output data back to the caller
  * - Control retry behavior
  *
- * Introduced to support returning data from workers
- * data changed from Map<String, Any?> to JsonObject for safe serialization
- *
  * Example:
  * ```kotlin
  * class DataFetchWorker : Worker {

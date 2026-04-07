@@ -14,6 +14,7 @@ actual fun createDummyFiles(context: Any): Pair<String, String> {
     val uploadFilePath = uploadFileURL?.path ?: ""
     val uploadFileContent = "This is a dummy file for upload demo."
     if (!fileManager.fileExistsAtPath(uploadFilePath)) {
+        @Suppress("CAST_NEVER_SUCCEEDS") // Kotlin/Native String bridges to NSString at runtime
         (uploadFileContent as NSString).writeToURL(uploadFileURL!!, true, NSUTF8StringEncoding, null)
     }
 
@@ -23,8 +24,10 @@ actual fun createDummyFiles(context: Any): Pair<String, String> {
     if (!fileManager.fileExistsAtPath(compressFolderPath)) {
         fileManager.createDirectoryAtURL(compressFolderURL!!, true, null, null)
         val file1URL = compressFolderURL.URLByAppendingPathComponent("file1.txt")
+        @Suppress("CAST_NEVER_SUCCEEDS") // Kotlin/Native String bridges to NSString at runtime
         "Content of file 1".let { (it as NSString).writeToURL(file1URL!!, true, NSUTF8StringEncoding, null) }
         val file2URL = compressFolderURL.URLByAppendingPathComponent("file2.txt")
+        @Suppress("CAST_NEVER_SUCCEEDS")
         "Content of file 2".let { (it as NSString).writeToURL(file2URL!!, true, NSUTF8StringEncoding, null) }
     }
 

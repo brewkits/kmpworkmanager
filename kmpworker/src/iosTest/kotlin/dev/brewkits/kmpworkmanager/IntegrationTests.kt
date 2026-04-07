@@ -25,7 +25,7 @@ class IntegrationTests {
     fun setup() {
         // Create temporary test directory
         val tempDir = NSTemporaryDirectory()
-        val testDirName = "kmpworkmanager_integration_test_${NSDate().timeIntervalSince1970}"
+        val testDirName = "kmpworkmanager_integration_test_${NSDate().timeIntervalSince1970()}"
         testDirectoryURL = NSURL.fileURLWithPath("$tempDir$testDirName")
 
         val fileManager = NSFileManager.defaultManager

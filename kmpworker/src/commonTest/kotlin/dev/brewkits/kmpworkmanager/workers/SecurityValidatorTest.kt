@@ -173,6 +173,29 @@ class SecurityValidatorTest {
         assertFalse(SecurityValidator.validateURL("http://[fe80::1]/"))
     }
 
+    // ── IPv6 compressed loopback bypass (Fix v2.3.8) ─────────────────────────
+
+    @Test
+    fun testIPv6CompressedLoopback_shouldBeBlocked() {
+        // All of these expand to 0:0:0:0:0:0:0:1 (loopback)
+        assertFalse(SecurityValidator.validateURL("http://[0::1]/"),         "0::1 is loopback")
+        assertFalse(SecurityValidator.validateURL("http://[::0:0:0:1]/"),    "::0:0:0:1 is loopback")
+        assertFalse(SecurityValidator.validateURL("http://[0:0::1]/"),       "0:0::1 is loopback")
+        assertFalse(SecurityValidator.validateURL("http://[0:0:0::1]/"),     "0:0:0::1 is loopback")
+        assertFalse(SecurityValidator.validateURL("http://[0:0:0:0::1]/"),   "0:0:0:0::1 is loopback")
+        assertFalse(SecurityValidator.validateURL("http://[0:0:0:0:0::1]/"),"0:0:0:0:0::1 is loopback")
+        assertFalse(SecurityValidator.validateURL("http://[0:0:0:0:0:0::1]/"),"0:0:0:0:0:0::1 is loopback")
+        assertFalse(SecurityValidator.validateURL("http://[0:0:0:0:0:0:0:1]/"), "fully expanded loopback")
+    }
+
+    @Test
+    fun testIPv6CompressedPublic_shouldPass() {
+        // Compressed forms of public IPv6 addresses must not be blocked
+        assertTrue(SecurityValidator.validateURL("http://[2001:4860::8888]/"),     "Google DNS compressed")
+        assertTrue(SecurityValidator.validateURL("http://[2606:4700:4700::1111]/"), "Cloudflare DNS compressed")
+        assertTrue(SecurityValidator.validateURL("http://[2001:db8::1]/"),          "Documentation prefix")
+    }
+
     // ── Fix 6: Multi-@ UserInfo SSRF bypass ───────────────────────────────────
 
     @Test
@@ -204,5 +227,67 @@ class SecurityValidatorTest {
         // Valid paths still pass
         assertTrue(SecurityValidator.validateFilePath("images/photo.jpg"))
         assertTrue(SecurityValidator.validateFilePath("data/user/profile.json"))
+    }
+
+    // ── Advanced Security Fuzzing & Boundary Testing (100% Coverage Push) ──────
+
+    @Test
+    fun testAdvancedSSRFBypasses_shouldBeBlocked() {
+        // Octal/Hex IP bypasses (many parsers resolve these to 127.0.0.1)
+        // Note: Our looksLikeIPv4 check handles standard dots, but if an attacker uses
+        // non-standard forms, they should either fail the validator or fail resolving.
+        // We ensure they are caught if they parse as standard IPv4, or rejected if malformed.
+        assertFalse(SecurityValidator.validateURL("http://0x7f.0.0.1/"), "Hex bypass must fail")
+        assertFalse(SecurityValidator.validateURL("http://0177.0.0.1/"), "Octal bypass must fail")
+        assertFalse(SecurityValidator.validateURL("http://2130706433/"), "Decimal bypass must fail")
+
+        // IPv6 malformed and unspecified edge cases (Caught by v2.3.8 fixes)
+        assertFalse(SecurityValidator.validateURL("http://[::]/"), "Unspecified address must fail")
+        assertFalse(SecurityValidator.validateURL("http://[::1::1]/"), "Malformed double-compressed must fail")
+        assertFalse(SecurityValidator.validateURL("http://[0000:0000:0000:0000:0000:0000:0000:0000]/"), "Expanded unspecified must fail")
+    }
+
+    @Test
+    fun testAdvancedPathTraversalFuzzing_shouldBeBlocked() {
+        // Null-byte injection
+        assertFalse(SecurityValidator.validateFilePath("image.jpg\u0000../etc/passwd"))
+        assertFalse(SecurityValidator.validateFilePath("image.jpg%00../etc/passwd"))
+
+        // Backslash bypasses (Windows style paths escaping to Linux)
+        assertFalse(SecurityValidator.validateFilePath("..\\etc\\passwd"))
+        assertFalse(SecurityValidator.validateFilePath("..%5cetc%5cpasswd"))
+        assertFalse(SecurityValidator.validateFilePath("%2e%2e%5c%2e%2e%5c"))
+
+        // Sensitive OS roots
+        assertFalse(SecurityValidator.validateFilePath("/etc/shadow"))
+        assertFalse(SecurityValidator.validateFilePath("/proc/self/environ"))
+        assertFalse(SecurityValidator.validateFilePath("/private/etc/hosts"))
+    }
+
+    // ── Fix HIGH-4: Double-slash bypass in validateFilePath ──────────────────
+
+    @Test
+    fun testDoubleSlashBypass_shouldBeBlocked() {
+        // Before fix: "//etc/passwd".startsWith("/etc") == false → bypass!
+        // After fix: collapsed to "/etc/passwd" → blocked
+        assertFalse(SecurityValidator.validateFilePath("//etc/passwd"),
+            "//etc/passwd must be blocked after double-slash collapse")
+        assertFalse(SecurityValidator.validateFilePath("//proc/self/environ"),
+            "//proc must be blocked")
+        assertFalse(SecurityValidator.validateFilePath("///etc/shadow"),
+            "Triple slash must be collapsed and blocked")
+        assertFalse(SecurityValidator.validateFilePath("//dev/null"),
+            "//dev must be blocked")
+        assertFalse(SecurityValidator.validateFilePath("//private/etc/hosts"),
+            "//private/etc must be blocked")
+    }
+
+    @Test
+    fun testDoubleSlashInMiddleOfValidPath_shouldPass() {
+        // Double slash in middle collapses but result is a valid path
+        assertTrue(SecurityValidator.validateFilePath("uploads//photo.jpg"),
+            "Double slash in middle of valid path must pass after collapse")
+        assertTrue(SecurityValidator.validateFilePath("data///reports/2024.pdf"),
+            "Triple slash in middle must pass after collapse")
     }
 }

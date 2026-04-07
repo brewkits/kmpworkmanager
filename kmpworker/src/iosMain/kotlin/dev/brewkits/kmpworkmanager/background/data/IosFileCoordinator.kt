@@ -5,6 +5,7 @@ package dev.brewkits.kmpworkmanager.background.data
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.utils.LogTags
 import kotlinx.cinterop.*
+import kotlinx.coroutines.withContext
 import platform.Foundation.*
 import platform.darwin.dispatch_async
 import platform.darwin.dispatch_get_global_queue
@@ -34,15 +35,20 @@ internal object IosFileCoordinator {
      * process (e.g. iCloud daemon) holds a conflicting coordination lock. There is no native
      * cancellation API on NSFileCoordinator.
      *
-     * **GCD timeout**: To prevent unbounded blocking, the coordinator call is dispatched
-     * onto a GCD global queue and joined with a `dispatch_semaphore_wait(timeout)`. If the semaphore
-     * times out, we bypass coordination and execute `block` directly on the calling thread. This
-     * risks a brief write conflict with another process, but is safer than hanging indefinitely
-     * (which would trigger Watchdog on the Main Thread or consume Dispatchers.Default threads).
+     * **Thread safety via [IosDispatchers.IO]**: This function is a `suspend fun` that dispatches
+     * all blocking work (including `dispatch_semaphore_wait`) to [IosDispatchers.IO] — a dedicated
+     * GCD-backed dispatcher. [kotlinx.coroutines.Dispatchers.Default] threads are NEVER blocked,
+     * regardless of how many chains run in parallel. This prevents the thread-starvation scenario
+     * where all Default threads are waiting on NSFileCoordinator, freezing all coroutines in the app.
      *
-     * Detects test environment to skip coordination during unit tests.
+     * **GCD timeout**: The coordinator call is dispatched onto a GCD global queue and joined with a
+     * `dispatch_semaphore_wait(timeout)`. If the semaphore times out, we bypass coordination and
+     * execute `block` directly. This risks a brief write conflict, but is safer than hanging
+     * indefinitely (which would trigger Watchdog).
+     *
+     * Detects test environment to skip coordination during unit tests (fast path, no IO dispatch).
      */
-    fun <T> coordinate(
+    suspend fun <T> coordinate(
         url: NSURL,
         write: Boolean,
         isTestMode: Boolean = false,
@@ -68,6 +74,51 @@ internal object IosFileCoordinator {
             return block(url)
         }
 
+        // Dispatch the blocking NSFileCoordinator call to IosDispatchers.IO.
+        // dispatch_semaphore_wait blocks the calling OS thread — this ensures it blocks an IO
+        // thread (backed by GCD), never a Dispatchers.Default thread. Dispatchers.Default
+        // threads are immediately released to process other coroutines while IO waits.
+        return withContext(IosDispatchers.IO) { coordinateBlocking(url, write, timeoutMs, block) }
+    }
+
+    /**
+     * Executes a block with NSFileCoordinator protection synchronously.
+     * Use this when already on a background thread (e.g. IosDispatchers.IO).
+     *
+     * Applies the same test-environment detection as [coordinate] so that
+     * NSFileCoordinator is skipped in unit/simulator tests (avoids "couldn't be saved"
+     * errors when the target directory doesn't exist in the sandbox).
+     */
+    fun <T> coordinateSync(
+        url: NSURL,
+        write: Boolean,
+        timeoutMs: Long = 30_000L,
+        block: (NSURL) -> T
+    ): T {
+        // Mirror the test-mode detection from coordinate() — both must behave identically.
+        val isTestEnvironment = when {
+            NSProcessInfo.processInfo.environment.containsKey("KMPWORKMANAGER_TEST_MODE") -> {
+                val value = NSProcessInfo.processInfo.environment["KMPWORKMANAGER_TEST_MODE"] as? String
+                value == "1" || value?.equals("true", ignoreCase = true) == true
+            }
+            else -> NSProcessInfo.processInfo.processName.endsWith("test.kexe")
+        }
+        if (isTestEnvironment) {
+            Logger.v(LogTags.CHAIN, "Test mode detected - skipping NSFileCoordinator (sync) for ${url.lastPathComponent}")
+            return block(url)
+        }
+        return coordinateBlocking(url, write, timeoutMs, block)
+    }
+
+    /**
+     * Synchronous implementation of coordination. Always called from [IosDispatchers.IO].
+     */
+    private fun <T> coordinateBlocking(
+        url: NSURL,
+        write: Boolean,
+        timeoutMs: Long,
+        block: (NSURL) -> T
+    ): T {
         var result: Any? = UNSET
         var blockError: Exception? = null
         val startTime = (NSDate().timeIntervalSince1970 * 1000).toLong()

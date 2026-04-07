@@ -44,5 +44,14 @@ class IosWorkerFactory {
  * v2.3.0+: Updated to pass through WorkerResult directly
  */
 private class WorkerAdapter(private val worker: Worker) : IosWorker {
-    override suspend fun doWork(input: String?) = worker.doWork(input)
+    override suspend fun doWork(
+        input: String?,
+        env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
+    ): dev.brewkits.kmpworkmanager.background.domain.WorkerResult {
+        return worker.doWork(input, env)
+    }
+
+    override fun close() {
+        worker.close()
+    }
 }

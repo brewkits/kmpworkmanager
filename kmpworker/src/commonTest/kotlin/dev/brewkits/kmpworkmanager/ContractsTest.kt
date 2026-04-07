@@ -12,20 +12,20 @@ import kotlin.test.assertTrue
 class TaskTriggerTest {
 
     @Test
-    fun `OneTime trigger with zero delay should be immediate`() {
+    fun OneTime_trigger_with_zero_delay_should_be_immediate() {
         val trigger = TaskTrigger.OneTime()
         assertEquals(0L, trigger.initialDelayMs)
     }
 
     @Test
-    fun `OneTime trigger with custom delay should preserve value`() {
+    fun OneTime_trigger_with_custom_delay_should_preserve_value() {
         val delayMs = 5000L
         val trigger = TaskTrigger.OneTime(initialDelayMs = delayMs)
         assertEquals(delayMs, trigger.initialDelayMs)
     }
 
     @Test
-    fun `Periodic trigger should preserve interval and flex`() {
+    fun Periodic_trigger_should_preserve_interval_and_flex() {
         val intervalMs = 900_000L // 15 minutes
         val flexMs = 300_000L // 5 minutes
         val trigger = TaskTrigger.Periodic(intervalMs = intervalMs, flexMs = flexMs)
@@ -35,20 +35,20 @@ class TaskTriggerTest {
     }
 
     @Test
-    fun `Periodic trigger without flex should have null flex`() {
+    fun Periodic_trigger_without_flex_should_have_null_flex() {
         val trigger = TaskTrigger.Periodic(intervalMs = 900_000L)
         assertEquals(null, trigger.flexMs)
     }
 
     @Test
-    fun `Exact trigger should preserve timestamp`() {
+    fun Exact_trigger_should_preserve_timestamp() {
         val timestamp = 1704067200000L // Fixed timestamp
         val trigger = TaskTrigger.Exact(atEpochMillis = timestamp)
         assertEquals(timestamp, trigger.atEpochMillis)
     }
 
     @Test
-    fun `Windowed trigger should preserve earliest and latest times`() {
+    fun Windowed_trigger_should_preserve_earliest_and_latest_times() {
         val earliest = 1704067200000L // Fixed timestamp
         val latest = earliest + 7200_000 // 2 hours later
         val trigger = TaskTrigger.Windowed(earliest = earliest, latest = latest)
@@ -58,7 +58,7 @@ class TaskTriggerTest {
     }
 
     @Test
-    fun `ContentUri trigger should preserve URI and descendant flag`() {
+    fun ContentUri_trigger_should_preserve_URI_and_descendant_flag() {
         val uri = "content://media/external/images/media"
         val trigger = TaskTrigger.ContentUri(uriString = uri, triggerForDescendants = true)
 
@@ -67,7 +67,7 @@ class TaskTriggerTest {
     }
 
     @Test
-    fun `ContentUri trigger without descendant flag should default to false`() {
+    fun ContentUri_trigger_without_descendant_flag_should_default_to_false() {
         val trigger = TaskTrigger.ContentUri(uriString = "content://contacts")
         assertFalse(trigger.triggerForDescendants)
     }
@@ -77,7 +77,7 @@ class TaskTriggerTest {
 class SystemConstraintTest {
 
     @Test
-    fun `SystemConstraint should have all constraint types`() {
+    fun SystemConstraint_should_have_all_constraint_types() {
         val values = SystemConstraint.entries.toList()
 
         assertTrue(values.contains(SystemConstraint.ALLOW_LOW_STORAGE))
@@ -87,31 +87,31 @@ class SystemConstraintTest {
     }
 
     @Test
-    fun `SystemConstraint ALLOW_LOW_STORAGE should be available`() {
+    fun SystemConstraint_ALLOW_LOW_STORAGE_should_be_available() {
         val constraint = SystemConstraint.ALLOW_LOW_STORAGE
         assertEquals("ALLOW_LOW_STORAGE", constraint.name)
     }
 
     @Test
-    fun `SystemConstraint ALLOW_LOW_BATTERY should be available`() {
+    fun SystemConstraint_ALLOW_LOW_BATTERY_should_be_available() {
         val constraint = SystemConstraint.ALLOW_LOW_BATTERY
         assertEquals("ALLOW_LOW_BATTERY", constraint.name)
     }
 
     @Test
-    fun `SystemConstraint REQUIRE_BATTERY_NOT_LOW should be available`() {
+    fun SystemConstraint_REQUIRE_BATTERY_NOT_LOW_should_be_available() {
         val constraint = SystemConstraint.REQUIRE_BATTERY_NOT_LOW
         assertEquals("REQUIRE_BATTERY_NOT_LOW", constraint.name)
     }
 
     @Test
-    fun `SystemConstraint DEVICE_IDLE should be available`() {
+    fun SystemConstraint_DEVICE_IDLE_should_be_available() {
         val constraint = SystemConstraint.DEVICE_IDLE
         assertEquals("DEVICE_IDLE", constraint.name)
     }
 
     @Test
-    fun `SystemConstraint values should all be distinct`() {
+    fun SystemConstraint_values_should_all_be_distinct() {
         val allowStorage = SystemConstraint.ALLOW_LOW_STORAGE
         val allowBattery = SystemConstraint.ALLOW_LOW_BATTERY
         val requireBattery = SystemConstraint.REQUIRE_BATTERY_NOT_LOW
@@ -129,7 +129,7 @@ class SystemConstraintTest {
 class ConstraintsTest {
 
     @Test
-    fun `Default constraints should have all fields at default values`() {
+    fun Default_constraints_should_have_all_fields_at_default_values() {
         val constraints = Constraints()
 
         assertFalse(constraints.requiresNetwork)
@@ -144,56 +144,56 @@ class ConstraintsTest {
     }
 
     @Test
-    fun `Constraints with network requirement should set flag`() {
+    fun Constraints_with_network_requirement_should_set_flag() {
         val constraints = Constraints(requiresNetwork = true)
         assertTrue(constraints.requiresNetwork)
     }
 
     @Test
-    fun `Constraints with unmetered network should set flag`() {
+    fun Constraints_with_unmetered_network_should_set_flag() {
         val constraints = Constraints(requiresUnmeteredNetwork = true)
         assertTrue(constraints.requiresUnmeteredNetwork)
     }
 
     @Test
-    fun `Constraints with charging requirement should set flag`() {
+    fun Constraints_with_charging_requirement_should_set_flag() {
         val constraints = Constraints(requiresCharging = true)
         assertTrue(constraints.requiresCharging)
     }
 
     @Test
-    fun `Constraints with allowWhileIdle should set flag`() {
+    fun Constraints_with_allowWhileIdle_should_set_flag() {
         val constraints = Constraints(allowWhileIdle = true)
         assertTrue(constraints.allowWhileIdle)
     }
 
     @Test
-    fun `Constraints with heavy task flag should set flag`() {
+    fun Constraints_with_heavy_task_flag_should_set_flag() {
         val constraints = Constraints(isHeavyTask = true)
         assertTrue(constraints.isHeavyTask)
     }
 
     @Test
-    fun `Constraints with UserInitiated QoS should preserve value`() {
+    fun Constraints_with_UserInitiated_QoS_should_preserve_value() {
         val constraints = Constraints(qos = Qos.UserInitiated)
         assertEquals(Qos.UserInitiated, constraints.qos)
     }
 
     @Test
-    fun `Constraints with Linear backoff policy should preserve value`() {
+    fun Constraints_with_Linear_backoff_policy_should_preserve_value() {
         val constraints = Constraints(backoffPolicy = BackoffPolicy.LINEAR)
         assertEquals(BackoffPolicy.LINEAR, constraints.backoffPolicy)
     }
 
     @Test
-    fun `Constraints with custom backoff delay should preserve value`() {
+    fun Constraints_with_custom_backoff_delay_should_preserve_value() {
         val customDelay = 60_000L
         val constraints = Constraints(backoffDelayMs = customDelay)
         assertEquals(customDelay, constraints.backoffDelayMs)
     }
 
     @Test
-    fun `Constraints with multiple settings should preserve all values`() {
+    fun Constraints_with_multiple_settings_should_preserve_all_values() {
         val constraints = Constraints(
             requiresNetwork = true,
             requiresCharging = true,
@@ -212,7 +212,7 @@ class ConstraintsTest {
     }
 
     @Test
-    fun `Constraints with single system constraint should preserve value`() {
+    fun Constraints_with_single_system_constraint_should_preserve_value() {
         val constraints = Constraints(
             systemConstraints = setOf(SystemConstraint.ALLOW_LOW_BATTERY)
         )
@@ -222,7 +222,7 @@ class ConstraintsTest {
     }
 
     @Test
-    fun `Constraints with multiple system constraints should preserve all values`() {
+    fun Constraints_with_multiple_system_constraints_should_preserve_all_values() {
         val constraints = Constraints(
             systemConstraints = setOf(
                 SystemConstraint.ALLOW_LOW_BATTERY,
@@ -238,7 +238,7 @@ class ConstraintsTest {
     }
 
     @Test
-    fun `Constraints with empty system constraints should have empty set`() {
+    fun Constraints_with_empty_system_constraints_should_have_empty_set() {
         val constraints = Constraints(
             systemConstraints = emptySet()
         )
@@ -247,7 +247,7 @@ class ConstraintsTest {
     }
 
     @Test
-    fun `Constraints copy with system constraints should preserve values`() {
+    fun Constraints_copy_with_system_constraints_should_preserve_values() {
         val original = Constraints(
             requiresNetwork = true,
             systemConstraints = setOf(SystemConstraint.ALLOW_LOW_STORAGE)
@@ -267,7 +267,7 @@ class ConstraintsTest {
 class BackoffPolicyTest {
 
     @Test
-    fun `BackoffPolicy should have LINEAR and EXPONENTIAL values`() {
+    fun BackoffPolicy_should_have_LINEAR_and_EXPONENTIAL_values() {
         val linear = BackoffPolicy.LINEAR
         val exponential = BackoffPolicy.EXPONENTIAL
 
@@ -276,7 +276,7 @@ class BackoffPolicyTest {
     }
 
     @Test
-    fun `BackoffPolicy values should be different`() {
+    fun BackoffPolicy_values_should_be_different() {
         val linear = BackoffPolicy.LINEAR
         val exponential = BackoffPolicy.EXPONENTIAL
 
@@ -287,7 +287,7 @@ class BackoffPolicyTest {
 class QosTest {
 
     @Test
-    fun `Qos should have all priority levels`() {
+    fun Qos_should_have_all_priority_levels() {
         val values = Qos.entries.toList()
 
         assertTrue(values.contains(Qos.Utility))
@@ -297,13 +297,13 @@ class QosTest {
     }
 
     @Test
-    fun `Qos Background should be available for default usage`() {
+    fun Qos_Background_should_be_available_for_default_usage() {
         val qos = Qos.Background
         assertEquals("Background", qos.name)
     }
 
     @Test
-    fun `Qos UserInitiated should be higher priority than Background`() {
+    fun Qos_UserInitiated_should_be_higher_priority_than_Background() {
         val background = Qos.Background
         val userInitiated = Qos.UserInitiated
 
@@ -312,7 +312,7 @@ class QosTest {
     }
 
     @Test
-    fun `Qos UserInteractive should be highest priority`() {
+    fun Qos_UserInteractive_should_be_highest_priority() {
         val userInteractive = Qos.UserInteractive
         val allQos = Qos.entries.toList()
 
@@ -324,7 +324,7 @@ class QosTest {
 class ExistingPolicyEnumTest {
 
     @Test
-    fun `ExistingPolicy should have KEEP and REPLACE values`() {
+    fun ExistingPolicy_should_have_KEEP_and_REPLACE_values() {
         val keep = ExistingPolicy.KEEP
         val replace = ExistingPolicy.REPLACE
 
@@ -333,7 +333,7 @@ class ExistingPolicyEnumTest {
     }
 
     @Test
-    fun `ExistingPolicy KEEP and REPLACE should be different`() {
+    fun ExistingPolicy_KEEP_and_REPLACE_should_be_different() {
         val keep = ExistingPolicy.KEEP
         val replace = ExistingPolicy.REPLACE
 
@@ -344,7 +344,7 @@ class ExistingPolicyEnumTest {
 class ScheduleResultTest {
 
     @Test
-    fun `ScheduleResult should have all result types`() {
+    fun ScheduleResult_should_have_all_result_types() {
         val values = ScheduleResult.entries.toList()
 
         assertTrue(values.contains(ScheduleResult.ACCEPTED))
@@ -353,13 +353,13 @@ class ScheduleResultTest {
     }
 
     @Test
-    fun `ScheduleResult ACCEPTED should indicate success`() {
+    fun ScheduleResult_ACCEPTED_should_indicate_success() {
         val result = ScheduleResult.ACCEPTED
         assertEquals("ACCEPTED", result.name)
     }
 
     @Test
-    fun `ScheduleResult values should all be distinct`() {
+    fun ScheduleResult_values_should_all_be_distinct() {
         val accepted = ScheduleResult.ACCEPTED
         val rejected = ScheduleResult.REJECTED_OS_POLICY
         val throttled = ScheduleResult.THROTTLED

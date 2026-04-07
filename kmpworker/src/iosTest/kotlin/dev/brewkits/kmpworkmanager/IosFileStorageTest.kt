@@ -74,7 +74,7 @@ class IosFileStorageTest {
     // ==================== Chain Definition Operations ====================
 
     @Test
-    fun `saveChainDefinition and loadChainDefinition should persist data`() {
+    fun `saveChainDefinition and loadChainDefinition should persist data`() = runTest {
         val chainId = "test-chain-${(0..999999).random()}"
         val steps = listOf(
             listOf(
@@ -105,13 +105,13 @@ class IosFileStorageTest {
     }
 
     @Test
-    fun `loadChainDefinition for non-existent chain should return null`() {
+    fun `loadChainDefinition for non-existent chain should return null`() = runTest {
         val loaded = storage.loadChainDefinition("non-existent-chain")
         assertNull(loaded)
     }
 
     @Test
-    fun `deleteChainDefinition should remove chain`() {
+    fun `deleteChainDefinition should remove chain`() = runTest {
         val chainId = "delete-test-${(0..999999).random()}"
         val steps = listOf(listOf(TaskRequest("Worker1")))
 
@@ -123,7 +123,7 @@ class IosFileStorageTest {
     }
 
     @Test
-    fun `saveChainDefinition should overwrite existing chain`() {
+    fun `saveChainDefinition should overwrite existing chain`() = runTest {
         val chainId = "overwrite-test-${(0..999999).random()}"
 
         // Save first version
@@ -178,7 +178,7 @@ class IosFileStorageTest {
     }
 
     @Test
-    fun `loadChainProgress for non-existent chain should return null`() {
+    fun `loadChainProgress for non-existent chain should return null`() = runTest {
         val loaded = storage.loadChainProgress("non-existent-progress")
         assertNull(loaded)
     }
@@ -254,7 +254,7 @@ class IosFileStorageTest {
     // ==================== Task Metadata Operations ====================
 
     @Test
-    fun `saveTaskMetadata and loadTaskMetadata should persist metadata`() {
+    fun `saveTaskMetadata and loadTaskMetadata should persist metadata`() = runTest {
         val taskId = "task-${(0..999999).random()}"
         val metadata = mapOf(
             "workerClassName" to "TestWorker",
@@ -277,13 +277,13 @@ class IosFileStorageTest {
     }
 
     @Test
-    fun `loadTaskMetadata for non-existent task should return null`() {
+    fun `loadTaskMetadata for non-existent task should return null`() = runTest {
         val loaded = storage.loadTaskMetadata("non-existent-task", periodic = false)
         assertNull(loaded)
     }
 
     @Test
-    fun `deleteTaskMetadata should remove metadata`() {
+    fun `deleteTaskMetadata should remove metadata`() = runTest {
         val taskId = "delete-meta-${(0..999999).random()}"
         val metadata = mapOf("key" to "value")
 
@@ -295,7 +295,7 @@ class IosFileStorageTest {
     }
 
     @Test
-    fun `periodic and non-periodic metadata should be stored separately`() {
+    fun `periodic and non-periodic metadata should be stored separately`() = runTest {
         val taskId = "separate-meta-${(0..999999).random()}"
         val normalMeta = mapOf("type" to "normal")
         val periodicMeta = mapOf("type" to "periodic")
@@ -342,7 +342,7 @@ class IosFileStorageTest {
     // ==================== Edge Cases ====================
 
     @Test
-    fun `chain with constraints should be persisted correctly`() {
+    fun `chain with constraints should be persisted correctly`() = runTest {
         val chainId = "constraints-test-${(0..999999).random()}"
         val constraints = Constraints(
             requiresNetwork = true,
@@ -368,7 +368,7 @@ class IosFileStorageTest {
     }
 
     @Test
-    fun `empty task input should be persisted as null`() {
+    fun `empty task input should be persisted as null`() = runTest {
         val chainId = "empty-input-${(0..999999).random()}"
         val steps = listOf(listOf(TaskRequest("Worker1", null)))
 

@@ -1,6 +1,8 @@
 
 package dev.brewkits.kmpworkmanager.sample.background.data
 
+import dev.brewkits.kmpworkmanager.background.domain.ExecutionRecord
+import dev.brewkits.kmpworkmanager.persistence.ExecutionHistoryStore
 import dev.brewkits.kmpworkmanager.sample.background.domain.*
 import dev.brewkits.kmpworkmanager.sample.utils.Logger
 import dev.brewkits.kmpworkmanager.sample.utils.LogTags
@@ -35,7 +37,8 @@ import platform.UserNotifications.UNUserNotificationCenter
 @OptIn(ExperimentalForeignApi::class)
 actual class NativeTaskScheduler(
     private val singleTaskExecutor: SingleTaskExecutor? = null,
-    private val chainExecutor: ChainExecutor? = null
+    private val chainExecutor: ChainExecutor? = null,
+    private val executionHistoryStore: ExecutionHistoryStore? = null
 ) : BackgroundTaskScheduler {
 
     /**
@@ -94,7 +97,14 @@ actual class NativeTaskScheduler(
             "demo-builtin-httpsync",
             "demo-builtin-httpdownload",
             "demo-builtin-httpupload",
-            "demo-builtin-filecompression"
+            "demo-builtin-filecompression",
+            "v236-and2-periodic-flex",
+            "v236-and3-battery-not-low",
+            "battery-okay-task",
+            "device-idle-task",
+            "v233-fix1-expedited",
+            "v233-i18n-notification",
+            "task-from-push"
         )
     }
 
@@ -205,7 +215,7 @@ actual class NativeTaskScheduler(
         }
 
         val taskMetadata = mapOf(
-            "workerClassName" to (workerClassName ?: ""),
+            "workerClassName" to workerClassName,
             "inputJson" to (inputJson ?: "")
         )
         userDefaults.setObject(taskMetadata, forKey = "$TASK_META_PREFIX$id")
@@ -267,6 +277,7 @@ actual class NativeTaskScheduler(
     /**
      * Submit task request to BGTaskScheduler with proper error handling
      */
+    @OptIn(BetaInteropApi::class)
     private fun submitTaskRequest(request: BGTaskRequest, taskDescription: String): ScheduleResult {
         return memScoped {
             val errorPtr = alloc<ObjCObjectVar<NSError?>>()
@@ -457,5 +468,12 @@ actual class NativeTaskScheduler(
         // Note: Metadata cleanup would require iterating all keys, which is expensive
         // Metadata will be cleaned up when individual tasks complete or are cancelled
         Logger.d(LogTags.SCHEDULER, "Cancelled all tasks (metadata remains until individual task completion)")
+    }
+
+    actual override suspend fun getExecutionHistory(limit: Int): List<ExecutionRecord> =
+        executionHistoryStore?.getRecords(limit) ?: emptyList()
+
+    actual override suspend fun clearExecutionHistory() {
+        executionHistoryStore?.clear()
     }
 }

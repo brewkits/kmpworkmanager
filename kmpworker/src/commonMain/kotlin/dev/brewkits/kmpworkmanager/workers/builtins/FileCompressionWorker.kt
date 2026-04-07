@@ -1,10 +1,11 @@
 package dev.brewkits.kmpworkmanager.workers.builtins
 
+import dev.brewkits.kmpworkmanager.KmpWorkManagerRuntime
 import dev.brewkits.kmpworkmanager.background.domain.Worker
+import dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.workers.config.FileCompressionConfig
-import kotlinx.serialization.json.Json
 
 /**
  * Built-in worker for compressing files and directories into ZIP archives.
@@ -30,27 +31,10 @@ import kotlinx.serialization.json.Json
  *   "deleteOriginal": false
  * }
  * ```
- *
- * **Usage:**
- * ```kotlin
- * val config = Json.encodeToString(FileCompressionConfig.serializer(), FileCompressionConfig(
- *     inputPath = "/storage/logs",
- *     outputPath = "/storage/logs_backup.zip",
- *     compressionLevel = "high",
- *     excludePatterns = listOf("*.tmp", ".DS_Store")
- * ))
- *
- * scheduler.enqueue(
- *     id = "compress-logs",
- *     trigger = TaskTrigger.OneTime(),
- *     workerClassName = "FileCompressionWorker",
- *     inputJson = config
- * )
- * ```
  */
 class FileCompressionWorker : Worker {
 
-    override suspend fun doWork(input: String?): WorkerResult {
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
         Logger.i("FileCompressionWorker", "Starting file compression worker...")
 
         if (input == null) {
@@ -59,22 +43,14 @@ class FileCompressionWorker : Worker {
         }
 
         return try {
-            val config = Json.decodeFromString<FileCompressionConfig>(input)
+            val config = KmpWorkManagerRuntime.json.decodeFromString<FileCompressionConfig>(input)
             Logger.i("FileCompressionWorker", "Compressing ${config.inputPath} to ${config.outputPath}")
 
-            compressFile(config)
+            platformCompress(config)
         } catch (e: Exception) {
             Logger.e("FileCompressionWorker", "Failed to compress file", e)
             WorkerResult.Failure("Compression failed: ${e.message}")
         }
-    }
-
-    /**
-     * Platform-specific compression implementation.
-     * Implemented in androidMain and iosMain source sets.
-     */
-    private suspend fun compressFile(config: FileCompressionConfig): WorkerResult {
-        return platformCompress(config)
     }
 }
 

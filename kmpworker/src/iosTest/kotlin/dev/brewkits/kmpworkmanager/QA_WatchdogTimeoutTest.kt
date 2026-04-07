@@ -6,6 +6,7 @@ import dev.brewkits.kmpworkmanager.background.data.IosWorker
 import dev.brewkits.kmpworkmanager.background.data.IosWorkerFactory
 import dev.brewkits.kmpworkmanager.background.data.SingleTaskExecutor
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
+import dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
@@ -44,7 +45,7 @@ class QA_WatchdogTimeoutTest {
         val hangingFactory = object : IosWorkerFactory {
             override fun createWorker(workerClassName: String): IosWorker? =
                 object : IosWorker {
-                    override suspend fun doWork(input: String?): WorkerResult {
+                    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
                         delay(Long.MAX_VALUE) // Simulates an infinite loop / deadlock
                         return WorkerResult.Success() // Unreachable
                     }
@@ -76,7 +77,7 @@ class QA_WatchdogTimeoutTest {
         val hangingFactory = object : IosWorkerFactory {
             override fun createWorker(workerClassName: String): IosWorker? =
                 object : IosWorker {
-                    override suspend fun doWork(input: String?): WorkerResult {
+                    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
                         delay(Long.MAX_VALUE)
                         return WorkerResult.Success()
                     }
@@ -104,7 +105,7 @@ class QA_WatchdogTimeoutTest {
         val fastFactory = object : IosWorkerFactory {
             override fun createWorker(workerClassName: String): IosWorker? =
                 object : IosWorker {
-                    override suspend fun doWork(input: String?): WorkerResult {
+                    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
                         delay(100) // Very fast — well within 25s limit
                         return WorkerResult.Success(message = "Done in 100ms")
                     }
@@ -134,7 +135,7 @@ class QA_WatchdogTimeoutTest {
         val nearLimitFactory = object : IosWorkerFactory {
             override fun createWorker(workerClassName: String): IosWorker? =
                 object : IosWorker {
-                    override suspend fun doWork(input: String?): WorkerResult {
+                    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
                         delay(customTimeoutMs - 1_000) // 1s before deadline
                         return WorkerResult.Success(message = "Completed just before deadline")
                     }
@@ -160,7 +161,7 @@ class QA_WatchdogTimeoutTest {
         val overLimitFactory = object : IosWorkerFactory {
             override fun createWorker(workerClassName: String): IosWorker? =
                 object : IosWorker {
-                    override suspend fun doWork(input: String?): WorkerResult {
+                    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
                         delay(customTimeoutMs + 1_000) // 1s over deadline
                         return WorkerResult.Success() // Must never reach here
                     }
@@ -189,7 +190,7 @@ class QA_WatchdogTimeoutTest {
         val throwingFactory = object : IosWorkerFactory {
             override fun createWorker(workerClassName: String): IosWorker? =
                 object : IosWorker {
-                    override suspend fun doWork(input: String?): WorkerResult {
+                    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
                         throw RuntimeException("Simulated worker crash")
                     }
                 }
@@ -224,7 +225,7 @@ class QA_WatchdogTimeoutTest {
         val echoFactory = object : IosWorkerFactory {
             override fun createWorker(workerClassName: String): IosWorker? =
                 object : IosWorker {
-                    override suspend fun doWork(input: String?): WorkerResult {
+                    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
                         receivedInput = input
                         return WorkerResult.Success(message = "Echo: $input")
                     }

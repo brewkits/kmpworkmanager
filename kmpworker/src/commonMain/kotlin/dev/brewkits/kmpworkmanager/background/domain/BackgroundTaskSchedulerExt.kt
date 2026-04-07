@@ -1,180 +1,46 @@
 package dev.brewkits.kmpworkmanager.background.domain
 
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
+import dev.brewkits.kmpworkmanager.utils.Logger
+import dev.brewkits.kmpworkmanager.utils.LogTags
 
 /**
- * Android WorkManager enforces a 10 KB limit on Data objects.
- * We apply the same limit on both platforms for consistency.
- */
-@PublishedApi
-internal const val MAX_INPUT_JSON_BYTES = 10 * 1024 // 10 KB
-
-/**
- * Extension functions for BackgroundTaskScheduler to provide type-safe serialization.
- *
- * These extensions allow you to pass objects directly instead of manually converting to JSON strings.
- *
- * Sugar syntax for better developer experience
- *
- * Example:
- * ```kotlin
- * @Serializable
- * data class UploadData(val url: String, val size: Long)
- *
- * // Before (manual JSON conversion):
- * val data = UploadData("https://...", 1024)
- * val jsonString = Json.encodeToString(data)
- * scheduler.enqueue(..., inputJson = jsonString)
- *
- * // After (direct object passing):
- * scheduler.enqueue(
- *     id = "upload",
- *     trigger = TaskTrigger.OneTime(),
- *     workerClassName = "UploadWorker",
- *     input = UploadData("https://...", 1024) // Type-safe!
- * )
- * ```
+ * Extension methods for [BackgroundTaskScheduler] to simplify common use cases.
  */
 
 /**
- * Enqueue a task with type-safe input serialization.
- *
- * This extension automatically serializes the input object to JSON using kotlinx.serialization.
- *
- * @param T The type of input data (must be annotated with @Serializable)
- * @param id Unique task identifier
- * @param trigger When and how the task should be triggered
- * @param workerClassName Fully qualified worker class name
- * @param constraints Execution constraints (network, charging, etc.)
- * @param input Optional input data (will be serialized to JSON automatically)
- * @param policy How to handle duplicate task IDs
- * @return ScheduleResult indicating success or failure
- *
- * Example:
- * ```kotlin
- * @Serializable
- * data class SyncRequest(val userId: String, val fullSync: Boolean)
- *
- * scheduler.enqueue(
- *     id = "user-sync-123",
- *     trigger = TaskTrigger.OneTime(initialDelayMs = 5000),
- *     workerClassName = "SyncWorker",
- *     input = SyncRequest(userId = "123", fullSync = true),
- *     constraints = Constraints(requiresNetwork = true)
- * )
- * ```
+ * Helper to enqueue a simple one-time task with no input.
  */
-suspend inline fun <reified T> BackgroundTaskScheduler.enqueue(
+suspend fun BackgroundTaskScheduler.enqueueOneTime(
     id: String,
-    trigger: TaskTrigger,
     workerClassName: String,
+    initialDelayMs: Long = 0,
     constraints: Constraints = Constraints(),
-    input: T? = null,
-    policy: ExistingPolicy = ExistingPolicy.KEEP
+    policy: ExistingPolicy = ExistingPolicy.REPLACE
 ): ScheduleResult {
-    val inputJson = input?.let { Json.encodeToString(it) }
-    if (inputJson != null) {
-        val byteCount = inputJson.encodeToByteArray().size
-        require(byteCount <= MAX_INPUT_JSON_BYTES) {
-            "Serialized input is $byteCount bytes, exceeds the $MAX_INPUT_JSON_BYTES-byte limit. " +
-                "Reduce the size of your input object or store large data separately."
-        }
-    }
-    return enqueue(
+    return this.enqueue(
         id = id,
-        trigger = trigger,
+        trigger = TaskTrigger.OneTime(initialDelayMs),
         workerClassName = workerClassName,
         constraints = constraints,
-        inputJson = inputJson,
         policy = policy
     )
 }
 
 /**
- * Begin a task chain with type-safe input serialization (single task).
- *
- * This extension automatically serializes the input object to JSON.
- *
- * @param T The type of input data (must be annotated with @Serializable)
- * @param workerClassName Fully qualified worker class name
- * @param constraints Execution constraints
- * @param input Optional input data (will be serialized to JSON automatically)
- * @return TaskChain for further chaining with then()
- *
- * Example:
- * ```kotlin
- * @Serializable
- * data class DownloadRequest(val url: String)
- *
- * scheduler.beginWith(
- *     workerClassName = "DownloadWorker",
- *     input = DownloadRequest("https://example.com/file.zip")
- * )
- *     .then(TaskRequest("ExtractWorker"))
- *     .then(TaskRequest("ProcessWorker"))
- *     .enqueue()
- * ```
+ * Helper to enqueue a periodic task.
  */
-inline fun <reified T> BackgroundTaskScheduler.beginWith(
+suspend fun BackgroundTaskScheduler.enqueuePeriodic(
+    id: String,
     workerClassName: String,
+    intervalMs: Long,
     constraints: Constraints = Constraints(),
-    input: T? = null
-): TaskChain {
-    val inputJson = input?.let { Json.encodeToString(it) }
-    val taskRequest = TaskRequest(
+    policy: ExistingPolicy = ExistingPolicy.KEEP
+): ScheduleResult {
+    return this.enqueue(
+        id = id,
+        trigger = TaskTrigger.Periodic(intervalMs),
         workerClassName = workerClassName,
         constraints = constraints,
-        inputJson = inputJson
+        policy = policy
     )
-    return beginWith(taskRequest)
 }
-
-/**
- * Begin a task chain with type-safe input serialization (parallel tasks).
- *
- * This extension automatically serializes input objects to JSON for multiple tasks.
- *
- * @param tasks List of task specifications with typed input data
- * @return TaskChain for further chaining with then()
- *
- * Example:
- * ```kotlin
- * @Serializable
- * data class FetchRequest(val endpoint: String)
- *
- * scheduler.beginWith(
- *     TaskSpec("FetchUserWorker", input = FetchRequest("/users")),
- *     TaskSpec("FetchPostsWorker", input = FetchRequest("/posts"))
- * )
- *     .then(TaskRequest("MergeDataWorker"))
- *     .enqueue()
- * ```
- */
-inline fun <reified T> BackgroundTaskScheduler.beginWith(
-    vararg tasks: TaskSpec<T>
-): TaskChain {
-    val taskRequests = tasks.map { spec ->
-        val inputJson = spec.input?.let { Json.encodeToString(it) }
-        TaskRequest(
-            workerClassName = spec.workerClassName,
-            constraints = spec.constraints,
-            inputJson = inputJson
-        )
-    }
-    return beginWith(taskRequests)
-}
-
-/**
- * Type-safe task specification for parallel chain execution.
- *
- * @param T The type of input data (must be annotated with @Serializable)
- * @param workerClassName Fully qualified worker class name
- * @param constraints Execution constraints
- * @param input Optional typed input data
- */
-data class TaskSpec<T>(
-    val workerClassName: String,
-    val constraints: Constraints = Constraints(),
-    val input: T? = null
-)

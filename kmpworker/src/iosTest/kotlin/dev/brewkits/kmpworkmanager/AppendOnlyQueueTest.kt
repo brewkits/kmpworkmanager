@@ -26,7 +26,7 @@ class AppendOnlyQueueTest {
 
         // Create temporary test directory
         val tempDir = NSTemporaryDirectory()
-        val testDirName = "kmpworkmanager_test_${NSDate().timeIntervalSince1970}"
+        val testDirName = "kmpworkmanager_test_${NSDate().timeIntervalSince1970()}"
         testDirectoryURL = NSURL.fileURLWithPath("$tempDir$testDirName")
 
         val fileManager = NSFileManager.defaultManager
@@ -528,5 +528,66 @@ class AppendOnlyQueueTest {
         // Should still be able to enqueue new items
         queue.enqueue("new-item")
         assertEquals("new-item", queue.dequeue())
+    }
+
+    // ── Bug-hunter regression: OOM-safe streaming compaction ─────────────────
+
+    /**
+     * Bug: compactQueue() previously collected ALL unprocessed items into a
+     * MutableList<String> before writing — O(N) RAM spike for large queues.
+     *
+     * Fix: writeItemsToFileStreaming() reads and writes one item at a time.
+     *
+     * This test enqueues enough items to cross the 80% compaction threshold and
+     * verifies that all items survive after compaction (streaming preserved order).
+     */
+    @Test
+    fun `streaming compaction preserves all items after large queue flush`() = runTest {
+        val batchSize = 500
+        // Enqueue items with realistic-sized payloads (UUID-like JSON strings)
+        repeat(batchSize) { i ->
+            queue.enqueue("""{"chainId":"chain-$i","step":$i,"payload":"${"x".repeat(200)}"}""")
+        }
+
+        // Dequeue 80% to trigger compaction threshold (>= 80% processed)
+        val toDequeue = (batchSize * 0.81).toInt()
+        repeat(toDequeue) { queue.dequeue() }
+
+        // Allow background compaction to complete
+        kotlinx.coroutines.delay(3000)
+
+        // Remaining items must still be dequeue-able in order
+        val remaining = batchSize - toDequeue
+        val dequeued = mutableListOf<String>()
+        repeat(remaining) {
+            val item = queue.dequeue()
+            if (item != null) dequeued.add(item)
+        }
+
+        assertEquals(remaining, dequeued.size, "All $remaining items must survive streaming compaction")
+        // Verify order is preserved (each dequeued item contains its original index)
+        dequeued.forEachIndexed { idx, item ->
+            val expectedIndex = toDequeue + idx
+            assertTrue(item.contains("chain-$expectedIndex"), "Item $idx should be chain-$expectedIndex")
+        }
+    }
+
+    // ── Bug-hunter regression: toNSData() crash on empty ByteArray ────────────
+
+    /**
+     * Bug: `ByteArray.toNSData()` called `pinned.addressOf(0)` on an empty ByteArray,
+     * which throws `IllegalArgumentException` in Kotlin/Native (index 0 out of range).
+     *
+     * Fix: guard with `if (this.isEmpty()) return NSData.create()`.
+     *
+     * We verify this indirectly by enqueueing an empty-string item, which exercises
+     * the code path through `toNSData()`.
+     */
+    @Test
+    fun `enqueue item with empty payload does not crash`() = runTest {
+        // An empty chain-ID edge case — should not throw
+        queue.enqueue("")
+        val result = queue.dequeue()
+        assertEquals("", result, "Empty item must survive enqueue/dequeue cycle")
     }
 }

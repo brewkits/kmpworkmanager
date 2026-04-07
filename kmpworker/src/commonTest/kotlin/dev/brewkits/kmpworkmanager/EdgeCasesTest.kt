@@ -10,62 +10,62 @@ import kotlin.test.assertTrue
 class EdgeCasesTest {
 
     @Test
-    fun `TaskTrigger OneTime with negative delay should accept value`() {
+    fun TaskTrigger_OneTime_with_negative_delay_should_accept_value() {
         val trigger = TaskTrigger.OneTime(initialDelayMs = -1000)
         assertEquals(-1000L, trigger.initialDelayMs)
     }
 
     @Test
-    fun `TaskTrigger Periodic with zero interval should accept value`() {
+    fun TaskTrigger_Periodic_with_zero_interval_should_accept_value() {
         val trigger = TaskTrigger.Periodic(intervalMs = 0)
         assertEquals(0L, trigger.intervalMs)
     }
 
     @Test
-    fun `TaskTrigger Periodic with negative interval should accept value`() {
+    fun TaskTrigger_Periodic_with_negative_interval_should_accept_value() {
         val trigger = TaskTrigger.Periodic(intervalMs = -1000)
         assertEquals(-1000L, trigger.intervalMs)
     }
 
     @Test
-    fun `TaskTrigger Periodic with zero flex should accept value`() {
+    fun TaskTrigger_Periodic_with_zero_flex_should_accept_value() {
         val trigger = TaskTrigger.Periodic(intervalMs = 900_000, flexMs = 0)
         assertEquals(0L, trigger.flexMs)
     }
 
     @Test
-    fun `TaskTrigger Periodic with negative flex should accept value`() {
+    fun TaskTrigger_Periodic_with_negative_flex_should_accept_value() {
         val trigger = TaskTrigger.Periodic(intervalMs = 900_000, flexMs = -1000)
         assertEquals(-1000L, trigger.flexMs)
     }
 
     @Test
-    fun `TaskTrigger Exact with zero timestamp should accept value`() {
+    fun TaskTrigger_Exact_with_zero_timestamp_should_accept_value() {
         val trigger = TaskTrigger.Exact(atEpochMillis = 0)
         assertEquals(0L, trigger.atEpochMillis)
     }
 
     @Test
-    fun `TaskTrigger Exact with negative timestamp should accept value`() {
+    fun TaskTrigger_Exact_with_negative_timestamp_should_accept_value() {
         val trigger = TaskTrigger.Exact(atEpochMillis = -1000)
         assertEquals(-1000L, trigger.atEpochMillis)
     }
 
     @Test
-    fun `TaskTrigger Exact with max long timestamp should accept value`() {
+    fun TaskTrigger_Exact_with_max_long_timestamp_should_accept_value() {
         val trigger = TaskTrigger.Exact(atEpochMillis = Long.MAX_VALUE)
         assertEquals(Long.MAX_VALUE, trigger.atEpochMillis)
     }
 
     @Test
-    fun `TaskTrigger Windowed with earliest greater than latest should accept value`() {
+    fun TaskTrigger_Windowed_with_earliest_greater_than_latest_should_accept_value() {
         val trigger = TaskTrigger.Windowed(earliest = 2000, latest = 1000)
         assertEquals(2000L, trigger.earliest)
         assertEquals(1000L, trigger.latest)
     }
 
     @Test
-    fun `TaskTrigger Windowed with equal earliest and latest should accept value`() {
+    fun TaskTrigger_Windowed_with_equal_earliest_and_latest_should_accept_value() {
         val trigger = TaskTrigger.Windowed(earliest = 1000, latest = 1000)
         assertEquals(1000L, trigger.earliest)
         assertEquals(1000L, trigger.latest)
@@ -73,75 +73,77 @@ class EdgeCasesTest {
 
     @OptIn(AndroidOnly::class)
     @Test
-    fun `TaskTrigger ContentUri with empty string should accept value`() {
+    fun TaskTrigger_ContentUri_with_empty_string_should_accept_value() {
         val trigger = TaskTrigger.ContentUri(uriString = "")
         assertEquals("", trigger.uriString)
     }
 
     @OptIn(AndroidOnly::class)
     @Test
-    fun `TaskTrigger ContentUri with very long URI should accept value`() {
+    fun TaskTrigger_ContentUri_with_very_long_URI_should_accept_value() {
         val longUri = "content://media/" + "a".repeat(10000)
         val trigger = TaskTrigger.ContentUri(uriString = longUri)
         assertEquals(longUri, trigger.uriString)
     }
 
     @Test
-    fun `Constraints with zero backoffDelayMs should accept value`() {
+    fun Constraints_with_zero_backoffDelayMs_should_accept_value() {
         val constraints = Constraints(backoffDelayMs = 0)
         assertEquals(0L, constraints.backoffDelayMs)
     }
 
     @Test
-    fun `Constraints with negative backoffDelayMs should accept value`() {
+    fun Constraints_with_negative_backoffDelayMs_should_accept_value() {
         val constraints = Constraints(backoffDelayMs = -1000)
         assertEquals(-1000L, constraints.backoffDelayMs)
     }
 
     @Test
-    fun `Constraints with max long backoffDelayMs should accept value`() {
+    fun Constraints_with_max_long_backoffDelayMs_should_accept_value() {
         val constraints = Constraints(backoffDelayMs = Long.MAX_VALUE)
         assertEquals(Long.MAX_VALUE, constraints.backoffDelayMs)
     }
 
     @Test
-    fun `TaskRequest with empty workerClassName should accept value`() {
+    fun TaskRequest_with_empty_workerClassName_should_accept_value() {
         val request = TaskRequest(workerClassName = "")
         assertEquals("", request.workerClassName)
     }
 
     @Test
-    fun `TaskRequest with very long workerClassName should accept value`() {
+    fun TaskRequest_with_very_long_workerClassName_should_accept_value() {
         val longName = "Worker" + "A".repeat(10000)
         val request = TaskRequest(workerClassName = longName)
         assertEquals(longName, request.workerClassName)
     }
 
     @Test
-    fun `TaskRequest with empty inputJson should accept value`() {
+    fun TaskRequest_with_empty_inputJson_should_accept_value() {
         val request = TaskRequest(workerClassName = "Worker", inputJson = "")
         assertEquals("", request.inputJson)
     }
 
     @Test
-    fun `TaskRequest with very long inputJson should accept value`() {
+    fun TaskRequest_with_very_long_inputJson_should_accept_value() {
         val longJson = """{"data": "${"x".repeat(10000)}"}"""
         val request = TaskRequest(workerClassName = "Worker", inputJson = longJson)
         assertEquals(longJson, request.inputJson)
     }
 
     @Test
-    fun `TaskChain then with empty list should throw IllegalArgumentException`() {
+    fun TaskChain_then_with_empty_list_should_be_ignored() {
         val scheduler = MockBackgroundTaskScheduler()
         val chain = scheduler.beginWith(TaskRequest("Worker1"))
 
-        assertFailsWith<IllegalArgumentException> {
-            chain.then(emptyList())
-        }
+        // This should NOT throw, and the chain size should remain 1
+        chain.then(emptyList())
+        
+        val steps = chain.getSteps()
+        assertEquals(1, steps.size, "Chain size should remain 1 after then(emptyList())")
     }
 
     @Test
-    fun `TaskChain with single task should have one step with one task`() {
+    fun TaskChain_with_single_task_should_have_one_step_with_one_task() {
         val scheduler = MockBackgroundTaskScheduler()
         val chain = scheduler.beginWith(TaskRequest("Worker1"))
 
@@ -151,7 +153,7 @@ class EdgeCasesTest {
     }
 
     @Test
-    fun `TaskChain with very long chain should handle correctly`() {
+    fun TaskChain_with_very_long_chain_should_handle_correctly() {
         val scheduler = MockBackgroundTaskScheduler()
         var chain = scheduler.beginWith(TaskRequest("Worker0"))
 
@@ -167,7 +169,7 @@ class EdgeCasesTest {
     }
 
     @Test
-    fun `TaskChain with large parallel group should handle correctly`() {
+    fun TaskChain_with_large_parallel_group_should_handle_correctly() {
         val scheduler = MockBackgroundTaskScheduler()
         val parallelTasks = (1..100).map { TaskRequest("Worker$it") }
         val chain = scheduler.beginWith(parallelTasks)
@@ -178,7 +180,7 @@ class EdgeCasesTest {
     }
 
     @Test
-    fun `TaskCompletionEvent with empty message should accept value`() {
+    fun TaskCompletionEvent_with_empty_message_should_accept_value() {
         val event = TaskCompletionEvent(
             taskName = "Task",
             success = true,
@@ -188,7 +190,7 @@ class EdgeCasesTest {
     }
 
     @Test
-    fun `TaskCompletionEvent with very long message should accept value`() {
+    fun TaskCompletionEvent_with_very_long_message_should_accept_value() {
         val longMessage = "Error: " + "x".repeat(10000)
         val event = TaskCompletionEvent(
             taskName = "Task",
@@ -199,7 +201,7 @@ class EdgeCasesTest {
     }
 
     @Test
-    fun `TaskCompletionEvent with special characters should accept value`() {
+    fun TaskCompletionEvent_with_special_characters_should_accept_value() {
         val event = TaskCompletionEvent(
             taskName = "Task 🚀",
             success = true,
@@ -233,8 +235,10 @@ class EdgeCasesTest {
 
         override suspend fun enqueueChain(chain: TaskChain, id: String?, policy: ExistingPolicy) {}
 
-        override fun flushPendingProgress() {
-            // No-op for testing
-        }
+        override fun flushPendingProgress() {}
+
+        override suspend fun getExecutionHistory(limit: Int): List<ExecutionRecord> = emptyList()
+
+        override suspend fun clearExecutionHistory() {}
     }
 }

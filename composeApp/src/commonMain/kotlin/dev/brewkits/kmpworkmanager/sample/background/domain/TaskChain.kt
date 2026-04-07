@@ -1,6 +1,7 @@
 
 package dev.brewkits.kmpworkmanager.sample.background.domain
 
+import dev.brewkits.kmpworkmanager.background.domain.TaskPriority
 import kotlinx.serialization.Serializable
 
 /**
@@ -8,12 +9,15 @@ import kotlinx.serialization.Serializable
  *
  * @property workerClassName A unique name identifying the actual work to be done.
  * @property inputJson Optional JSON string data to pass as input to the worker.
+ * @property priority Execution priority hint for the scheduler. Higher priorities run first
+ *   on iOS (queue ordering) and map to expedited work on Android.
  */
 @Serializable
 data class TaskRequest(
     val workerClassName: String,
     val inputJson: String? = null,
-    val constraints: Constraints? = null
+    val constraints: Constraints? = null,
+    val priority: TaskPriority = TaskPriority.NORMAL
 )
 
 /**

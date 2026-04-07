@@ -1,5 +1,6 @@
 package dev.brewkits.kmpworkmanager.sample.background.data
 
+import dev.brewkits.kmpworkmanager.background.domain.ExecutionRecord
 import dev.brewkits.kmpworkmanager.sample.background.domain.BackgroundTaskScheduler
 import dev.brewkits.kmpworkmanager.sample.background.domain.Constraints
 import dev.brewkits.kmpworkmanager.sample.background.domain.ExistingPolicy
@@ -64,4 +65,8 @@ expect class NativeTaskScheduler : BackgroundTaskScheduler {
         id: String?,
         policy: ExistingPolicy
     )
+
+    override suspend fun getExecutionHistory(limit: Int): List<ExecutionRecord>
+
+    override suspend fun clearExecutionHistory()
 }

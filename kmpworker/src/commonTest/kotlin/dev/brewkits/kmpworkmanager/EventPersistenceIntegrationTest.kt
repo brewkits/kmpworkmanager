@@ -83,7 +83,7 @@ class EventPersistenceIntegrationTest {
     }
 
     @Test
-    fun `TaskEventManager should save event and emit to EventBus`() = runTest {
+    fun TaskEventManager_should_save_event_and_emit_to_EventBus() = runTest {
         val store = InMemoryEventStore()
         TaskEventManager.initialize(store)
 
@@ -104,7 +104,7 @@ class EventPersistenceIntegrationTest {
     }
 
     @Test
-    fun `EventSyncManager should replay missed events to EventBus`() = runTest {
+    fun EventSyncManager_should_replay_missed_events_to_EventBus() = runTest {
         val store = InMemoryEventStore()
 
         // Save events directly to store (simulating events emitted while app was closed)
@@ -120,7 +120,7 @@ class EventPersistenceIntegrationTest {
     }
 
     @Test
-    fun `End-to-end flow should work correctly`() = runTest {
+    fun End_to_end_flow_should_work_correctly() = runTest {
         val store = InMemoryEventStore()
         TaskEventManager.initialize(store)
 
@@ -144,7 +144,7 @@ class EventPersistenceIntegrationTest {
     }
 
     @Test
-    fun `EventSyncManager should handle empty store gracefully`() = runTest {
+    fun EventSyncManager_should_handle_empty_store_gracefully() = runTest {
         val store = InMemoryEventStore()
 
         // Sync with empty store
@@ -154,7 +154,7 @@ class EventPersistenceIntegrationTest {
     }
 
     @Test
-    fun `EventSyncManager clearOldEvents should remove old events`() = runTest {
+    fun EventSyncManager_clearOldEvents_should_remove_old_events() = runTest {
         val store = InMemoryEventStore()
 
         // Add events
@@ -175,7 +175,7 @@ class EventPersistenceIntegrationTest {
     }
 
     @Test
-    fun `TaskEventManager should handle EventStore initialization gracefully`() = runTest {
+    fun TaskEventManager_should_handle_EventStore_initialization_gracefully() = runTest {
         // Don't initialize TaskEventManager
 
         val event = TaskCompletionEvent("Test", true, "Message")
@@ -189,7 +189,7 @@ class EventPersistenceIntegrationTest {
     }
 
     @Test
-    fun `Multiple events should maintain order`() = runTest {
+    fun Multiple_events_should_maintain_order() = runTest {
         val store = InMemoryEventStore()
         TaskEventManager.initialize(store)
 
@@ -213,7 +213,7 @@ class EventPersistenceIntegrationTest {
     }
 
     @Test
-    fun `markEventConsumed should mark event as consumed`() = runTest {
+    fun markEventConsumed_should_mark_event_as_consumed() = runTest {
         val store = InMemoryEventStore()
 
         val eventId = store.saveEvent(TaskCompletionEvent("Task1", true, "Message"))
@@ -230,7 +230,7 @@ class EventPersistenceIntegrationTest {
     }
 
     @Test
-    fun `clearAll should remove all events`() = runTest {
+    fun clearAll_should_remove_all_events() = runTest {
         val store = InMemoryEventStore()
 
         // Add events

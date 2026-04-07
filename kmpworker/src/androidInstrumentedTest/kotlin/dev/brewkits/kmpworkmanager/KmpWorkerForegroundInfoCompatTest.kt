@@ -219,7 +219,7 @@ class KmpWorkerForegroundInfoCompatTest {
     }
 
     private class SimpleWorker : AndroidWorker {
-        override suspend fun doWork(input: String?): WorkerResult {
+        override suspend fun doWork(input: String?, env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment): WorkerResult {
             return WorkerResult.Success(message = "SimpleWorker completed")
         }
     }

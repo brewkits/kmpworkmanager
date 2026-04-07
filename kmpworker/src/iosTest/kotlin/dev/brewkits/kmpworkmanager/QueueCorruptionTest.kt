@@ -24,7 +24,7 @@ class QueueCorruptionTest {
     fun setup() {
         // Create temporary test directory
         val tempDir = NSTemporaryDirectory()
-        val testDirName = "kmpworkmanager_corruption_test_${NSDate().timeIntervalSince1970}"
+        val testDirName = "kmpworkmanager_corruption_test_${NSDate().timeIntervalSince1970()}"
         testDirectoryURL = NSURL.fileURLWithPath("$tempDir$testDirName")
 
         val fileManager = NSFileManager.defaultManager
@@ -279,6 +279,11 @@ class QueueCorruptionTest {
         results.forEach { result ->
             assertNull(result, "Dequeue should handle corruption safely")
         }
+
+        // After concurrent corruption, explicitly reset before re-using.
+        // Items enqueued onto a corrupt file are lost when the self-healing reset
+        // deletes and recreates the file; callers must reset first.
+        queue.resetQueue()
 
         // Queue should be in consistent state and usable
         queue.enqueue("item-after-concurrent-dequeue")

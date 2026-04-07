@@ -1,3 +1,5 @@
+@file:OptIn(kotlin.experimental.ExperimentalNativeApi::class)
+
 package dev.brewkits.kmpworkmanager.background.data
 
 import dev.brewkits.kmpworkmanager.KmpWorkManagerRuntime
@@ -9,12 +11,16 @@ import dev.brewkits.kmpworkmanager.background.domain.TaskEventBus
 import dev.brewkits.kmpworkmanager.background.domain.TaskProgressBus
 import dev.brewkits.kmpworkmanager.background.domain.TaskRequest
 import dev.brewkits.kmpworkmanager.background.domain.TelemetryHook
+import dev.brewkits.kmpworkmanager.background.domain.TaskEventManager
+import dev.brewkits.kmpworkmanager.background.domain.TaskProgressEvent
+import dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
+import dev.brewkits.kmpworkmanager.background.domain.ProgressListener
+import dev.brewkits.kmpworkmanager.background.domain.WorkerProgress
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.utils.LogTags
 import platform.UIKit.UIDevice
-import platform.UIKit.UIDeviceBatteryStateUnknown
-import platform.UIKit.UIDeviceBatteryStateUnplugged
+import platform.UIKit.UIDeviceBatteryState
 import platform.Foundation.NSProcessInfo
 import kotlin.concurrent.AtomicInt
 import kotlinx.coroutines.*
@@ -36,24 +42,17 @@ import platform.SystemConfiguration.kSCNetworkReachabilityFlagsIsWWAN
  * Features:
  * - Batch processing: Execute multiple chains in one BGTask invocation
  * - File-based storage for improved performance and thread safety
- * - Timeout protection per task
+ * - Timeout protection per task (APP_REFRESH: 20s, PROCESSING: 120s)
  * - Comprehensive error handling and logging
  * - Task completion event emission
- * - Memory-safe coroutine scope management
+ * - Memory-safe coroutine scope management (WeakReference for Swift closures)
  *
- * **Usage with automatic cleanup:**
+ * **Usage:**
  * ```kotlin
  * ChainExecutor(factory, taskType).use { executor ->
  *     executor.executeChainsInBatch()
  * }
- * // Automatically cleaned up after use
  * ```
- *
- * @param workerFactory Factory for creating worker instances
- * @param taskType Type of BGTask (APP_REFRESH or PROCESSING) - determines timeout limits
- */
-/**
- * Executes task chains on the iOS platform with batch processing support.
  *
  * **Memory safety — Swift callers MUST use `[weak self]`:**
  * The `onContinuationNeeded` closure is retained by this executor until `close()` is called.
@@ -82,25 +81,31 @@ import platform.SystemConfiguration.kSCNetworkReachabilityFlagsIsWWAN
 class ChainExecutor(
     private val workerFactory: IosWorkerFactory,
     private val taskType: BGTaskType = BGTaskType.PROCESSING,
-    onContinuationNeeded: (() -> Unit)? = null
-) : AutoCloseable {
+    onContinuationNeeded: (() -> Unit)? = null,
+    internal val fileStorage: IosFileStorage = IosFileStorage(),
+    internal val networkStateProvider: IosNetworkStateProvider = DefaultIosNetworkStateProvider()
+) {
 
     // AtomicInt for lock-free isClosed check in synchronous close().
     // compareAndSet(0, 1) ensures only one caller wins the race, avoiding double-flush.
     private val closedFlag = AtomicInt(0)
     private val closeMutex = Mutex()
 
-    // Stored as var so close() can null it out, breaking any Swift strong-reference cycle.
-    // Never read after close() because closedFlag prevents re-entry.
-    private var continuationCallback: (() -> Unit)? = onContinuationNeeded
+    // Stored as WeakReference to break potential Swift retain cycles.
+    // If the closure captures `self` and the Swift object holds a strong reference to this
+    // executor, a strong reference here would form a cycle. WeakReference allows the Swift
+    // object to be deallocated even while the executor is alive.
+    // Callers: use `[weak self]` in Swift closures passed as `onContinuationNeeded`.
+    private val weakContinuationCallback = onContinuationNeeded?.let { kotlin.native.ref.WeakReference(it) }
 
-    /** Tracks the async cleanup job started by close() */
-    private var closeCleanupJob: Job? = null
+    // Whether a continuation callback was ever registered. Used to distinguish "callback never
+    // provided" (acceptable, developer opted out) from "callback provided but owner GC'd"
+    // (a data-availability regression that deserves an ERROR log).
+    private val hasContinuationCallback = onContinuationNeeded != null
 
     // A-3 note: NativeTaskScheduler creates its own IosFileStorage instance pointing to the
     // same default path. Counter divergence is avoided by having getQueueSize() always read
     // from disk rather than trusting the in-memory counter (see IosFileStorage.getQueueSize).
-    private val fileStorage = IosFileStorage()
     private val job = SupervisorJob()
     private val coroutineScope = CoroutineScope(Dispatchers.Default + job)
 
@@ -108,6 +113,12 @@ class ChainExecutor(
     private val activeChainsMutex = Mutex()
     // Maps chainId → timestamp (ms) when it was marked active, for stale-lock detection.
     private val activeChains = mutableMapOf<String, Long>()
+
+    // Maps chainId → the coroutine Job currently executing that chain.
+    // Used by REPLACE policy: when a new execution finds isAlreadyActive, it cancels the old
+    // Job directly so it releases the activeChains lock and the replacement can run immediately.
+    private val activeChainJobsMutex = Mutex()
+    private val activeChainJobs = mutableMapOf<String, Job>()
 
     // AtomicInt for lock-free shutdown flag.
     // Using AtomicInt (not Mutex) is critical: requestShutdown() is called from the iOS
@@ -168,27 +179,68 @@ class ChainExecutor(
          * Evicting the stale lock allows the chain to run again on the next BGTask invocation
          * instead of being silently skipped forever.
          */
-        const val STALE_LOCK_TIMEOUT_MS = 10 * 60 * 1_000L // 10 minutes
+        // 3 minutes: conservative upper bound for a single BGTask (max OS-granted wall-clock budget).
+        // 10 minutes was too long — if the process is killed every 5 min (notification handler),
+        // chains piled up in the queue but never executed (stuck behind stale locks).
+        const val STALE_LOCK_TIMEOUT_MS = 3 * 60 * 1_000L // 3 minutes
     }
 
     /**
-     * This should be called when iOS signals BGTask expiration.
+     * Non-suspend shutdown for use directly in the iOS BGTask `expirationHandler`.
      *
-     * **What it does**:
-     * - Sets shutdown flag to stop accepting new chains
-     * - Cancels the coroutine scope to interrupt running chains
-     * - Running chains will catch CancellationException and save progress
-     * - Waits for grace period to allow progress saving
+     * iOS expiration handlers must complete **instantly** (synchronously, on the calling thread).
+     * A `suspend fun` cannot be called directly from Swift without a completion-callback wrapper
+     * — which would compile but is awkward and easy to misuse. Use this method instead:
      *
-     * **Usage in Swift/Obj-C**:
      * ```swift
      * BGTaskScheduler.shared.register(forTaskWithIdentifier: id) { task in
      *     task.expirationHandler = {
-     *         chainExecutor.requestShutdown() // Call this!
+     *         chainExecutor.requestShutdownSync()  // ← non-suspend, direct call
      *     }
-     *     // ... execute chains ...
+     *     Task {
+     *         await chainExecutor.executeChainsInBatch()
+     *         task.setTaskCompleted(success: true)
+     *     }
      * }
      * ```
+     *
+     * **What it does**:
+     * 1. Sets the `isShuttingDown` flag atomically — O(1), never blocks
+     * 2. Cancels all active coroutines — O(1) flag-set on coroutine machinery
+     * 3. Launches a best-effort progress flush on a background coroutine
+     *    (may not finish before the OS terminates the process, but improves resume accuracy)
+     *
+     * **NOTE**: If you have a coroutine scope available (e.g. you're inside a `Task { }`),
+     * call [requestShutdown] instead — it `await`s the flush for maximum progress safety.
+     */
+    fun requestShutdownSync() {
+        if (!isShuttingDown.compareAndSet(0, 1)) {
+            Logger.w(LogTags.CHAIN, "Shutdown already in progress")
+            return
+        }
+        Logger.w(LogTags.CHAIN, "🛑 BGTask expired — cancelling active chains (sync)")
+        // O(1): sets a cancellation flag on the coroutine job; no I/O, never blocks
+        job.cancelChildren()
+        // Best-effort: attempt to flush buffered progress before OS terminates the process.
+        // This launch returns immediately; the flush may or may not complete in time.
+        coroutineScope.launch {
+            try {
+                fileStorage.flushNow()
+                Logger.d(LogTags.CHAIN, "Progress buffer flushed after sync shutdown")
+            } catch (e: Exception) {
+                Logger.e(LogTags.CHAIN, "Failed to flush on expiration", e)
+            }
+        }
+    }
+
+    /**
+     * Suspend variant of shutdown — awaits the progress flush before returning.
+     *
+     * Use this when you have a coroutine scope available (e.g. inside `Task { }`) and
+     * want to maximise the chance that progress is saved before the OS reclaims budget.
+     *
+     * **Do NOT call from the BGTask `expirationHandler`** — that callback is synchronous.
+     * Use [requestShutdownSync] there.
      */
     suspend fun requestShutdown() {
         checkNotClosed()
@@ -506,12 +558,26 @@ class ChainExecutor(
         }
 
         if (fileStorage.isChainDeleted(chainId)) {
-            Logger.i(LogTags.CHAIN, "Chain $chainId was deleted (REPLACE policy). Skipping execution...")
             fileStorage.clearDeletedMarker(chainId)
-            KmpWorkManagerRuntime.telemetryHook?.onChainSkipped(
-                TelemetryHook.ChainSkippedEvent(chainId = chainId, platform = "ios", reason = "REPLACE_POLICY")
+
+            // Distinguish CANCELLED (no new definition) from REPLACED (new definition enqueued).
+            // replaceChainAtomic sets the deleted marker AND immediately re-enqueues the chain
+            // with a new definition. If we return SKIPPED here the new definition is permanently
+            // lost (the chain was already dequeued). We must fall through and execute it instead.
+            if (!fileStorage.chainExists(chainId)) {
+                Logger.i(LogTags.CHAIN, "Chain $chainId was cancelled (no definition). Skipping execution.")
+                KmpWorkManagerRuntime.notifyChainSkipped(
+                    TelemetryHook.ChainSkippedEvent(chainId = chainId, platform = "ios", reason = "CANCELLED")
+                )
+                return NextChainResult.SKIPPED
+            }
+
+            // REPLACED — new definition exists, fall through to execute it.
+            Logger.i(
+                LogTags.CHAIN,
+                "Chain $chainId was replaced (REPLACE policy). " +
+                    "Cleared stale deleted marker, proceeding to execute new definition."
             )
-            return NextChainResult.SKIPPED
         }
 
         Logger.i(LogTags.CHAIN, "Dequeued chain $chainId for execution (Remaining: ${fileStorage.getQueueSize()})")
@@ -577,8 +643,33 @@ class ChainExecutor(
         }
 
         if (isAlreadyActive) {
-            Logger.w(LogTags.CHAIN, "⚠️ Chain $chainId is already executing, skipping duplicate")
-            return false
+            // Check if this is a REPLACE scenario: a new definition was written by
+            // replaceChainAtomic but the OLD coroutine is still running and holds the lock.
+            // Cancel the old job so it releases the lock, then proceed with the new definition.
+            val oldJob = activeChainJobsMutex.withLock { activeChainJobs[chainId] }
+            if (oldJob != null && oldJob.isActive) {
+                Logger.i(
+                    LogTags.CHAIN,
+                    "🔄 REPLACE policy: cancelling in-progress execution of chain $chainId " +
+                        "so the replacement can start immediately."
+                )
+                oldJob.cancelAndJoin()  // Suspend until old finally-block clears activeChains
+                // Re-claim the active slot for the replacement execution
+                activeChainsMutex.withLock {
+                    activeChains[chainId] = (NSDate().timeIntervalSince1970 * 1000).toLong()
+                }
+            } else {
+                Logger.w(LogTags.CHAIN, "⚠️ Chain $chainId is already executing (no active job), skipping duplicate")
+                return false
+            }
+        }
+
+        // Store the current coroutine's Job so a concurrent REPLACE can cancel us if needed.
+        // Register in both the per-instance map (within-instance cancellation) and the global
+        // ChainJobRegistry (cross-instance cancellation from NativeTaskScheduler.REPLACE).
+        currentCoroutineContext()[Job]?.let { currentJob ->
+            activeChainJobsMutex.withLock { activeChainJobs[chainId] = currentJob }
+            ChainJobRegistry.register(chainId, currentJob)
         }
 
         // History tracking — accumulated and written in the finally block.
@@ -632,7 +723,7 @@ class ChainExecutor(
                 )
                 historyStatus = ExecutionStatus.SKIPPED
                 historyStartMs = nowMs
-                KmpWorkManagerRuntime.telemetryHook?.onChainSkipped(
+                KmpWorkManagerRuntime.notifyChainSkipped(
                     TelemetryHook.ChainSkippedEvent(chainId = chainId, platform = "ios", reason = "DEADLINE_EXCEEDED")
                 )
                 return false
@@ -672,6 +763,26 @@ class ChainExecutor(
                 chainId = chainId,
                 totalSteps = steps.size
             )
+
+            // 5a. Poison-pill guard: increment crash attempt counter and persist BEFORE any work.
+            // If the process is killed (OOM, native crash) during execution, this counter is
+            // already N+1 on disk. After MAX_CRASH_ATTEMPTS, quarantine the chain so a
+            // crash-looping chain does not burn the app's iOS background execution budget.
+            progress = progress.withCrashAttempt()
+            fileStorage.saveChainProgress(progress)
+            if (progress.isPoisonPill()) {
+                Logger.e(
+                    LogTags.CHAIN,
+                    "☠️ Chain $chainId POISON PILL — crashed or was killed ${progress.crashAttemptCount} times " +
+                        "(limit: ${ChainProgress.MAX_CRASH_ATTEMPTS}). Quarantining to protect BGTask budget."
+                )
+                fileStorage.deleteChainDefinition(chainId)
+                fileStorage.deleteChainProgress(chainId)
+                historyStatus = ExecutionStatus.ABANDONED
+                historyStartMs = (NSDate().timeIntervalSince1970 * 1000).toLong()
+                historyError = "POISON PILL — crashed ${progress.crashAttemptCount} times"
+                return false
+            }
 
             // 5. Check if max retries exceeded
             if (progress.hasExceededRetries()) {
@@ -754,7 +865,7 @@ class ChainExecutor(
                                 fileStorage.deleteChainProgress(chainId)
                             }
 
-                            KmpWorkManagerRuntime.telemetryHook?.onChainFailed(
+                            KmpWorkManagerRuntime.notifyChainFailed(
                                 TelemetryHook.ChainFailedEvent(
                                     chainId = chainId,
                                     failedStep = index,
@@ -794,45 +905,31 @@ class ChainExecutor(
                 // at the top of executeNextChainFromQueue. Without re-enqueue it would be
                 // silently lost — definition and progress files remain on disk but nothing
                 // would ever trigger execution again.
-                //
-                // We also increment retryCount to prevent infinite loops: a chain whose steps
-                // individually fit within taskTimeout but whose total time always exceeds
-                // chainTimeout would loop forever without this guard.
                 val failedStep = progress.getNextStepIndex() ?: (steps.size - 1)
                 withContext(NonCancellable) {
-                    progress = progress.withFailure(failedStep, "Chain timed out (${chainTimeout}ms)")
+                    // Sustainability fix: use withTimeout (no retry count increment)
+                    progress = progress.withTimeout(failedStep, "Chain timed out (${chainTimeout}ms)")
                     fileStorage.saveChainProgress(progress)
                 }
 
-                if (progress.hasExceededRetries()) {
-                    Logger.e(
-                        LogTags.CHAIN,
-                        "Chain $chainId abandoned — timed out ${progress.retryCount} time(s). " +
-                        "Each attempt exceeds the ${chainTimeout}ms chain budget. " +
-                        "Consider splitting the chain or reducing task execution time."
-                    )
-                    fileStorage.deleteChainDefinition(chainId)
-                    fileStorage.deleteChainProgress(chainId)
-                } else {
-                    fileStorage.enqueueChain(chainId)
-                    Logger.i(
-                        LogTags.CHAIN,
-                        "Chain $chainId timed out after ${chainTimeout}ms — re-queued for retry " +
-                        "${progress.retryCount}/${progress.maxRetries} " +
-                        "(completed ${progress.completedSteps.size}/${steps.size} steps)"
-                    )
-                }
-                KmpWorkManagerRuntime.telemetryHook?.onChainFailed(
+                fileStorage.enqueueChain(chainId)
+                Logger.i(
+                    LogTags.CHAIN,
+                    "Chain $chainId timed out after ${chainTimeout}ms — re-queued for resumption " +
+                    "(completed ${progress.completedSteps.size}/${steps.size} steps)"
+                )
+                
+                KmpWorkManagerRuntime.notifyChainFailed(
                     TelemetryHook.ChainFailedEvent(
                         chainId = chainId,
                         failedStep = progress.getNextStepIndex() ?: (steps.size - 1),
                         platform = "ios",
                         error = "Chain timed out (${chainTimeout}ms)",
                         retryCount = progress.retryCount,
-                        willRetry = !progress.hasExceededRetries()
+                        willRetry = true
                     )
                 )
-                historyStatus = if (progress.hasExceededRetries()) ExecutionStatus.ABANDONED else ExecutionStatus.TIMEOUT
+                historyStatus = ExecutionStatus.TIMEOUT
                 historyFailedStep = progress.getNextStepIndex() ?: (steps.size - 1)
                 historyError = "Chain timed out (${chainTimeout}ms)"
                 historyRetryCount = progress.retryCount
@@ -869,7 +966,7 @@ class ChainExecutor(
             fileStorage.deleteChainDefinition(chainId)
             fileStorage.deleteChainProgress(chainId)
             Logger.i(LogTags.CHAIN, "Chain $chainId completed all ${steps.size} steps successfully")
-            KmpWorkManagerRuntime.telemetryHook?.onChainCompleted(
+            KmpWorkManagerRuntime.notifyChainCompleted(
                 TelemetryHook.ChainCompletedEvent(
                     chainId = chainId,
                     totalSteps = steps.size,
@@ -882,46 +979,53 @@ class ChainExecutor(
             return true
 
         } finally {
-            // 9. Always remove from active set (even on failure/timeout) - thread-safe
-            // Flush buffered progress before removing from active set
-            // CRITICAL FIX: Wrap flushNow() in try-catch to guarantee cleanup
-            try {
-                fileStorage.flushNow()
-            } catch (e: Exception) {
-                Logger.e(LogTags.CHAIN, "Failed to flush progress in finally block for chain $chainId", e)
-                // Continue to cleanup even if flush fails
-            }
-
-            // MUST execute even if flushNow() fails - prevents chain leak
-            activeChainsMutex.withLock {
-                activeChains.remove(chainId)
-                Logger.d(LogTags.CHAIN, "Removed chain $chainId from active set (Remaining active: ${activeChains.size})")
-            }
-
-            // Persist execution record for history export.
-            // CancellationException re-enqueues the chain — no terminal record needed.
-            val status = historyStatus
-            if (status != null) {
-                val nowMs = (NSDate().timeIntervalSince1970 * 1000).toLong()
-                val record = ExecutionRecord(
-                    id = NSUUID().UUIDString,
-                    chainId = chainId,
-                    status = status,
-                    startedAtMs = historyStartMs,
-                    endedAtMs = nowMs,
-                    durationMs = if (historyStartMs > 0L) nowMs - historyStartMs else 0L,
-                    totalSteps = historyTotalSteps,
-                    completedSteps = historyCompletedSteps,
-                    failedStep = historyFailedStep,
-                    errorMessage = historyError,
-                    retryCount = historyRetryCount,
-                    platform = "ios",
-                    workerClassNames = historyWorkerNames
-                )
+            withContext(NonCancellable) {
+                // 9. Always remove from active set (even on failure/timeout) - thread-safe
+                // Flush buffered progress before removing from active set
+                // Wrap flushNow() in try-catch to guarantee cleanup
                 try {
-                    KmpWorkManagerRuntime.executionHistoryStore?.save(record)
+                    fileStorage.flushNow()
                 } catch (e: Exception) {
-                    Logger.w(LogTags.CHAIN, "Failed to save execution history record for $chainId: ${e.message}")
+                    Logger.e(LogTags.CHAIN, "Failed to flush progress in finally block for chain $chainId", e)
+                    // Continue to cleanup even if flush fails
+                }
+
+                // MUST execute even if flushNow() fails - prevents chain leak
+                activeChainsMutex.withLock {
+                    activeChains.remove(chainId)
+                    Logger.d(LogTags.CHAIN, "Removed chain $chainId from active set (Remaining active: ${activeChains.size})")
+                }
+                // Always remove job reference after execution completes (both per-instance and global).
+                activeChainJobsMutex.withLock {
+                    val removedJob = activeChainJobs.remove(chainId)
+                    if (removedJob != null) ChainJobRegistry.unregister(chainId, removedJob)
+                }
+
+                // Persist execution record for history export.
+                // CancellationException re-enqueues the chain — no terminal record needed.
+                val status = historyStatus
+                if (status != null) {
+                    val nowMs = (NSDate().timeIntervalSince1970 * 1000).toLong()
+                    val record = ExecutionRecord(
+                        id = NSUUID().UUIDString,
+                        chainId = chainId,
+                        status = status,
+                        startedAtMs = historyStartMs,
+                        endedAtMs = nowMs,
+                        durationMs = if (historyStartMs > 0L) nowMs - historyStartMs else 0L,
+                        totalSteps = historyTotalSteps,
+                        completedSteps = historyCompletedSteps,
+                        failedStep = historyFailedStep,
+                        errorMessage = historyError,
+                        retryCount = historyRetryCount,
+                        platform = "ios",
+                        workerClassNames = historyWorkerNames
+                    )
+                    try {
+                        KmpWorkManagerRuntime.executionHistoryStore?.save(record)
+                    } catch (e: Exception) {
+                        Logger.w(LogTags.CHAIN, "Failed to save execution history record for $chainId: ${e.message}")
+                    }
                 }
             }
         }
@@ -964,13 +1068,13 @@ class ChainExecutor(
         val results: List<Pair<Boolean, String?>> = coroutineScope {
             tasks.mapIndexed { taskIndex, task ->
                 async {
-                    // Skip tasks that already succeeded in a previous attempt.
-                    // Safety: this read of `currentProgress` is intentionally unguarded.
-                    // Each block checks only its OWN taskIndex; a sibling's in-flight completion
-                    // cannot make this block's taskIndex appear completed.  The only source of
-                    // a true positive here is a completion persisted in a *previous* run, which
-                    // is already present in the initial `progress` value before any sibling runs.
-                    if (currentProgress.isTaskInStepCompleted(stepIndex, taskIndex)) {
+                    // Skip tasks that already succeeded in a previous attempt (prior run, persisted to disk).
+                    // Use the immutable `progress` snapshot captured before this coroutineScope block,
+                    // NOT the mutable `currentProgress` shared with siblings.  Using `currentProgress`
+                    // would be an unsynchronised read-outside-lock; more importantly, a sibling's
+                    // in-flight success must NOT cause us to skip this task — we only want to honour
+                    // completions from prior persisted runs, which are all captured in `progress`.
+                    if (progress.isTaskInStepCompleted(stepIndex, taskIndex)) {
                         Logger.d(
                             LogTags.CHAIN,
                             "Skipping already-completed task $taskIndex in step $stepIndex (${task.workerClassName})"
@@ -1004,33 +1108,6 @@ class ChainExecutor(
     }
 
     /**
-     * Returns `true` when the current network path is WWAN (cellular / mobile data).
-     *
-     * Uses the synchronous `SCNetworkReachability` API — safe to call from any thread
-     * including background coroutine dispatchers. Deprecated on iOS 17 but still
-     * functional; replace with `NWPathMonitor` when Kotlin/Native gains async interop.
-     *
-     * Returns `false` (conservative / allow execution) on any error so a failure to
-     * detect the network type does not silently block legitimate work.
-     */
-    @OptIn(ExperimentalForeignApi::class)
-    private fun isNetworkCellular(): Boolean {
-        val reachability = SCNetworkReachabilityCreateWithName(null, "1.1.1.1") ?: return false
-        return try {
-            memScoped {
-                val flags = alloc<SCNetworkReachabilityFlagsVar>()
-                SCNetworkReachabilityGetFlags(reachability, flags.ptr) &&
-                    (flags.value and kSCNetworkReachabilityFlagsIsWWAN) != 0u
-            }
-        } catch (e: Exception) {
-            Logger.w(LogTags.CHAIN, "isNetworkCellular() check failed — assuming non-cellular: ${e.message}")
-            false
-        } finally {
-            CFRelease(reachability)
-        }
-    }
-
-    /**
      * Execute a single task with timeout protection and detailed logging.
      *
      * [Worker.close] is called in a `finally` block under [NonCancellable] so resource
@@ -1048,7 +1125,7 @@ class ChainExecutor(
         // We enforce it here at execution time to prevent silent cellular data usage.
         // The Constraints KDoc says "iOS: Not supported, falls back to requiresNetwork" —
         // this check makes the fallback explicit: retry instead of running on cellular.
-        if (task.constraints?.requiresUnmeteredNetwork == true && isNetworkCellular()) {
+        if (task.constraints?.requiresUnmeteredNetwork == true && networkStateProvider.isNetworkCellular()) {
             Logger.w(
                 LogTags.CHAIN,
                 "⚠️ Task ${task.workerClassName} requires unmetered network but cellular is active — " +
@@ -1073,8 +1150,11 @@ class ChainExecutor(
             UIDevice.currentDevice().batteryMonitoringEnabled = true
             val batteryFloat = UIDevice.currentDevice().batteryLevel
             val batteryState = UIDevice.currentDevice().batteryState
-            val isCharging = batteryState != UIDeviceBatteryStateUnplugged &&
-                batteryState != UIDeviceBatteryStateUnknown
+            // Disable immediately after reading — leaving batteryMonitoringEnabled=true keeps
+            // the hardware sensor active continuously and wastes battery.
+            UIDevice.currentDevice().batteryMonitoringEnabled = false
+            val isCharging = batteryState != UIDeviceBatteryState.UIDeviceBatteryStateUnplugged &&
+                batteryState != UIDeviceBatteryState.UIDeviceBatteryStateUnknown
             val batteryPct = if (batteryFloat >= 0f) (batteryFloat * 100).toInt() else -1
             if (batteryPct in 0 until minBattery && !isCharging) {
                 Logger.w(
@@ -1091,7 +1171,7 @@ class ChainExecutor(
 
         val startTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
 
-        KmpWorkManagerRuntime.telemetryHook?.onTaskStarted(
+        KmpWorkManagerRuntime.notifyTaskStarted(
             TelemetryHook.TaskStartedEvent(
                 taskName = task.workerClassName,
                 chainId = chainId,
@@ -1104,7 +1184,25 @@ class ChainExecutor(
         try {
             return try {
                 withTimeout(taskTimeout) {
-                    val result = worker.doWork(task.inputJson)
+                    val currentJob = currentCoroutineContext()[Job]
+                    val env = WorkerEnvironment(
+                        progressListener = object : ProgressListener {
+                            override fun onProgressUpdate(progress: WorkerProgress) {
+                                coroutineScope.launch {
+                                    TaskProgressBus.emit(
+                                        TaskProgressEvent(
+                                            taskId = chainId ?: task.workerClassName,
+                                            taskName = task.workerClassName,
+                                            progress = progress
+                                        )
+                                    )
+                                }
+                            }
+                        },
+                        isCancelled = { currentJob?.isCancelled == true || isShuttingDown.value != 0 }
+                    )
+
+                    val result = worker.doWork(task.inputJson, env)
                     val duration = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime
                     val percentage = (duration * 100 / taskTimeout).toInt()
 
@@ -1116,15 +1214,18 @@ class ChainExecutor(
                         is WorkerResult.Success -> {
                             val message = result.message ?: "Task succeeded in ${duration}ms"
                             Logger.d(LogTags.CHAIN, "✅ Task ${task.workerClassName} - $message (${percentage}%)")
-                            TaskEventBus.emit(
-                                TaskCompletionEvent(
-                                    taskName = task.workerClassName,
-                                    success = true,
-                                    message = message,
-                                    outputData = result.data
-                                )
+                            
+                            val completionEvent = TaskCompletionEvent(
+                                taskName = task.workerClassName,
+                                success = true,
+                                message = message,
+                                outputData = result.data
                             )
-                            KmpWorkManagerRuntime.telemetryHook?.onTaskCompleted(
+                            
+                            // Durable emission
+                            TaskEventManager.emit(completionEvent)
+                            
+                            KmpWorkManagerRuntime.notifyTaskCompleted(
                                 TelemetryHook.TaskCompletedEvent(
                                     taskName = task.workerClassName,
                                     chainId = chainId,
@@ -1138,15 +1239,18 @@ class ChainExecutor(
                         }
                         is WorkerResult.Failure -> {
                             Logger.w(LogTags.CHAIN, "❌ Task ${task.workerClassName} failed: ${result.message} (${duration}ms)")
-                            TaskEventBus.emit(
-                                TaskCompletionEvent(
-                                    taskName = task.workerClassName,
-                                    success = false,
-                                    message = result.message,
-                                    outputData = null
-                                )
+                            
+                            val completionEvent = TaskCompletionEvent(
+                                taskName = task.workerClassName,
+                                success = false,
+                                message = result.message,
+                                outputData = null
                             )
-                            KmpWorkManagerRuntime.telemetryHook?.onTaskCompleted(
+                            
+                            // Durable emission
+                            TaskEventManager.emit(completionEvent)
+                            
+                            KmpWorkManagerRuntime.notifyTaskCompleted(
                                 TelemetryHook.TaskCompletedEvent(
                                     taskName = task.workerClassName,
                                     chainId = chainId,
@@ -1157,7 +1261,7 @@ class ChainExecutor(
                                     errorMessage = result.message
                                 )
                             )
-                            KmpWorkManagerRuntime.telemetryHook?.onTaskFailed(
+                            KmpWorkManagerRuntime.notifyTaskFailed(
                                 TelemetryHook.TaskFailedEvent(
                                     taskName = task.workerClassName,
                                     chainId = chainId,
@@ -1183,7 +1287,7 @@ class ChainExecutor(
                         outputData = null
                     )
                 )
-                KmpWorkManagerRuntime.telemetryHook?.onTaskFailed(
+                KmpWorkManagerRuntime.notifyTaskFailed(
                     TelemetryHook.TaskFailedEvent(
                         taskName = task.workerClassName,
                         chainId = chainId,
@@ -1209,7 +1313,7 @@ class ChainExecutor(
                         outputData = null
                     )
                 )
-                KmpWorkManagerRuntime.telemetryHook?.onTaskFailed(
+                KmpWorkManagerRuntime.notifyTaskFailed(
                     TelemetryHook.TaskFailedEvent(
                         taskName = task.workerClassName,
                         chainId = chainId,
@@ -1242,7 +1346,7 @@ class ChainExecutor(
      */
     private fun emitChainFailureEvent(chainId: String) {
         // This prevents unbounded scope creation and ensures proper lifecycle management
-        coroutineScope.launch(Dispatchers.Main) {
+        coroutineScope.launch {
             TaskEventBus.emit(
                 TaskCompletionEvent(
                     taskName = "Chain-$chainId",
@@ -1257,7 +1361,7 @@ class ChainExecutor(
      * Emit execution metrics event for monitoring
      */
     private fun emitMetricsEvent(metrics: ExecutionMetrics) {
-        coroutineScope.launch(Dispatchers.Main) {
+        coroutineScope.launch {
             TaskEventBus.emit(
                 TaskCompletionEvent(
                     taskName = "BatchExecution-${metrics.taskType}",
@@ -1311,32 +1415,32 @@ class ChainExecutor(
     private fun scheduleNextBGTask() {
         Logger.i(LogTags.CHAIN, "📅 Continuation needed: Queue has remaining chains")
 
-        val callback = continuationCallback
+        val callback = weakContinuationCallback?.get()
         if (callback != null) {
             Logger.d(LogTags.CHAIN, "Invoking continuation callback to schedule next BGTask")
             callback.invoke()
+        } else if (!hasContinuationCallback) {
+            // No callback was ever provided — developer opted out of continuation scheduling.
+            Logger.w(LogTags.CHAIN, "No continuation callback provided — remaining chains will not be scheduled. Pass onContinuationNeeded to ChainExecutor to enable automatic BGTask continuation.")
         } else {
-            Logger.w(LogTags.CHAIN, """
-                ⚠️ No continuation callback provided!
-
-                Chains remain in queue but no BGTask will be scheduled.
-                Provide onContinuationNeeded callback when creating ChainExecutor:
-
-                Swift example:
-                let executor = ChainExecutor(
-                    workerFactory: factory,
-                    taskType: .processing,
-                    onContinuationNeeded: {
-                        let request = BGProcessingTaskRequest(identifier: "chain_executor")
-                        request.earliestBeginDate = Date(timeIntervalSinceNow: 1)
-                        try? BGTaskScheduler.shared.submit(request)
-                    }
-                )
-            """.trimIndent())
+            // Callback was provided but the Swift object that owns it has been deallocated.
+            // The WeakReference resolved to null, which means the closure's capture context is gone.
+            // Remaining chains are stuck in the queue and will NOT execute until the next app launch
+            // or the next BGTask slot — this is a data-availability regression.
+            //
+            // Root cause: Swift caller used a strong capture in the closure (e.g., `self.scheduleNextBGTask()`)
+            // and the owning object was released before all chains in the queue were processed.
+            //
+            // Fix: ensure the Swift object that owns `onContinuationNeeded` outlives this executor,
+            // or use a static/global scheduler reference inside the closure.
+            Logger.e(LogTags.CHAIN, "ERROR: continuation callback's Swift owner was deallocated — " +
+                "chains remain in queue with no way to schedule the next BGTask. " +
+                "Use [weak self] inside onContinuationNeeded and ensure the owning object stays alive " +
+                "for the duration of the BGTask session.")
         }
 
         // Emit event to notify that continuation is needed
-        coroutineScope.launch(Dispatchers.Main) {
+        coroutineScope.launch {
             TaskEventBus.emit(
                 TaskCompletionEvent(
                     taskName = "ContinuationNeeded",
@@ -1348,69 +1452,24 @@ class ChainExecutor(
     }
 
     /**
-     * Implement Closeable interface
+     * Safely closes the ChainExecutor, ensuring all pending tasks are cancelled
+     * and buffered progress is flushed to disk before the scope is destroyed.
      *
-     * This method ensures that:
-     * - Coroutine scope is cancelled
-     * - Resources are properly released
-     * - Subsequent calls are no-ops
-     * - Thread-safe with mutex protection
-     *
-     * Non-blocking close to prevent deadlocks. Progress flush happens
-     * asynchronously. For guaranteed cleanup, use closeAsync() instead.
+     * This is a suspending function to guarantee that iOS background tasks
+     * await proper I/O completion instead of prematurely terminating.
      */
-    override fun close() {
-        // compareAndSet is atomic → only one concurrent caller wins
-        if (!closedFlag.compareAndSet(0, 1)) {
-            Logger.d(LogTags.CHAIN, "ChainExecutor already closed")
-            return
-        }
-
-        Logger.d(LogTags.CHAIN, "Closing ChainExecutor")
-
-        // Null the callback to break any Swift strong-reference cycle before the
-        // coroutine scope is cancelled and the executor becomes unreachable.
-        continuationCallback = null
-
-        // Cancel all running coroutines first (non-blocking)
-        job.cancel()
-
-        // Launch async cleanup on a separate scope to avoid blocking
-        // Tracked so tests and closeAsync() can await completion
-        closeCleanupJob = CoroutineScope(Dispatchers.Default).launch {
-            try {
-                // Flush buffered progress before fully closing
-                fileStorage.flushNow()
-                Logger.d(LogTags.CHAIN, "Progress buffer flushed during close")
-            } catch (e: Exception) {
-                Logger.e(LogTags.CHAIN, "Error flushing progress during close", e)
-            } finally {
-                // Close fileStorage to cancel its backgroundScope
-                fileStorage.close()
-            }
-            Logger.i(LogTags.CHAIN, "ChainExecutor closed successfully")
-        }
-    }
-
-    /**
-     * Async version of close() that guarantees cleanup completion.
-     * Use this when you need to ensure all resources are flushed before proceeding.
-     *
-     * Recommended for critical cleanup paths (app shutdown, etc.)
-     */
-    suspend fun closeAsync() {
+    suspend fun close() {
         closeMutex.withLock {
             if (!closedFlag.compareAndSet(0, 1)) {
                 Logger.d(LogTags.CHAIN, "ChainExecutor already closed")
                 return
             }
 
-            Logger.d(LogTags.CHAIN, "Closing ChainExecutor (async)")
+            Logger.d(LogTags.CHAIN, "Closing ChainExecutor")
 
-            continuationCallback = null  // Break Swift retain cycle
-
-            // Cancel all running coroutines
-            job.cancel()
+            // cancelAndJoin() cancels all running coroutines AND waits for them to finish
+            // their finally blocks before flushing or closing fileStorage.
+            job.cancelAndJoin()
 
             try {
                 // Flush buffered progress before closing
@@ -1437,36 +1496,14 @@ class ChainExecutor(
     /**
      * Cleanup coroutine scope (call when executor is no longer needed)
      *
-     * @deprecated Use close() or .use {} pattern instead
+     * @deprecated Use close() instead
      */
     @Deprecated(
-        message = "Use close() or .use {} pattern instead",
+        message = "Use close() instead",
         replaceWith = ReplaceWith("close()"),
         level = DeprecationLevel.WARNING
     )
-    fun cleanup() {
+    suspend fun cleanup() {
         close()
-    }
-}
-
-/**
- * Extension function for using AutoCloseable with automatic cleanup
- */
-inline fun <T : AutoCloseable, R> T.use(block: (T) -> R): R {
-    var exception: Throwable? = null
-    try {
-        return block(this)
-    } catch (e: Throwable) {
-        exception = e
-        throw e
-    } finally {
-        when (exception) {
-            null -> close()
-            else -> try {
-                close()
-            } catch (closeException: Throwable) {
-                // Suppressed exception
-            }
-        }
     }
 }

@@ -6,6 +6,9 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import androidx.work.*
+import dev.brewkits.kmpworkmanager.background.domain.ExecutionRecord
+import dev.brewkits.kmpworkmanager.persistence.AndroidExecutionHistoryStore
+import dev.brewkits.kmpworkmanager.persistence.ExecutionHistoryStore
 import dev.brewkits.kmpworkmanager.sample.background.domain.BackgroundTaskScheduler
 import dev.brewkits.kmpworkmanager.sample.background.domain.Constraints
 import dev.brewkits.kmpworkmanager.sample.background.domain.ExistingPolicy
@@ -27,7 +30,10 @@ import dev.brewkits.kmpworkmanager.background.data.KmpHeavyWorker as LibKmpHeavy
  * This class acts as a bridge between the shared KMP domain logic and the
  * native Android scheduling APIs (WorkManager and AlarmManager).
  */
-actual class NativeTaskScheduler(private val context: Context) : BackgroundTaskScheduler {
+actual class NativeTaskScheduler(
+    private val context: Context,
+    private val executionHistoryStore: ExecutionHistoryStore = AndroidExecutionHistoryStore(context)
+) : BackgroundTaskScheduler {
 
     private val workManager = WorkManager.getInstance(context)
     private val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
@@ -674,5 +680,12 @@ actual class NativeTaskScheduler(private val context: Context) : BackgroundTaskS
                 chainId?.let { addTag(it) }
             }
             .build()
+    }
+
+    actual override suspend fun getExecutionHistory(limit: Int): List<ExecutionRecord> =
+        executionHistoryStore.getRecords(limit)
+
+    actual override suspend fun clearExecutionHistory() {
+        executionHistoryStore.clear()
     }
 }

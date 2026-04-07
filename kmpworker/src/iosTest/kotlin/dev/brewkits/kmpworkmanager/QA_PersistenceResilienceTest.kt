@@ -132,7 +132,10 @@ class QA_PersistenceResilienceTest {
                 val stepIdx = workerClassName.removePrefix("Step").toIntOrNull()
                 if (stepIdx != null) executedSteps.add(stepIdx)
                 return object : IosWorker {
-                    override suspend fun doWork(input: String?): WorkerResult = WorkerResult.Success()
+                    override suspend fun doWork(
+                        input: String?,
+                        env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
+                    ): WorkerResult = WorkerResult.Success()
                 }
             }
         }
