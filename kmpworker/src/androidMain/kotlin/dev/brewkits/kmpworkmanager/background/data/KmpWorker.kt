@@ -14,6 +14,8 @@ import dev.brewkits.kmpworkmanager.KmpWorkManagerKoin
 import dev.brewkits.kmpworkmanager.KmpWorkManagerRuntime
 import dev.brewkits.kmpworkmanager.R
 import dev.brewkits.kmpworkmanager.background.domain.AndroidWorkerFactory
+import dev.brewkits.kmpworkmanager.background.domain.ExecutionRecord
+import dev.brewkits.kmpworkmanager.background.domain.ExecutionStatus
 import dev.brewkits.kmpworkmanager.background.domain.TaskCompletionEvent
 import dev.brewkits.kmpworkmanager.background.domain.TaskEventBus
 import dev.brewkits.kmpworkmanager.background.domain.TelemetryHook
@@ -184,11 +186,15 @@ class KmpWorker : CoroutineWorker {
             )
         )
 
+        var historyStatus: ExecutionStatus? = null
+        var historyDuration = 0L
+
         return try {
             val worker = workerFactory.createWorker(workerClassName)
                 ?: return Result.failure()
             val result = worker.doWork(inputJson)
             val duration = System.currentTimeMillis() - startTime
+            historyDuration = duration
 
             when (result) {
                 is WorkerResult.Success -> {
@@ -211,6 +217,7 @@ class KmpWorker : CoroutineWorker {
                             durationMs = duration
                         )
                     )
+                    historyStatus = ExecutionStatus.SUCCESS
                     Result.success()
                 }
                 is WorkerResult.Failure -> {
@@ -242,6 +249,7 @@ class KmpWorker : CoroutineWorker {
                             retryCount = runAttemptCount
                         )
                     )
+                    historyStatus = if (result.shouldRetry) ExecutionStatus.FAILURE else ExecutionStatus.ABANDONED
 
                     if (result.shouldRetry) {
                         Result.retry()
@@ -253,6 +261,7 @@ class KmpWorker : CoroutineWorker {
         } catch (e: IllegalArgumentException) {
             // Worker class not registered in WorkerFactory — fail fast and visibly.
             val duration = System.currentTimeMillis() - startTime
+            historyDuration = duration
             Logger.e(LogTags.WORKER, "Worker not registered: $workerClassName — ${e.message}")
             TaskEventBus.emit(
                 TaskCompletionEvent(
@@ -270,6 +279,7 @@ class KmpWorker : CoroutineWorker {
                     retryCount = runAttemptCount
                 )
             )
+            historyStatus = ExecutionStatus.ABANDONED
             Result.failure()
         } catch (e: CancellationException) {
             // CancellationException MUST be rethrown — swallowing it breaks the coroutine
@@ -278,6 +288,7 @@ class KmpWorker : CoroutineWorker {
             throw e
         } catch (e: Exception) {
             val duration = System.currentTimeMillis() - startTime
+            historyDuration = duration
             Logger.e(LogTags.WORKER, "Worker execution failed: ${e.message}")
             TaskEventBus.emit(
                 TaskCompletionEvent(
@@ -295,7 +306,31 @@ class KmpWorker : CoroutineWorker {
                     retryCount = runAttemptCount
                 )
             )
+            historyStatus = ExecutionStatus.FAILURE
             Result.failure()
+        } finally {
+            val status = historyStatus
+            if (status != null) {
+                val nowMs = System.currentTimeMillis()
+                runCatching {
+                    KmpWorkManagerRuntime.executionHistoryStore?.save(
+                        ExecutionRecord(
+                            id = java.util.UUID.randomUUID().toString(),
+                            chainId = workerClassName,  // Android tasks are standalone — use class name as identifier
+                            status = status,
+                            startedAtMs = startTime,
+                            endedAtMs = nowMs,
+                            durationMs = historyDuration,
+                            totalSteps = 1,
+                            completedSteps = if (status == ExecutionStatus.SUCCESS) 1 else 0,
+                            errorMessage = null,
+                            retryCount = runAttemptCount,
+                            platform = "android",
+                            workerClassNames = listOf(workerClassName)
+                        )
+                    )
+                }
+            }
         }
     }
 }

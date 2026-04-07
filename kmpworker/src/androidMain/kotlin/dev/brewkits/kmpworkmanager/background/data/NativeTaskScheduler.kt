@@ -9,6 +9,7 @@ import android.content.Intent
 import android.os.Build
 import androidx.work.*
 import androidx.work.OutOfQuotaPolicy
+import dev.brewkits.kmpworkmanager.KmpWorkManagerRuntime
 import dev.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
 import dev.brewkits.kmpworkmanager.background.domain.Constraints
 import dev.brewkits.kmpworkmanager.background.domain.ExistingPolicy
@@ -674,6 +675,13 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         // Enqueue the entire chain
         workContinuation.enqueue()
         Logger.i(LogTags.CHAIN, "Successfully enqueued task chain with ${steps.size} steps")
+    }
+
+    override suspend fun getExecutionHistory(limit: Int): List<dev.brewkits.kmpworkmanager.background.domain.ExecutionRecord> =
+        KmpWorkManagerRuntime.executionHistoryStore?.getRecords(limit) ?: emptyList()
+
+    override suspend fun clearExecutionHistory() {
+        KmpWorkManagerRuntime.executionHistoryStore?.clear()
     }
 
     private fun createWorkRequest(task: dev.brewkits.kmpworkmanager.background.domain.TaskRequest): OneTimeWorkRequest {

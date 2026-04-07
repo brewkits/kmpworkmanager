@@ -2,6 +2,8 @@ package dev.brewkits.kmpworkmanager.background.data
 
 import dev.brewkits.kmpworkmanager.KmpWorkManagerRuntime
 import dev.brewkits.kmpworkmanager.background.domain.BGTaskType
+import dev.brewkits.kmpworkmanager.background.domain.ExecutionRecord
+import dev.brewkits.kmpworkmanager.background.domain.ExecutionStatus
 import dev.brewkits.kmpworkmanager.background.domain.TaskCompletionEvent
 import dev.brewkits.kmpworkmanager.background.domain.TaskEventBus
 import dev.brewkits.kmpworkmanager.background.domain.TaskProgressBus
@@ -536,6 +538,17 @@ class ChainExecutor(
             return false
         }
 
+        // History tracking — accumulated and written in the finally block.
+        // historyStatus == null means "don't write a record" (e.g. duplicate / corrupt state).
+        var historyStatus: ExecutionStatus? = null
+        var historyStartMs: Long = 0L
+        var historyTotalSteps: Int = 0
+        var historyCompletedSteps: Int = 0
+        var historyFailedStep: Int? = null
+        var historyError: String? = null
+        var historyRetryCount: Int = 0
+        var historyWorkerNames: List<String> = emptyList()
+
         try {
             // 3. Load the chain definition from file storage
             val steps = fileStorage.loadChainDefinition(chainId)
@@ -544,6 +557,8 @@ class ChainExecutor(
                 fileStorage.deleteChainProgress(chainId) // Clean up orphaned progress
                 return false
             }
+            historyTotalSteps = steps.size
+            historyWorkerNames = steps.flatten().map { it.workerClassName }
 
             // 3b. Windowed deadline guard — iOS BGTaskScheduler is opportunistic and cannot
             //     honour the `latest` field of TaskTrigger.Windowed. The system may delay the
@@ -572,6 +587,8 @@ class ChainExecutor(
                         message = "Deadline exceeded — windowed task ran after its latest time"
                     )
                 )
+                historyStatus = ExecutionStatus.SKIPPED
+                historyStartMs = nowMs
                 KmpWorkManagerRuntime.telemetryHook?.onChainSkipped(
                     TelemetryHook.ChainSkippedEvent(chainId = chainId, platform = "ios", reason = "DEADLINE_EXCEEDED")
                 )
@@ -597,6 +614,9 @@ class ChainExecutor(
                     )
                     // Leave definition on disk for operator inspection; only remove progress.
                     fileStorage.deleteChainProgress(chainId)
+                    historyStatus = ExecutionStatus.ABANDONED
+                    historyStartMs = (NSDate().timeIntervalSince1970 * 1000).toLong()
+                    historyError = "QUARANTINED — non-idempotent tasks after corrupt progress"
                     return false
                 }
                 Logger.w(
@@ -618,6 +638,12 @@ class ChainExecutor(
                 )
                 fileStorage.deleteChainDefinition(chainId)
                 fileStorage.deleteChainProgress(chainId)
+                historyStatus = ExecutionStatus.ABANDONED
+                historyStartMs = (NSDate().timeIntervalSince1970 * 1000).toLong()
+                historyRetryCount = progress.retryCount
+                historyError = progress.lastError ?: "Max retries exceeded"
+                historyFailedStep = progress.lastFailedStep
+                historyCompletedSteps = progress.completedSteps.size
                 return false
             }
 
@@ -650,6 +676,7 @@ class ChainExecutor(
 
             // 7. Execute steps sequentially with timeout protection
             val chainStartMs = (NSDate().timeIntervalSince1970 * 1000).toLong()
+            historyStartMs = chainStartMs
             var chainSucceeded = false
             try {
                 chainSucceeded = withTimeout(chainTimeout) {
@@ -694,6 +721,11 @@ class ChainExecutor(
                                     willRetry = !progress.hasExceededRetries()
                                 )
                             )
+                            historyStatus = if (progress.hasExceededRetries()) ExecutionStatus.ABANDONED else ExecutionStatus.FAILURE
+                            historyFailedStep = index
+                            historyError = stepError
+                            historyRetryCount = progress.retryCount
+                            historyCompletedSteps = progress.completedSteps.size
                             allStepsSucceeded = false
                             break
                         }
@@ -757,6 +789,11 @@ class ChainExecutor(
                         willRetry = !progress.hasExceededRetries()
                     )
                 )
+                historyStatus = if (progress.hasExceededRetries()) ExecutionStatus.ABANDONED else ExecutionStatus.TIMEOUT
+                historyFailedStep = progress.getNextStepIndex() ?: (steps.size - 1)
+                historyError = "Chain timed out (${chainTimeout}ms)"
+                historyRetryCount = progress.retryCount
+                historyCompletedSteps = progress.completedSteps.size
                 return false
             } catch (e: CancellationException) {
                 Logger.w(LogTags.CHAIN, "🛑 Chain $chainId cancelled due to graceful shutdown")
@@ -797,6 +834,8 @@ class ChainExecutor(
                     durationMs = (NSDate().timeIntervalSince1970 * 1000).toLong() - chainStartMs
                 )
             )
+            historyStatus = ExecutionStatus.SUCCESS
+            historyCompletedSteps = steps.size
             return true
 
         } finally {
@@ -814,6 +853,33 @@ class ChainExecutor(
             activeChainsMutex.withLock {
                 activeChains.remove(chainId)
                 Logger.d(LogTags.CHAIN, "Removed chain $chainId from active set (Remaining active: ${activeChains.size})")
+            }
+
+            // Persist execution record for history export.
+            // CancellationException re-enqueues the chain — no terminal record needed.
+            val status = historyStatus
+            if (status != null) {
+                val nowMs = (NSDate().timeIntervalSince1970 * 1000).toLong()
+                val record = ExecutionRecord(
+                    id = NSUUID().UUIDString,
+                    chainId = chainId,
+                    status = status,
+                    startedAtMs = historyStartMs,
+                    endedAtMs = nowMs,
+                    durationMs = if (historyStartMs > 0L) nowMs - historyStartMs else 0L,
+                    totalSteps = historyTotalSteps,
+                    completedSteps = historyCompletedSteps,
+                    failedStep = historyFailedStep,
+                    errorMessage = historyError,
+                    retryCount = historyRetryCount,
+                    platform = "ios",
+                    workerClassNames = historyWorkerNames
+                )
+                try {
+                    KmpWorkManagerRuntime.executionHistoryStore?.save(record)
+                } catch (e: Exception) {
+                    Logger.w(LogTags.CHAIN, "Failed to save execution history record for $chainId: ${e.message}")
+                }
             }
         }
     }

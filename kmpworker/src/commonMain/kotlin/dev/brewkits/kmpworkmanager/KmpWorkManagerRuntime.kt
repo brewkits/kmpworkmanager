@@ -1,6 +1,7 @@
 package dev.brewkits.kmpworkmanager
 
 import dev.brewkits.kmpworkmanager.background.domain.TelemetryHook
+import dev.brewkits.kmpworkmanager.persistence.ExecutionHistoryStore
 import kotlin.concurrent.Volatile
 
 /**
@@ -25,14 +26,31 @@ internal object KmpWorkManagerRuntime {
     var minBatteryLevelPercent: Int = 5
         private set
 
+    /**
+     * Persistent store for execution history records.
+     * Set during platform initialization (after the store is created) via [setHistoryStore].
+     */
+    @Volatile
+    var executionHistoryStore: ExecutionHistoryStore? = null
+        private set
+
     fun configure(config: KmpWorkManagerConfig) {
         telemetryHook = config.telemetryHook
         minBatteryLevelPercent = config.minBatteryLevelPercent
+    }
+
+    /**
+     * Registers the platform-specific [ExecutionHistoryStore].
+     * Called from platform Koin modules after the store is constructed.
+     */
+    fun setHistoryStore(store: ExecutionHistoryStore) {
+        executionHistoryStore = store
     }
 
     /** For tests only. */
     internal fun reset() {
         telemetryHook = null
         minBatteryLevelPercent = 5
+        executionHistoryStore = null
     }
 }

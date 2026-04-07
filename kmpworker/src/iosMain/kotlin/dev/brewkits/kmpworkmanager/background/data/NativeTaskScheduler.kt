@@ -2,6 +2,7 @@
 
 package dev.brewkits.kmpworkmanager.background.data
 
+import dev.brewkits.kmpworkmanager.KmpWorkManagerRuntime
 import dev.brewkits.kmpworkmanager.background.domain.*
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.utils.LogTags
@@ -859,5 +860,12 @@ class NativeTaskScheduler(
     override fun flushPendingProgress() {
         Logger.i(LogTags.SCHEDULER, "Flushing pending progress (iOS)")
         fileStorage.flushAllPendingProgress()
+    }
+
+    override suspend fun getExecutionHistory(limit: Int): List<dev.brewkits.kmpworkmanager.background.domain.ExecutionRecord> =
+        KmpWorkManagerRuntime.executionHistoryStore?.getRecords(limit) ?: emptyList()
+
+    override suspend fun clearExecutionHistory() {
+        KmpWorkManagerRuntime.executionHistoryStore?.clear()
     }
 }

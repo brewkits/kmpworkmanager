@@ -13,7 +13,9 @@ import dev.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
 import dev.brewkits.kmpworkmanager.background.domain.TaskEventManager
 import dev.brewkits.kmpworkmanager.background.domain.WorkerFactory
 import dev.brewkits.kmpworkmanager.persistence.AndroidEventStore
+import dev.brewkits.kmpworkmanager.persistence.AndroidExecutionHistoryStore
 import dev.brewkits.kmpworkmanager.persistence.EventStore
+import dev.brewkits.kmpworkmanager.persistence.ExecutionHistoryStore
 import dev.brewkits.kmpworkmanager.utils.Logger
 import org.koin.core.Koin
 import org.koin.core.KoinApplication
@@ -149,6 +151,14 @@ internal object KmpWorkManagerKoin {
                             val store = AndroidEventStore(get())
                             TaskEventManager.initialize(store)
                             store
+                        }
+
+                        // Execution history persistence — created eagerly so
+                        // KmpWorkManagerRuntime.executionHistoryStore is set before any worker runs.
+                        single<ExecutionHistoryStore>(createdAtStart = true) {
+                            AndroidExecutionHistoryStore(get()).also {
+                                KmpWorkManagerRuntime.setHistoryStore(it)
+                            }
                         }
                     }
                 )
@@ -295,4 +305,22 @@ class KmpWorkManagerInstance internal constructor(private val koin: Koin) {
      */
     val backgroundTaskScheduler: BackgroundTaskScheduler
         get() = koin.get()
+
+    /**
+     * Returns the most recent task execution records, newest first.
+     *
+     * Records persist locally across app launches. Call this when the app foregrounds
+     * and upload to your analytics backend, then call [clearExecutionHistory] to free
+     * disk space.
+     *
+     * @param limit Maximum number of records to return. Defaults to 100.
+     */
+    suspend fun getExecutionHistory(limit: Int = 100): List<dev.brewkits.kmpworkmanager.background.domain.ExecutionRecord> =
+        backgroundTaskScheduler.getExecutionHistory(limit)
+
+    /**
+     * Deletes all locally stored execution history records.
+     * Call after a successful server upload to free disk space.
+     */
+    suspend fun clearExecutionHistory() = backgroundTaskScheduler.clearExecutionHistory()
 }

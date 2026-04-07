@@ -143,4 +143,33 @@ interface BackgroundTaskScheduler {
      *
      */
     fun flushPendingProgress()
+
+    /**
+     * Returns the most recent task chain execution records, newest first.
+     *
+     * Records are persisted locally after each chain execution (iOS) or individual
+     * task execution (Android). Use this to collect telemetry when the app returns
+     * to the foreground and upload to your analytics backend.
+     *
+     * ```kotlin
+     * // In Activity.onResume() or app foreground observer:
+     * lifecycleScope.launch {
+     *     val records = scheduler.getExecutionHistory(limit = 200)
+     *     if (records.isNotEmpty()) {
+     *         analyticsService.uploadBatch(records)
+     *         scheduler.clearExecutionHistory()
+     *     }
+     * }
+     * ```
+     *
+     * @param limit Maximum number of records to return. Defaults to 100.
+     * @return Records sorted newest-first. Empty list if no history or store not initialized.
+     */
+    suspend fun getExecutionHistory(limit: Int = 100): List<ExecutionRecord>
+
+    /**
+     * Deletes all stored execution history records.
+     * Call after successfully uploading records to free disk space.
+     */
+    suspend fun clearExecutionHistory()
 }
