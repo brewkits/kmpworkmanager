@@ -15,6 +15,7 @@ import dev.brewkits.kmpworkmanager.utils.LogTags
 import platform.UIKit.UIDevice
 import platform.UIKit.UIDeviceBatteryStateUnknown
 import platform.UIKit.UIDeviceBatteryStateUnplugged
+import platform.Foundation.NSProcessInfo
 import kotlin.concurrent.AtomicInt
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
@@ -105,7 +106,8 @@ class ChainExecutor(
 
     // Thread-safe set to track active chains (prevents duplicate execution)
     private val activeChainsMutex = Mutex()
-    private val activeChains = mutableSetOf<String>()
+    // Maps chainId → timestamp (ms) when it was marked active, for stale-lock detection.
+    private val activeChains = mutableMapOf<String, Long>()
 
     // AtomicInt for lock-free shutdown flag.
     // Using AtomicInt (not Mutex) is critical: requestShutdown() is called from the iOS
@@ -157,6 +159,16 @@ class ChainExecutor(
          * Time allowed for saving progress after shutdown signal
          */
         const val SHUTDOWN_GRACE_PERIOD_MS = 5_000L
+
+        /**
+         * Active-chain lock age after which it is considered stale and evicted.
+         *
+         * A lock older than this threshold indicates the process was killed mid-execution
+         * (BGTask expiration, OOM) without reaching the finally block that clears the lock.
+         * Evicting the stale lock allows the chain to run again on the next BGTask invocation
+         * instead of being silently skipped forever.
+         */
+        const val STALE_LOCK_TIMEOUT_MS = 10 * 60 * 1_000L // 10 minutes
     }
 
     /**
@@ -266,27 +278,30 @@ class ChainExecutor(
      * @return Conservative time budget for execution (excluding cleanup buffer)
      */
     private fun calculateAdaptiveBudget(totalTimeout: Long): Long {
-        // Base budget: 85% of time (backward compatible)
-        val baseBudget = (totalTimeout * 0.85).toLong()
+        // Low Power Mode: reduce execution budgets to preserve battery.
+        // 85% base → 75%; 70% floor → 50% so the device has more headroom.
+        val isLowPower = NSProcessInfo.processInfo().lowPowerModeEnabled
+        val baseFactor  = if (isLowPower) 0.75 else 0.85
+        val floorFactor = if (isLowPower) 0.50 else 0.70
+
+        val baseBudget = (totalTimeout * baseFactor).toLong()
 
         // If we have cleanup history, use measured duration + 20% safety buffer
         if (lastCleanupDurationMs > 0L) {
             val safetyBuffer = (lastCleanupDurationMs * 1.2).toLong()
             val adaptiveBudget = totalTimeout - safetyBuffer
 
-            // Floor: Never go below 70% (ensure meaningful work time)
-            val minBudget = (totalTimeout * 0.70).toLong()
-
+            val minBudget = (totalTimeout * floorFactor).toLong()
             val finalBudget = maxOf(minBudget, adaptiveBudget)
 
             Logger.d(LogTags.CHAIN, """
-                Adaptive budget calculation:
+                Adaptive budget calculation${if (isLowPower) " [Low Power Mode]" else ""}:
                 - Total timeout: ${totalTimeout}ms
                 - Last cleanup: ${lastCleanupDurationMs}ms
                 - Safety buffer: ${safetyBuffer}ms (120%)
-                - Base budget (85%): ${baseBudget}ms
+                - Base budget (${(baseFactor * 100).toInt()}%): ${baseBudget}ms
                 - Adaptive budget: ${adaptiveBudget}ms
-                - Floor (70%): ${minBudget}ms
+                - Floor (${(floorFactor * 100).toInt()}%): ${minBudget}ms
                 - Final budget: ${finalBudget}ms
             """.trimIndent())
 
@@ -294,7 +309,7 @@ class ChainExecutor(
         }
 
         // No history: Use base budget
-        Logger.d(LogTags.CHAIN, "No cleanup history - using base budget (85%): ${baseBudget}ms")
+        Logger.d(LogTags.CHAIN, "No cleanup history - using base budget (${(baseFactor * 100).toInt()}%): ${baseBudget}ms${if (isLowPower) " [Low Power Mode]" else ""}")
         return baseBudget
     }
 
@@ -501,8 +516,25 @@ class ChainExecutor(
 
         Logger.i(LogTags.CHAIN, "Dequeued chain $chainId for execution (Remaining: ${fileStorage.getQueueSize()})")
 
-        // 2. Execute the chain and return the result
-        val success = executeChain(chainId)
+        // 2. Execute the chain and return the result.
+        // Guard against unexpected Throwable (OOM, assertion errors, etc.) to prevent silent
+        // queue stalling: if executeChain() throws, the chain is re-enqueued so it can be
+        // retried on the next BGTask invocation instead of being silently lost.
+        val success = try {
+            executeChain(chainId)
+        } catch (e: CancellationException) {
+            // CancellationException must propagate — it means the BGTask was expired.
+            throw e
+        } catch (e: Throwable) {
+            Logger.e(LogTags.CHAIN, "💥 Unexpected error executing chain $chainId — re-enqueueing to prevent loss", e)
+            try {
+                fileStorage.enqueueChain(chainId)
+                Logger.i(LogTags.CHAIN, "Re-enqueued chain $chainId after unexpected error")
+            } catch (re: Exception) {
+                Logger.e(LogTags.CHAIN, "Failed to re-enqueue chain $chainId: ${re.message}")
+            }
+            return NextChainResult.FAILURE
+        }
         if (success) {
             Logger.i(LogTags.CHAIN, "Chain $chainId completed successfully")
         } else {
@@ -524,10 +556,21 @@ class ChainExecutor(
     private suspend fun executeChain(chainId: String): Boolean {
         // 1. Check for duplicate execution and mark as active (thread-safe)
         val isAlreadyActive = activeChainsMutex.withLock {
-            if (activeChains.contains(chainId)) {
-                true
+            val existingTimestamp = activeChains[chainId]
+            if (existingTimestamp != null) {
+                val nowMs = (NSDate().timeIntervalSince1970 * 1000).toLong()
+                val ageMs = nowMs - existingTimestamp
+                if (ageMs > STALE_LOCK_TIMEOUT_MS) {
+                    // Process was likely killed before the finally block could clear the lock.
+                    // Evict the stale entry and allow re-execution on this invocation.
+                    Logger.w(LogTags.CHAIN, "⚠️ Stale active-chain lock for $chainId (age: ${ageMs}ms > ${STALE_LOCK_TIMEOUT_MS}ms) — evicting and re-running")
+                    activeChains[chainId] = nowMs
+                    false
+                } else {
+                    true
+                }
             } else {
-                activeChains.add(chainId)
+                activeChains[chainId] = (NSDate().timeIntervalSince1970 * 1000).toLong()
                 Logger.d(LogTags.CHAIN, "Marked chain $chainId as active (Total active: ${activeChains.size})")
                 false
             }

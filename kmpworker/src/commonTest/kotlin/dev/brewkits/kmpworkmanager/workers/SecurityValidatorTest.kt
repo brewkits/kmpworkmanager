@@ -172,4 +172,37 @@ class SecurityValidatorTest {
         assertFalse(SecurityValidator.validateURL("http://[fc00::1]/"))
         assertFalse(SecurityValidator.validateURL("http://[fe80::1]/"))
     }
+
+    // ── Fix 6: Multi-@ UserInfo SSRF bypass ───────────────────────────────────
+
+    @Test
+    fun testMultiAtUserInfo_shouldBlockIfAnySegmentIsPrivate() {
+        // Dangerous: HTTP client may connect to 127.0.0.1 despite legit.com appearing last
+        assertFalse(SecurityValidator.validateURL("https://user:pass@127.0.0.1:80@legit.com/"))
+        assertFalse(SecurityValidator.validateURL("https://user@10.0.0.1@api.example.com/"))
+        assertFalse(SecurityValidator.validateURL("http://x@192.168.1.1:8080@external.com/path"))
+        assertFalse(SecurityValidator.validateURL("http://a@169.254.169.254@b.com/"))
+
+        // Safe: all segments after '@' are public domains / IPs
+        assertTrue(SecurityValidator.validateURL("https://user:pass@api.example.com/data"))
+    }
+
+    // ── Fix 5: Case-sensitivity bypass in validateFilePath ────────────────────
+
+    @Test
+    fun testFilePathCaseSensitivityBypass_shouldBeBlocked() {
+        // Uppercase percent-encoded dots — must be rejected
+        assertFalse(SecurityValidator.validateFilePath("%2E%2E/etc/passwd"))
+        assertFalse(SecurityValidator.validateFilePath("%2E%2E/%2E%2E/secret"))
+        assertFalse(SecurityValidator.validateFilePath("%252E%252E/private"))
+        assertFalse(SecurityValidator.validateFilePath("%2F%2E%2E%2Fetc%2Fpasswd"))
+
+        // Mixed case
+        assertFalse(SecurityValidator.validateFilePath("%2e%2E/traversal"))
+        assertFalse(SecurityValidator.validateFilePath("%2E%2e/traversal"))
+
+        // Valid paths still pass
+        assertTrue(SecurityValidator.validateFilePath("images/photo.jpg"))
+        assertTrue(SecurityValidator.validateFilePath("data/user/profile.json"))
+    }
 }

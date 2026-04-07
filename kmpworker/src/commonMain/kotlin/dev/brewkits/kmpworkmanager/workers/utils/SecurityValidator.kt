@@ -22,6 +22,16 @@ object SecurityValidator {
      * - Blocks cloud metadata endpoints (169.254.169.254, fd00:ec2::254)
      * - Blocks link-local addresses
      * - Only allows http:// and https:// schemes
+     * - Strips RFC 3986 UserInfo to prevent `evil.com@127.0.0.1` bypasses
+     *
+     * **DNS Rebinding — known library-layer limitation:**
+     * This validator checks the URL hostname at call time. It cannot defend against DNS
+     * rebinding attacks, where an attacker-controlled domain initially resolves to a public IP
+     * (passing this check) and later re-resolves to a private IP at connection time.
+     *
+     * Consumers operating in high-trust environments (e.g. server-side schedulers) should
+     * add network-layer defences: certificate pinning, a custom DNS resolver that blocks
+     * private ranges, or an egress proxy with its own IP blocklist.
      *
      * @param url The URL string to validate
      * @return true if URL is valid and safe, false otherwise
@@ -51,7 +61,7 @@ object SecurityValidator {
      * - "http://192.168.1.1:8080/api" -> "192.168.1.1"
      *
      * @param url The URL to parse
-     * @return The hostname, or null if parsing fails
+     * @return The hostname to evaluate, or null if parsing fails or any candidate is blocked
      */
     private fun extractHostname(url: String): String? {
         return try {
@@ -60,45 +70,62 @@ object SecurityValidator {
             if (withoutScheme.isEmpty() || withoutScheme.startsWith("/")) return null
 
             // Remove path, query, fragment
-            val hostnameWithPort = withoutScheme.substringBefore("/")
+            val authority = withoutScheme.substringBefore("/")
                 .substringBefore("?")
                 .substringBefore("#")
 
-            // Check if we have a valid hostname
-            if (hostnameWithPort.isBlank()) return null
+            if (authority.isBlank()) return null
+
+            // Multi-@ defence: RFC 3986 allows at most one '@' in the authority (userinfo@host).
+            // A URL like `https://user:pass@evil.com:80@legit.com` is malformed and different
+            // HTTP clients may resolve it to different hosts. To prevent ambiguity-based SSRF
+            // bypasses, extract ALL potential host segments (every part after an '@') and
+            // return null (reject) if any of them resolves to a blocked hostname.
+            val atCount = authority.count { it == '@' }
+            if (atCount > 1) {
+                // Check every segment after an '@' as a potential host target.
+                val candidates = authority.split("@").drop(1) // skip userinfo prefix
+                for (candidate in candidates) {
+                    val h = stripPort(candidate) ?: return null
+                    if (isBlockedHostname(h)) return null
+                }
+                // All candidates passed — return the last one (what RFC-compliant clients use).
+                return stripPort(candidates.last())
+            }
 
             // Strip RFC 3986 UserInfo (e.g. "user:pass@host" or "evil.com@127.0.0.1" → "127.0.0.1").
             // Must happen before port/hostname splitting: without this, the full "evil.com@127.0.0.1"
             // string fails looksLikeIPv4() (contains non-digit chars), so the private-IP check is
             // never reached and the URL is allowed — SSRF bypass.
-            val strippedUserInfo = hostnameWithPort.substringAfterLast("@")
+            val strippedUserInfo = authority.substringAfterLast("@")
 
-            // Remove port if present
-            val hostname = if (strippedUserInfo.startsWith("[")) {
-                // IPv6 address like [::1]:8080
-                strippedUserInfo.substringAfter("[").substringBefore("]")
-            } else {
-                // Check if it looks like an IPv6 address (multiple colons)
-                val colonCount = strippedUserInfo.count { it == ':' }
-                if (colonCount >= 2) {
-                    // Unbracketed IPv6 — RFC 2732 requires brackets for IPv6 in URLs.
-                    // Any unbracketed multi-colon hostname is malformed; return null to reject.
-                    // This also prevents SSRF bypass via e.g. http://::1:8080/ where the port
-                    // suffix prevents simple blocklist matching against "::1".
-                    return null
-                } else {
-                    // Regular hostname or IPv4 with port
-                    strippedUserInfo.substringBefore(":")
-                }
-            }
-
-            // Final validation: hostname must not be empty
-            if (hostname.isBlank()) return null
-
-            hostname.lowercase()
+            stripPort(strippedUserInfo)
         } catch (e: Exception) {
             null
         }
+    }
+
+    /**
+     * Strips the port from a host:port string and returns the lowercase hostname.
+     * Returns null for malformed input (unbracketed IPv6, blank).
+     */
+    private fun stripPort(hostWithPort: String): String? {
+        val hostname = if (hostWithPort.startsWith("[")) {
+            // IPv6 address like [::1]:8080
+            hostWithPort.substringAfter("[").substringBefore("]")
+        } else {
+            // Check if it looks like an IPv6 address (multiple colons)
+            val colonCount = hostWithPort.count { it == ':' }
+            if (colonCount >= 2) {
+                // Unbracketed IPv6 — RFC 2732 requires brackets for IPv6 in URLs.
+                // Any unbracketed multi-colon hostname is malformed; return null to reject.
+                return null
+            } else {
+                hostWithPort.substringBefore(":")
+            }
+        }
+        if (hostname.isBlank()) return null
+        return hostname.lowercase()
     }
 
     /**
@@ -265,13 +292,17 @@ object SecurityValidator {
 
         // Normalise to a canonical form before checking, covering the most common
         // bypass techniques without requiring platform-specific APIs.
+        // lowercase() first ensures all percent-encoded sequences are case-folded once,
+        // so subsequent replacements don't need ignoreCase = true and can't be bypassed
+        // by mixed-case encodings like %2E or %5C.
         val normalised = path
-            .replace("\\", "/")                         // Windows separators
-            .replace("\u0000", "")                      // Null-byte injection
-            .replace("%252e", ".", ignoreCase = true)   // Double URL-encoded dot
-            .replace("%2e", ".", ignoreCase = true)     // URL-encoded dot
-            .replace("%2f", "/", ignoreCase = true)     // URL-encoded slash
-            .replace("%5c", "/", ignoreCase = true)     // URL-encoded backslash
+            .lowercase()                       // Case-fold everything (handles %2E, %5C, etc.)
+            .replace("\\", "/")                // Windows separators
+            .replace("\u0000", "")             // Null-byte injection
+            .replace("%252e", ".")             // Double URL-encoded dot
+            .replace("%2e", ".")               // URL-encoded dot
+            .replace("%2f", "/")               // URL-encoded slash
+            .replace("%5c", "/")               // URL-encoded backslash
 
         if (normalised.contains("..")) return false
 
