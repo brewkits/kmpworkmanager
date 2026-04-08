@@ -584,16 +584,16 @@ Constraints(
 
 ```kotlin
 class MyWorker : KmpWorker {
-    override suspend fun doWork(inputJson: String?): Boolean {
+    override suspend fun doWork(inputJson: String?, env: WorkerEnvironment): WorkerResult {
         return try {
             // Your work here
-            true
+            WorkerResult.Success()
         } catch (e: NetworkException) {
             Logger.w("Network error, will retry")
-            false // Retry with backoff
+            WorkerResult.Failure("Network error: ${e.message}") // Retry with backoff
         } catch (e: Exception) {
             Logger.e("Fatal error", e)
-            true // Don't retry fatal errors
+            WorkerResult.Success() // Don't retry fatal errors
         }
     }
 }

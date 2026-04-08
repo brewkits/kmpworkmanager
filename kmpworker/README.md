@@ -13,7 +13,7 @@ A robust, production-ready Kotlin Multiplatform library for scheduling and manag
 
 The library uses a **worker factory pattern** (introduced in v2.x) that replaces the old hardcoded worker registration. If you are upgrading from an early version, follow the guide below.
 
-> **Note on versioning**: `v2.x.y` is the Maven artifact version (e.g. `2.3.7`).
+> **Note on versioning**: `v2.x.y` is the Maven artifact version (e.g. `2.3.8`).
 > The migration steps below apply if you are coming from a pre-v2.0 release.
 
 ### Key Changes

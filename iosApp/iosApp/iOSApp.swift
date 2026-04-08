@@ -7,6 +7,10 @@ import UserNotifications
 @main
 class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate {
 
+    // Static set so BGTask handlers are registered at most once per process lifetime.
+    // BGTaskScheduler crashes if the same identifier is registered twice.
+    private static var registeredTaskIds: Set<String> = []
+
     // The main window for the application.
     var window: UIWindow?
 
@@ -45,7 +49,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
         // Register handlers for background tasks defined in Info.plist.
         // This tells the OS what code to execute when a background task is triggered.
-        registerBackgroundTasks()
+        self.performSafeRegistration()
 
         // --- Setup for Remote Push Notifications ---
         // Start the registration process for remote push notifications.
@@ -70,19 +74,38 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         return true
     }
 
+    private func performSafeRegistration() {
+        guard let taskIds = Bundle.main.infoDictionary?["BGTaskSchedulerPermittedIdentifiers"] as? [String] else {
+            print("iOS BGTask: No BGTaskSchedulerPermittedIdentifiers found in Info.plist")
+            return
+        }
+        
+        for taskId in taskIds {
+            // Guard: BGTaskScheduler throws NSInternalInconsistencyException if the same
+            // identifier is registered more than once in the same process. This can happen
+            // when ios-deploy / lldb relaunches the app without killing the process.
+            guard !AppDelegate.registeredTaskIds.contains(taskId) else {
+                print("iOS BGTask: Skipping already-registered task: \(taskId)")
+                continue
+            }
+            AppDelegate.registeredTaskIds.insert(taskId)
+            BGTaskScheduler.shared.register(forTaskWithIdentifier: taskId, using: nil) { task in
+                print("iOS BGTask: Generic handler received task: \(task.identifier)")
+                if taskId == "kmp_chain_executor_task" {
+                    self.handleChainExecutorTask(task: task)
+                } else {
+                    self.handleSingleTask(task: task)
+                }
+            }
+        }
+        print("iOS BGTask: Registration attempt completed. Total registered: \(AppDelegate.registeredTaskIds.count)")
+    }
+
     //================================================================
     // MARK: - Push Notification Handling
     //================================================================
 
-    /**
-     * Starts the registration process for remote push notifications.
-     * 1. Sets the delegate for handling notification-related events.
-     * 2. Requests authorization from the user to display alerts, play sounds, and update the badge.
-     * 3. If permission is granted, it registers the app with Apple Push Notification service (APNs).
-     */
     func registerForPushNotifications(application: UIApplication) {
-        // Set this AppDelegate as the delegate for the notification center
-        // to handle incoming notifications.
         UNUserNotificationCenter.current().delegate = self
 
         UNUserNotificationCenter.current()
@@ -92,59 +115,37 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
                     print(" KMP_PUSH_IOS: Error requesting permission: \(error.localizedDescription)")
                     return
                 }
-                // If the user denies permission, we cannot proceed.
                 guard granted else { return }
-
-                // Registration for remote notifications must be done on the main thread.
                 DispatchQueue.main.async {
                     application.registerForRemoteNotifications()
                 }
             }
     }
 
-    /**
-     * Delegate callback, invoked when the app successfully registers with APNs and receives a device token.
-     * @param deviceToken A unique, opaque token that identifies the device to APNs.
-     */
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
-        // Convert the binary deviceToken into a hexadecimal string for easy storage and transmission.
         let tokenParts = deviceToken.map { data in String(format: "%02.2hhx", data) }
         let token = tokenParts.joined()
         print(" KMP_PUSH_IOS: Device Token: \(token)")
-
-        // Pass the token to the shared KMP code via the PushNotificationHandler.
-        // This allows the common module to handle sending the token to your backend server.
         let pushHandler = koinIos.getPushHandler()
         pushHandler.sendTokenToServer(token: token)
     }
 
-    /**
-     * Delegate callback, invoked when the app fails to register with APNs.
-     */
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
         print(" KMP_PUSH_IOS: Failed to register for remote notifications: \(error.localizedDescription)")
     }
 
-    /**
-     * Delegate callback for UNUserNotificationCenter.
-     * Called when a notification is delivered to a foreground app.
-     */
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        // Get the payload dictionary from the notification.
         let userInfo = notification.request.content.userInfo
         print(" KMP_PUSH_IOS: Received push while in foreground: \(userInfo)")
 
-        // Convert the payload to a [String: String] map and pass it to the KMP handler
-        // to execute shared business logic.
         if let payload = userInfo as? [String: Any] {
             let stringPayload = payload.mapValues { "\($0)" }
             let pushHandler = koinIos.getPushHandler()
             pushHandler.handlePushPayload(payload: stringPayload)
         }
 
-        // Specify how the notification should be presented to the user (e.g., show a banner, play a sound).
         if #available(iOS 14.0, *) {
             completionHandler([.banner, .sound, .badge])
         } else {
@@ -152,27 +153,19 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         }
     }
 
-    /**
-     * Delegate callback for UIApplication.
-     * Called when a remote notification arrives and the app is in the background or terminated.
-     * This is the entry point for handling silent push notifications.
-     */
     func application(_ application: UIApplication,
                      didReceiveRemoteNotification userInfo: [AnyHashable : Any],
                      fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
 
         print(" KMP_PUSH_IOS: didReceiveRemoteNotification called.")
-
         print(" KMP_PUSH_IOS: Received push while in background: \(userInfo)")
 
-        // Convert the payload and pass it to the KMP handler for processing.
         if let payload = userInfo as? [String: Any] {
             let stringPayload = payload.mapValues { "\($0)" }
             let pushHandler = koinIos.getPushHandler()
             pushHandler.handlePushPayload(payload: stringPayload)
         }
 
-        // Show a local notification to the user.
         if let customData = userInfo["customData"] as? [String: Any],
            let message = customData["message"] as? String {
             self.showNotification(title: "Background Push", body: message)
@@ -200,39 +193,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         }
     }
 
-    /**
-     * Registers handlers for each background task identifier listed in Info.plist.
-     * This code runs when the app launches to tell the system what to do when a task is triggered.
-     */
-    private func registerBackgroundTasks() {
-        guard let taskIds = Bundle.main.infoDictionary?["BGTaskSchedulerPermittedIdentifiers"] as? [String] else {
-            print("iOS BGTask: No BGTaskSchedulerPermittedIdentifiers found in Info.plist")
-            return
-        }
-
-        taskIds.forEach { taskId in
-            BGTaskScheduler.shared.register(forTaskWithIdentifier: taskId, using: nil) { task in
-                print("iOS BGTask: Generic handler received task: \(task.identifier)")
-                if taskId == "kmp_chain_executor_task" {
-                    self.handleChainExecutorTask(task: task)
-                } else {
-                    self.handleSingleTask(task: task)
-                }
-            }
-        }
-    }
-
     private func handleSingleTask(task: BGTask) {
         let taskId = task.identifier
         let userDefaults = UserDefaults.standard
 
-        // Define an expiration handler
         task.expirationHandler = {
             print("iOS BGTask: Task \(taskId) expired.")
             task.setTaskCompleted(success: false)
         }
 
-        // Check if it's a periodic task
         let periodicMeta = userDefaults.dictionary(forKey: "kmp_periodic_meta_" + taskId) as? [String: String]
         let taskMeta = userDefaults.dictionary(forKey: "kmp_task_meta_" + taskId) as? [String: String]
 
@@ -257,10 +226,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             return
         }
 
-        // Runtime deadline guard for Windowed tasks.
-        // BGTaskScheduler is opportunistic — it may fire the task after 'latest'.
-        // If the business deadline has passed, skip execution to avoid stale work
-        // (e.g. pre-flight sync that runs after the plane has departed).
         if let latestStr = taskMeta?["windowLatest"], let latestMs = Double(latestStr) {
             let nowMs = Date().timeIntervalSince1970 * 1000
             if nowMs > latestMs {
@@ -271,18 +236,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             }
         }
 
-        // Execute the task using the KMP SingleTaskExecutor
         let executor = koinIos.getSingleTaskExecutor()
         Task {
             do {
                 let workerResult = try await executor.executeTask(workerClassName: workerName, input: inputJson, timeoutMs: 25000)
-                // Check if result is Success (Kotlin type name in Obj-C: ComposeAppKmpworkerWorkerResult)
-                // Since it returns the sealed class, we just need to check the result type
                 let resultString = String(describing: type(of: workerResult))
                 let result = resultString.contains("Success")
                 print("iOS BGTask: Task \(taskId) finished with success: \(result) (type: \(resultString))")
 
-                // If it was a periodic task, re-schedule it.
                 if let meta = periodicMeta, meta["isPeriodic"] == "true" {
                     print("iOS BGTask: Re-scheduling periodic task \(taskId).")
                     let scheduler = self.koinIos.getScheduler()
@@ -312,19 +273,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         }
     }
 
-    // --- OPTIMIZED: Handler logic for the KMP Chain Executor Task with Batch Processing ---
     private func handleChainExecutorTask(task: BGTask) {
         print("📦 iOS BGTask: Handling KMP Chain Executor Task (Batch Mode)")
-
-        // Get the KMP ChainExecutor from Koin
         let chainExecutor = koinIos.getChainExecutor()
 
-        // Define an expiration handler - CRITICAL: Call graceful shutdown to save progress
         task.expirationHandler = {
             print("⏰ iOS BGTask: KMP Chain Executor Task expired - initiating graceful shutdown")
-
-            // Graceful shutdown — setTaskCompleted fires AFTER shutdown to ensure
-            // all buffered progress is flushed before iOS marks the task complete.
             Task {
                 do {
                     try await chainExecutor.requestShutdown()
@@ -336,8 +290,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             }
         }
 
-        // Schedule the next task if queue still has items
-        // v2.1.2+: Now async to properly call suspend function
         let scheduleNext: () async -> Void = {
             do {
                 let remainingChains = try await chainExecutor.getChainQueueSize()
@@ -356,90 +308,36 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             }
         }
 
-        // BATCH PROCESSING: Execute multiple chains in one BGTask invocation
-        // This optimizes iOS BGTask usage and reduces latency
         Task {
             do {
-                // v2.1.2+: Check queue size asynchronously to avoid Main Thread blocking
                 let initialQueueSize = try await chainExecutor.getChainQueueSize()
                 let queueCount = Int(truncating: initialQueueSize as NSNumber)
                 print("📦 iOS BGTask: Chain queue size: \(queueCount)")
-
-                // B-2 fix: Reset any stale shutdown flag from the previous BGTask's expirationHandler
-                // before starting a new batch, so the chain executor isn't permanently stuck.
                 try await chainExecutor.resetShutdownState()
-
                 let executedCount = try await chainExecutor.executeChainsInBatch(maxChains: 3, totalTimeoutMs: 50_000)
                 let count = Int(truncating: executedCount as NSNumber)
                 print("✅ iOS BGTask: Batch execution completed - \(count) chain(s) executed out of \(queueCount)")
-
-                // Mark task as completed successfully
                 task.setTaskCompleted(success: true)
-
-                // Schedule next executor task if queue not empty
                 await scheduleNext()
             } catch {
                 print("❌ iOS BGTask: Batch execution failed with error: \(error.localizedDescription)")
                 task.setTaskCompleted(success: false)
-                await scheduleNext() // Schedule next even if batch failed
+                await scheduleNext() 
             }
         }
     }
 
-    /**
-     * Helper function to show a local notification for debugging.
-     */
     func showNotification(title: String, body: String) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.sound = .default
 
-        // A nil trigger means the notification will be shown immediately.
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request) { error in
             if let error = error {
                 print("Error showing local notification: \(error.localizedDescription)")
             }
         }
-    }
-}
-
-/**
- * A SwiftUI View that wraps the Compose Multiplatform UIViewController.
- * This acts as a bridge between the SwiftUI and Compose worlds.
- */
-struct MainView: UIViewControllerRepresentable {
-    let koinIos: KoinIOS
-
-    /**
-     * Creates the UIViewController instance to be managed by SwiftUI.
-     */
-    func makeUIViewController(context: Context) -> UIViewController {
-        print("📱 MainView: makeUIViewController called")
-        print("📱 MainView: koinIos = \(koinIos)")
-
-        let scheduler = koinIos.getScheduler()
-        print("📱 MainView: scheduler = \(scheduler)")
-
-        let pushHandler = koinIos.getPushHandler()
-        print("📱 MainView: pushHandler = \(pushHandler)")
-
-        print("📱 MainView: About to call MainViewController from Kotlin")
-        let viewController = MainViewControllerKt.MainViewController(scheduler: scheduler, pushHandler: pushHandler)
-        print("📱 MainView: MainViewController created: \(viewController)")
-
-        // Debug: Set background color to verify view controller is displayed
-        viewController.view.backgroundColor = .red
-        print("📱 MainView: View background set to RED for debugging")
-
-        return viewController
-    }
-
-    /**
-     * Updates the presented UIViewController with new information.
-     * In this case, there's nothing to update, so the body is empty.
-     */
-    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
     }
 }

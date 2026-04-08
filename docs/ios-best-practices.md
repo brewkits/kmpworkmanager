@@ -49,22 +49,22 @@ scheduler.enqueue(
 ```kotlin
 // ❌ BAD: Long-running task
 class ProcessDataWorker : IosWorker {
-    override suspend fun doWork(input: String?): Boolean {
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
         // This will timeout after 30 seconds!
         processLargeDataset() // Takes 2 minutes
-        return true
+        return WorkerResult.Success()
     }
 }
 
 // ✅ GOOD: Break into chunks
 class ProcessDataWorker : IosWorker {
-    override suspend fun doWork(input: String?): Boolean {
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
         val batch = getNextBatch()
         processBatch(batch) // Takes 5 seconds
         if (hasMoreBatches()) {
             scheduleNextBatch()
         }
-        return true
+        return WorkerResult.Success()
     }
 }
 ```
@@ -78,12 +78,12 @@ This is **by iOS design** and cannot be worked around.
 ```kotlin
 // ❌ BAD: Critical data operation
 class SaveUserDataWorker : IosWorker {
-    override suspend fun doWork(input: String?): Boolean {
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
         // If user force-quits during this, data may be corrupted!
         database.beginTransaction()
         database.updateUserProfile(data)
         database.commit() // May never reach here
-        return true
+        return WorkerResult.Success()
     }
 }
 
@@ -157,21 +157,21 @@ scheduler.enqueue(
 ```kotlin
 // ❌ BAD: Monolithic task
 class SyncAllDataWorker : IosWorker {
-    override suspend fun doWork(input: String?): Boolean {
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
         syncUsers()      // 10s
         syncPosts()      // 15s
         syncComments()   // 20s
         syncImages()     // 30s
         // Total: 75s - WILL TIMEOUT!
-        return true
+        return WorkerResult.Success()
     }
 }
 
 // ✅ GOOD: Modular tasks
 class SyncUsersWorker : IosWorker {
-    override suspend fun doWork(input: String?): Boolean {
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
         syncUsers() // 10s - Safe
-        return true
+        return WorkerResult.Success()
     }
 }
 
@@ -202,7 +202,7 @@ scheduler.beginWith(TaskRequest("Download"))  // 10s
 
 ```kotlin
 class ResilientWorker : IosWorker {
-    override suspend fun doWork(input: String?): Boolean {
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
         val progress = loadProgress() ?: Progress(0)
 
         try {
@@ -213,12 +213,12 @@ class ResilientWorker : IosWorker {
                     saveProgress(progress)
                 }
             }
-            return true
+            return WorkerResult.Success()
         } catch (e: TimeoutCancellationException) {
             // Save progress and reschedule
             saveProgress(progress)
             rescheduleTask()
-            return false
+            return WorkerResult.Failure("Timed out — rescheduled for continuation")
         }
     }
 }
@@ -229,7 +229,7 @@ class ResilientWorker : IosWorker {
 ```kotlin
 // ✅ GOOD: Critical first, optional later
 class SmartSyncWorker : IosWorker {
-    override suspend fun doWork(input: String?): Boolean {
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
         // Critical: User-generated content (5s)
         syncUserPosts()
 
@@ -241,7 +241,7 @@ class SmartSyncWorker : IosWorker {
             syncHistoricalData()
         }
 
-        return true
+        return WorkerResult.Success()
     }
 }
 ```
@@ -260,9 +260,9 @@ class SmartSyncWorker : IosWorker {
 ```kotlin
 // ❌ BAD: No force-quit protection
 class PaymentWorker : IosWorker {
-    override suspend fun doWork(input: String?): Boolean {
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
         processPayment() // If force-quit here, payment may be lost!
-        return true
+        return WorkerResult.Success()
     }
 }
 
@@ -288,7 +288,7 @@ fun initiatePayment() {
 ```kotlin
 // ✅ GOOD: Emit events that survive force-quit
 class DataSyncWorker : IosWorker {
-    override suspend fun doWork(input: String?): Boolean {
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
         val result = syncData()
 
         // Event persists even if app is force-quit
@@ -300,7 +300,8 @@ class DataSyncWorker : IosWorker {
             )
         )
 
-        return result.success
+        return if (result.success) WorkerResult.Success(message = "Synced ${result.count} items")
+               else WorkerResult.Failure("Sync failed")
     }
 }
 
@@ -358,23 +359,23 @@ actual fun shouldScheduleHeavyTask(): Boolean {
 ```kotlin
 // ❌ BAD: Heavy initialization
 class SlowWorker : IosWorker {
-    override suspend fun doWork(input: String?): Boolean {
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
         val database = createDatabase() // 5s
         val api = initializeAPI()       // 3s
         doActualWork()                  // 8s
         // Total: 16s wasted on setup
-        return true
+        return WorkerResult.Success()
     }
 }
 
 // ✅ GOOD: Reuse shared instances
 class FastWorker : IosWorker {
-    override suspend fun doWork(input: String?): Boolean {
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
         val database = SharedDatabase.instance  // <1ms
         val api = SharedAPI.instance            // <1ms
         doActualWork()                          // 8s
         // Total: ~8s actual work
-        return true
+        return WorkerResult.Success()
     }
 }
 ```
@@ -444,7 +445,7 @@ e -l objc -- \
 
 ```kotlin
 class TimeoutTestWorker : IosWorker {
-    override suspend fun doWork(input: String?): Boolean {
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
         val startTime = System.currentTimeMillis()
 
         try {
@@ -452,11 +453,11 @@ class TimeoutTestWorker : IosWorker {
 
             val duration = System.currentTimeMillis() - startTime
             Logger.i("TimeoutTest", "Completed in ${duration}ms")
-            return true
+            return WorkerResult.Success(message = "Completed in ${duration}ms")
         } catch (e: TimeoutCancellationException) {
             val duration = System.currentTimeMillis() - startTime
             Logger.w("TimeoutTest", "Timeout after ${duration}ms")
-            return false
+            return WorkerResult.Failure("Timeout after ${duration}ms")
         }
     }
 }
@@ -488,9 +489,9 @@ class TimeoutTestWorker : IosWorker {
 ```kotlin
 // ❌ WILL FAIL
 class VideoProcessingWorker : IosWorker {
-    override suspend fun doWork(input: String?): Boolean {
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
         processVideo() // Takes 5 minutes
-        return true
+        return WorkerResult.Success()
     }
 }
 
@@ -531,24 +532,25 @@ if (isCharging() || getBatteryLevel() > 0.8) {
 ```kotlin
 // ❌ LOSES DATA ON FORCE-QUIT
 class UploadWorker : IosWorker {
-    override suspend fun doWork(input: String?): Boolean {
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
         uploadFile() // Lost if force-quit
         deleteLocalCopy() // May execute without upload
-        return true
+        return WorkerResult.Success()
     }
 }
 
 // ✅ SAFE WITH EVENT PERSISTENCE
 class UploadWorker : IosWorker {
-    override suspend fun doWork(input: String?): Boolean {
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
         val success = uploadFile()
         if (success) {
             TaskEventManager.emit(
                 TaskCompletionEvent("upload", true, "Uploaded")
             )
             deleteLocalCopy()
+            return WorkerResult.Success(message = "Uploaded")
         }
-        return success
+        return WorkerResult.Failure("Upload failed")
     }
 }
 ```

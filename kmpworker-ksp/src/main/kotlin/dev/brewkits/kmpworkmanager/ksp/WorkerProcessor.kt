@@ -3,6 +3,7 @@ package dev.brewkits.kmpworkmanager.ksp
 import com.google.devtools.ksp.processing.*
 import com.google.devtools.ksp.symbol.*
 import com.squareup.kotlinpoet.*
+import com.squareup.kotlinpoet.ParameterizedTypeName.Companion.parameterizedBy
 import com.squareup.kotlinpoet.ksp.toClassName
 import com.squareup.kotlinpoet.ksp.writeTo
 
@@ -24,6 +25,7 @@ class WorkerProcessor(
 ) : SymbolProcessor {
 
     override fun process(resolver: Resolver): List<KSAnnotated> {
+        logger.warn("WorkerProcessor KSP is executing. Finding symbols...")
         val workerSymbols = resolver
             .getSymbolsWithAnnotation("dev.brewkits.kmpworkmanager.annotations.Worker")
             .filterIsInstance<KSClassDeclaration>()
@@ -38,21 +40,45 @@ class WorkerProcessor(
                 it.shortName.asString() == "Worker"
             }
 
-            val workerName = (annotation.arguments
+            val explicitName = (annotation.arguments
                 .firstOrNull { it.name?.asString() == "name" }
                 ?.value as? String)
                 ?.ifEmpty { null }
-                ?: classDecl.simpleName.asString()
+
+            if (explicitName == null) {
+                // Using simpleName as factory key is fragile: a class rename or ProGuard
+                // obfuscation changes the key, silently breaking worker lookup for any
+                // tasks already persisted under the old name.
+                // Fix: add @Worker(name = "StableIdentifier") to prevent breakage on rename.
+                logger.warn(
+                    "@Worker on ${classDecl.qualifiedName?.asString() ?: classDecl.simpleName.asString()} " +
+                    "has no explicit `name`. The factory key will be the simple class name " +
+                    "(\"${classDecl.simpleName.asString()}\"). " +
+                    "Rename or ProGuard obfuscation will silently break persisted tasks. " +
+                    "Add @Worker(name = \"${classDecl.simpleName.asString()}\") to fix this.",
+                    classDecl
+                )
+            }
+
+            val workerName = explicitName ?: classDecl.simpleName.asString()
 
             val bgTaskId = annotation.arguments
                 .firstOrNull { it.name?.asString() == "bgTaskId" }
                 ?.value as? String
                 ?: ""
 
+            @Suppress("UNCHECKED_CAST")
+            val aliases = (annotation.arguments
+                .firstOrNull { it.name?.asString() == "aliases" }
+                ?.value as? List<*>)
+                ?.filterIsInstance<String>()
+                ?: emptyList()
+
             val info = WorkerInfo(
                 name = workerName,
                 className = classDecl.toClassName(),
-                bgTaskId = bgTaskId
+                bgTaskId = bgTaskId,
+                aliases = aliases
             )
 
             val superTypes = classDecl.superTypes.map { it.resolve().declaration.simpleName.asString() }
@@ -81,11 +107,21 @@ class WorkerProcessor(
         val packageName = "dev.brewkits.kmpworkmanager.generated"
         val workerFactoryClass = ClassName("dev.brewkits.kmpworkmanager.background.domain", "AndroidWorkerFactory")
         val androidWorkerClass = ClassName("dev.brewkits.kmpworkmanager.background.domain", "AndroidWorker")
+        val concurrentHashMapClass = ClassName("java.util.concurrent", "ConcurrentHashMap")
 
+        // ConcurrentHashMap: providers may be read by worker threads concurrently with
+        // app-startup writes (DI container overrides). mutableMapOf() (LinkedHashMap) is
+        // not thread-safe for concurrent reads during structural modification.
         val providersInit = CodeBlock.builder().apply {
-            add("mutableMapOf(\n")
-            workers.forEach { add("    %S to { %T() as %T },\n", it.name, it.className, androidWorkerClass) }
-            add(")")
+            add("%T<String, () -> %T?>().apply {\n", concurrentHashMapClass, androidWorkerClass)
+            workers.forEach { worker ->
+                add("    put(%S) { %T() as %T }\n", worker.name, worker.className, androidWorkerClass)
+                // Alias entries resolve to the same factory lambda as the canonical name
+                worker.aliases.forEach { alias ->
+                    add("    put(%S) { %T() as %T }  // alias for %S\n", alias, worker.className, androidWorkerClass, worker.name)
+                }
+            }
+            add("}")
         }.build()
 
         val fileSpec = FileSpec.builder(packageName, "AndroidWorkerFactoryGenerated")
@@ -105,17 +141,10 @@ class WorkerProcessor(
                     .addProperty(
                         PropertySpec.builder(
                             "providers",
-                            ParameterizedTypeName.run {
-                                Map::class.asClassName().parameterizedBy(
-                                    String::class.asClassName(),
-                                    LambdaTypeName.get(returnType = androidWorkerClass.copy(nullable = true))
-                                ).let {
-                                    ClassName("kotlin.collections", "MutableMap").parameterizedBy(
-                                        String::class.asClassName(),
-                                        LambdaTypeName.get(returnType = androidWorkerClass.copy(nullable = true))
-                                    )
-                                }
-                            }
+                            ClassName("java.util.concurrent", "ConcurrentHashMap").parameterizedBy(
+                                String::class.asClassName(),
+                                LambdaTypeName.get(returnType = androidWorkerClass.copy(nullable = true))
+                            )
                         )
                             .initializer(providersInit)
                             .build()
@@ -149,7 +178,12 @@ class WorkerProcessor(
 
         val providersInit = CodeBlock.builder().apply {
             add("mutableMapOf(\n")
-            workers.forEach { add("    %S to { %T() as %T },\n", it.name, it.className, iosWorkerClass) }
+            workers.forEach { worker ->
+                add("    %S to { %T() as %T },\n", worker.name, worker.className, iosWorkerClass)
+                worker.aliases.forEach { alias ->
+                    add("    %S to { %T() as %T },  // alias for %S\n", alias, worker.className, iosWorkerClass, worker.name)
+                }
+            }
             add(")")
         }.build()
 
@@ -228,5 +262,6 @@ class WorkerProcessor(
 private data class WorkerInfo(
     val name: String,
     val className: ClassName,
-    val bgTaskId: String
+    val bgTaskId: String,
+    val aliases: List<String> = emptyList()
 )

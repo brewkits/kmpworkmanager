@@ -531,8 +531,8 @@ Use this checklist to track your migration:
 
 ### Support
 
-- 🐛 **Found a bug?** [Report it](https://github.com/brewkits/kmp_worker/issues)
-- 💬 **Have questions?** [Ask on GitHub](https://github.com/brewkits/kmp_worker/discussions)
+- 🐛 **Found a bug?** [Report it](https://github.com/brewkits/kmpworkmanager/issues)
+- 💬 **Have questions?** [Ask on GitHub](https://github.com/brewkits/kmpworkmanager/discussions)
 - 📧 **Enterprise support:** datacenter111@gmail.com
 
 ---

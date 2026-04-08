@@ -3,36 +3,38 @@ agp = "8.13.2"
 android-compileSdk = "36"
 android-minSdk = "26"
 android-targetSdk = "36"
-androidx-activity = "1.12.3"
+androidx-activity = "1.9.3"
 androidx-appcompat = "1.7.1"
 androidx-core = "1.17.0"
 androidx-espresso = "3.7.0"
-androidx-lifecycle = "2.9.6"
+androidx-lifecycle = "2.8.4"
 androidx-testExt = "1.3.0"
 androidx-test-runner = "1.6.2"
-composeMultiplatform = "1.10.0"
+composeMultiplatform = "1.8.2"
 junit = "4.13.2"
-kotlin = "2.3.0"
+kotlin = "2.1.0"
 
-koin = "4.1.1"
-kotlinCompileTesting = "1.6.0"
-kotlinCompileTestingKsp = "1.6.0"
-kotlinpoet = "2.2.0"
-kotlinpoetKsp = "2.2.0"
-kotlinx-datetime = "0.7.1"
-androidx-work = "2.11.1"
-kotlinx-serialization = "1.10.0"
-kotlinx-coroutines = "1.10.2"
-ktor = "2.3.11"
-okio = "3.16.4"
-symbolProcessingApi = "2.3.4"
+koin = "4.0.0"
+kotest = "5.8.0"
+kotlinCompileTesting = "0.6.0"
+kotlinCompileTestingKsp = "0.6.0"
+kotlinpoet = "1.16.0"
+kotlinpoetKsp = "1.16.0"
+kotlinx-datetime = "0.6.1"
+androidx-work = "2.9.1"
+kotlinx-serialization = "1.7.3"
+kotlinx-coroutines = "1.9.0"
+kotlinxAtomicfu = "0.26.1"
+ktor = "2.3.12"
+okio = "3.9.1"
+symbolProcessingApi = "2.1.0-1.0.29"
 coreKtx = "1.7.0"
 androidx-test-core = "1.5.0"
 
 [libraries]
 jetbrains-kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test" }
-kotlin-compile-testing = { module = "com.github.tschuchortdev:kotlin-compile-testing", version.ref = "kotlinCompileTesting" }
-kotlin-compile-testing-ksp = { module = "com.github.tschuchortdev:kotlin-compile-testing-ksp", version.ref = "kotlinCompileTestingKsp" }
+kotlin-compile-testing = { module = "dev.zacsweers.kctfork:core", version.ref = "kotlinCompileTesting" }
+kotlin-compile-testing-ksp = { module = "dev.zacsweers.kctfork:ksp", version.ref = "kotlinCompileTestingKsp" }
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
 kotlin-test-junit = { module = "org.jetbrains.kotlin:kotlin-test-junit" }
 kotlin-test-junit-common = { module = "org.jetbrains.kotlin:kotlin-test-junit", version.ref = "kotlin" }
@@ -60,12 +62,17 @@ androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx"
 androidx-work-testing = { group = "androidx.work", name = "work-testing", version.ref = "androidx-work" }
 kotlinx-coroutines-guava = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-guava", version.ref = "kotlinx-coroutines" }
 compose-bom = { module = "org.jetbrains.compose:compose-bom", version.ref = "composeMultiplatform" }
+kotest-property = { module = "io.kotest:kotest-property", version.ref = "kotest" }
+kotest-framework-engine = { module = "io.kotest:kotest-framework-engine", version.ref = "kotest" }
 ktor-client-content-negotiation = { module = "io.ktor:ktor-client-content-negotiation", version.ref = "ktor" }
 ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
 ktor-client-darwin = { module = "io.ktor:ktor-client-darwin", version.ref = "ktor" }
+ktor-client-encoding = { module = "io.ktor:ktor-client-encoding", version.ref = "ktor" }
+ktor-client-logging = { module = "io.ktor:ktor-client-logging", version.ref = "ktor" }
 ktor-client-okhttp = { module = "io.ktor:ktor-client-okhttp", version.ref = "ktor" }
 ktor-serialization-kotlinx-json = { module = "io.ktor:ktor-serialization-kotlinx-json", version.ref = "ktor" }
 okio = { module = "com.squareup.okio:okio", version.ref = "okio" }
+kotlinx-atomicfu = { module = "org.jetbrains.kotlinx:atomicfu", version.ref = "kotlinxAtomicfu" }
 symbol-processing-api = { module = "com.google.devtools.ksp:symbol-processing-api", version.ref = "symbolProcessingApi" }
 core-ktx = { group = "androidx.test", name = "core-ktx", version.ref = "coreKtx" }
 

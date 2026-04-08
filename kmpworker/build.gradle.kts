@@ -64,13 +64,15 @@ kotlin {
             implementation(libs.kotlinx.serialization.json)
             // Kotlinx Coroutines
             implementation(libs.kotlinx.coroutines.core)
+            // Atomic operations (v2.3.7 fix)
+            implementation(libs.kotlinx.atomicfu)
             // Ktor Client for HTTP operations (built-in workers)
             implementation(libs.ktor.client.core)
             implementation(libs.ktor.client.content.negotiation)
             implementation(libs.ktor.serialization.kotlinx.json)
             // Ktor plugins for HttpClient optimization (v2.4.0+)
-            implementation("io.ktor:ktor-client-encoding:2.3.7")
-            implementation("io.ktor:ktor-client-logging:2.3.7")
+            implementation(libs.ktor.client.encoding)
+            implementation(libs.ktor.client.logging)
             // Okio for cross-platform file I/O
             implementation(libs.okio)
         }
@@ -84,8 +86,8 @@ kotlin {
             implementation(libs.kotlin.test)
             implementation(libs.kotlinx.coroutines.test)
             // Kotest for property-based testing (v2.3.2+)
-            implementation("io.kotest:kotest-property:5.8.0")
-            implementation("io.kotest:kotest-framework-engine:5.8.0")
+            implementation(libs.kotest.property)
+            implementation(libs.kotest.framework.engine)
         }
 
         androidInstrumentedTest.dependencies {
@@ -108,6 +110,7 @@ android {
     defaultConfig {
         minSdk = libs.versions.android.minSdk.get().toInt()
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        consumerProguardFiles("consumer-rules.pro")
     }
 
     compileOptions {
@@ -258,7 +261,7 @@ tasks.register("publishAndroidWithChecksums") {
 
         var checksumCount = 0
         stagingDir.walk().forEach { file ->
-            if (file.isFile && !file.name.endsWith(".md5") && !file.name.endsWith("sha1")
+            if (file.isFile && !file.name.endsWith(".md5") && !file.name.endsWith(".sha1")
                 && !file.name.endsWith(".sha256") && !file.name.endsWith(".sha512")
                 && !file.name.endsWith(".asc")) {
 

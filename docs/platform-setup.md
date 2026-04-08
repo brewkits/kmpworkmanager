@@ -954,4 +954,4 @@ println("Periodic metadata: $metadata")
 
 ---
 
-Need help? [Open an issue](https://github.com/brewkits/kmp_worker/issues) or ask in [Discussions](https://github.com/brewkits/kmp_worker/discussions).
+Need help? [Open an issue](https://github.com/brewkits/kmpworkmanager/issues) or ask in [Discussions](https://github.com/brewkits/kmpworkmanager/discussions).

@@ -994,11 +994,11 @@ Constraints(
 ```kotlin
 // Keep workers fast
 class QuickSyncWorker : IosWorker {
-    override suspend fun doWork(input: String?): Boolean {
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
         withTimeout(20_000) {
             // Complete within 20 seconds
         }
-        return true
+        return WorkerResult.Success()
     }
 }
 ```
@@ -1034,4 +1034,4 @@ Different behavior:
 
 ---
 
-Need help? [Open an issue](https://github.com/brewkits/kmp_worker/issues) or ask in [Discussions](https://github.com/brewkits/kmp_worker/discussions).
+Need help? [Open an issue](https://github.com/brewkits/kmpworkmanager/issues) or ask in [Discussions](https://github.com/brewkits/kmpworkmanager/discussions).

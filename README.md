@@ -5,7 +5,7 @@
 # KMP WorkManager
 
 [![Maven Central](https://img.shields.io/maven-central/v/dev.brewkits/kmpworkmanager?color=4A90D9&label=Maven%20Central)](https://central.sonatype.com/artifact/dev.brewkits/kmpworkmanager)
-[![Kotlin](https://img.shields.io/badge/Kotlin-2.3.0-7F52FF?logo=kotlin&logoColor=white)](https://kotlinlang.org)
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.1.0-7F52FF?logo=kotlin&logoColor=white)](https://kotlinlang.org)
 [![CI](https://github.com/brewkits/kmpworkmanager/actions/workflows/build.yml/badge.svg)](https://github.com/brewkits/kmpworkmanager/actions/workflows/build.yml)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue)](LICENSE)
 
@@ -44,6 +44,106 @@ scheduler.beginWith(TaskRequest("FetchUser"))
 
 ---
 
+## What's new in v2.3.8
+
+### Execution history export
+Every chain and task execution is now persisted locally after completion.
+Collect on foreground, upload, then clear:
+
+```kotlin
+// In Activity.onResume() or LifecycleObserver
+lifecycleScope.launch {
+    val records = scheduler.getExecutionHistory(limit = 200)
+    if (records.isNotEmpty()) {
+        analyticsService.uploadBatch(records)   // your backend
+        scheduler.clearExecutionHistory()        // free disk space
+    }
+}
+```
+
+Each `ExecutionRecord` carries: `chainId`, `status` (SUCCESS / FAILURE / ABANDONED / SKIPPED / TIMEOUT), `durationMs`, `completedSteps`, `failedStep`, `errorMessage`, `retryCount`, `platform`, and `workerClassNames`.
+Up to 500 records are kept on disk; older ones are pruned automatically.
+
+### Telemetry hook
+Route task lifecycle events to Sentry, Crashlytics, Datadog, or any backend:
+
+```kotlin
+KmpWorkManagerConfig(
+    telemetryHook = object : TelemetryHook {
+        override fun onTaskFailed(event: TelemetryHook.TaskFailedEvent) {
+            Sentry.captureMessage("Task failed: ${event.taskName} — ${event.error}")
+        }
+        override fun onChainFailed(event: TelemetryHook.ChainFailedEvent) {
+            analytics.track("chain_failed", mapOf(
+                "chainId"   to event.chainId,
+                "failedStep" to event.failedStep,
+                "willRetry"  to event.willRetry
+            ))
+        }
+    }
+)
+```
+
+Six events: `onTaskStarted`, `onTaskCompleted`, `onTaskFailed`, `onChainCompleted`, `onChainFailed`, `onChainSkipped`. All have default no-op implementations — override only what you need.
+
+### Task priority
+Control execution order for queued chains:
+
+```kotlin
+scheduler.beginWith(
+    TaskRequest(
+        workerClassName = "PaymentSyncWorker",
+        priority = TaskPriority.CRITICAL   // runs before NORMAL/LOW chains
+    )
+).enqueue()
+```
+
+`LOW`, `NORMAL`, `HIGH`, `CRITICAL`. On Android, `HIGH`/`CRITICAL` map to expedited work (bypasses Doze). On iOS, the queue is sorted by priority before each BGTask window.
+
+### Battery guard
+Tasks are deferred when battery is critically low and not charging:
+
+```kotlin
+KmpWorkManagerConfig(
+    minBatteryLevelPercent = 10  // defer when battery < 10% and not charging
+                                 // 0 = disabled
+)
+```
+
+Default: `5%`. Works on both Android (`BatteryManager`) and iOS (`UIDevice`).
+
+### KSP: auto-generated factories with BGTask ID validation
+
+```kotlin
+// iosMain — annotate once, no manual factory boilerplate
+@Worker("SyncWorker", bgTaskId = "com.example.sync-task")
+class SyncWorker : IosWorker { ... }
+
+// Generated IosWorkerFactoryGenerated.kt automatically:
+//  - implements BgTaskIdProvider
+//  - declares requiredBgTaskIds = setOf("com.example.sync-task")
+//  - kmpWorkerModule() validates IDs against Info.plist at startup
+```
+
+```kotlin
+// Pass to kmpWorkerModule — validation is automatic
+kmpWorkerModule(workerFactory = IosWorkerFactoryGenerated())
+```
+
+If any `bgTaskId` is missing from `Info.plist → BGTaskSchedulerPermittedIdentifiers`, the app fails fast at startup with a descriptive error rather than silently misbehaving at task time.
+
+Add to `build.gradle.kts`:
+```kotlin
+plugins { id("com.google.devtools.ksp") }
+
+dependencies {
+    ksp("dev.brewkits:kmpworker-ksp:2.3.8")
+    commonMain.implementation("dev.brewkits:kmpworker-annotations:2.3.8")
+}
+```
+
+---
+
 ## What this solves
 
 ### Chain recovery after process kill
@@ -71,7 +171,7 @@ iOS calls the BGTask expiration handler on a separate thread, which races with t
 ```kotlin
 // build.gradle.kts
 commonMain.dependencies {
-    implementation("dev.brewkits:kmpworkmanager:2.3.7")
+    implementation("dev.brewkits:kmpworkmanager:2.3.8")
 }
 ```
 
@@ -149,8 +249,8 @@ Full setup: [docs/platform-setup.md](docs/platform-setup.md)
 
 ```kotlin
 // commonMain — shared logic
-class SyncWorker : CommonWorker {
-    override suspend fun doWork(input: String?): WorkerResult {
+class SyncWorker : Worker {
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
         val items = api.fetchPendingItems()
         database.upsert(items)
         return WorkerResult.Success(
@@ -164,12 +264,12 @@ class SyncWorker : CommonWorker {
 ```kotlin
 // androidMain
 class SyncWorkerAndroid : AndroidWorker {
-    override suspend fun doWork(input: String?) = SyncWorker().doWork(input)
+    override suspend fun doWork(input: String?, env: WorkerEnvironment) = SyncWorker().doWork(input, env)
 }
 
 // iosMain
 class SyncWorkerIos : IosWorker {
-    override suspend fun doWork(input: String?) = SyncWorker().doWork(input)
+    override suspend fun doWork(input: String?, env: WorkerEnvironment) = SyncWorker().doWork(input, env)
 }
 ```
 
@@ -184,7 +284,7 @@ scheduler.enqueue(
     trigger           = TaskTrigger.Periodic(intervalMs = 900_000),
     workerClassName   = "SyncWorker",
     constraints       = Constraints(requiresNetwork = true),
-    inputData         = """{"userId": "u_123"}"""
+    inputJson         = """{"userId": "u_123"}"""
 )
 
 // One-time with delay
@@ -238,13 +338,13 @@ Chains execute steps sequentially. Each step completes before the next begins.
 
 ```kotlin
 scheduler.beginWith(
-    TaskRequest(workerClassName = "DownloadWorker", inputData = """{"url": "$fileUrl"}""")
+    TaskRequest(workerClassName = "DownloadWorker", inputJson = """{"url": "$fileUrl"}""")
 ).then(
     TaskRequest(workerClassName = "ValidateWorker")
 ).then(
     TaskRequest(workerClassName = "TranscodeWorker")
 ).then(
-    TaskRequest(workerClassName = "UploadWorker", inputData = """{"bucket": "processed"}""")
+    TaskRequest(workerClassName = "UploadWorker", inputJson = """{"bucket": "processed"}""")
 ).enqueue()
 ```
 
@@ -275,7 +375,7 @@ Ready to use with `scheduler.enqueue(workerClassName = "HttpRequestWorker", ...)
 | `HttpSyncWorker` | Fetch-and-persist data sync |
 | `FileCompressionWorker` | File compression (requires ZIPFoundation on iOS) |
 
-Input/output passed as JSON via `inputData` / `WorkerResult.data`.
+Input/output passed as JSON via `inputJson` / `WorkerResult.data`.
 
 ---
 
@@ -290,6 +390,12 @@ fd00:ec2::254     AWS EC2 (IPv6)
 localhost, 0.0.0.0, [::1], 10.x, 172.16–31.x, 192.168.x
 ```
 
+Compressed IPv6 loopback forms (`0::1`, `::0:0:0:1`, `0:0:0:0:0:0:0:1`, etc.) are all blocked via `::` expansion before matching.
+
+RFC 3986 UserInfo bypass (`https://evil.com@127.0.0.1/`) is blocked by stripping the userinfo component before hostname resolution. Multiple `@` characters in the authority (e.g. `https://user:pass@127.0.0.1@legit.com`) are detected and all potential host segments are checked.
+
+**Known limitation (DNS rebinding):** `SecurityValidator` checks the hostname at call time. It cannot defend against DNS rebinding attacks where the domain resolves to a public IP at validation but rebinds to a private IP at connection. For high-trust environments, add certificate pinning, a custom DNS resolver, or an egress proxy with its own blocklist.
+
 **Input size validation** — Android WorkManager's `Data` object has a 10 KB hard limit. Inputs exceeding 10 KB throw `IllegalArgumentException` at enqueue time, before WorkManager sees them.
 
 Custom workers making outbound requests should use `SecurityValidator` if needed.
@@ -299,14 +405,17 @@ Custom workers making outbound requests should use `SecurityValidator` if needed
 ## Testing
 
 ```
-562 tests across commonTest, iosTest, androidInstrumentedTest
+600+ tests across commonTest, iosTest, androidInstrumentedTest
 ```
 
 Notable test coverage:
 - `QA_PersistenceResilienceTest` — 100-step chain force-killed at step 50, verified to resume at exactly step 50 with no duplicate executions
 - `V236ChainExecutorTest` — ChainExecutor regression tests for time budget, shutdown propagation, and batch loop correctness
+- `V238BugFixesTest` — regression tests for v2.3.8: ExecutionRecord serialization, TaskPriority ordering, BgTaskIdProvider, TelemetryHook, IPv6 compressed loopback, multi-@ SSRF bypass, case-sensitivity path traversal
+- `IosExecutionHistoryStoreTest` — iOS history store: save/get/clear, auto-pruning at 500 records, all `ExecutionStatus` variants, field preservation
+- `AdaptiveTimeBudgetTest` — BGTask time budget under various cleanup scenarios + Low Power Mode floor reduction
 - `AppendOnlyQueueTest` — CRC32 corruption detection, truncation recovery, concurrent read/write
-- `AdaptiveTimeBudgetTest` — BGTask time budget calculation under various deadline scenarios
+- `SecurityValidatorTest` — SSRF, IPv6 compressed loopback, multi-@ UserInfo, case-sensitivity bypass
 
 ---
 

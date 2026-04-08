@@ -5,7 +5,75 @@ All notable changes to KMP WorkManager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.3.8] - 2026-04-07
+
+### Fixed
+
+**Android: cancel() does not cancel the AlarmManager PendingIntent (CRITICAL)**
+- Root cause: `cancel(id)` called `AlarmStore.remove(context, id)` to delete SharedPreferences metadata, but never called `AlarmManager.cancel()`. The scheduled alarm would still fire at the original time even after cancellation.
+- Fixed by adding `cancelAlarmManagerPendingIntent(id)` to `NativeTaskScheduler.cancel()`. The method uses `PendingIntent.FLAG_NO_CREATE` to look up the existing `PendingIntent` without creating a new one, then calls `AlarmManager.cancel()` and `PendingIntent.cancel()`. Safe to call when no alarm was ever scheduled.
+
+**Android: Exact alarm permission check bypassed with hardcoded isTest=true (CRITICAL)**
+- Root cause: `scheduleExactAlarm` contained a hardcoded `isTest = true` override that skipped the `AlarmManager.canScheduleExactAlarms()` permission check on API 31+. Production builds running on devices without `SCHEDULE_EXACT_ALARM` permission would silently bypass the OS gate.
+- Fixed by removing the hardcoded flag. On API 31+ without permission the method now returns `ScheduleResult.REJECTED_OS_POLICY`.
+
+**iOS: IosFileStorage runs maintenance on every app launch (HIGH)**
+- Root cause: The `init` block's `else` branch (maintenance ran recently) had a 5-second delay then unconditionally called `performMaintenanceTasks()` — running on every launch regardless of the last run timestamp. On frequent cold-starts this caused repeated I/O.
+- Fixed to check `getHoursSinceLastMaintenance() >= 24` and skip maintenance entirely when it ran within the last 24 hours. Maintenance only runs when it is genuinely overdue.
+
+**iOS: AppendOnlyQueue corruption fields read outside mutex without @Volatile (HIGH)**
+- Root cause: `isQueueCorrupt` and `corruptionOffset` were plain `var` fields read in a "fast check without lock" path in `dequeue()`. Without `@Volatile`, Kotlin/Native's memory model permitted the CPU to cache stale values, making the corruption check unreliable under concurrent access.
+- Fixed by annotating both fields with `@kotlin.concurrent.Volatile`.
+
+**HttpDownloadWorker: response size limit defined but never enforced (HIGH)**
+- Root cause: `SecurityValidator.MAX_RESPONSE_BODY_SIZE` (50 MB) existed but was never checked during streaming. A server returning an unbounded response would exhaust device disk space before any check triggered.
+- Fixed in `HttpDownloadWorker.downloadFile()`: after each `readAvailable`, the running `downloadedBytes` total is compared to `MAX_RESPONSE_BODY_SIZE`. Exceeding the limit throws `IOException` with a human-readable size message, which aborts the download and deletes the temp file.
+
+**Android: Non-retriable exceptions incorrectly trigger WorkManager retry (MEDIUM)**
+- Root cause: All unhandled exceptions in `BaseKmpWorker.doWorkInternal()` returned `Result.retry()`. Permanent failures such as `SerializationException` (malformed config), `ClassNotFoundException` (missing worker class), `IllegalArgumentException`, `NullPointerException`, `NumberFormatException`, `InvocationTargetException`, and `InstantiationException` would retry indefinitely, wasting battery and WorkManager quota.
+- Fixed by classifying these exception types as permanent failures and returning `Result.failure()` instead of `Result.retry()`. The execution history status is set to `ABANDONED` for permanent failures.
+
+**Android: isPeriodic detection relies on UUID work ID string (MEDIUM)**
+- Root cause: The condition `id.toString().contains("periodic")` in the `finally` block of `BaseKmpWorker.doWorkInternal()` was always false because WorkManager assigns UUID-format IDs (e.g. `3f2504e0-4f89-11d3-...`) that never contain the word "periodic".
+- Fixed to use `tags.contains("type-periodic")`. The `type-periodic` tag is added by `schedulePeriodicWork` in `NativeTaskScheduler`, making this check reliable across all periodic work.
+
+**Android: Overflow input file not deleted when task is cancelled (MEDIUM)**
+- Root cause: The `finally` block in `BaseKmpWorker.doWorkInternal()` only deleted the overflow file when the task succeeded or failed permanently. Cancelled tasks (CancellationException re-thrown) left `kmp_input_*.json` files in `cacheDir` until the 24-hour zombie cleanup.
+- Fixed by using `wasCancelled` tracking: the overflow file is deleted unless `isRetrying` or `isPeriodic` (periodic tasks reuse the same input across runs).
+
+**iOS: Test mode detection does not cover XCTest and Xcode Cloud runners (MEDIUM)**
+- Root cause: `IosFileStorage` lazy queue init previously called `endsWith("test.kexe")` to detect the Kotlin/Native test runner. XCTest, Xcode Cloud, and other simulator runners use process names like `xctest` or `unittest`, which did not match.
+- Fixed to check `processName.contains("test.kexe", ignoreCase = true) || processName.contains("xctest", ignoreCase = true) || processName.contains("unittest", ignoreCase = true)`.
+
+**iOS: DiskSpaceCache two @Volatile fields allow torn reads (MEDIUM)**
+- Root cause: `checkDiskSpace` used two separate `@Volatile var` fields (`cachedFreeBytes`, `cacheExpiryMs`). A reader could observe a freshly-written `freeBytes` value paired with a stale `expiryMs`, causing an unnecessary extra syscall or a brief window where the cache appeared valid with outdated data.
+- Fixed by combining both fields into a single `@Volatile` `DiskSpaceCache` data class. Readers always see a consistent `(freeBytes, expiryMs)` pair from a single atomic reference write.
+
+**iOS: IosFileStorage cleanupOrphanedChains runs in shared backgroundScope (MEDIUM)**
+- Root cause: `cleanupOrphanedChains()` was launched as a bare `backgroundScope.launch` job, sharing the same supervisor scope as enqueue/dequeue operations. A maintenance failure could cancel the entire `backgroundScope`, silently disabling all subsequent storage operations.
+- Fixed: `cleanupOrphanedChains()` is a `suspend` function called directly from `performMaintenanceTasks()` which is wrapped in a `try/catch`. Exceptions are caught and logged without cancelling `backgroundScope`.
+
+**Android: cleanupZombieInputFiles creates a new thread per call (LOW)**
+- Root cause: The cleanup for `kmp_input_*.json` files created a raw `Thread {}` on each invocation instead of reusing the system thread pool.
+- Fixed to use `CoroutineScope(Dispatchers.IO).launch {}`, which dispatches to the shared I/O thread pool.
+
+**SecurityValidator: MAX_QUEUE_SIZE constants inconsistent across layers (LOW)**
+- Root cause: `SecurityValidator.MAX_REQUEST_BODY_SIZE` and `MAX_RESPONSE_BODY_SIZE` were defined but their relative sizes were not validated. The response limit was smaller than the request limit in an earlier draft, which is logically incorrect (a download can return more data than an upload sends).
+- Fixed: `MAX_RESPONSE_BODY_SIZE` (50 MB) is confirmed greater than `MAX_REQUEST_BODY_SIZE` (10 MB) in the production constant definitions.
+
+### Security
+
+**SecurityValidator: validateFilePath double-slash bypass allows sensitive root access (HIGH)**
+- Root cause: `validateFilePath("//etc/passwd")` evaluated `"//etc/passwd".startsWith("/etc")` as `false` because the leading double-slash prevented the prefix match. The path check was bypassed, allowing access to `/etc`, `/proc`, `/sys`, `/dev`, and `/private/etc`.
+- Fixed by adding `.replace(Regex("/+"), "/")` to the normalisation pipeline in `validateFilePath`, collapsing `//` and `///` sequences to a single `/` before the sensitive-root prefix check. Triple slashes and other multiples are also collapsed.
+
+**SecurityValidator: decimal, hex, and octal IP representations bypass SSRF filter (LOW)**
+- Root cause: `isMalformedIPBypass` in `SecurityValidator` did not cover all alternative IP representations. A purely numeric decimal integer like `2130706433` (= `127.0.0.1`) passed the hostname validation, and hex forms like `0x7f.0.0.1` and octal forms like `0177.0.0.1` were not handled.
+- Fixed: `isMalformedIPBypass` now blocks all-digit strings (decimal integer IPs), hex strings containing `0x`, and dotted-octal notations where any segment starts with `0` and has more than one digit.
+
+**SecurityValidator: multi-`@` UserInfo SSRF bypass not handled (LOW)**
+- Root cause: `extractHostname` handled single `@` (UserInfo strip) but a URL like `https://user@10.0.0.1@api.example.com/` with multiple `@` signs was not validated against all candidate host segments.
+- Fixed: when `atCount > 1`, every segment after an `@` is extracted and checked against `isBlockedHostname`. If any segment is blocked the URL is rejected regardless of which client resolves it.
 
 ### Tests
 

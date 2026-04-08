@@ -4,6 +4,7 @@ Complete API documentation for KMP WorkManager.
 
 ## Table of Contents
 
+- [v2.3.8 APIs](#v238-apis)
 - [BackgroundTaskScheduler](#backgroundtaskscheduler)
 - [WorkerResult (v2.3.0+)](#workerresult-v230)
 - [Task Triggers](#task-triggers)
@@ -12,6 +13,240 @@ Complete API documentation for KMP WorkManager.
 - [Events](#events)
 - [Enums](#enums)
 - [Platform-Specific APIs](#platform-specific-apis)
+
+---
+
+## v2.3.8 APIs
+
+New types and scheduler methods added in v2.3.8.
+
+### TaskPriority
+
+Controls how urgently the scheduler tries to run a task when multiple tasks compete for the available background execution budget.
+
+```kotlin
+enum class TaskPriority(internal val weight: Int) {
+    /** Deferred work that can wait for idle/charging conditions. */
+    LOW(weight = 0),
+
+    /** Default priority for most background tasks. */
+    NORMAL(weight = 1),
+
+    /**
+     * Important work that should run before NORMAL tasks.
+     * Android: mapped to expedited work (skips Doze).
+     */
+    HIGH(weight = 2),
+
+    /**
+     * Mission-critical work (payments, security tokens, compliance uploads).
+     * Android: mapped to expedited work.
+     * iOS: placed at head of execution queue, executed in the very first available BGTask window.
+     * Use sparingly — overuse degrades the app's background execution budget.
+     */
+    CRITICAL(weight = 3)
+}
+```
+
+**Android mapping:**
+- `CRITICAL` / `HIGH` → `setExpedited()` (bypasses Doze)
+- `NORMAL` → standard OneTime / Periodic work
+- `LOW` → standard work, deferred when battery/network is constrained
+
+**iOS mapping:** The in-memory queue is sorted by priority before each BGTask execution window. Higher-priority chains are dequeued first.
+
+**Usage:**
+
+```kotlin
+scheduler.beginWith(
+    TaskRequest(
+        workerClassName = "PaymentSyncWorker",
+        priority = TaskPriority.CRITICAL
+    )
+).enqueue()
+```
+
+---
+
+### TelemetryHook
+
+Hook interface for observing task lifecycle events. Implement this to route KMP WorkManager events to your telemetry backend (Sentry, Firebase Crashlytics, Datadog, etc.).
+
+All methods have default no-op implementations — override only what you need. Callbacks are invoked from background coroutine dispatchers and must not suspend or block.
+
+```kotlin
+interface TelemetryHook {
+    fun onTaskStarted(event: TelemetryHook.TaskStartedEvent) {}
+    fun onTaskCompleted(event: TelemetryHook.TaskCompletedEvent) {}
+    fun onTaskFailed(event: TelemetryHook.TaskFailedEvent) {}
+    fun onChainCompleted(event: TelemetryHook.ChainCompletedEvent) {}
+    fun onChainFailed(event: TelemetryHook.ChainFailedEvent) {}
+    fun onChainSkipped(event: TelemetryHook.ChainSkippedEvent) {}
+}
+```
+
+**Event types:**
+
+| Event class | Key fields |
+|---|---|
+| `TaskStartedEvent` | `taskName`, `chainId?`, `stepIndex?`, `platform`, `startedAtMs` |
+| `TaskCompletedEvent` | `taskName`, `chainId?`, `stepIndex?`, `platform`, `success`, `durationMs`, `errorMessage?` |
+| `TaskFailedEvent` | `taskName`, `chainId?`, `stepIndex?`, `platform`, `error`, `durationMs`, `retryCount` |
+| `ChainCompletedEvent` | `chainId`, `totalSteps`, `platform`, `durationMs` |
+| `ChainFailedEvent` | `chainId`, `failedStep`, `platform`, `error`, `retryCount`, `willRetry` |
+| `ChainSkippedEvent` | `chainId`, `platform`, `reason` |
+
+**Registration:**
+
+```kotlin
+val config = KmpWorkManagerConfig(
+    telemetryHook = object : TelemetryHook {
+        override fun onTaskFailed(event: TelemetryHook.TaskFailedEvent) {
+            Sentry.captureMessage("Task failed: ${event.taskName} — ${event.error}")
+        }
+        override fun onChainFailed(event: TelemetryHook.ChainFailedEvent) {
+            FirebaseCrashlytics.getInstance().recordException(
+                RuntimeException("Chain ${event.chainId} failed at step ${event.failedStep}")
+            )
+        }
+    }
+)
+```
+
+---
+
+### ExecutionRecord
+
+A single persisted record of a background task chain execution. Records are written when a chain finishes (success, failure, abandoned, skipped, or timeout).
+
+```kotlin
+@Serializable
+data class ExecutionRecord(
+    val id: String,
+    val chainId: String,
+    val status: ExecutionStatus,
+    val startedAtMs: Long,
+    val endedAtMs: Long,
+    val durationMs: Long,
+    val totalSteps: Int,
+    val completedSteps: Int,
+    val failedStep: Int? = null,
+    val errorMessage: String? = null,
+    val retryCount: Int = 0,
+    val platform: String,
+    val workerClassNames: List<String> = emptyList()
+)
+
+enum class ExecutionStatus {
+    SUCCESS, FAILURE, ABANDONED, SKIPPED, TIMEOUT
+}
+```
+
+**ExecutionStatus values:**
+- `SUCCESS` — all steps completed successfully.
+- `FAILURE` — a step failed; chain is re-queued for retry.
+- `ABANDONED` — max retries exhausted or non-idempotent tasks after corrupt-progress self-heal.
+- `SKIPPED` — chain discarded before execution (REPLACE policy or deadline exceeded).
+- `TIMEOUT` — chain timed out within its BGTask window; re-queued for continuation.
+
+---
+
+### ExecutionHistoryStore
+
+Persistent store for `ExecutionRecord`s. Records are appended after each chain execution and automatically pruned when the store exceeds 500 entries.
+
+```kotlin
+interface ExecutionHistoryStore {
+    suspend fun save(record: ExecutionRecord)
+    suspend fun getRecords(limit: Int = 100): List<ExecutionRecord>
+    suspend fun clear()
+
+    companion object {
+        const val MAX_RECORDS = 500
+    }
+}
+```
+
+Platform implementations: iOS uses a JSONL file in Application Support; Android uses a JSONL file in `filesDir`.
+
+---
+
+### WorkerDiagnostics
+
+Interface for debugging scheduler state and system health. Useful for debug screens, production monitoring dashboards, and customer support diagnostics.
+
+```kotlin
+interface WorkerDiagnostics {
+    suspend fun getSchedulerStatus(): SchedulerStatus
+    suspend fun getSystemHealth(): SystemHealthReport
+    suspend fun getTaskStatus(id: String): TaskStatusDetail?
+}
+
+data class SchedulerStatus(
+    val isReady: Boolean,
+    val totalPendingTasks: Int,
+    val queueSize: Int,
+    val platform: String,
+    val timestamp: Long
+)
+
+data class SystemHealthReport(
+    val timestamp: Long,
+    val batteryLevel: Int,
+    val isCharging: Boolean,
+    val networkAvailable: Boolean,
+    val storageAvailable: Long,
+    val isStorageLow: Boolean,
+    val isLowPowerMode: Boolean,  // iOS only; always false on Android
+    val deviceInDozeMode: Boolean // Android only; always false on iOS
+)
+
+data class TaskStatusDetail(
+    val taskId: String,
+    val workerClassName: String,
+    val state: String, // "PENDING", "RUNNING", "COMPLETED", "FAILED"
+    val retryCount: Int,
+    val lastExecutionTime: Long?,
+    val lastError: String?
+)
+```
+
+**Usage:**
+
+```kotlin
+val diagnostics = WorkerDiagnostics.getInstance()
+val health = diagnostics.getSystemHealth()
+
+if (health.isLowPowerMode) {
+    println("BGTasks may be throttled — device in low power mode")
+}
+if (health.isStorageLow) {
+    println("Storage critical — tasks may fail")
+}
+```
+
+---
+
+### Execution History Methods (BackgroundTaskScheduler)
+
+Two new methods on `BackgroundTaskScheduler` (v2.3.8+):
+
+```kotlin
+/** Returns the most recent task chain execution records, newest first. */
+suspend fun getExecutionHistory(limit: Int = 100): List<ExecutionRecord>
+
+/** Deletes all stored execution history records. */
+suspend fun clearExecutionHistory()
+```
+
+**Typical usage:**
+
+```kotlin
+// On app foreground: collect and upload, then clear
+val records = scheduler.getExecutionHistory(limit = 200)
+analyticsService.uploadBatchAsync(records)
+scheduler.clearExecutionHistory()
+```
 
 ---
 
@@ -30,18 +265,20 @@ suspend fun enqueue(
     id: String,
     trigger: TaskTrigger,
     workerClassName: String,
-    input: String? = null,
-    constraints: Constraints = Constraints()
+    constraints: Constraints = Constraints(),
+    inputJson: String? = null,
+    policy: ExistingPolicy = ExistingPolicy.REPLACE
 ): ScheduleResult
 ```
 
 **Parameters:**
 
-- `id: String` - Unique identifier for the task. If a task with the same ID exists, behavior depends on `ExistingWorkPolicy` in constraints.
+- `id: String` - Unique identifier for the task. If a task with the same ID exists, behavior depends on `policy`.
 - `trigger: TaskTrigger` - When and how the task should be executed (OneTime, Periodic, Exact, etc.)
 - `workerClassName: String` - Name of the worker class that will execute the task
-- `input: String?` - Optional input data passed to the worker (must be serializable)
 - `constraints: Constraints` - Execution constraints (network, battery, charging, etc.)
+- `inputJson: String?` - Optional JSON input data passed to the worker
+- `policy: ExistingPolicy` - How to handle an existing task with the same ID (default: REPLACE)
 
 **Returns:** `ScheduleResult` - Result of the scheduling operation
 
@@ -140,8 +377,7 @@ scheduler.cancelAll()
 sealed class WorkerResult {
     data class Success(
         val message: String? = null,
-        val data: JsonObject? = null,
-        val dataClass: String? = null
+        val data: Map<String, Any?>? = null
     ) : WorkerResult()
 
     data class Failure(
@@ -842,7 +1078,7 @@ data class TaskCompletionEvent(
 
 ```kotlin
 class SyncWorker : IosWorker {
-    override suspend fun doWork(input: String?): Boolean {
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
         return try {
             syncDataFromServer()
 
@@ -850,24 +1086,24 @@ class SyncWorker : IosWorker {
                 TaskCompletionEvent(
                     taskName = "SyncWorker",
                     success = true,
-                    message = "✅ Data synced successfully",
+                    message = "Data synced successfully",
                     outputData = buildJsonObject {
                         put("count", 100)
                     }
                 )
             )
 
-            true
+            WorkerResult.Success(message = "Data synced successfully")
         } catch (e: Exception) {
             TaskEventBus.emit(
                 TaskCompletionEvent(
                     taskName = "SyncWorker",
                     success = false,
-                    message = "❌ Sync failed: ${e.message}"
+                    message = "Sync failed: ${e.message}"
                 )
             )
 
-            false
+            WorkerResult.Failure("Sync failed: ${e.message}")
         }
     }
 }
@@ -1037,7 +1273,7 @@ Interface for iOS background workers.
 
 ```kotlin
 interface IosWorker {
-    suspend fun doWork(input: String?): Boolean
+    suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult
 }
 ```
 
@@ -1045,9 +1281,9 @@ interface IosWorker {
 
 ```kotlin
 class SyncWorker : IosWorker {
-    override suspend fun doWork(input: String?): Boolean {
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
         // Your implementation (must complete within 25 seconds)
-        return true // Return true for success, false for failure
+        return WorkerResult.Success(message = "Sync complete")
     }
 }
 ```
@@ -1090,4 +1326,4 @@ const val ONE_DAY = 86_400_000L
 - [Platform Setup](platform-setup.md) - Detailed platform configuration
 - [Task Chains](task-chains.md) - Advanced workflow patterns
 - [Constraints & Triggers](constraints-triggers.md) - Detailed trigger documentation
-- [GitHub Issues](https://github.com/brewkits/kmp_worker/issues)
+- [GitHub Issues](https://github.com/brewkits/kmpworkmanager/issues)
