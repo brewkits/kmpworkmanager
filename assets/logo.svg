@@ -1,0 +1,16 @@
+<svg width="240" height="240" viewBox="0 0 240 240" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Outer hexagon background -->
+  <path d="M120 8 L212 60 L212 180 L120 232 L28 180 L28 60 Z"
+        fill="#7F52FF" />
+  <!-- Inner hexagon subtle highlight -->
+  <path d="M120 22 L202 68 L202 172 L120 218 L38 172 L38 68 Z"
+        fill="#936AFF" fill-opacity="0.35" />
+
+  <!-- Letter W — bold, clean, white -->
+  <path d="M64 76 L94 164 L120 110 L146 164 L176 76 L152 76 L132 136 L120 90 L108 136 L88 76 Z"
+        fill="white" />
+
+  <!-- Speed accent — small lightning bolt bottom-center of W -->
+  <path d="M115 140 L105 160 L113 160 L100 180 L125 152 L115 152 Z"
+        fill="#FFA726" />
+</svg>

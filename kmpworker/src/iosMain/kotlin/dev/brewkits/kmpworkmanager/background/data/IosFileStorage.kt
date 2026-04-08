@@ -279,7 +279,7 @@ public class IosFileStorage(
         url
     }
 
-    private val maintenanceTimestampURL: NSURL by lazy {
+    internal val maintenanceTimestampURL: NSURL by lazy {
         baseDir.safeAppend("last_maintenance.txt")
     }
 

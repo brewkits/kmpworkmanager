@@ -71,7 +71,9 @@ class BugFixes_v240_IosTest {
     @Test
     fun `HIGH1 - isMaintenanceRequired returns true when never run`() = runTest {
         val storage = makeStorage("maintenance-never")
-        // Giả lập chưa từng chạy bằng cách xóa file timestamp nếu tồn tại
+        // Wait for the internal init block's backgroundScope to finish runMaintenance if any
+        kotlinx.coroutines.delay(100)
+        // Simulate first run by deleting the timestamp file if it exists
         storage.deleteMaintenanceTimestampForTesting() 
         
         assertTrue(storage.isMaintenanceRequired(hoursInterval = 24),
@@ -321,8 +323,8 @@ class BugFixes_v240_IosTest {
             storage.enqueueChain("stress-item-$i")
         }
 
-        // Logic cũ: assertEquals(count, size) bị lỗi vì getQueueSize() có thể trả về cả các task đã REPLACE
-        // Fix: Lấy danh sách chain IDs hiện có để đếm số lượng thực tế
+        // Old logic: assertEquals(count, size) fails because getQueueSize() includes REPLACE tasks
+        // Fix: Retrieve the list of active chain IDs to count the actual number
         val chains = storage.getActiveChainIds() 
         assertEquals(count, chains.size,
             "All $count items must be in queue after sequential enqueue, got ${chains.size}")

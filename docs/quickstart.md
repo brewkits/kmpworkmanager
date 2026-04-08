@@ -21,7 +21,7 @@ Add KMP WorkManager to your `build.gradle.kts` (module level):
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("dev.brewkits:kmpworkmanager:2.3.2")
+            implementation("dev.brewkits:kmpworkmanager:2.3.8")
         }
     }
 }
@@ -328,11 +328,11 @@ Create worker classes in `iosMain/background/workers/`:
 
 ```kotlin
 class SyncWorker : IosWorker {
-    override suspend fun doWork(input: String?): Boolean {
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
         return try {
             // Your sync logic here (must complete within 25 seconds)
             println("Syncing data from server...")
-            delay(2000)
+            kotlinx.coroutines.delay(2000)
 
             // Emit event to notify UI
             TaskEventBus.emit(
@@ -343,10 +343,10 @@ class SyncWorker : IosWorker {
                 )
             )
 
-            true // Return true for success
+            WorkerResult.Success("Synced")
         } catch (e: Exception) {
             Logger.e(LogTags.WORKER, "Sync failed", e)
-            false // Return false for failure
+            WorkerResult.Failure("Failed")
         }
     }
 }

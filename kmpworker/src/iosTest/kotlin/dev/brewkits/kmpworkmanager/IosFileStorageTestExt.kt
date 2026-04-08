@@ -9,11 +9,10 @@ import platform.Foundation.*
  */
 fun IosFileStorage.deleteMaintenanceTimestampForTesting() {
     val fileManager = NSFileManager.defaultManager
-    // Lấy url từ thuộc tính private của IosFileStorage bằng cách giả lập (hoặc access nếu public)
-    // Vì tôi không thể access private, tôi sẽ tái tạo logic URL
-    val baseDir = platform.Foundation.NSFileManager.defaultManager.URLsForDirectory(NSApplicationSupportDirectory, inDomains = NSUserDomainMask).first() as NSURL
-    val url = baseDir.URLByAppendingPathComponent("dev.brewkits.kmpworkmanager/last_maintenance_timestamp.txt", isDirectory = false)
-    if (url != null && fileManager.fileExistsAtPath(url.path!!)) {
+    // Extract url from the private property of IosFileStorage via reflection or path recreation
+    // Since we cannot access it directly, we simulate the URL behavior
+    val url = this.maintenanceTimestampURL
+    if (url.path != null && fileManager.fileExistsAtPath(url.path!!)) {
         fileManager.removeItemAtURL(url, error = null)
     }
 }
