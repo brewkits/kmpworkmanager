@@ -25,3 +25,59 @@ subprojects {
         }
     }
 }
+
+// Task to generate a full Maven Central distribution ZIP
+tasks.register<Zip>("generateFullMavenZip") {
+    group = "publishing"
+    description = "Generates a ZIP file containing all Maven artifacts and checksums for manual upload"
+
+    val stagingDir = layout.buildDirectory.dir("maven-central-staging")
+    archiveFileName.set("kmpworkmanager-maven-central-2.3.9.zip")
+    destinationDirectory.set(layout.buildDirectory.dir("distributions"))
+
+    from(stagingDir)
+
+    // Ensure all modules are published to local staging first
+    dependsOn(":kmpworker:publishAllPublicationsToMavenCentralLocalRepository")
+    dependsOn(":kmpworker-annotations:publishAllPublicationsToMavenCentralLocalRepository")
+    dependsOn(":kmpworker-ksp:publishAllPublicationsToMavenCentralLocalRepository")
+    
+    // Checksums are handled by each module or a global step
+    doFirst {
+        delete(stagingDir)
+    }
+    
+    doLast {
+        val stagingFile = stagingDir.get().asFile
+        if (!stagingFile.exists()) return@doLast
+
+        var checksumCount = 0
+        stagingFile.walk().forEach { file ->
+            if (file.isFile && !file.name.endsWith(".md5") && !file.name.endsWith(".sha1")
+                && !file.name.endsWith(".sha256") && !file.name.endsWith(".sha512")
+                && !file.name.endsWith(".asc")
+            ) {
+                // Generate MD5
+                val md5File = java.io.File(file.parentFile, "${file.name}.md5")
+                if (!md5File.exists()) {
+                    val md5 = java.security.MessageDigest.getInstance("MD5")
+                        .digest(file.readBytes())
+                        .joinToString("") { byte -> "%02x".format(byte) }
+                    md5File.writeText(md5)
+                    checksumCount++
+                }
+
+                // Generate SHA1
+                val sha1File = java.io.File(file.parentFile, "${file.name}.sha1")
+                if (!sha1File.exists()) {
+                    val sha1 = java.security.MessageDigest.getInstance("SHA-1")
+                        .digest(file.readBytes())
+                        .joinToString("") { byte -> "%02x".format(byte) }
+                    sha1File.writeText(sha1)
+                    checksumCount++
+                }
+            }
+        }
+        logger.lifecycle("Generated $checksumCount checksum files. Full Maven ZIP generated at: ${archiveFile.get().asFile.absolutePath}")
+    }
+}
