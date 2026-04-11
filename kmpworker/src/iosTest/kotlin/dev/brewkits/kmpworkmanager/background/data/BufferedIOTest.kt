@@ -24,13 +24,16 @@ class BufferedIOTest {
     /**
      * Mock IosFileStorage to test buffering logic
      */
-    private class MockBufferedStorage {
+    private class MockBufferedStorage(
+        private val debounceMs: Long = 500L,
+        context: kotlin.coroutines.CoroutineContext = Dispatchers.Default
+    ) {
         private val _progressBuffer = mutableMapOf<String, ChainProgress>()
         val progressBuffer: Map<String, ChainProgress> get() = _progressBuffer
         var flushCount = 0
         var writeCount = 0
         private var flushJob: Job? = null
-        private val scope = CoroutineScope(Dispatchers.Default)
+        private val scope = CoroutineScope(context + SupervisorJob())
         private val mutex = Mutex()
 
         fun saveChainProgress(progress: ChainProgress) {
@@ -40,7 +43,7 @@ class BufferedIOTest {
                     // Debounce: cancel previous flush and schedule new one
                     flushJob?.cancel()
                     flushJob = scope.launch {
-                        delay(500) // FLUSH_DEBOUNCE_MS
+                        delay(debounceMs)
                         mutex.withLock { flushProgressBuffer() }
                     }
                 }
@@ -49,7 +52,7 @@ class BufferedIOTest {
 
         suspend fun flushNow() {
             // Give any in-flight saveChainProgress launches time to update buffer
-            delay(50)
+            yield() 
             mutex.withLock {
                 flushJob?.cancel()
                 flushProgressBuffer()
@@ -57,6 +60,7 @@ class BufferedIOTest {
         }
 
         private fun flushProgressBuffer() {
+            if (_progressBuffer.isEmpty()) return
             _progressBuffer.forEach { _ -> writeCount++ }
             _progressBuffer.clear()
             flushCount++
@@ -70,19 +74,18 @@ class BufferedIOTest {
     }
 
     @Test
-    fun testDebouncing_SingleSave() = runBlocking {
-        val storage = MockBufferedStorage()
+    fun testDebouncing_SingleSave() = runTest {
+        val storage = MockBufferedStorage(debounceMs = 500, context = backgroundScope.coroutineContext)
         val progress = createTestProgress("chain1", 0)
 
         storage.saveChainProgress(progress)
-        delay(100) // Wait less than debounce period
+        advanceTimeBy(100)
 
         // Should still be in buffer
         assertEquals(1, storage.progressBuffer.size)
         assertEquals(0, storage.flushCount, "Should not flush yet")
 
-        delay(500) // Wait for debounce
-        delay(100) // Extra time for flush to complete
+        advanceTimeBy(401) // Wait for debounce
 
         // Should have flushed
         assertEquals(0, storage.progressBuffer.size)
@@ -91,21 +94,20 @@ class BufferedIOTest {
     }
 
     @Test
-    fun testDebouncing_MultipleSaves() = runBlocking {
-        val storage = MockBufferedStorage()
+    fun testDebouncing_MultipleSaves() = runTest {
+        val storage = MockBufferedStorage(debounceMs = 500, context = backgroundScope.coroutineContext)
 
         // Save 5 updates rapidly
         repeat(5) { i ->
             storage.saveChainProgress(createTestProgress("chain1", i))
-            delay(50) // 50ms between saves
+            advanceTimeBy(50) // 50ms between saves
         }
 
         // Total time: 250ms (less than 500ms debounce)
         assertEquals(1, storage.progressBuffer.size, "Should buffer all updates")
         assertEquals(0, storage.flushCount, "Should not flush yet")
 
-        delay(500) // Wait for debounce
-        delay(100) // Extra time for flush to complete
+        advanceTimeBy(501) // Wait for debounce
 
         // Should have flushed once with latest value
         assertEquals(0, storage.progressBuffer.size)
@@ -114,8 +116,8 @@ class BufferedIOTest {
     }
 
     @Test
-    fun testImmediateFlush() = runBlocking {
-        val storage = MockBufferedStorage()
+    fun testImmediateFlush() = runTest {
+        val storage = MockBufferedStorage(context = backgroundScope.coroutineContext)
 
         storage.saveChainProgress(createTestProgress("chain1", 0))
         storage.saveChainProgress(createTestProgress("chain2", 0))
@@ -131,17 +133,17 @@ class BufferedIOTest {
     }
 
     @Test
-    fun testBatching_MultipleChains() = runBlocking {
-        val storage = MockBufferedStorage()
+    fun testBatching_MultipleChains() = runTest {
+        val storage = MockBufferedStorage(debounceMs = 500, context = backgroundScope.coroutineContext)
 
         // Update 10 different chains rapidly
         repeat(10) { i ->
             storage.saveChainProgress(createTestProgress("chain$i", 0))
-            delay(20)
+            advanceTimeBy(20)
         }
 
         // Wait for debounced flush
-        delay(600)
+        advanceTimeBy(600)
 
         // Should batch all 10 writes into 1 flush
         assertEquals(1, storage.flushCount, "Should flush once")
@@ -149,17 +151,17 @@ class BufferedIOTest {
     }
 
     @Test
-    fun testPerformanceImprovement_90PercentReduction() = runBlocking {
-        val storage = MockBufferedStorage()
+    fun testPerformanceImprovement_90PercentReduction() = runTest {
+        val storage = MockBufferedStorage(debounceMs = 500, context = backgroundScope.coroutineContext)
 
         // Simulate 50 rapid task completions (real-world scenario)
         repeat(50) { i ->
             storage.saveChainProgress(createTestProgress("chain${i % 5}", i / 5))
-            delay(10) // 10ms between completions
+            advanceTimeBy(10) // 10ms between completions
         }
 
         // Total time: 500ms
-        delay(600) // Wait for flush
+        advanceTimeBy(600) // Wait for flush
 
         // Without buffering: 50 I/O operations
         // With buffering: 1 flush with 5 unique chains = 5 I/O operations
@@ -176,21 +178,19 @@ class BufferedIOTest {
      * Stress test: High-frequency updates
      */
     @Test
-    fun stressTestHighFrequencyUpdates() = runBlocking {
-        val storage = MockBufferedStorage()
+    fun stressTestHighFrequencyUpdates() = runTest {
+        val storage = MockBufferedStorage(debounceMs = 500, context = backgroundScope.coroutineContext)
 
         // 1000 updates across 10 chains in 5 seconds
         val updateCount = 1000
         val chainCount = 10
 
-        val startTime = currentTimeMillis()
         repeat(updateCount) { i ->
             storage.saveChainProgress(createTestProgress("chain${i % chainCount}", i / chainCount))
-            delay(5) // 5ms between updates
+            advanceTimeBy(5) // 5ms between updates
         }
 
-        delay(600) // Wait for final flush
-        val duration = currentTimeMillis() - startTime
+        advanceTimeBy(600) // Wait for final flush
 
         // Should batch into very few flushes
         assertTrue(
@@ -202,17 +202,14 @@ class BufferedIOTest {
             storage.writeCount < updateCount,
             "Should reduce I/O operations (${storage.writeCount} vs ${updateCount})"
         )
-
-        val reduction = ((updateCount - storage.writeCount).toDouble() / updateCount) * 100
-        println("High-frequency stress test: ${updateCount} updates -> ${storage.writeCount} I/O ops (${reduction.toInt()}% reduction)")
     }
 
     /**
      * Stress test: Concurrent chain executions
      */
     @Test
-    fun stressTestConcurrentChains() = runBlocking {
-        val storage = MockBufferedStorage()
+    fun stressTestConcurrentChains() = runTest {
+        val storage = MockBufferedStorage(debounceMs = 500, context = backgroundScope.coroutineContext)
 
         // 20 chains updating concurrently
         val jobs = (1..20).map { chainId ->
@@ -224,8 +221,8 @@ class BufferedIOTest {
             }
         }
 
-        jobs.joinAll()
-        delay(600) // Wait for final flush
+        // Wait for final flush
+        advanceTimeBy(2000)
 
         // 20 chains * 50 updates = 1000 total updates
         // Should batch into 20 final writes (1 per chain) with debouncing
@@ -233,29 +230,27 @@ class BufferedIOTest {
             storage.writeCount <= 20,
             "Should batch 1000 concurrent updates into ≤20 writes (was ${storage.writeCount})"
         )
-
-        println("Concurrent stress test: 1000 updates from 20 chains -> ${storage.writeCount} I/O ops")
     }
 
     /**
      * Test flush cancellation and rescheduling
      */
     @Test
-    fun testFlushCancellationOnNewUpdate() = runBlocking {
-        val storage = MockBufferedStorage()
+    fun testFlushCancellationOnNewUpdate() = runTest {
+        val storage = MockBufferedStorage(debounceMs = 500, context = backgroundScope.coroutineContext)
 
         // Save and start debounce timer
         storage.saveChainProgress(createTestProgress("chain1", 0))
-        delay(400) // Wait 400ms (80% of debounce)
+        advanceTimeBy(400) // Wait 400ms (80% of debounce)
 
         // New update should cancel and restart timer
         storage.saveChainProgress(createTestProgress("chain1", 1))
-        delay(400) // Wait another 400ms (total 800ms from first save)
+        advanceTimeBy(400) // Wait another 400ms (total 800ms from first save)
 
         // Should not have flushed yet (timer was reset)
         assertEquals(0, storage.flushCount, "Should not flush yet due to timer reset")
 
-        delay(200) // Complete the second debounce period
+        advanceTimeBy(200) // Complete the second debounce period
 
         // Now should flush
         assertEquals(1, storage.flushCount, "Should flush after reset debounce")
@@ -265,22 +260,16 @@ class BufferedIOTest {
      * Test buffer consistency under rapid updates
      */
     @Test
-    fun testBufferConsistency() = runBlocking {
-        val storage = MockBufferedStorage()
+    fun testBufferConsistency() = runTest {
+        val storage = MockBufferedStorage(context = backgroundScope.coroutineContext)
         val chainId = "test-chain"
 
         // Rapidly update same chain 100 times
         repeat(100) { step ->
             storage.saveChainProgress(createTestProgress(chainId, step))
-            yield() // Allow coroutine scheduling
         }
 
-        // Use flushNow() instead of a fixed delay so the test is deterministic on CI.
-        // delay(600) is fragile: scope.launch coroutines queued by saveChainProgress may
-        // not all complete before the timer fires on slower CI machines, causing the
-        // debounce job to run multiple times and flushCount > 1.
-        // flushNow() already contains a 50ms grace period for in-flight launches, then
-        // cancels any pending debounce job and flushes exactly once.
+        // Use flushNow()
         storage.flushNow()
 
         // Should have flushed with latest value (step 99)
@@ -292,8 +281,8 @@ class BufferedIOTest {
      * Integration test: Simulate real chain execution pattern
      */
     @Test
-    fun integrationTestRealExecutionPattern() = runBlocking {
-        val storage = MockBufferedStorage()
+    fun integrationTestRealExecutionPattern() = runTest {
+        val storage = MockBufferedStorage(debounceMs = 500, context = backgroundScope.coroutineContext)
 
         // Simulate chain with 3 steps, 5 tasks per step
         val chainId = "integration-chain"
@@ -303,7 +292,7 @@ class BufferedIOTest {
         for (step in 0 until steps) {
             for (task in 0 until tasksPerStep) {
                 storage.saveChainProgress(createTestProgress(chainId, step * tasksPerStep + task))
-                delay(100) // 100ms per task execution
+                advanceTimeBy(100) // 100ms per task execution
             }
         }
 
@@ -311,14 +300,10 @@ class BufferedIOTest {
         storage.flushNow()
 
         // Total: 15 progress updates -> should batch significantly
-        // Without buffering: 15 I/O ops
-        // With buffering: Few I/O ops (debounced during execution) + 1 final flush
         assertTrue(
             storage.writeCount < 15,
             "Should reduce I/O from 15 to <15 (was ${storage.writeCount})"
         )
-
-        println("Integration test: 15 updates -> ${storage.writeCount} I/O ops (${storage.flushCount} flushes)")
     }
 
     private fun createTestProgress(chainId: String, completedTasks: Int): ChainProgress {
