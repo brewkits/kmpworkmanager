@@ -17,6 +17,10 @@ version = (rootProject.findProperty("VERSION_NAME") as? String) ?: System.getenv
 
 kotlin {
     androidTarget()
+    
+    // Support Maven Central requirements
+    withSourcesJar()
+    withJavadocJar()
 
     androidTarget {
         publishLibraryVariants("release")

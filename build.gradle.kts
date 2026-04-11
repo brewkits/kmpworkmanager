@@ -31,8 +31,9 @@ tasks.register<Zip>("generateFullMavenZip") {
     group = "publishing"
     description = "Generates a ZIP file containing all Maven artifacts and checksums for manual upload"
 
+    val versionName = (rootProject.findProperty("VERSION_NAME") as? String) ?: System.getenv("VERSION_NAME") ?: "0.0.0-SNAPSHOT"
     val stagingDir = layout.buildDirectory.dir("maven-central-staging")
-    archiveFileName.set("kmpworkmanager-maven-central-2.3.9.zip")
+    archiveFileName.set("kmpworkmanager-maven-central-$versionName.zip")
     destinationDirectory.set(layout.buildDirectory.dir("distributions"))
 
     from(stagingDir)
@@ -74,6 +75,26 @@ tasks.register<Zip>("generateFullMavenZip") {
                         .digest(file.readBytes())
                         .joinToString("") { byte -> "%02x".format(byte) }
                     sha1File.writeText(sha1)
+                    checksumCount++
+                }
+
+                // Generate SHA256
+                val sha256File = java.io.File(file.parentFile, "${file.name}.sha256")
+                if (!sha256File.exists()) {
+                    val sha256 = java.security.MessageDigest.getInstance("SHA-256")
+                        .digest(file.readBytes())
+                        .joinToString("") { byte -> "%02x".format(byte) }
+                    sha256File.writeText(sha256)
+                    checksumCount++
+                }
+
+                // Generate SHA512
+                val sha512File = java.io.File(file.parentFile, "${file.name}.sha512")
+                if (!sha512File.exists()) {
+                    val sha512 = java.security.MessageDigest.getInstance("SHA-512")
+                        .digest(file.readBytes())
+                        .joinToString("") { byte -> "%02x".format(byte) }
+                    sha512File.writeText(sha512)
                     checksumCount++
                 }
             }
