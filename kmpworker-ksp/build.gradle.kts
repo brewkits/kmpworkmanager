@@ -1,5 +1,6 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.util.Base64
+import org.gradle.api.publish.maven.tasks.AbstractPublishToMaven
 
 plugins {
     kotlin("jvm")
@@ -89,4 +90,8 @@ signing {
         useInMemoryPgpKeys(signingKey, signingPassword)
     }
     sign(publishing.publications)
+}
+
+tasks.withType<AbstractPublishToMaven>().configureEach {
+    mustRunAfter(tasks.withType<Sign>())
 }

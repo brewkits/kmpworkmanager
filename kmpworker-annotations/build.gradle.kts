@@ -1,5 +1,6 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.util.Base64
+import org.gradle.api.publish.maven.tasks.AbstractPublishToMaven
 
 plugins {
     kotlin("multiplatform")
@@ -62,6 +63,10 @@ android {
     }
 }
 
+val mavenCentralJavadocJar by tasks.registering(Jar::class) {
+    archiveClassifier.set("javadoc")
+}
+
 afterEvaluate {
     publishing {
         publications {
@@ -90,11 +95,7 @@ afterEvaluate {
                     }
                 }
                 
-                // Add empty javadoc JAR to satisfy Maven Central requirements
-                val javadocJar by tasks.registering(Jar::class) {
-                    archiveClassifier.set("javadoc")
-                }
-                artifact(javadocJar)
+                artifact(mavenCentralJavadocJar)
             }
         }
     }
@@ -118,4 +119,8 @@ signing {
         useInMemoryPgpKeys(signingKey, signingPassword)
     }
     sign(publishing.publications)
+}
+
+tasks.withType<AbstractPublishToMaven>().configureEach {
+    mustRunAfter(tasks.withType<Sign>())
 }

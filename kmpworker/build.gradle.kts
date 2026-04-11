@@ -120,6 +120,11 @@ android {
     }
 }
 
+// Empty javadoc JAR required by Maven Central — registered once, shared across all publications.
+val mavenCentralJavadocJar by tasks.registering(Jar::class) {
+    archiveClassifier.set("javadoc")
+}
+
 afterEvaluate {
     publishing {
         publications {
@@ -156,11 +161,7 @@ afterEvaluate {
                     }
                 }
 
-                // Add empty javadoc JAR to satisfy Maven Central requirements
-                val javadocJar by tasks.registering(Jar::class) {
-                    archiveClassifier.set("javadoc")
-                }
-                artifact(javadocJar)
+                artifact(mavenCentralJavadocJar)
             }
         }
     }
@@ -212,7 +213,7 @@ tasks.register("generateChecksums") {
     dependsOn("publishAllPublicationsToMavenCentralLocalRepository")
 
     doLast {
-        val stagingDir = project.layout.buildDirectory.dir("maven-central-staging").get().asFile
+        val stagingDir = rootProject.layout.buildDirectory.dir("maven-central-staging").get().asFile
         if (!stagingDir.exists()) {
             logger.warn("Staging directory does not exist: $stagingDir")
             return@doLast
@@ -260,7 +261,7 @@ tasks.register("publishAndroidWithChecksums") {
     dependsOn("publishAndroidReleasePublicationToMavenCentralLocalRepository")
 
     doLast {
-        val stagingDir = project.layout.buildDirectory.dir("maven-central-staging").get().asFile
+        val stagingDir = rootProject.layout.buildDirectory.dir("maven-central-staging").get().asFile
         if (!stagingDir.exists()) {
             logger.warn("Staging directory does not exist: $stagingDir")
             return@doLast
@@ -315,4 +316,10 @@ signing {
         )
     }
     sign(publishing.publications)
+}
+
+// Workaround for Gradle implicit dependency false-positive between sign and publish tasks
+// when using the signing plugin with KMP multi-target publications.
+tasks.withType<AbstractPublishToMaven>().configureEach {
+    mustRunAfter(tasks.withType<Sign>())
 }
