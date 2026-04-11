@@ -14,4 +14,19 @@
     -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!--
+        FOREGROUND_SERVICE is required since Android 9 (API 28) to start any foreground service.
+        KmpHeavyWorker calls setForeground() which promotes the worker to a foreground service.
+        Without this permission, SecurityException is thrown at runtime — not at build time.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+
+    <!--
+        FOREGROUND_SERVICE_DATA_SYNC is required on Android 14+ (API 34+) when using
+        FOREGROUND_SERVICE_TYPE_DATA_SYNC in ForegroundInfo. Without this permission,
+        startForeground() throws SecurityException on API 34+ devices.
+        This permission is automatically merged into the consumer app's manifest.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
 </manifest>

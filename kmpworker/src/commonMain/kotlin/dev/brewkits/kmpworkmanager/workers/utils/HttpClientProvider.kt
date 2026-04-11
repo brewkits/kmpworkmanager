@@ -20,9 +20,6 @@ import kotlin.concurrent.Volatile
  *     // No need to close client - managed by provider
  * }
  * ```
- *
- * Replaced `by lazy` with @Volatile var so close() + re-access
- *              creates a fresh client instead of silently returning a closed one.
  */
 object HttpClientProvider {
 
@@ -51,9 +48,7 @@ object HttpClientProvider {
     /**
      * Gracefully close the shared client and reset the reference.
      *
-     * After calling this, the next access to [instance] will create a fresh client —
-     * unlike the previous `by lazy` implementation which returned the closed client.
-     *
+     * After calling this, the next access to [instance] creates a fresh client.
      * Call on app shutdown or when reinitializing with a different configuration.
      */
     fun close() {

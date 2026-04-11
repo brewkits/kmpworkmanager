@@ -125,7 +125,7 @@ internal class AppendOnlyQueue(
                 cacheValid = true
                 Logger.i(
                     LogTags.QUEUE,
-                    "🚀 Queue index loaded: ${savedIndex.size} entries - O(1) startup! (40x faster)"
+                    "✅ Queue index loaded: ${savedIndex.size} entries (O(1) startup)"
                 )
             }
         }
@@ -1079,7 +1079,7 @@ internal class AppendOnlyQueue(
             // Just create head pointer at 0
             writeHeadPointer(0)
 
-            Logger.i(LogTags.CHAIN, "Migration complete. Queue format upgraded to v2.1.0")
+            Logger.i(LogTags.CHAIN, "Migration complete. Queue upgraded to append-only format with head pointer.")
         }
     }
 
@@ -1092,10 +1092,13 @@ internal class AppendOnlyQueue(
         if (!fileManager.fileExistsAtPath(path)) {
             memScoped {
                 val errorPtr = alloc<ObjCObjectVar<NSError?>>()
+                // NSFileProtectionCompleteUntilFirstUserAuthentication: accessible to background
+                // tasks after first unlock. Default (NSFileProtectionComplete) blocks BGTask access.
+                val attributes = mapOf<Any?, Any?>(NSFileProtectionKey to NSFileProtectionCompleteUntilFirstUserAuthentication)
                 fileManager.createDirectoryAtPath(
                     path,
                     withIntermediateDirectories = true,
-                    attributes = null,
+                    attributes = attributes,
                     error = errorPtr.ptr
                 )
             }
@@ -1312,7 +1315,7 @@ internal class AppendOnlyQueue(
      * Append item to queue file in binary format with CRC32
      * Format: [length:4][data:length][crc32:4][\n:1]
      *
-     * PERFORMANCE FIX: Combined into a single write to reduce memory pinning overhead.
+     * Combined into a single write to reduce memory pinning overhead.
      */
     private fun appendToQueueFileBinary(fileHandle: NSFileHandle, item: String) {
         val jsonBytes = item.encodeToByteArray()
@@ -1340,8 +1343,7 @@ internal class AppendOnlyQueue(
      * Read single record from binary format with CRC32 validation
      * Format: [length:4][data:length][crc32:4][\n:1]
      *
-     * PERFORMANCE FIX: Reduced Syscalls by reading length then reading the entire rest 
-     * of the record (data + crc + \n) in one go.
+     * Reads length first, then the entire remaining record (data + crc + \n) in one syscall.
      *
      * @return JSON string or null if EOF/corrupt
      */

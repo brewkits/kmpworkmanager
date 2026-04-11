@@ -66,10 +66,6 @@ class AndroidEventStore(
      */
     private val fileLock = Any()
 
-    /**
-     * FIX: Track last cleanup time for deterministic cleanup
-     * Replaces probabilistic 10% cleanup with time-based strategy
-     */
     @Volatile
     private var lastCleanupTimeMs: Long = 0L
 
@@ -97,7 +93,7 @@ class AndroidEventStore(
 
                 Logger.d(LogTags.SCHEDULER, "AndroidEventStore: Saved event $eventId for task ${event.taskName}")
 
-                // FIX: Deterministic cleanup - time-based or size-based
+                // Deterministic cleanup — triggered by event count or file size threshold
                 if (config.autoCleanup && shouldPerformCleanup()) {
                     performCleanup()
                     lastCleanupTimeMs = System.currentTimeMillis()
@@ -151,14 +147,14 @@ class AndroidEventStore(
             try {
                 if (!eventsFile.exists()) return@withContext
 
-                // FIX: Use streaming reader instead of readLines() to prevent OOM
+                // Stream line-by-line instead of readLines() to prevent OOM on large files
                 val allEvents = mutableListOf<StoredEvent>()
                 eventsFile.bufferedReader().use { reader ->
                     reader.forEachLine { line ->
                         if (line.isNotBlank()) {
                             try {
                                 allEvents.add(json.decodeFromString<StoredEvent>(line))
-                            } catch (e: Exception) {
+                            } catch (_: Exception) {
                                 // Skip corrupted lines
                             }
                         }
@@ -189,14 +185,14 @@ class AndroidEventStore(
             try {
                 if (!eventsFile.exists()) return@withContext 0
 
-                // FIX: Use streaming reader instead of readLines() to prevent OOM
+                // Stream line-by-line instead of readLines() to prevent OOM on large files
                 val allEvents = mutableListOf<StoredEvent>()
                 eventsFile.bufferedReader().use { reader ->
                     reader.forEachLine { line ->
                         if (line.isNotBlank()) {
                             try {
                                 allEvents.add(json.decodeFromString<StoredEvent>(line))
-                            } catch (e: Exception) {
+                            } catch (_: Exception) {
                                 // Skip corrupted lines
                             }
                         }
@@ -241,7 +237,7 @@ class AndroidEventStore(
                     return@withContext 0
                 }
 
-                // FIX: Use streaming reader instead of readLines() to prevent OOM
+                // Stream line-by-line instead of readLines() to prevent OOM on large files
                 var count = 0
                 eventsFile.bufferedReader().use { reader ->
                     reader.forEachLine { line ->
@@ -259,9 +255,6 @@ class AndroidEventStore(
     }
 
     /**
-     * FIX: Deterministic cleanup check
-     * Replaces probabilistic 10% cleanup with time-based + size-based strategy
-     *
      * Triggers cleanup if:
      * 1. Cleanup interval has elapsed (default: 5 minutes), OR
      * 2. File size exceeds threshold (default: 1MB)
@@ -292,13 +285,13 @@ class AndroidEventStore(
 
     /**
      * Performs cleanup of consumed and old events.
-     * FIX: Now called deterministically based on time or file size (was probabilistic 10%).
+     * Called deterministically based on time elapsed or file size threshold.
      */
     private fun performCleanup() {
         try {
             if (!eventsFile.exists()) return
 
-            // FIX: Use streaming reader instead of readLines() to prevent OOM
+            // Stream line-by-line instead of readLines() to prevent OOM on large files
             val allEvents = mutableListOf<StoredEvent>()
             eventsFile.bufferedReader().use { reader ->
                 reader.forEachLine { line ->

@@ -94,8 +94,11 @@ class IosWorkerFactory {
 
 // Adapter to wrap library Worker as IosWorker
 private class WorkerAdapter(private val worker: Worker) : IosWorker {
-    override suspend fun doWork(input: String?): Boolean {
-        return worker.doWork(input)
+    override suspend fun doWork(
+        input: String?,
+        env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
+    ): dev.brewkits.kmpworkmanager.background.domain.WorkerResult {
+        return worker.doWork(input, env)
     }
 }
 ```
@@ -633,16 +636,16 @@ Don't use built-in workers for:
 Built-in workers use these libraries:
 
 ```kotlin
-// Ktor Client 3.0.3 - HTTP operations
-implementation("io.ktor:ktor-client-core:3.0.3")
-implementation("io.ktor:ktor-client-okhttp:3.0.3") // Android
-implementation("io.ktor:ktor-client-darwin:3.0.3") // iOS
+// Ktor Client 2.3.12 - HTTP operations
+implementation("io.ktor:ktor-client-core:2.3.12")
+implementation("io.ktor:ktor-client-okhttp:2.3.12") // Android
+implementation("io.ktor:ktor-client-darwin:2.3.12") // iOS
 
 // Okio 3.9.1 - File I/O
 implementation("com.squareup.okio:okio:3.9.1")
 
 // Kotlinx Serialization - JSON handling
-implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
+implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 ```
 
 ---
@@ -699,10 +702,10 @@ A: They're demo/reference implementations. For production with complex requireme
 A: Only FileCompressionWorker works offline. HTTP workers require network connectivity.
 
 **Q: How do I handle worker failures?**
-A: WorkManager automatically retries failed workers based on backoff policy. Workers return `false` on failure.
+A: WorkManager automatically retries failed workers based on backoff policy. Workers return `WorkerResult.Failure()` or `Retry()` on failure.
 
 **Q: Can I chain workers?**
-A: Not directly. Listen to worker completion events and schedule the next worker programmatically.
+A: Yes, using the `TaskChain` API provided by `BackgroundTaskScheduler`.
 
 ---
 
@@ -716,12 +719,12 @@ For examples of how to use built-in workers, please refer to the main demo appli
 
 For questions or issues:
 - GitHub: https://github.com/brewkits/kmpworkmanager
-- Email: datacenter111@gmail.com
+- Email: vietnguyentuan@gmail.com
 
 ---
 
 ## License
 
-Copyright © 2024 Nguyễn Tuấn Việt at Brewkits
+Copyright © 2026 Nguyễn Tuấn Việt at Brewkits
 
 Built with ❤️ for the KMP community

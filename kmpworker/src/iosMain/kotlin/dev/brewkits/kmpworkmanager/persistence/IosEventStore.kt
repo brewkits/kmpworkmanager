@@ -72,7 +72,7 @@ class IosEventStore(
             )
 
             try {
-                // FIXED: Atomicity — entire append must be inside coordination
+                // Atomicity: entire append must be inside coordination
                 IosFileCoordinator.coordinate(eventsFileURL, write = true) { safeUrl ->
                     // Disk space guard
                     val usableSpace = checkFreeSpace(safeUrl)
@@ -227,7 +227,11 @@ class IosEventStore(
 
     private fun ensureDirectoryExists(url: NSURL) {
         if (!fileManager.fileExistsAtPath(url.path ?: "")) {
-            fileManager.createDirectoryAtURL(url, withIntermediateDirectories = true, attributes = null, error = null)
+            // NSFileProtectionCompleteUntilFirstUserAuthentication keeps files accessible to
+            // background tasks after first unlock. The OS default (NSFileProtectionComplete)
+            // would lock files when screen is off, breaking all background event writes.
+            val attributes = mapOf<Any?, Any?>(NSFileProtectionKey to NSFileProtectionCompleteUntilFirstUserAuthentication)
+            fileManager.createDirectoryAtURL(url, withIntermediateDirectories = true, attributes = attributes, error = null)
         }
     }
 }

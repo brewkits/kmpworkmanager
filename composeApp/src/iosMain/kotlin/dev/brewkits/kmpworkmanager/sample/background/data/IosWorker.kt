@@ -3,9 +3,7 @@ package dev.brewkits.kmpworkmanager.sample.background.data
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 
 /**
- * A simple interface for all background workers on the iOS platform.
- *
- * v2.3.0+: Changed return type from Boolean to WorkerResult
+ * Base interface for all background workers in the iOS sample app.
  */
 interface IosWorker : dev.brewkits.kmpworkmanager.background.domain.Worker {
     /**

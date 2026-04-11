@@ -6,8 +6,6 @@ import kotlinx.coroutines.flow.asSharedFlow
 
 /**
  * Event emitted when a background task completes.
- *
- * v2.3.0+: Added outputData field to support returning data from workers
  */
 data class TaskCompletionEvent(
     val taskName: String,
@@ -25,6 +23,6 @@ object TaskEventBus {
     val events: SharedFlow<TaskCompletionEvent> = _events.asSharedFlow()
 
     suspend fun emit(event: TaskCompletionEvent) {
-        _events.tryEmit(event)
+        _events.emit(event)
     }
 }

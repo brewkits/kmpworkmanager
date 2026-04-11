@@ -16,9 +16,9 @@ Complete API documentation for KMP WorkManager.
 
 ---
 
-## v2.3.8 APIs
+## v2.3.9 APIs
 
-New types and scheduler methods added in v2.3.8.
+New types and scheduler methods added in v2.3.9.
 
 ### TaskPriority
 

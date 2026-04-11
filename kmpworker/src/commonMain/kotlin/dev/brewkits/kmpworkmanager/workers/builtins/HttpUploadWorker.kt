@@ -53,8 +53,7 @@ class HttpUploadWorker(
         val metadata = fileSystem.metadata(filePath)
         val fileSize = metadata.size ?: return WorkerResult.Failure("Size unknown")
 
-        // MED-3 fix: enforce request size limit before starting the upload.
-        // SecurityValidator.MAX_REQUEST_BODY_SIZE was defined but never validated here.
+        // Enforce request size limit before starting the upload.
         if (fileSize > SecurityValidator.MAX_REQUEST_BODY_SIZE) {
             return WorkerResult.Failure(
                 "File too large: ${SecurityValidator.formatByteSize(fileSize)} exceeds " +
@@ -100,8 +99,6 @@ class HttpUploadWorker(
                                 if (read <= 0L) break
                                 
                                 val bytes = chunkBuf.readByteArray()
-                                // Back to original context implicitly via channel call? 
-                                // ByteWriteChannel.writeFully is suspend, so we can call it from IO
                                 channel.writeFully(bytes)
                                 bytesUploaded += read
 

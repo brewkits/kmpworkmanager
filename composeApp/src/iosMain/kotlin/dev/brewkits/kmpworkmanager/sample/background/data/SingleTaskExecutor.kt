@@ -36,8 +36,6 @@ class SingleTaskExecutor(private val workerFactory: IosWorkerFactory) {
     /**
      * Creates and runs a worker based on its class name with timeout protection.
      *
-     * v2.3.0+: Returns WorkerResult with data instead of Boolean
-     *
      * @param workerClassName The fully qualified name of the worker class.
      * @param input Optional input data for the worker.
      * @param timeoutMs Maximum execution time in milliseconds (default: 25s)
@@ -100,9 +98,7 @@ class SingleTaskExecutor(private val workerFactory: IosWorkerFactory) {
     }
 
     /**
-     * Emit task completion event to TaskEventBus for UI notification
-     *
-     * v2.3.0+: Emits both success and failure events with outputData
+     * Emit task completion event to TaskEventBus for UI notification.
      */
     private fun emitEvent(workerClassName: String, result: WorkerResult) {
         CoroutineScope(Dispatchers.Main).launch {

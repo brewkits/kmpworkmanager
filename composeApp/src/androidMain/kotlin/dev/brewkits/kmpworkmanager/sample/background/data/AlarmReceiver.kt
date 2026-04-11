@@ -38,7 +38,7 @@ class AlarmReceiver : BroadcastReceiver() {
 
         Logger.i(LogTags.ALARM, "Alarm triggered - Title: '$title', ID: $notificationId")
 
-        // v2.0.1+: Use goAsync() to prevent Android from killing process during async operations
+        // goAsync() keeps the process alive until pendingResult.finish() is called.
         val pendingResult = goAsync()
 
         try {
@@ -114,8 +114,7 @@ class AlarmReceiver : BroadcastReceiver() {
     }
 
     /**
-     * Emit task completion event to notify UI
-     * v2.0.1+: Now accepts PendingResult to ensure process stays alive during async operation
+     * Emit task completion event to notify UI. [pendingResult] must be finished after emit.
      */
     private fun emitCompletionEvent(title: String, message: String, pendingResult: BroadcastReceiver.PendingResult) {
         CoroutineScope(Dispatchers.Main).launch {

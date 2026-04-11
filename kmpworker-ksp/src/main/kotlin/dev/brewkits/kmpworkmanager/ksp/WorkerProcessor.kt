@@ -81,12 +81,13 @@ class WorkerProcessor(
                 aliases = aliases
             )
 
-            val superTypes = classDecl.superTypes.map { it.resolve().declaration.simpleName.asString() }
             when {
-                superTypes.contains("AndroidWorker") -> androidWorkers.add(info)
-                superTypes.contains("IosWorker")     -> iosWorkers.add(info)
+                classDecl.extendsWorkerType("AndroidWorker") -> androidWorkers.add(info)
+                classDecl.extendsWorkerType("IosWorker")     -> iosWorkers.add(info)
                 else -> logger.warn(
-                    "@Worker on ${classDecl.simpleName.asString()} doesn't extend AndroidWorker or IosWorker — skipped"
+                    "@Worker on ${classDecl.simpleName.asString()} doesn't extend AndroidWorker or IosWorker " +
+                    "(checked full inheritance chain) — skipped. " +
+                    "Ensure your class extends AndroidWorker or IosWorker directly or indirectly."
                 )
             }
         }
@@ -161,7 +162,12 @@ class WorkerProcessor(
             )
             .build()
 
-        fileSpec.writeTo(codeGenerator, Dependencies(false))
+        // Dependencies(aggregating = true): this factory is built from ALL @Worker-annotated
+        // classes across the entire module. Any source change — adding, removing, or renaming
+        // a @Worker class — must trigger regeneration. Using false (isolated) would tell KSP
+        // this output depends only on one file, so adding a @Worker in a new file would leave
+        // the factory stale and cause "worker not found" failures at runtime.
+        fileSpec.writeTo(codeGenerator, Dependencies(aggregating = true))
         logger.info("Generated: $packageName.AndroidWorkerFactoryGenerated")
     }
 
@@ -243,7 +249,12 @@ class WorkerProcessor(
             .addType(typeBuilder.build())
             .build()
 
-        fileSpec.writeTo(codeGenerator, Dependencies(false))
+        // Dependencies(aggregating = true): this factory is built from ALL @Worker-annotated
+        // classes across the entire module. Any source change — adding, removing, or renaming
+        // a @Worker class — must trigger regeneration. Using false (isolated) would tell KSP
+        // this output depends only on one file, so adding a @Worker in a new file would leave
+        // the factory stale and cause "worker not found" failures at runtime.
+        fileSpec.writeTo(codeGenerator, Dependencies(aggregating = true))
         logger.info(
             "Generated: $packageName.IosWorkerFactoryGenerated " +
                 "(${if (hasBgTaskIds) "with BgTaskIdProvider: $requiredIds" else "no bgTaskIds"})"
@@ -257,6 +268,30 @@ class WorkerProcessor(
             Generated from %d @Worker annotated %s classes.
         """.trimIndent()
     }
+}
+
+/**
+ * Returns true if [this] class (or any ancestor up the hierarchy) has the given simple name.
+ *
+ * The original check used `classDecl.superTypes.map { simpleName }` which only inspects
+ * *direct* parents. A class like `class MyWorker : BaseAppWorker()` where
+ * `BaseAppWorker : AndroidWorker` would be silently skipped — it would never appear in the
+ * generated factory and its tasks would fail at runtime with "worker not found".
+ *
+ * Guarded against cycles (interface/abstract hierarchies can be deep) via [visited].
+ */
+private fun KSClassDeclaration.extendsWorkerType(
+    targetSimpleName: String,
+    visited: MutableSet<String> = mutableSetOf()
+): Boolean {
+    val qualifiedName = qualifiedName?.asString() ?: return false
+    if (!visited.add(qualifiedName)) return false  // cycle guard
+    for (superType in superTypes) {
+        val resolved = superType.resolve().declaration as? KSClassDeclaration ?: continue
+        if (resolved.simpleName.asString() == targetSimpleName) return true
+        if (resolved.extendsWorkerType(targetSimpleName, visited)) return true
+    }
+    return false
 }
 
 private data class WorkerInfo(

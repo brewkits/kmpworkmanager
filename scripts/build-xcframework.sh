@@ -6,7 +6,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$SCRIPT_DIR/.."
-OUTPUT_DIR="/Users/viet.nguyen/DATA/PRIVATE/native_workmanager/ios/Frameworks"
+OUTPUT_DIR="$ROOT_DIR/build/xcframework"
 BUILD_DIR="$ROOT_DIR/kmpworker/build/bin"
 TMP_DIR="$ROOT_DIR/build/xcframework-tmp"
 

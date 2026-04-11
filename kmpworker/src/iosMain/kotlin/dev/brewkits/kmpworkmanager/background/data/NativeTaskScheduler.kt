@@ -136,7 +136,7 @@ public class NativeTaskScheduler(
                     val result = migration.migrate()
                     if (result.success) {
                         Logger.i(LogTags.SCHEDULER, "Storage migration successful: ${result.message}")
-                        // SUSTAINABILITY FIX: Clear old storage immediately after successful migration
+                        // Clear old storage immediately after successful migration
                         // to free up space in NSUserDefaults and prevent stale data carry-over.
                         migration.clearOldStorage()
                     } else {
@@ -145,7 +145,7 @@ public class NativeTaskScheduler(
                 }
 
                 // 2. Perform periodic maintenance (cleanup stale files, orphaned definitions)
-                // SUSTAINABILITY FIX: Handled by IosFileStorage init block.
+                // Periodic maintenance is triggered by IosFileStorage init block.
                 fileStorage.performMaintenanceTasks()
             } catch (e: Exception) {
                 Logger.e(LogTags.SCHEDULER, "Storage initialization error", e)

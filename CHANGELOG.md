@@ -5,6 +5,44 @@ All notable changes to KMP WorkManager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.9] - 2026-04-11
+
+### Fixed
+
+**Android: Missing foreground service permissions cause SecurityException at runtime (HIGH)**
+- Root cause: The library's `AndroidManifest.xml` did not declare `FOREGROUND_SERVICE` or `FOREGROUND_SERVICE_DATA_SYNC`. `KmpHeavyWorker.setForeground()` throws `SecurityException` on Android 9+ without `FOREGROUND_SERVICE`, and on Android 14+ without `FOREGROUND_SERVICE_DATA_SYNC` when using `FOREGROUND_SERVICE_TYPE_DATA_SYNC`.
+- Fixed by adding both `<uses-permission>` declarations to the library manifest. Android Gradle plugin merges these automatically into the consumer app's `AndroidManifest.xml`.
+
+**KSP: Workers with an intermediate base class silently excluded from generated factory (HIGH)**
+- Root cause: `WorkerProcessor` used `classDecl.superTypes` to check for `AndroidWorker`/`IosWorker` — inspecting only the *direct* parent. A class extending a custom base (e.g. `class MyWorker : BaseAppWorker()` where `BaseAppWorker : AndroidWorker`) was silently skipped. At runtime these tasks failed with "worker not found".
+- Fixed: `extendsWorkerType()` now traverses the full inheritance hierarchy with a cycle guard.
+
+**Android: Deprecated 2-arg constructor throws cryptic NPE instead of actionable error (LOW)**
+- Root cause: `BaseKmpWorker(Context, WorkerParameters)` and `KmpHeavyWorker(Context, WorkerParameters)` called `KmpWorkManagerKoin.getKoin().get()` without a try-catch. An uninitialised Koin threw `IllegalStateException` with a generic message, with no hint for the developer.
+- Fixed: the call is now wrapped in a try-catch that rethrows with a clear message pointing to `KmpWorkManager.initialize()` and `KmpWorkerFactory`.
+
+### Added
+
+**KSP: `@Worker(aliases = [...])` for safe class renames**
+- Workers can now declare one or more alias names that also resolve to the same factory lambda. Safe rename path: add the old simple name to `aliases`, remove it once all devices have drained their queues.
+- Example: `@Worker(name = "SyncWorkerV2", aliases = ["SyncWorker"])`.
+
+**KSP: ProGuard / rename warning when `name` is absent**
+- `WorkerProcessor` now emits a `logger.warn(...)` at build time when `@Worker` has no explicit `name` argument. The generated key defaults to the simple class name, which breaks persisted tasks on rename or ProGuard obfuscation.
+- Fix: add `@Worker(name = "StableIdentifier")`.
+
+### Changed
+
+**iOS: IosFileStorage — removed deprecated `DELETED_MARKER_MAX_AGE_MS` constant**
+- `IosFileStorage.Companion.DELETED_MARKER_MAX_AGE_MS` was marked `@Deprecated` since v2.3.4. It is now removed. Use `IosFileStorageConfig.deletedMarkerMaxAgeMs` instead.
+
+### Tests
+
+- **New** `KmpWorkerForegroundInfoCompatTest.testHeavyTask_onApi31Plus_schedulesWithoutSecurityException` — verifies `KmpHeavyWorker` schedules without `SecurityException` on any API level.
+- **New** `WorkerProcessorTest.testCodeGeneration_IndirectAndroidInheritance_GeneratesFactory` and `testCodeGeneration_IndirectIosInheritance_GeneratesFactory` — regression tests for the deep-inheritance KSP fix.
+- **New** `WorkerProcessorTest.testCodeGeneration_WrongBaseClass_EmitsWarning_SkipsWorker` — verifies workers not extending `AndroidWorker`/`IosWorker` are excluded with a warning.
+- **New** `WorkerProcessorTest.testCodeGeneration_AliasesGenerateAdditionalEntries` — verifies alias entries are generated in the factory map.
+
 ## [2.3.8] - 2026-04-08
 
 ### Fixed

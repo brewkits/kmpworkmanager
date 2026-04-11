@@ -3,6 +3,7 @@ package dev.brewkits.kmpworkmanager.background.data
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
+import android.content.pm.ServiceInfo
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.work.ForegroundInfo
@@ -13,7 +14,14 @@ import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.utils.LogTags
 
 /**
- * Android implementation for "heavy" tasks that requires a foreground service.
+ * Android implementation for "heavy" tasks that run as a foreground service.
+ *
+ * Difference from [KmpWorker]: calls [setForeground] before starting work, which posts a
+ * persistent notification and elevates the process priority. Use this for long-running or
+ * network-intensive tasks that must not be deferred by the OS.
+ *
+ * On API 31+ (Android 12 / S) the foreground service type is explicitly set to
+ * [ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC] as required by Android 16 (API 36).
  */
 class KmpHeavyWorker(
     appContext: Context,
@@ -25,7 +33,16 @@ class KmpHeavyWorker(
     constructor(appContext: Context, workerParams: WorkerParameters) : this(
         appContext,
         workerParams,
-        KmpWorkManagerKoin.getKoin().get()
+        try {
+            KmpWorkManagerKoin.getKoin().get()
+        } catch (e: IllegalStateException) {
+            throw IllegalStateException(
+                "KmpWorkManager not initialized — KmpHeavyWorker cannot start. " +
+                "Call KmpWorkManager.initialize() in Application.onCreate() before WorkManager runs, " +
+                "or migrate to KmpWorkerFactory for proper constructor injection (see KmpWorkerFactory KDoc).",
+                e
+            )
+        }
     )
 
     companion object {
@@ -84,6 +101,11 @@ class KmpHeavyWorker(
             .setOngoing(true)
             .build()
 
-        return ForegroundInfo(NOTIFICATION_ID, notification)
+        // API 31+ requires specifying foreground service type.
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            ForegroundInfo(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        } else {
+            ForegroundInfo(NOTIFICATION_ID, notification)
+        }
     }
 }

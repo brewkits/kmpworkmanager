@@ -20,7 +20,7 @@
 ```kotlin
 // build.gradle.kts
 commonMain.dependencies {
-    implementation("dev.brewkits:kmpworkmanager:2.3.8")
+    implementation("dev.brewkits:kmpworkmanager:2.3.9")
 }
 ```
 
@@ -257,8 +257,8 @@ Add to `build.gradle.kts`:
 plugins { id("com.google.devtools.ksp") }
 
 dependencies {
-    ksp("dev.brewkits:kmpworker-ksp:2.3.8")
-    commonMain.implementation("dev.brewkits:kmpworker-annotations:2.3.8")
+    ksp("dev.brewkits:kmpworker-ksp:2.3.9")
+    commonMain.implementation("dev.brewkits:kmpworker-annotations:2.3.9")
 }
 ```
 

@@ -532,15 +532,14 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                 )
             }
 
-            // Built-in Worker Chains Section (v2.3.0 Feature)
             DemoSection(
-                title = "Built-in Worker Chains (v2.3.0)",
+                title = "Built-in Worker Chains",
                 icon = Icons.Default.AccountTree,
                 containerColor = MaterialTheme.colorScheme.primaryContainer
             ) {
                 DemoCard(
                     title = "Download \u2192 Compress \u2192 Upload Chain",
-                    description = "Complete workflow: Download file, compress it, then upload (v2.3.0 data passing)",
+                    description = "Complete workflow: Download file, compress it, then upload with data passing between steps.",
                     icon = Icons.Default.CloudSync,
                     enabled = !isAnyTaskRunning,
                     onClick = {
@@ -663,7 +662,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                             val requestConfig = HttpRequestConfig(
                                 url = "https://jsonplaceholder.typicode.com/posts",
                                 method = "POST",
-                                body = """{"title":"Chain Demo","body":"v2.3.0 test","userId":1}""",
+                                body = """{"title":"Chain Demo","body":"Built-in chain test","userId":1}""",
                                 headers = mapOf("Content-Type" to "application/json")
                             )
 
@@ -910,7 +909,6 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                 )
             }
 
-            // v2.3.3 Bug Fixes Demo
             DemoSection(
                 title = "v2.3.3 Bug Fixes",
                 icon = Icons.Default.BugReport,
@@ -1000,7 +998,6 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                 )
             }
 
-            // v2.3.6 Bug Fixes Demo
             DemoSection(
                 title = "v2.3.6 Bug Fixes",
                 icon = Icons.Default.BugReport,

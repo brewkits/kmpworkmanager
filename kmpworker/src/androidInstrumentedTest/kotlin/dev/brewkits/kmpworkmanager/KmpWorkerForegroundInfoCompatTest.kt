@@ -205,6 +205,33 @@ class KmpWorkerForegroundInfoCompatTest {
         assertTrue(allWork.isNotEmpty(), "Chain tasks should be registered with WorkManager")
     }
 
+    /**
+     * Test 7: Scheduling a heavy task on API 31+ must not crash with SecurityException.
+     *
+     * On API 31+ (and enforced on API 36) starting a foreground service without declaring
+     * a foreground service type throws a SecurityException. KmpHeavyWorker.createForegroundInfo()
+     * uses the 3-arg ForegroundInfo constructor with FOREGROUND_SERVICE_TYPE_DATA_SYNC on API 31+,
+     * preventing this crash (v2.3.9 fix).
+     */
+    @Test
+    fun testHeavyTask_onApi31Plus_schedulesWithoutSecurityException() = runBlocking {
+        val scheduler = KmpWorkManager.getInstance().backgroundTaskScheduler
+
+        // Schedule and verify no exception is thrown on any API level
+        val result = scheduler.enqueue(
+            id = "v239-heavy-foreground-type-test",
+            trigger = TaskTrigger.OneTime(initialDelayMs = 60_000),
+            workerClassName = "SimpleWorker",
+            constraints = Constraints(isHeavyTask = true),
+            inputJson = null,
+            policy = ExistingPolicy.REPLACE
+        )
+
+        assertEquals(ScheduleResult.ACCEPTED, result,
+            "Heavy task must schedule successfully on API ${android.os.Build.VERSION.SDK_INT}. " +
+            "A SecurityException here means ForegroundInfo is missing FOREGROUND_SERVICE_TYPE_DATA_SYNC.")
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Test Helpers
     // ─────────────────────────────────────────────────────────────────────────

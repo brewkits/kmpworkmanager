@@ -10,12 +10,10 @@ import dev.brewkits.kmpworkmanager.workers.BuiltinWorkerRegistry
 class IosWorkerFactory {
     fun createWorker(workerClassName: String): IosWorker? {
         return when (workerClassName) {
-            // Original workers
             WorkerTypes.SYNC_WORKER -> SyncWorker()
             WorkerTypes.UPLOAD_WORKER -> UploadWorker()
             WorkerTypes.HEAVY_PROCESSING_WORKER -> HeavyProcessingWorker()
 
-            // New workers - Phase 2
             WorkerTypes.DATABASE_WORKER -> DatabaseWorker()
             WorkerTypes.NETWORK_RETRY_WORKER -> NetworkRetryWorker()
             WorkerTypes.IMAGE_PROCESSING_WORKER -> ImageProcessingWorker()
@@ -30,7 +28,7 @@ class IosWorkerFactory {
                 if (builtinWorker != null) {
                     WorkerAdapter(builtinWorker)
                 } else {
-                    println(" KMP_BG_TASK_iOS: Unknown worker class name: $workerClassName")
+                    println("KMP_BG_TASK_iOS: Unknown worker class name: $workerClassName")
                     null
                 }
             }
@@ -40,8 +38,6 @@ class IosWorkerFactory {
 
 /**
  * Adapter to wrap library Worker instances as IosWorker for the sample app.
- *
- * v2.3.0+: Updated to pass through WorkerResult directly
  */
 private class WorkerAdapter(private val worker: Worker) : IosWorker {
     override suspend fun doWork(

@@ -45,7 +45,16 @@ abstract class BaseKmpWorker : CoroutineWorker {
         appContext: Context,
         workerParams: WorkerParameters
     ) : super(appContext, workerParams) {
-        this.workerFactory = KmpWorkManagerKoin.getKoin().get()
+        this.workerFactory = try {
+            KmpWorkManagerKoin.getKoin().get()
+        } catch (e: IllegalStateException) {
+            throw IllegalStateException(
+                "KmpWorkManager not initialized — worker cannot start. " +
+                "Call KmpWorkManager.initialize() in Application.onCreate() before WorkManager runs, " +
+                "or migrate to KmpWorkerFactory for proper constructor injection (see KmpWorkerFactory KDoc).",
+                e
+            )
+        }
     }
 
     protected var overflowInputFile: java.io.File? = null
@@ -189,7 +198,7 @@ abstract class BaseKmpWorker : CoroutineWorker {
             val duration = System.currentTimeMillis() - startTime
             historyDuration = duration
 
-            // MED-1 fix: distinguish permanent failures (no retry) from transient failures (retry).
+            // Distinguish permanent failures (no retry) from transient failures (retry).
             // Serialization/parsing errors and missing worker configs are programming errors that
             // will NEVER succeed on retry — retrying wastes battery and WorkManager quota.
             // Also catch NullPointerException, NumberFormatException, etc. from corrupted input.
@@ -239,14 +248,13 @@ abstract class BaseKmpWorker : CoroutineWorker {
         } finally {
             val nowMs = System.currentTimeMillis()
             withContext(NonCancellable) {
-                // MED-2 fix: WorkManager uses UUID as work ID, never contains "periodic".
-                // The previous condition had dead code: `id.toString().contains("periodic")` is
+                // WorkManager uses UUID as work ID — `id.toString().contains("periodic")` is
                 // always false. Only the tags check is reliable.
                 val isPeriodic = tags.contains("type-periodic")
                 
-                // MED-4 fix: always delete overflow file unless retrying or periodic.
-                // Previously, cancelled tasks kept their overflow file until the 24h zombie
-                // cleanup — causing unnecessary disk usage when many tasks are cancelled.
+                // Always delete overflow file unless retrying or periodic.
+                // Cancelled tasks should not retain their overflow file until the 24h zombie
+                // cleanup — causes unnecessary disk usage when many tasks are cancelled.
                 if (!isRetrying && !isPeriodic) {
                     try {
                         overflowInputFile?.delete()

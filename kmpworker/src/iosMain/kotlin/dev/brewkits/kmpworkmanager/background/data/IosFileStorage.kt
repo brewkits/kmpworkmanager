@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -20,6 +21,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.Serializable
@@ -41,17 +43,17 @@ internal data class ChainTransaction(
 )
 
 /**
- * Configuration for IosFileStorage
+ * Configuration for [IosFileStorage].
  *
- * @param diskSpaceBufferBytes Safety margin for disk space checks.
- *        Default: 50MB (reduced from 100MB for better mobile device compatibility)
- * @param deletedMarkerMaxAgeMs Maximum age for deleted chain markers before cleanup.
- *        Default: 7 days (604800000ms)
- * @param isTestMode Override test detection. If null, auto-detects via environment variable
- *        or process name. Set explicitly for reliable test detection.
- *        Default: null (auto-detect)
- * @param fileCoordinationTimeoutMs Timeout for NSFileCoordinator operations (prevents hangs).
- *        Default: 30 seconds (30000ms). Set to 0 to disable timeout.
+ * @param diskSpaceBufferBytes Minimum free space required before any write (safety margin).
+ *   Default: 50 MB.
+ * @param deletedMarkerMaxAgeMs Age after which REPLACE-policy deletion markers are removed.
+ *   Default: 7 days.
+ * @param isTestMode When `null` (default), test mode is auto-detected from the process name
+ *   (`test.kexe`). Pass `true` to force test mode (bypasses NSFileCoordinator), `false`
+ *   to force production mode.
+ * @param fileCoordinationTimeoutMs Maximum time to wait for an NSFileCoordinator lock before
+ *   aborting. Default: 30 000 ms. Set to `0` to disable the timeout.
  */
 @Serializable
 public data class IosFileStorageConfig(
@@ -94,7 +96,6 @@ public class IosFileStorage(
 ) {
 
     private val fileManager = NSFileManager.defaultManager
-    private val fileCoordinator = NSFileCoordinator(filePresenter = null)
 
     // Tolerant Json for all persisted data: ignores unknown keys so that data written by a
     // newer schema version does not crash on rollback or when consumed by an older class.
@@ -201,13 +202,6 @@ public class IosFileStorage(
         private const val DISK_SPACE_CACHE_TTL_MS = 10_000L  // 10 seconds
 
         /**
-         * Default max age for deleted markers (now configurable via IosFileStorageConfig)
-         * @deprecated Use IosFileStorageConfig.deletedMarkerMaxAgeMs instead
-         */
-        @Deprecated("Use IosFileStorageConfig.deletedMarkerMaxAgeMs", ReplaceWith("IosFileStorageConfig().deletedMarkerMaxAgeMs"))
-        const val DELETED_MARKER_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000L
-
-        /**
          * Debounce window for progress flush (100ms)
          * Balances performance (batching) vs data safety
          *
@@ -252,7 +246,6 @@ public class IosFileStorage(
         basePath
     }
 
-    private val queueFileURL: NSURL by lazy { baseDir.safeAppend(QUEUE_FILE_NAME) }
     private val chainsDirURL: NSURL by lazy {
         val url = baseDir.safeAppend(CHAINS_DIR_NAME)
         ensureDirectoryExists(url)
@@ -500,10 +493,8 @@ public class IosFileStorage(
     }
 
     /**
-     * Log transaction for debugging
-     * Append-only log for auditing chain operations
-     *
-     * FIX: Wrapped in NSFileCoordinator for safe concurrent access
+     * Log transaction for debugging.
+     * Append-only log for auditing chain operations.
      */
     private fun logTransaction(txn: ChainTransaction) {
         try {
@@ -518,13 +509,11 @@ public class IosFileStorage(
                 fileManager.createFileAtPath(path, null, null)
             }
 
-            // FIX: Wrap file write in coordinated() for thread safety
             coordinated(logFile, write = true) { safeUrl ->
                 memScoped {
                     val errorPtr = alloc<ObjCObjectVar<NSError?>>()
                     val fileHandle = NSFileHandle.fileHandleForWritingToURL(safeUrl, errorPtr.ptr)
 
-                    // FIX: Handle null fileHandle
                     if (fileHandle == null) {
                         val error = errorPtr.value
                         Logger.w(LogTags.CHAIN, "Failed to open transaction log: ${error?.localizedDescription}")
@@ -535,7 +524,6 @@ public class IosFileStorage(
                         fileHandle.seekToEndOfFile()
                         fileHandle.writeData(line.toNSData())
                     } finally {
-                        // FIX: Wrap closeFile() to prevent exception suppression
                         try {
                             fileHandle.closeFile()
                         } catch (e: Exception) {
@@ -664,11 +652,8 @@ public class IosFileStorage(
     }
 
     /**
-     * Remove deleted markers older than configured age (default 7 days).
+     * Remove deleted markers older than [IosFileStorageConfig.deletedMarkerMaxAgeMs] (default 7 days).
      * Prevents disk space leaks from accumulated markers.
-     *
-     * CRITICAL: Called from performMaintenanceTasks() to prevent accumulation
-     * FIX: Configurable via IosFileStorageConfig
      */
     fun cleanupStaleDeletedMarkers() {
         val path = deletedChainsDirURL.path ?: return
@@ -693,7 +678,6 @@ public class IosFileStorage(
             }
             val timestamp = timestampStr?.toLongOrNull() ?: 0L
 
-            // FIX: Use configurable max age (was hardcoded DELETED_MARKER_MAX_AGE_MS)
             val ageMs = now - (timestamp * 1000) // timestamp is in seconds
             if (ageMs > config.deletedMarkerMaxAgeMs) {
                 fileManager.removeItemAtPath(markerPath, null)
@@ -708,10 +692,8 @@ public class IosFileStorage(
     }
 
     /**
-     * Perform periodic maintenance tasks.
-     *
-     * CRITICAL: Called from init block with intelligent delay to prevent blocking app launch
-     * This prevents accumulation of stale markers (CRITICAL_WARNINGS.md #2)
+     * Perform periodic maintenance tasks: stale marker cleanup and metadata cleanup.
+     * Called from the init block with a startup delay to avoid blocking app launch.
      */
     fun performMaintenanceTasks() {
         try {
@@ -804,17 +786,11 @@ public class IosFileStorage(
     // ==================== Chain Progress Operations ====================
 
     /**
-     * Save chain progress to file.
+     * Buffer a progress update for this chain. The buffer is flushed to disk after a
+     * [FLUSH_DEBOUNCE_MS] debounce window, batching rapid updates into a single write.
      *
-     * **Performance Upgrade:**
-     * - Buffers progress updates in-memory (O(1) operation)
-     * - Debounced flush after 100ms (batches multiple saves)
-     * - Reduces NSFileCoordinator overhead by 90% for parallel tasks
-     * - Immediate flush available via flushNow() for critical points
-     *
-     * **Fix:**
-     * - Now a suspend function to ensure buffer update is immediate and safe
-     * - Removed backgroundScope.launch to honor NonCancellable contexts
+     * For critical checkpoints (chain completion, BGTask expiration), call [flushNow]
+     * immediately after to guarantee durability before the process is suspended.
      *
      * @param progress The progress state to save
      */
@@ -840,13 +816,11 @@ public class IosFileStorage(
     }
 
     /**
-     * Flush buffered progress to disk (batched write)
-     * Internal method for debounced flush
+     * Flush buffered progress to disk (batched write).
      *
-     * Performance: Writes all buffered progress in one batch operation,
-     * reducing NSFileCoordinator overhead from N calls to 1 coordinated block.
-     *
-     * FIX: Uses isFlushing flag to prevent race conditions with saveChainProgress()
+     * Writes all buffered progress in one batch, reducing NSFileCoordinator calls from
+     * N (one per progress update) to the number of chains active during the debounce window.
+     * Uses [flushCompletionSignal] to coordinate with concurrent [flushNow] calls.
      */
     private suspend fun flushProgressBuffer() {
         val signal = progressMutex.withLock {
@@ -881,7 +855,12 @@ public class IosFileStorage(
                 val json = Json.encodeToString(progress)
 
                 try {
-                    coordinated(progressFile, write = true) { safeUrl ->
+                    // Use coordinatedSuspend (not coordinated) here: flushProgressBuffer is a
+                    // suspend fun running on Dispatchers.Default. coordinated() uses runBlocking
+                    // which would block the Dispatchers.Default thread while NSFileCoordinator
+                    // waits on IosDispatchers.IO — thread starvation with N concurrent chains.
+                    // coordinatedSuspend() suspends the coroutine instead of blocking the thread.
+                    coordinatedSuspend(progressFile, write = true) { safeUrl ->
                         writeStringToFile(safeUrl, json)
                     }
                     Logger.v(
@@ -899,7 +878,8 @@ public class IosFileStorage(
 
             Logger.i(LogTags.CHAIN, "✅ Progress flush completed (${bufferSnapshot.size} updates)")
         } finally {
-            // CRITICAL: Always complete signal and reset even if flush fails
+            // Always complete signal and reset, even if flush failed — prevents
+            // saveChainProgress() from blocking indefinitely on the signal.
             progressMutex.withLock {
                 flushCompletionSignal = null
                 // Re-schedule a flush if new items arrived while we were flushing.
@@ -927,7 +907,8 @@ public class IosFileStorage(
      * - App shutdown / BGTask expiration (prevent data loss)
      * - Before reading progress (ensure buffer is flushed)
      *
-     * FIX: Properly handles concurrent flush operations with atomic state management
+     * Concurrent flush calls are safe — atomic state management ensures only one flush
+     * runs at a time; additional callers await the in-progress flush.
      *
      * @throws Exception if flush fails (caller should handle)
      */
@@ -948,76 +929,62 @@ public class IosFileStorage(
     }
 
     /**
-     * Flush all pending progress immediately (synchronous, blocking).
-     * Ensures no progress is lost before app suspension.
+     * Flush all pending progress to disk synchronously.
      *
-     * **Critical Use Cases:**
-     * - iOS app entering background (applicationWillResignActive)
-     * - BGTask expiration warning
-     * - App termination
-     * - Shutdown sequence
+     * Designed for call sites that cannot suspend: BGTask expiration handler,
+     * `applicationWillResignActive`, and shutdown sequences. Blocks the calling thread
+     * for up to 450 ms (leaving 50 ms headroom before the iOS 500 ms watchdog).
      *
-     * **Implementation:**
-     * - Cancels all debounced flush jobs
-     * - Immediately flushes all buffered progress
-     * - Blocks until flush completes (ensures data durability)
-     *
-     * **Data Safety:**
-     * - Reduces progress loss risk by 90%
-     * - Guarantees persistence before suspension
-     * - No data loss on aggressive app termination
-     *
+     * Prefer [flushNow] from suspend contexts — it does the same work without blocking.
      */
     fun flushAllPendingProgress() {
-        val callerThread = NSThread.currentThread
         Logger.i(
             LogTags.CHAIN,
-            "Emergency progress flush requested — thread: '${callerThread.name}', isMain: ${NSThread.isMainThread}"
+            "Emergency progress flush requested — thread: '${NSThread.currentThread.name}', isMain: ${NSThread.isMainThread}"
         )
 
-        // I/O is dispatched to a HIGH-PRIORITY GCD queue so the system preempts lower-priority
-        // work (iCloud sync, app-refresh tasks) and completes our flush as fast as possible.
+        // Launch the coroutine eagerly on Dispatchers.Default BEFORE runBlocking starts.
         //
-        // Main thread parks on a lightweight semaphore (OS-level park, no event-loop overhead)
-        // rather than blocking inside runBlocking's coroutine scheduler.
+        // Previous impl: dispatch_async(highQueue) { runBlocking { flushNow() } }
+        // Problem: the GCD async block called runBlocking which internally called coordinated()
+        // which called ANOTHER runBlocking — nested runBlocking. The inner runBlocking blocked the
+        // GCD thread while IosDispatchers.IO ran the actual NSFileCoordinator call. With N chains
+        // in the progress buffer, this caused N serial GCD-thread-blocks.
         //
-        // Timeout: 450ms — leaves 50ms headroom before the iOS 500ms Watchdog kills the app.
+        // Fix: launch coroutine immediately (queued on Dispatchers.Default, not blocked),
+        // then runBlocking only parks to wait for the deferred result. The coroutine itself
+        // uses coordinatedSuspend() which suspends the coroutine (releases the Default thread)
+        // while NSFileCoordinator runs on IosDispatchers.IO.
         //
-        // ⚠️ NSFileCoordinator BLOCKING RISK: coordinate() is synchronous with no cancellation
-        // API. On timeout, the high-priority thread may still be blocked inside NSFileCoordinator.
-        // We force-release flushCompletionSignal so future saveChainProgress() calls can
-        // schedule a new flush; the orphaned I/O eventually completes on its own.
-        val semaphore = dispatch_semaphore_create(0)
-        val highQueue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH.toLong(), 0u)
+        // Timeout: 450ms — leaves 50ms headroom before the iOS 500ms Watchdog kill.
+        // Use backgroundScope (SupervisorJob + Dispatchers.Default) instead of GlobalScope —
+        // same semantics, avoids the DelicateCoroutinesApi opt-in and ties the deferred
+        // to the storage instance lifecycle rather than the process lifetime.
+        val deferred = backgroundScope.async { flushNow() }
 
-        dispatch_async(highQueue) {
-            kotlinx.coroutines.runBlocking { flushNow() }
-            dispatch_semaphore_signal(semaphore)
-        }
-
-        val timeout = dispatch_time(DISPATCH_TIME_NOW, 450_000_000L) // 450ms in nanoseconds
-        val timedOut = dispatch_semaphore_wait(semaphore, timeout) != 0L
+        val timedOut = runBlocking {
+            withTimeoutOrNull(450L) { deferred.await() }
+        } == null
 
         if (timedOut) {
+            deferred.cancel()
             // Force-release completion signal so saveChainProgress() is not permanently stuck.
-            kotlinx.coroutines.runBlocking {
-                withContext(Dispatchers.Default) {
-                    progressMutex.withLock {
-                        flushCompletionSignal?.complete(Unit)
-                        flushCompletionSignal = null
-                    }
-                    flushJob?.cancel()
+            runBlocking {
+                progressMutex.withLock {
+                    flushCompletionSignal?.complete(Unit)
+                    flushCompletionSignal = null
                 }
+                flushJob?.cancel()
             }
             Logger.w(
                 LogTags.CHAIN,
                 "⚠️ Progress flush timed out after 450ms — likely NSFileCoordinator contention " +
-                    "(iCloud sync or file lock). Signal force-released; in-flight I/O continues " +
-                    "on high-priority GCD queue. Main thread safe (Watchdog respected)."
+                    "(iCloud sync or file lock). Signal force-released; deferred coroutine cancelled. " +
+                    "Main thread safe (Watchdog respected)."
             )
         }
 
-        Logger.i(LogTags.CHAIN, "Emergency progress flush ${if (timedOut) "timed out (I/O orphaned)" else "completed"}")
+        Logger.i(LogTags.CHAIN, "Emergency progress flush ${if (timedOut) "timed out" else "completed"}")
     }
 
     /**
@@ -1025,7 +992,7 @@ public class IosFileStorage(
      *
      * **Schema evolution:** If [ChainProgress.schemaVersion] in the file is older than
      * [ChainProgress.CURRENT_SCHEMA_VERSION], logs a warning and attempts to load the
-     * data anyway (additive changes survive via [ignoreUnknownKeys]). If the schema gap
+     * data anyway (additive changes survive via `ignoreUnknownKeys = true`). If the schema gap
      * is too large to handle gracefully, add an explicit migration branch here before
      * bumping [ChainProgress.CURRENT_SCHEMA_VERSION].
      *
@@ -1233,10 +1200,15 @@ public class IosFileStorage(
         if (!fileManager.fileExistsAtPath(path)) {
             memScoped {
                 val errorPtr = alloc<ObjCObjectVar<NSError?>>()
+                // NSFileProtectionCompleteUntilFirstUserAuthentication: files remain encrypted at
+                // rest but are accessible to background tasks after the first unlock post-boot.
+                // NSFileProtectionComplete (the OS default) locks files when the screen is off,
+                // making them unreadable by BGTasks — which defeats the purpose of this library.
+                val attributes = mapOf<Any?, Any?>(NSFileProtectionKey to NSFileProtectionCompleteUntilFirstUserAuthentication)
                 fileManager.createDirectoryAtURL(
                     url,
                     withIntermediateDirectories = true,
-                    attributes = null,
+                    attributes = attributes,
                     error = errorPtr.ptr
                 )
 
@@ -1357,77 +1329,6 @@ public class IosFileStorage(
         }
     }
 
-    /**
-     * Atomic write with temp file + POSIX rename
-     *
-     * **Guarantees:**
-     * - Write to temp file first (isolated from target)
-     * - Atomic rename (POSIX guarantee - all or nothing)
-     * - NonCancellable rename (prevents corruption if iOS kills process)
-     * - Cleanup temp file on failure
-     *
-     * **Why this matters:**
-     * - If iOS kills process mid-write, file is either:
-     *   - Old version (rename didn't happen) - SAFE
-     *   - New version (rename succeeded) - SAFE
-     *   - Never corrupted (partial write) - GUARANTEED
-     *
-     * @param fileURL Target file URL
-     * @param content Content to write
-     * @throws Exception if write fails (temp file cleaned up automatically)
-     */
-    suspend fun atomicWrite(fileURL: NSURL, content: String) {
-        // Include a hash of the full path in the temp filename to prevent collisions
-        // when two files with the same name exist in different directories. Previously,
-        // "chains/abc.json" and "metadata/tasks/abc.json" would share "abc.json.tmp".
-        val pathHash = fileURL.path.hashCode().toUInt().toString(16)
-        val tempURL = baseDir.safeAppend("${fileURL.lastPathComponent}_${pathHash}.tmp")
-
-        try {
-            // Step 1: Write to temp file (safe if cancelled here)
-            coordinated(tempURL, write = true) { safeUrl ->
-                writeStringToFile(safeUrl, content)
-            }
-
-            // Step 2: Atomic rename (protected from cancellation)
-            withContext(NonCancellable) {
-                val targetPath = fileURL.path
-                    ?: throw IllegalStateException("Cannot rename: fileURL has no path component")
-                val tempPath = tempURL.path
-                    ?: throw IllegalStateException("Cannot rename: tempURL has no path component")
-
-                memScoped {
-                    val errorPtr = alloc<ObjCObjectVar<NSError?>>()
-
-                    // Delete old file if exists
-                    if (fileManager.fileExistsAtPath(targetPath)) {
-                        fileManager.removeItemAtPath(targetPath, errorPtr.ptr)
-                    }
-
-                    // Atomic move (POSIX rename guarantee)
-                    val success = fileManager.moveItemAtPath(
-                        tempPath,
-                        toPath = targetPath,
-                        error = errorPtr.ptr
-                    )
-
-                    if (!success) {
-                        throw IllegalStateException(
-                            "Atomic rename failed: ${errorPtr.value?.localizedDescription}"
-                        )
-                    }
-                }
-            }
-
-            Logger.v(LogTags.CHAIN, "Atomic write completed: ${fileURL.lastPathComponent}")
-
-        } catch (e: Exception) {
-            // Cleanup temp file on failure
-            deleteFile(tempURL)
-            Logger.e(LogTags.CHAIN, "Atomic write failed, temp file cleaned up", e)
-            throw e
-        }
-    }
 
     /**
      * Delete file if exists
@@ -1448,14 +1349,12 @@ public class IosFileStorage(
     }
 
     /**
-     * Execute block with file coordination for atomic operations
+     * Synchronous file coordination bridge for non-suspend callers.
      *
-     * CRITICAL: NSFileCoordinator is REQUIRED in production for:
-     * - Inter-process file coordination (App + Extensions)
-     * - iCloud synchronization safety
-     * - System file operation conflicts (Spotlight, etc.)
-     *
-     * **Refactor:** Uses shared IosFileCoordinator.
+     * Blocks the calling thread via runBlocking — safe only from threads that are NOT
+     * Dispatchers.Default coroutine threads (e.g. the GCD high-priority queue, init blocks,
+     * or Swift-called functions). Never call this from inside a suspend function; use
+     * [coordinatedSuspend] instead to avoid blocking a Dispatchers.Default thread.
      */
     private fun <T> coordinated(url: NSURL, write: Boolean, block: (NSURL) -> T): T {
         return runBlocking {
@@ -1470,14 +1369,30 @@ public class IosFileStorage(
     }
 
     /**
-     * Close and cleanup resources
+     * Suspend-native file coordination for use inside coroutines.
      *
-     * **FIX:** Properly cancel backgroundScope to prevent resource leaks
+     * Calls [IosFileCoordinator.coordinate] directly without a runBlocking bridge.
+     * This ensures the calling Dispatchers.Default thread is released while
+     * NSFileCoordinator waits on IosDispatchers.IO — preventing thread starvation
+     * when multiple chains flush progress concurrently inside [flushProgressBuffer].
      *
-     * Call this when:
-     * - App is shutting down
-     * - IosFileStorage is no longer needed
-     * - Tests are cleaning up
+     * Only call from suspend functions. Non-suspend callers must use [coordinated].
+     */
+    private suspend fun <T> coordinatedSuspend(url: NSURL, write: Boolean, block: (NSURL) -> T): T {
+        return IosFileCoordinator.coordinate(
+            url = url,
+            write = write,
+            isTestMode = config.isTestMode ?: false,
+            timeoutMs = config.fileCoordinationTimeoutMs,
+            block = block
+        )
+    }
+
+    /**
+     * Flush pending progress and cancel all background jobs.
+     *
+     * Call when the app is shutting down, the storage instance is no longer needed,
+     * or tests are cleaning up.
      */
     suspend fun close() {
         try {
@@ -1520,10 +1435,7 @@ private fun NSURL.safeAppend(component: String): NSURL =
     URLByAppendingPathComponent(component)
         ?: throw IllegalStateException("Failed to construct URL: base='$path' component='$component'")
 
-/**
- * Extension: Convert String to NSData (UTF-8 encoding)
- * Fixed: Use byte array size instead of string length for proper UTF-8 support
- */
+/** Converts a UTF-8 string to NSData using byte array encoding (not char count). */
 @OptIn(ExperimentalForeignApi::class)
 private fun String.toNSData(): NSData {
     val bytes = this.encodeToByteArray()

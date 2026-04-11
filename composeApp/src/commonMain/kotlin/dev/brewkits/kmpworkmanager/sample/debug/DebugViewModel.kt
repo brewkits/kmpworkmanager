@@ -11,13 +11,12 @@ import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 
 /**
- * v2.0.1+: Added proper coroutine scope cleanup to prevent memory leaks
+ * ViewModel for the debug screen. Provides task state and lifecycle management.
  */
 class DebugViewModel : KoinComponent {
 
     private val debugSource: DebugSource by inject()
 
-    // v2.0.1+: Use SupervisorJob to allow proper cleanup
     private val job = SupervisorJob()
     private val viewModelScope = CoroutineScope(Dispatchers.Main + job)
 
@@ -31,8 +30,7 @@ class DebugViewModel : KoinComponent {
     }
 
     /**
-     * Cleanup method to cancel coroutines and prevent memory leaks.
-     * v2.0.1+: MUST be called when ViewModel is no longer needed.
+     * Cancel all coroutines. Must be called when the ViewModel is no longer needed.
      */
     fun clear() {
         job.cancel()
