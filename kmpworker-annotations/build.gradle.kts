@@ -13,12 +13,6 @@ version = (rootProject.findProperty("VERSION_NAME") as? String) ?: System.getenv
 
 kotlin {
     // Android target
-    androidTarget()
-
-    // Support Maven Central requirements
-    withSourcesJar()
-    withJavadocJar()
-
     androidTarget {
         publishLibraryVariants("release")
         compilations.all {
@@ -29,6 +23,9 @@ kotlin {
             }
         }
     }
+
+    // Support Maven Central requirements
+    withSourcesJar()
 
     // iOS targets
     listOf(
@@ -92,6 +89,12 @@ afterEvaluate {
                         url.set("https://github.com/brewkits/kmpworkmanager")
                     }
                 }
+                
+                // Add empty javadoc JAR to satisfy Maven Central requirements
+                val javadocJar by tasks.registering(Jar::class) {
+                    archiveClassifier.set("javadoc")
+                }
+                artifact(javadocJar)
             }
         }
     }

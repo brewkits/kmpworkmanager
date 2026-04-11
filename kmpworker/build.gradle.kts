@@ -16,12 +16,6 @@ group = "dev.brewkits"
 version = (rootProject.findProperty("VERSION_NAME") as? String) ?: System.getenv("VERSION_NAME") ?: "0.0.0-SNAPSHOT"
 
 kotlin {
-    androidTarget()
-    
-    // Support Maven Central requirements
-    withSourcesJar()
-    withJavadocJar()
-
     androidTarget {
         publishLibraryVariants("release")
 
@@ -33,6 +27,9 @@ kotlin {
             }
         }
     }
+
+    // Support Maven Central requirements
+    withSourcesJar()
 
     jvmToolchain(17)
 
@@ -158,6 +155,12 @@ afterEvaluate {
                         url.set("https://github.com/brewkits/kmpworkmanager")
                     }
                 }
+
+                // Add empty javadoc JAR to satisfy Maven Central requirements
+                val javadocJar by tasks.registering(Jar::class) {
+                    archiveClassifier.set("javadoc")
+                }
+                artifact(javadocJar)
             }
         }
     }
@@ -179,7 +182,7 @@ publishing {
 
         maven {
             name = "MavenCentralLocal"
-            url = uri(layout.buildDirectory.dir("maven-central-staging"))
+            url = uri(rootProject.layout.buildDirectory.dir("maven-central-staging"))
         }
 
         // Sonatype OSSRH (Maven Central)
