@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!--
         ACCESS_NETWORK_STATE is a PROTECTION_NORMAL permission (auto-granted on declaration,
@@ -28,5 +29,18 @@
         This permission is automatically merged into the consumer app's manifest.
     -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
+    <application>
+        <!--
+            Required for Android 14 (API 34) and above.
+            KmpHeavyWorker uses setForeground() which delegates to SystemForegroundService.
+            We must explicitly specify the service type here to match what is passed to
+            ForegroundInfo in KmpHeavyWorker.android.kt.
+        -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
+    </application>
 
 </manifest>
