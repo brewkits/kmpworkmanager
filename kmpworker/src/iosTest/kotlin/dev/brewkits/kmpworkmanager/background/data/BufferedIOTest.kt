@@ -239,18 +239,24 @@ class BufferedIOTest {
     fun testFlushCancellationOnNewUpdate() = runTest {
         val storage = MockBufferedStorage(debounceMs = 500, context = backgroundScope.coroutineContext)
 
-        // Save and start debounce timer
+        // Save and start debounce timer.
+        // runCurrent() drains the scope.launch coroutine so flushJob is registered
+        // before advanceTimeBy() moves the virtual clock past 500 ms.
         storage.saveChainProgress(createTestProgress("chain1", 0))
-        advanceTimeBy(400) // Wait 400ms (80% of debounce)
+        runCurrent() // let saveChainProgress coroutine run and set up flushJob
 
-        // New update should cancel and restart timer
+        advanceTimeBy(400) // virtual time: 400 ms — 80% of debounce, no flush yet
+
+        // New update cancels the in-progress timer and starts a fresh 500 ms window.
         storage.saveChainProgress(createTestProgress("chain1", 1))
-        advanceTimeBy(400) // Wait another 400ms (total 800ms from first save)
+        runCurrent() // let cancellation + new flushJob run before advancing time
+
+        advanceTimeBy(400) // virtual time: 800 ms — only 400 ms into second window
 
         // Should not have flushed yet (timer was reset)
         assertEquals(0, storage.flushCount, "Should not flush yet due to timer reset")
 
-        advanceTimeBy(200) // Complete the second debounce period
+        advanceTimeBy(200) // virtual time: 1000 ms — 600 ms into second window (> 500 ms debounce)
 
         // Now should flush
         assertEquals(1, storage.flushCount, "Should flush after reset debounce")
