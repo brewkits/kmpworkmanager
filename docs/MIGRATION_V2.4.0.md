@@ -51,6 +51,17 @@ If you were manually importing the framework in Swift, change:
 
 ---
 
+## Unified Background Engine
+
+The library and sample app now use a single consolidated background engine. This resolves Swift namespace collisions and ensures that the sample app always reflects the actual behavior of the library.
+
+### Performance Improvements
+- **Metadata Storage**: Moved from `UserDefaults` to high-performance file-based storage (`IosFileStorage`). Average metadata write latency is now **< 10ms**.
+- **Time-Slicing**: Improved logic allows tasks to execute even when the remaining background window is small, maximizing the use of OS-provided budget.
+- **Simulator Support**: Automatic fallback enables immediate task execution on simulators, significantly speeding up development and debugging cycles.
+
+---
+
 ## Android Migration
 
 ### 1. Exact Alarms
