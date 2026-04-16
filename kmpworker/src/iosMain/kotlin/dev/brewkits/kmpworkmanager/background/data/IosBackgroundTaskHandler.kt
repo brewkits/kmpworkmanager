@@ -102,7 +102,17 @@ object IosBackgroundTaskHandler {
      */
     val shared: IosBackgroundTaskHandler get() = this
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var internalScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /**
+     * Overrides the coroutine scope used for background task execution.
+     * Primarily used for testing with TestScope.
+     */
+    internal fun setScopeForTesting(scope: CoroutineScope) {
+        internalScope = scope
+    }
+
+    private val scope: CoroutineScope get() = internalScope
 
     // ──────────────────────────────────────────────────────────────────────────
     // Public API
