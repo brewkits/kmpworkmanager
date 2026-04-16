@@ -8,14 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.4.0] - 2026-04-16
 
 ### Added
-- Created `IosBackgroundTaskHandler` in `iosMain` module, providing a native Kotlin API for iOS background task execution.
-- This new API handles worker metadata resolution, execution, and auto-rescheduling for periodic tasks, removing the need for 150+ lines of Swift boilerplate in the host app.
-- Added comprehensive unit tests for the new iOS background task handler.
+- **iOS Native Background Handler**: Created `IosBackgroundTaskHandler` in `iosMain` module, providing a native Kotlin API for iOS background task execution. Handles metadata resolution, execution, and auto-rescheduling for periodic tasks.
+- **iOS Simulator Fallback**: Implemented automatic fallback in `NativeTaskScheduler` for iOS Simulators. Tasks now execute immediately in-process on simulators where `BGTaskScheduler` is unavailable, simplifying UI development and manual testing.
+- **Android Exact Alarm Fallback**: Added `DefaultAlarmReceiver` and automatic manifest registration. `TaskTrigger.Exact` now works out-of-the-box without requiring custom receiver implementation in the host app.
+- **Unified Background Engine**: Refactored the library and sample app to use a single consolidated background engine, resolving Swift namespace collisions and simplifying dependency injection.
+- **Enhanced Test Suite**: Added a comprehensive `ScenarioMarathonTest`, `SecurityTestSuite`, and performance benchmarks covering both platforms.
 
-### Changed
-- Updated iOS sample application to use the new `IosBackgroundTaskHandler.shared` API.
-- Refactored `iOSApp.swift` to remove redundant private background task handler methods.
-- Updated documentation (README, Quickstart, Platform Setup) to reflect the new, simplified iOS integration path.
+### Fixed
+- **Android: Expedited Task Compatibility**: Fixed `IllegalArgumentException` when scheduling expedited tasks with incompatible constraints (e.g., `requiresCharging`). The library now gracefully falls back to standard execution.
+- **Android: Periodic Task Payload Limit**: Implemented enforcement for the 8KB payload limit on periodic tasks. Since WorkManager doesn't support disk-spill for periodic tasks, large payloads are now rejected with `REJECTED_OS_POLICY` instead of causing silent data truncation.
+- **iOS: Time-Slicing Logic**: Improved adaptive budget calculation in `ChainExecutor` to allow execution even when the remaining BGTask window is smaller than the standard task timeout.
+- **iOS: File Protection**: Directories created by `IosFileStorage` now use `NSFileProtectionCompleteUntilFirstUserAuthentication` by default, ensuring BGTasks can access data after the first unlock even while the screen is locked.
 
 ## [2.3.9] - 2026-04-11
 

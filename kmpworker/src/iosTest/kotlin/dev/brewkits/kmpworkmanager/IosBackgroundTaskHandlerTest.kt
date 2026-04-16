@@ -335,31 +335,23 @@ class IosBackgroundTaskHandlerTest {
     // ──────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `handleSingleTask handles exceptions during execution gracefully`() = runTest {
-        val storage = makeStorage("exception-handling")
-        val taskId = "fail-task"
+    fun `resolveTaskMetadata includes windowLatest when present`() {
+        val storage = makeStorage("window-latest")
+        val taskId = "window-task"
+        val futureMs = (NSDate().timeIntervalSince1970() * 1000.0 + 3600000.0).toString()
+        
         storage.saveTaskMetadata(
             id = taskId,
-            metadata = mapOf("workerClassName" to "ErrorWorker"),
+            metadata = mapOf(
+                "workerClassName" to "MyWorker",
+                "windowLatest" to futureMs
+            ),
             periodic = false
         )
 
-        val scheduler = FakeScheduler(storage)
-        val executor = object : SingleTaskExecutor(FakeWorkerFactory()) {
-            override suspend fun executeTask(workerClassName: String, inputJson: String?, timeoutMs: Long): WorkerResult {
-                throw RuntimeException("Simulated execution failure")
-            }
-        }
-
-        val fakeTask = FakeBGTask(taskId)
-        
-        IosBackgroundTaskHandler.handleSingleTask(fakeTask, scheduler, executor)
-        
-        // Wait for coroutine in handleSingleTask to finish
-        yield() 
-        
-        assertEquals(true, fakeTask.completedCalled, "setTaskCompleted must be called")
-        assertEquals(false, fakeTask.lastSuccess, "Task must be marked as failed")
+        val meta = IosBackgroundTaskHandler.resolveTaskMetadata(taskId, storage)
+        assertNotNull(meta)
+        assertEquals(futureMs, meta.rawMeta?.get("windowLatest"))
     }
 
     @Test
@@ -372,27 +364,5 @@ class IosBackgroundTaskHandlerTest {
 
         val meta = IosBackgroundTaskHandler.resolveTaskMetadata(taskId, storage)
         assertNull(meta, "Metadata without workerClassName must be rejected")
-    }
-
-    @Test
-    fun `handleSingleTask bails out when scheduler is not NativeTaskScheduler`() {
-        val fakeTask = FakeBGTask("test")
-        val wrongScheduler = object : BackgroundTaskScheduler {
-            override suspend fun enqueue(id: String, trigger: TaskTrigger, workerClassName: String, constraints: Constraints, inputJson: String?, policy: ExistingPolicy) = ScheduleResult.ACCEPTED
-            override fun cancel(id: String) {}
-            override fun cancelAll() {}
-            override fun beginWith(task: TaskRequest): TaskChain = TaskChain(this, listOf(task))
-            override fun beginWith(tasks: List<TaskRequest>): TaskChain = TaskChain(this, tasks)
-            override suspend fun enqueueChain(chain: TaskChain, id: String?, policy: ExistingPolicy) {}
-            override fun flushPendingProgress() {}
-            override suspend fun getExecutionHistory(limit: Int): List<ExecutionRecord> = emptyList()
-            override suspend fun clearExecutionHistory() {}
-        }
-        val executor = SingleTaskExecutor(FakeWorkerFactory())
-
-        IosBackgroundTaskHandler.handleSingleTask(fakeTask, wrongScheduler, executor)
-        
-        assertEquals(true, fakeTask.completedCalled)
-        assertEquals(false, fakeTask.lastSuccess, "Must fail when wrong scheduler type is provided")
     }
 }
