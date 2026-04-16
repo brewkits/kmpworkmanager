@@ -1,6 +1,6 @@
 # Performance Benchmarks
 
-Real-world performance metrics for KMP WorkManager v2.3.2.
+Real-world performance metrics for KMP WorkManager v2.4.0.
 
 ---
 

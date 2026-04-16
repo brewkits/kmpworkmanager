@@ -36,7 +36,7 @@ import platform.UserNotifications.UNUserNotificationCenter
  *
  * Key Features:
  * - BGAppRefreshTask for light tasks (≤30s)
- * - BGProcessingTask for heavy tasks (≤60s)
+ * - BGProcessingTask for heavy tasks (minutes)
  * - File-based storage for improved performance and thread safety
  * - Automatic migration from NSUserDefaults (v2.x)
  * - ExistingPolicy support (KEEP/REPLACE)

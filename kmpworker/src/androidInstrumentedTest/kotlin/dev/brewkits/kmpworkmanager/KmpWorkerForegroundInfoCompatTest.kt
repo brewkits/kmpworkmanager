@@ -211,7 +211,7 @@ class KmpWorkerForegroundInfoCompatTest {
      * On API 31+ (and enforced on API 36) starting a foreground service without declaring
      * a foreground service type throws a SecurityException. KmpHeavyWorker.createForegroundInfo()
      * uses the 3-arg ForegroundInfo constructor with FOREGROUND_SERVICE_TYPE_DATA_SYNC on API 31+,
-     * preventing this crash (v2.3.9 fix).
+     * preventing this crash (v2.4.0 fix).
      */
     @Test
     fun testHeavyTask_onApi31Plus_schedulesWithoutSecurityException() = runBlocking {
