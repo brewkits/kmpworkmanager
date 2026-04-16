@@ -3,7 +3,7 @@ package dev.brewkits.kmpworkmanager.sample.debug
 import android.content.Context
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
-import dev.brewkits.kmpworkmanager.sample.background.data.NativeTaskScheduler
+import dev.brewkits.kmpworkmanager.background.data.NativeTaskScheduler
 import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.guava.await
 

@@ -201,7 +201,7 @@ class KmpWorkerForegroundInfoCompatTest {
         Thread.sleep(500)
 
         // Verify the chain was accepted by WorkManager
-        val allWork = workManager.getWorkInfosByTag("KMP_TASK").get()
+        val allWork = workManager.getWorkInfosByTag("kmp-worker-task").get()
         assertTrue(allWork.isNotEmpty(), "Chain tasks should be registered with WorkManager")
     }
 

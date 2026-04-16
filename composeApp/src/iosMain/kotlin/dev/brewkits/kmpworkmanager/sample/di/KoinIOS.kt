@@ -1,7 +1,8 @@
 package dev.brewkits.kmpworkmanager.sample.di
 
-import dev.brewkits.kmpworkmanager.sample.background.data.ChainExecutor
-import dev.brewkits.kmpworkmanager.sample.background.domain.BackgroundTaskScheduler
+import dev.brewkits.kmpworkmanager.background.data.ChainExecutor
+import dev.brewkits.kmpworkmanager.background.data.SingleTaskExecutor
+import dev.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
 import dev.brewkits.kmpworkmanager.sample.push.PushNotificationHandler
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -18,7 +19,7 @@ class KoinIOS : KoinComponent {
     // Inject the ChainExecutor dependency
     private val chainExecutor: ChainExecutor by inject()
     // Inject the SingleTaskExecutor dependency
-    private val singleTaskExecutor: dev.brewkits.kmpworkmanager.sample.background.data.SingleTaskExecutor by inject()
+    private val singleTaskExecutor: SingleTaskExecutor by inject()
 
     /**
      * Provides access to the injected BackgroundTaskScheduler instance.
@@ -38,5 +39,5 @@ class KoinIOS : KoinComponent {
     /**
      * Provides access to the injected SingleTaskExecutor instance.
      */
-    fun getSingleTaskExecutor(): dev.brewkits.kmpworkmanager.sample.background.data.SingleTaskExecutor = singleTaskExecutor
+    fun getSingleTaskExecutor(): SingleTaskExecutor = singleTaskExecutor
 }

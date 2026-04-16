@@ -9,7 +9,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Regression tests for v2.3.9 bug fixes.
+ * Regression tests for v2.4.0 bug fixes.
  *
  * Covers:
  * - Android-16 crash: [KmpHeavyWorker] must use 3-arg ForegroundInfo on API 31+
@@ -18,7 +18,7 @@ import kotlin.test.assertTrue
  * - [KmpWorkManagerRuntime.json] uses `ignoreUnknownKeys = true` so schema-evolved events
  *   do not crash older consumers.
  */
-class V239BugFixesTest {
+class V240BugFixesTest {
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -101,7 +101,7 @@ class V239BugFixesTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun V239_all_fixes_are_production_ready() {
+    fun V240_all_fixes_are_production_ready() {
         // Fix 1 — Android 16 crash: KmpHeavyWorker.createForegroundInfo() uses 3-arg
         //   ForegroundInfo on API 31+ (includes API 36). The 2-arg constructor is still
         //   used on API < 31 for backward compatibility.
@@ -122,6 +122,6 @@ class V239BugFixesTest {
         //
         // Fix 5 — KSP indirect inheritance: extendsWorkerType() traverses the full hierarchy,
         //   so classes extending a subclass of AndroidWorker/IosWorker are correctly registered.
-        assertTrue(true, "v2.3.9 production ready")
+        assertTrue(true, "v2.4.0 production ready")
     }
 }

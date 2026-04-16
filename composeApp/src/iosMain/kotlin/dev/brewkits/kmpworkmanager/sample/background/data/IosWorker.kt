@@ -5,7 +5,7 @@ import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 /**
  * Base interface for all background workers in the iOS sample app.
  */
-interface IosWorker : dev.brewkits.kmpworkmanager.background.domain.Worker {
+interface IosWorker : dev.brewkits.kmpworkmanager.background.data.IosWorker {
     /**
      * Performs the background work.
      *

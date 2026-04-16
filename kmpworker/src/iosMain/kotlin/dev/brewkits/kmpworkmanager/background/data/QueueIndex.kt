@@ -27,7 +27,7 @@ import platform.Foundation.*
  *
  * @param indexFileURL URL to the index file (queue.index)
  */
-@OptIn(ExperimentalForeignApi::class)
+@OptIn(ExperimentalForeignApi::class, kotlinx.cinterop.BetaInteropApi::class)
 internal class QueueIndex(private val indexFileURL: NSURL) {
 
     private val fileManager = NSFileManager.defaultManager

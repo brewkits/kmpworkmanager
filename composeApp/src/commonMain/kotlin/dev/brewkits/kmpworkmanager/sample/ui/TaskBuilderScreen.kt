@@ -12,11 +12,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dev.brewkits.kmpworkmanager.background.domain.TaskPriority
-import dev.brewkits.kmpworkmanager.sample.background.data.WorkerTypes
-import dev.brewkits.kmpworkmanager.sample.background.domain.BackgroundTaskScheduler
-import dev.brewkits.kmpworkmanager.sample.background.domain.Constraints
-import dev.brewkits.kmpworkmanager.sample.background.domain.TaskRequest
-import dev.brewkits.kmpworkmanager.sample.background.domain.TaskTrigger
+import dev.brewkits.kmpworkmanager.sample.background.WorkerTypes
+import dev.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
+import dev.brewkits.kmpworkmanager.background.domain.Constraints
+import dev.brewkits.kmpworkmanager.background.domain.TaskRequest
+import dev.brewkits.kmpworkmanager.background.domain.TaskTrigger
 import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Duration.Companion.minutes
@@ -25,7 +25,7 @@ import kotlin.time.Duration.Companion.hours
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TaskBuilderScreen(scheduler: BackgroundTaskScheduler) {
-    var selectedWorker by remember { mutableStateOf(WorkerTypes.SYNC_WORKER) }
+    var selectedWorker by remember { mutableStateOf(dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.SYNC_WORKER) }
     var taskId by remember { mutableStateOf("demo-task") }
     var triggerType by remember { mutableStateOf(TriggerType.ONE_TIME) }
     var delayAmount by remember { mutableStateOf("5") }
@@ -69,16 +69,16 @@ fun TaskBuilderScreen(scheduler: BackgroundTaskScheduler) {
                     Text("Worker Type", style = MaterialTheme.typography.titleMedium)
                     var expanded by remember { mutableStateOf(false) }
                     val workers = listOf(
-                        WorkerTypes.SYNC_WORKER to "Sync Worker",
-                        WorkerTypes.UPLOAD_WORKER to "Upload Worker",
-                        WorkerTypes.HEAVY_PROCESSING_WORKER to "Heavy Processing",
-                        WorkerTypes.DATABASE_WORKER to "Database Worker",
-                        WorkerTypes.NETWORK_RETRY_WORKER to "Network Retry",
-                        WorkerTypes.IMAGE_PROCESSING_WORKER to "Image Processing",
-                        WorkerTypes.LOCATION_SYNC_WORKER to "Location Sync",
-                        WorkerTypes.CLEANUP_WORKER to "Cleanup Worker",
-                        WorkerTypes.BATCH_UPLOAD_WORKER to "Batch Upload",
-                        WorkerTypes.ANALYTICS_WORKER to "Analytics Worker"
+                        dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.SYNC_WORKER to "Sync Worker",
+                        dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.UPLOAD_WORKER to "Upload Worker",
+                        dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.HEAVY_PROCESSING_WORKER to "Heavy Processing",
+                        dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.DATABASE_WORKER to "Database Worker",
+                        dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.NETWORK_RETRY_WORKER to "Network Retry",
+                        dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.IMAGE_PROCESSING_WORKER to "Image Processing",
+                        dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.LOCATION_SYNC_WORKER to "Location Sync",
+                        dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.CLEANUP_WORKER to "Cleanup Worker",
+                        dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.BATCH_UPLOAD_WORKER to "Batch Upload",
+                        dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.ANALYTICS_WORKER to "Analytics Worker"
                     )
                     ExposedDropdownMenuBox(
                         expanded = expanded,
@@ -277,17 +277,25 @@ fun TaskBuilderScreen(scheduler: BackgroundTaskScheduler) {
                                     TimeUnit.MINUTES -> delay.minutes
                                     TimeUnit.HOURS -> delay.hours
                                 }.inWholeMilliseconds
+                                var sysConstraints = emptySet<dev.brewkits.kmpworkmanager.background.domain.SystemConstraint>()
                                 val trigger = when (triggerType) {
                                     TriggerType.ONE_TIME -> TaskTrigger.OneTime(initialDelayMs = delayMs)
                                     TriggerType.PERIODIC -> TaskTrigger.Periodic(intervalMs = delayMs)
-                                    TriggerType.BATTERY_OK -> TaskTrigger.BatteryOkay
-                                    TriggerType.DEVICE_IDLE -> TaskTrigger.DeviceIdle
+                                    TriggerType.BATTERY_OK -> {
+                                        sysConstraints = sysConstraints + dev.brewkits.kmpworkmanager.background.domain.SystemConstraint.REQUIRE_BATTERY_NOT_LOW
+                                        TaskTrigger.OneTime()
+                                    }
+                                    TriggerType.DEVICE_IDLE -> {
+                                        sysConstraints = sysConstraints + dev.brewkits.kmpworkmanager.background.domain.SystemConstraint.DEVICE_IDLE
+                                        TaskTrigger.OneTime()
+                                    }
                                 }
                                 val constraints = Constraints(
                                     requiresNetwork = requiresNetwork,
                                     requiresUnmeteredNetwork = requiresUnmetered,
                                     requiresCharging = requiresCharging,
-                                    isHeavyTask = isHeavyTask
+                                    isHeavyTask = isHeavyTask,
+                                    systemConstraints = sysConstraints
                                 )
                                 scheduler.enqueue(
                                     id = taskId,

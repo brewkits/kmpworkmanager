@@ -14,7 +14,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import dev.brewkits.kmpworkmanager.sample.background.domain.BackgroundTaskScheduler
+import dev.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
 import dev.brewkits.kmpworkmanager.sample.debug.DebugSource
 import dev.brewkits.kmpworkmanager.sample.debug.DebugTaskInfo
 import dev.brewkits.kmpworkmanager.sample.stats.TaskStatsManager

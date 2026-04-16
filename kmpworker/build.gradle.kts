@@ -16,6 +16,16 @@ group = "dev.brewkits"
 version = (rootProject.findProperty("VERSION_NAME") as? String) ?: System.getenv("VERSION_NAME") ?: "0.0.0-SNAPSHOT"
 
 kotlin {
+    targets.all {
+        compilations.all {
+            compileTaskProvider.configure {
+                compilerOptions {
+                    freeCompilerArgs.add("-Xexpect-actual-classes")
+                }
+            }
+        }
+    }
+
     androidTarget {
         publishLibraryVariants("release")
 
@@ -23,6 +33,7 @@ kotlin {
             compileTaskProvider.configure {
                 compilerOptions {
                     jvmTarget.set(JvmTarget.JVM_17)
+                    freeCompilerArgs.add("-Xexpect-actual-classes")
                 }
             }
         }
@@ -39,7 +50,7 @@ kotlin {
         iosSimulatorArm64()
     ).forEach { iosTarget ->
         iosTarget.binaries.framework {
-            baseName = "KMPWorkManager"
+            baseName = "KmpWorkerLibrary"
             isStatic = true
         }
     }

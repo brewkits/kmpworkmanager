@@ -2,8 +2,8 @@ package dev.brewkits.kmpworkmanager.sample.background.workers
 
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.sample.background.data.IosWorker
-import dev.brewkits.kmpworkmanager.sample.background.domain.TaskCompletionEvent
-import dev.brewkits.kmpworkmanager.sample.background.domain.TaskEventBus
+import dev.brewkits.kmpworkmanager.background.domain.TaskCompletionEvent
+import dev.brewkits.kmpworkmanager.background.domain.TaskEventBus
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put

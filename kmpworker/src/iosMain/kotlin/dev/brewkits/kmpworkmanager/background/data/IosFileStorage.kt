@@ -89,7 +89,7 @@ public data class IosFileStorageConfig(
  *         └── <taskId>.json    # Periodic metadata
  * ```
  */
-@OptIn(ExperimentalForeignApi::class)
+@OptIn(ExperimentalForeignApi::class, kotlinx.cinterop.BetaInteropApi::class)
 public class IosFileStorage(
     private val config: IosFileStorageConfig = IosFileStorageConfig(),
     private val baseDirectory: NSURL? = null  // null = use AppSupport/dev.brewkits.kmpworkmanager
@@ -1436,7 +1436,7 @@ private fun NSURL.safeAppend(component: String): NSURL =
         ?: throw IllegalStateException("Failed to construct URL: base='$path' component='$component'")
 
 /** Converts a UTF-8 string to NSData using byte array encoding (not char count). */
-@OptIn(ExperimentalForeignApi::class)
+@OptIn(ExperimentalForeignApi::class, kotlinx.cinterop.BetaInteropApi::class)
 private fun String.toNSData(): NSData {
     val bytes = this.encodeToByteArray()
     return bytes.usePinned { pinned ->

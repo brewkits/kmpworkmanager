@@ -1,13 +1,13 @@
 package dev.brewkits.kmpworkmanager.sample
 
 import dev.brewkits.kmpworkmanager.background.domain.ExecutionRecord
-import dev.brewkits.kmpworkmanager.sample.background.domain.BackgroundTaskScheduler
-import dev.brewkits.kmpworkmanager.sample.background.domain.Constraints
-import dev.brewkits.kmpworkmanager.sample.background.domain.ExistingPolicy
-import dev.brewkits.kmpworkmanager.sample.background.domain.ScheduleResult
-import dev.brewkits.kmpworkmanager.sample.background.domain.TaskChain
-import dev.brewkits.kmpworkmanager.sample.background.domain.TaskRequest
-import dev.brewkits.kmpworkmanager.sample.background.domain.TaskTrigger
+import dev.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
+import dev.brewkits.kmpworkmanager.background.domain.Constraints
+import dev.brewkits.kmpworkmanager.background.domain.ExistingPolicy
+import dev.brewkits.kmpworkmanager.background.domain.ScheduleResult
+import dev.brewkits.kmpworkmanager.background.domain.TaskChain
+import dev.brewkits.kmpworkmanager.background.domain.TaskRequest
+import dev.brewkits.kmpworkmanager.background.domain.TaskTrigger
 
 class FakeBackgroundTaskScheduler : BackgroundTaskScheduler {
     override suspend fun enqueue(
@@ -40,8 +40,12 @@ class FakeBackgroundTaskScheduler : BackgroundTaskScheduler {
         return TaskChain(this, tasks)
     }
 
-    override fun enqueueChain(chain: TaskChain, id: String?, policy: ExistingPolicy) {
+    override suspend fun enqueueChain(chain: TaskChain, id: String?, policy: ExistingPolicy) {
         println("FakeBackgroundTaskScheduler: enqueueChain called with id=$id, policy=$policy")
+    }
+
+    override fun flushPendingProgress() {
+        println("FakeBackgroundTaskScheduler: flushPendingProgress called")
     }
 
     override suspend fun getExecutionHistory(limit: Int): List<ExecutionRecord> = emptyList()

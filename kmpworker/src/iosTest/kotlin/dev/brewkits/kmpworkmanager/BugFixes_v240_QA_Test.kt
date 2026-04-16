@@ -27,7 +27,7 @@ private fun isRunningOnSimulator(): Boolean {
 }
 
 /**
- * iOS-specific regression tests for v2.3.9 bug fixes.
+ * iOS-specific regression tests for v2.4.0 bug fixes.
  *
  * Covers:
  * - FILE-PROT : Directories created by IosFileStorage must use
@@ -37,7 +37,7 @@ private fun isRunningOnSimulator(): Boolean {
  *               the completion signal even when the progress buffer is empty.
  */
 @OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
-class BugFixes_v239_IosTest {
+class BugFixes_v240_QA_Test {
 
     private val fileManager = NSFileManager.defaultManager
 

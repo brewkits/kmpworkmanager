@@ -30,6 +30,14 @@
     -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
+    <!--
+        SCHEDULE_EXACT_ALARM is required on Android 12+ (API 31+) to schedule exact alarms
+        using AlarmManager.setExactAndAllowWhileIdle(). Without this permission,
+        alarmManager.canScheduleExactAlarms() returns false and scheduling attempts
+        are rejected.
+    -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+
     <application>
         <!--
             Required for Android 14 (API 34) and above.
@@ -41,6 +49,8 @@
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="dataSync"
             tools:node="merge" />
+
+        <receiver android:name=".background.data.DefaultAlarmReceiver" android:exported="false" />
     </application>
 
 </manifest>

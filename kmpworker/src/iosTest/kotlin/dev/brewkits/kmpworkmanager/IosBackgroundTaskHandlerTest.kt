@@ -14,9 +14,7 @@ import dev.brewkits.kmpworkmanager.background.domain.TaskChain
 import dev.brewkits.kmpworkmanager.background.domain.TaskRequest
 import dev.brewkits.kmpworkmanager.background.domain.TaskTrigger
 import kotlinx.coroutines.test.runTest
-import platform.Foundation.NSFileManager
-import platform.Foundation.NSTemporaryDirectory
-import platform.Foundation.NSURL
+import platform.Foundation.*
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -329,5 +327,29 @@ class IosBackgroundTaskHandlerTest {
         assertNotNull(call)
         assertNull(call.inputJson)
         assertEquals(true, call.constraints.isHeavyTask)
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Deadline & Expiration (Mock-based logic checks)
+    // ──────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `resolveTaskMetadata includes windowLatest when present`() {
+        val storage = makeStorage("window-latest")
+        val taskId = "window-task"
+        val futureMs = (NSDate().timeIntervalSince1970() * 1000.0 + 3600000.0).toString()
+        
+        storage.saveTaskMetadata(
+            id = taskId,
+            metadata = mapOf(
+                "workerClassName" to "MyWorker",
+                "windowLatest" to futureMs
+            ),
+            periodic = false
+        )
+
+        val meta = IosBackgroundTaskHandler.resolveTaskMetadata(taskId, storage)
+        assertNotNull(meta)
+        assertEquals(futureMs, meta.rawMeta?.get("windowLatest"))
     }
 }

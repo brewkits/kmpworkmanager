@@ -1,4 +1,8 @@
-@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
+@file:OptIn(
+    kotlinx.cinterop.ExperimentalForeignApi::class,
+    kotlinx.cinterop.BetaInteropApi::class,
+    kotlin.experimental.ExperimentalObjCName::class
+)
 
 package dev.brewkits.kmpworkmanager.background.data
 
@@ -90,7 +94,13 @@ import platform.Foundation.*
  * @see SingleTaskExecutor
  * @see ChainExecutor
  */
+@kotlin.native.ObjCName("IosBackgroundTaskHandler")
 object IosBackgroundTaskHandler {
+
+    /**
+     * Shared instance for Swift access.
+     */
+    val shared: IosBackgroundTaskHandler get() = this
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 

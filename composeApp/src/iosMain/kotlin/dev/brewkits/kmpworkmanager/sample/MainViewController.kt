@@ -1,7 +1,7 @@
 package dev.brewkits.kmpworkmanager.sample
 
 import androidx.compose.ui.window.ComposeUIViewController
-import dev.brewkits.kmpworkmanager.sample.background.domain.BackgroundTaskScheduler
+import dev.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
 import dev.brewkits.kmpworkmanager.sample.push.PushNotificationHandler
 
 /**

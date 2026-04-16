@@ -66,7 +66,7 @@ import platform.UserNotifications.UNUserNotificationCenter
  * }
  * ```
  */
-@OptIn(ExperimentalForeignApi::class)
+@OptIn(ExperimentalForeignApi::class, kotlinx.cinterop.BetaInteropApi::class)
 public class NativeTaskScheduler(
     /**
      * Additional permitted task IDs beyond those in Info.plist.

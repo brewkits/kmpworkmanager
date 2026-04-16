@@ -8,8 +8,8 @@ import dev.brewkits.kmpworkmanager.background.domain.AndroidWorkerFactory
 import dev.brewkits.kmpworkmanager.background.domain.Worker
 import dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
-import dev.brewkits.kmpworkmanager.sample.background.data.NativeTaskScheduler
-import dev.brewkits.kmpworkmanager.sample.background.domain.BackgroundTaskScheduler
+import dev.brewkits.kmpworkmanager.background.data.NativeTaskScheduler
+import dev.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
 import dev.brewkits.kmpworkmanager.sample.debug.AndroidDebugSource
 import dev.brewkits.kmpworkmanager.sample.debug.DebugSource
 import dev.brewkits.kmpworkmanager.sample.di.initKoin

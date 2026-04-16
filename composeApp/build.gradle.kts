@@ -36,6 +36,10 @@ kotlin {
 
             linkerOpts.add("-framework")
             linkerOpts.add("UserNotifications")
+            
+            // Export the kmpworker project so its classes (like IosBackgroundTaskHandler)
+            // are visible to Swift when importing ComposeApp.
+            export(project(":kmpworker"))
         }
     }
     

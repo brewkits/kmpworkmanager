@@ -37,6 +37,21 @@ class ChineseROMCompatibilityTest {
 
     private val context: Context = ApplicationProvider.getApplicationContext()
 
+    @org.junit.Before
+    fun setup() {
+        KmpWorkManager.initialize(
+            context = context,
+            workerFactory = object : dev.brewkits.kmpworkmanager.background.domain.AndroidWorkerFactory {
+                override fun createWorker(workerClassName: String): dev.brewkits.kmpworkmanager.background.domain.AndroidWorker? = null
+            }
+        )
+    }
+
+    @org.junit.After
+    fun tearDown() {
+        KmpWorkManager.shutdown()
+    }
+
     /**
      * Test: Detect Chinese ROM manufacturer
      *

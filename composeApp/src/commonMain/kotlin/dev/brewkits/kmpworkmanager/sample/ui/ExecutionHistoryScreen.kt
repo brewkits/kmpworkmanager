@@ -22,7 +22,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import dev.brewkits.kmpworkmanager.background.domain.ExecutionRecord
 import dev.brewkits.kmpworkmanager.background.domain.ExecutionStatus
-import dev.brewkits.kmpworkmanager.sample.background.domain.BackgroundTaskScheduler
+import dev.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
 import kotlinx.coroutines.launch
 
 /**

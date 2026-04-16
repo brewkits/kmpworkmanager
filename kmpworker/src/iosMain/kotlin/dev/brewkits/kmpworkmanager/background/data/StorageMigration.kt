@@ -42,6 +42,7 @@ internal class StorageMigration(
      * Perform migration from NSUserDefaults to file storage
      * @return MigrationResult with success status and details
      */
+    @Suppress("UNCHECKED_CAST")
     suspend fun migrate(): MigrationResult {
         if (isMigrated()) {
             Logger.i(LogTags.SCHEDULER, "Migration already completed, skipping")

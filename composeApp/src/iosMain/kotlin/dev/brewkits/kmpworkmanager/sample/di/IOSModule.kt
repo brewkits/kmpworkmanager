@@ -1,12 +1,12 @@
 package dev.brewkits.kmpworkmanager.sample.di
 
+import dev.brewkits.kmpworkmanager.background.data.ChainExecutor
+import dev.brewkits.kmpworkmanager.background.data.SingleTaskExecutor
+import dev.brewkits.kmpworkmanager.background.data.NativeTaskScheduler
+import dev.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
 import dev.brewkits.kmpworkmanager.persistence.ExecutionHistoryStore
 import dev.brewkits.kmpworkmanager.persistence.IosExecutionHistoryStore
-import dev.brewkits.kmpworkmanager.sample.background.data.ChainExecutor
 import dev.brewkits.kmpworkmanager.sample.background.data.IosWorkerFactory
-import dev.brewkits.kmpworkmanager.sample.background.data.NativeTaskScheduler
-import dev.brewkits.kmpworkmanager.sample.background.data.SingleTaskExecutor
-import dev.brewkits.kmpworkmanager.sample.background.domain.BackgroundTaskScheduler
 import dev.brewkits.kmpworkmanager.sample.debug.DebugSource
 import dev.brewkits.kmpworkmanager.sample.debug.IosDebugSource
 import dev.brewkits.kmpworkmanager.sample.push.DefaultPushNotificationHandler
@@ -22,18 +22,18 @@ val iosModule = module {
     single<ExecutionHistoryStore> { IosExecutionHistoryStore() }
 
     // Single instance of the BackgroundTaskScheduler using the iOS-specific implementation.
-    // SingleTaskExecutor and ChainExecutor are injected for simulator fallback (see NativeTaskScheduler).
-    single<BackgroundTaskScheduler> { NativeTaskScheduler(get(), get(), get()) }
+    single<BackgroundTaskScheduler> { NativeTaskScheduler() }
+
     single<DebugSource> { IosDebugSource() }
     // Single instance of the PushNotificationHandler using the default implementation (if no specific iOS logic is needed here)
     single<PushNotificationHandler> { DefaultPushNotificationHandler() }
 
     // Factory for creating iOS-specific workers
-    factory { IosWorkerFactory() }
+    single<dev.brewkits.kmpworkmanager.background.data.IosWorkerFactory> { IosWorkerFactory() }
 
     // Single instance of the ChainExecutor for handling task chains on iOS
-    single { ChainExecutor(get()) }
+    single { ChainExecutor(workerFactory = get()) }
 
     // Single instance of the SingleTaskExecutor for handling individual tasks on iOS
-    single { SingleTaskExecutor(get()) }
+    single { SingleTaskExecutor(workerFactory = get()) }
 }

@@ -3,9 +3,9 @@ package dev.brewkits.kmpworkmanager.sample.push
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import dev.brewkits.kmpworkmanager.sample.background.data.WorkerTypes
-import dev.brewkits.kmpworkmanager.sample.background.domain.BackgroundTaskScheduler
-import dev.brewkits.kmpworkmanager.sample.background.domain.TaskTrigger
+import dev.brewkits.kmpworkmanager.sample.background.WorkerTypes
+import dev.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
+import dev.brewkits.kmpworkmanager.background.domain.TaskTrigger
 import org.koin.core.context.GlobalContext
 
 import kotlinx.coroutines.CoroutineScope
@@ -23,7 +23,7 @@ class PushReceiver : BroadcastReceiver() {
                 scheduler.enqueue(
                     id = "task-from-push",
                     trigger = TaskTrigger.OneTime(initialDelayMs = 5000),
-                    workerClassName = WorkerTypes.UPLOAD_WORKER
+                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.UPLOAD_WORKER
                 )
             } finally {
                 pendingResult.finish()

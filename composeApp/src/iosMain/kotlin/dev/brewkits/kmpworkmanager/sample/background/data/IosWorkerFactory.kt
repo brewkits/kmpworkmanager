@@ -1,5 +1,6 @@
 package dev.brewkits.kmpworkmanager.sample.background.data
 
+import dev.brewkits.kmpworkmanager.background.data.IosWorkerFactory
 import dev.brewkits.kmpworkmanager.background.domain.Worker
 import dev.brewkits.kmpworkmanager.sample.background.workers.*
 import dev.brewkits.kmpworkmanager.workers.BuiltinWorkerRegistry
@@ -7,20 +8,20 @@ import dev.brewkits.kmpworkmanager.workers.BuiltinWorkerRegistry
 /**
  * A factory for creating IosWorker instances based on their class name.
  */
-class IosWorkerFactory {
-    fun createWorker(workerClassName: String): IosWorker? {
+class IosWorkerFactory : IosWorkerFactory {
+    override fun createWorker(workerClassName: String): dev.brewkits.kmpworkmanager.background.data.IosWorker? {
         return when (workerClassName) {
-            WorkerTypes.SYNC_WORKER -> SyncWorker()
-            WorkerTypes.UPLOAD_WORKER -> UploadWorker()
-            WorkerTypes.HEAVY_PROCESSING_WORKER -> HeavyProcessingWorker()
+            dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.SYNC_WORKER -> SyncWorker()
+            dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.UPLOAD_WORKER -> UploadWorker()
+            dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.HEAVY_PROCESSING_WORKER -> HeavyProcessingWorker()
 
-            WorkerTypes.DATABASE_WORKER -> DatabaseWorker()
-            WorkerTypes.NETWORK_RETRY_WORKER -> NetworkRetryWorker()
-            WorkerTypes.IMAGE_PROCESSING_WORKER -> ImageProcessingWorker()
-            WorkerTypes.LOCATION_SYNC_WORKER -> LocationSyncWorker()
-            WorkerTypes.CLEANUP_WORKER -> CleanupWorker()
-            WorkerTypes.BATCH_UPLOAD_WORKER -> BatchUploadWorker()
-            WorkerTypes.ANALYTICS_WORKER -> AnalyticsWorker()
+            dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.DATABASE_WORKER -> DatabaseWorker()
+            dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.NETWORK_RETRY_WORKER -> NetworkRetryWorker()
+            dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.IMAGE_PROCESSING_WORKER -> ImageProcessingWorker()
+            dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.LOCATION_SYNC_WORKER -> LocationSyncWorker()
+            dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.CLEANUP_WORKER -> CleanupWorker()
+            dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.BATCH_UPLOAD_WORKER -> BatchUploadWorker()
+            dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.ANALYTICS_WORKER -> AnalyticsWorker()
 
             else -> {
                 // Try builtin workers from BuiltinWorkerRegistry

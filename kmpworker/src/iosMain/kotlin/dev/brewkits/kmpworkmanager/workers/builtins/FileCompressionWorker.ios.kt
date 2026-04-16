@@ -27,7 +27,7 @@ import kotlinx.cinterop.ObjCObjectVar
  * For the demo, this creates a dummy (uncompressed) copy of the input file
  * at the output path so that chained demos can proceed.
  */
-@OptIn(ExperimentalForeignApi::class)
+@OptIn(ExperimentalForeignApi::class, kotlinx.cinterop.BetaInteropApi::class)
 internal actual suspend fun platformCompress(config: FileCompressionConfig): WorkerResult {
     Logger.w(
         "FileCompressionWorker",

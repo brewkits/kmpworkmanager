@@ -16,7 +16,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import dev.brewkits.kmpworkmanager.sample.Platform
 import dev.brewkits.kmpworkmanager.sample.getPlatform
-import dev.brewkits.kmpworkmanager.sample.background.domain.BackgroundTaskScheduler
+import dev.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
 import dev.brewkits.kmpworkmanager.sample.stats.TaskExecution
 import dev.brewkits.kmpworkmanager.sample.stats.TaskStatsManager
 import kotlin.time.Duration.Companion.milliseconds

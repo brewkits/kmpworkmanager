@@ -45,7 +45,7 @@ import dev.brewkits.kmpworkmanager.utils.crc32
  * @param compactionScope CoroutineScope for background compaction operations
  *                        Defaults to a supervised scope with Default dispatcher
  */
-@OptIn(ExperimentalForeignApi::class)
+@OptIn(ExperimentalForeignApi::class, kotlinx.cinterop.BetaInteropApi::class)
 internal class AppendOnlyQueue(
     private val baseDirectoryURL: NSURL,
     private val compactionScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
@@ -761,8 +761,8 @@ internal class AppendOnlyQueue(
 
                     // Use replaceItemAtURL for atomic replacement
                     // This ensures crash-safety: if interrupted, either old or new file exists
-                    val resultingURL = fileManager.replaceItemAtURL(
-                        safeQueueUrl,
+                    val ok = fileManager.replaceItemAtURL(
+                        originalItemURL = safeQueueUrl,
                         withItemAtURL = compactedQueueURL,
                         backupItemName = null,
                         options = NSFileManagerItemReplacementWithoutDeletingBackupItem,
@@ -770,7 +770,7 @@ internal class AppendOnlyQueue(
                         error = errorPtr.ptr
                     )
 
-                    if (resultingURL == null) {
+                    if (!ok) {
                         val error = errorPtr.value
                         // Fallback to non-atomic replacement if replaceItemAtURL not supported
                         if (error?.code == NSFileNoSuchFileError || error?.code == NSFileReadNoSuchFileError) {

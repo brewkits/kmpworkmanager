@@ -13,15 +13,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import dev.brewkits.kmpworkmanager.sample.background.data.TaskIds
-import dev.brewkits.kmpworkmanager.sample.background.data.WorkerTypes
-import dev.brewkits.kmpworkmanager.sample.background.domain.BackgroundTaskScheduler
-import dev.brewkits.kmpworkmanager.sample.background.domain.Constraints
-import dev.brewkits.kmpworkmanager.sample.background.domain.TaskRequest
-import dev.brewkits.kmpworkmanager.sample.background.domain.TaskTrigger
-import dev.brewkits.kmpworkmanager.sample.background.domain.TaskEventBus
-import dev.brewkits.kmpworkmanager.sample.background.domain.TaskCompletionEvent
-import dev.brewkits.kmpworkmanager.sample.background.domain.ScheduleResult
+import dev.brewkits.kmpworkmanager.background.data.TaskIds
+import dev.brewkits.kmpworkmanager.sample.background.WorkerTypes
+import dev.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
+import dev.brewkits.kmpworkmanager.background.domain.Constraints
+import dev.brewkits.kmpworkmanager.background.domain.TaskRequest
+import dev.brewkits.kmpworkmanager.background.domain.TaskTrigger
+import dev.brewkits.kmpworkmanager.background.domain.TaskEventBus
+import dev.brewkits.kmpworkmanager.background.domain.TaskCompletionEvent
+import dev.brewkits.kmpworkmanager.background.domain.ScheduleResult
 import dev.brewkits.kmpworkmanager.sample.debug.DebugScreen
 import dev.brewkits.kmpworkmanager.sample.push.FakePushNotificationHandler
 import dev.brewkits.kmpworkmanager.sample.push.PushNotificationHandler
@@ -263,7 +263,7 @@ fun TestDemoTab(scheduler: BackgroundTaskScheduler, coroutineScope: CoroutineSco
                             scheduler.enqueue(
                                 id = "demo-task",
                                 trigger = TaskTrigger.OneTime(initialDelayMs = 5000),
-                                workerClassName = WorkerTypes.SYNC_WORKER
+                                workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.SYNC_WORKER
                             )
                             snackbarHostState.showSnackbar(
                                 message = "✅ Task scheduled! Check Debug tab to verify.",
@@ -437,7 +437,7 @@ fun TasksTab(scheduler: BackgroundTaskScheduler, coroutineScope: CoroutineScope,
                         val result = scheduler.enqueue(
                             id = TaskIds.ONE_TIME_UPLOAD,
                             trigger = TaskTrigger.OneTime(initialDelayMs = 10.seconds.inWholeMilliseconds),
-                            workerClassName = WorkerTypes.UPLOAD_WORKER
+                            workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.UPLOAD_WORKER
                         )
                         snackbarHostState.showSnackbar(
                             message = "✅ Background task scheduled! Will run in 10s",
@@ -456,11 +456,12 @@ fun TasksTab(scheduler: BackgroundTaskScheduler, coroutineScope: CoroutineScope,
                         val result = scheduler.enqueue(
                             id = TaskIds.HEAVY_TASK_1,
                             trigger = TaskTrigger.OneTime(initialDelayMs = 5.seconds.inWholeMilliseconds),
-                            workerClassName = WorkerTypes.HEAVY_PROCESSING_WORKER,
+                            workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.HEAVY_PROCESSING_WORKER,
                             constraints = Constraints(isHeavyTask = true) // Mark as a heavy task for platform
                         )
                         val message = when (result) {
                             ScheduleResult.ACCEPTED -> "⚡ Heavy task scheduled! Will run in 5s"
+                            ScheduleResult.DEADLINE_ALREADY_PASSED -> "❌ Deadline already passed!"
                             ScheduleResult.REJECTED_OS_POLICY -> "❌ Task rejected by OS policy"
                             ScheduleResult.THROTTLED -> "⏳ Task throttled, will retry later"
                         }
@@ -482,7 +483,7 @@ fun TasksTab(scheduler: BackgroundTaskScheduler, coroutineScope: CoroutineScope,
                         val result = scheduler.enqueue(
                             id = "network-task",
                             trigger = TaskTrigger.OneTime(initialDelayMs = 5.seconds.inWholeMilliseconds),
-                            workerClassName = WorkerTypes.UPLOAD_WORKER,
+                            workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.UPLOAD_WORKER,
                             constraints = Constraints(requiresNetwork = true)
                         )
                         snackbarHostState.showSnackbar(
@@ -511,7 +512,7 @@ fun TasksTab(scheduler: BackgroundTaskScheduler, coroutineScope: CoroutineScope,
                         val result = scheduler.enqueue(
                             id = TaskIds.PERIODIC_SYNC_TASK,
                             trigger = TaskTrigger.Periodic(intervalMs = 15.minutes.inWholeMilliseconds),
-                            workerClassName = WorkerTypes.SYNC_WORKER
+                            workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.SYNC_WORKER
                         )
                         snackbarHostState.showSnackbar(
                             message = "🔄 Periodic sync scheduled! Will run every 15 min",
@@ -536,6 +537,7 @@ fun TasksTab(scheduler: BackgroundTaskScheduler, coroutineScope: CoroutineScope,
 
                 // ContentUri trigger
                 Button(onClick = {
+                    @OptIn(dev.brewkits.kmpworkmanager.background.domain.AndroidOnly::class)
                     coroutineScope.launch {
                         val result = scheduler.enqueue(
                             id = "content-uri-task",
@@ -543,10 +545,11 @@ fun TasksTab(scheduler: BackgroundTaskScheduler, coroutineScope: CoroutineScope,
                                 uriString = "content://media/external/images/media",
                                 triggerForDescendants = true
                             ),
-                            workerClassName = WorkerTypes.SYNC_WORKER
+                            workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.SYNC_WORKER
                         )
                         val message = when (result) {
                             ScheduleResult.ACCEPTED -> "📸 ContentUri trigger scheduled! Will run when images change"
+                            ScheduleResult.DEADLINE_ALREADY_PASSED -> "❌ Deadline already passed!"
                             ScheduleResult.REJECTED_OS_POLICY -> "❌ ContentUri not supported on this platform (Android only)"
                             ScheduleResult.THROTTLED -> "⏳ Task throttled, will retry later"
                         }
@@ -566,8 +569,8 @@ fun TasksTab(scheduler: BackgroundTaskScheduler, coroutineScope: CoroutineScope,
                     coroutineScope.launch {
                         val result = scheduler.enqueue(
                             id = "battery-okay-task",
-                            trigger = TaskTrigger.BatteryOkay,
-                            workerClassName = WorkerTypes.SYNC_WORKER
+                            trigger = TaskTrigger.OneTime(),
+                            workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.SYNC_WORKER
                         )
                         snackbarHostState.showSnackbar(
                             message = "🔋 BatteryOkay trigger scheduled! Will run when battery is not low",
@@ -585,8 +588,8 @@ fun TasksTab(scheduler: BackgroundTaskScheduler, coroutineScope: CoroutineScope,
                     coroutineScope.launch {
                         val result = scheduler.enqueue(
                             id = "device-idle-task",
-                            trigger = TaskTrigger.DeviceIdle,
-                            workerClassName = WorkerTypes.HEAVY_PROCESSING_WORKER,
+                            trigger = TaskTrigger.OneTime(),
+                            workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.HEAVY_PROCESSING_WORKER,
                             constraints = Constraints(isHeavyTask = true)
                         )
                         snackbarHostState.showSnackbar(
@@ -698,9 +701,9 @@ fun TaskChainsTab(scheduler: BackgroundTaskScheduler, coroutineScope: CoroutineS
                 // Example 1: Simple Sequential Chain
                 Button(onClick = {
                     coroutineScope.launch {
-                        scheduler.beginWith(TaskRequest(workerClassName = WorkerTypes.SYNC_WORKER))
-                            .then(TaskRequest(workerClassName = WorkerTypes.UPLOAD_WORKER))
-                            .then(TaskRequest(workerClassName = WorkerTypes.SYNC_WORKER, inputJson = "{\"status\":\"complete\"}"))
+                        scheduler.beginWith(TaskRequest(workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.SYNC_WORKER))
+                            .then(TaskRequest(workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.UPLOAD_WORKER))
+                            .then(TaskRequest(workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.SYNC_WORKER, inputJson = "{\"status\":\"complete\"}"))
                             .enqueue()
                         snackbarHostState.showSnackbar(
                             message = "🔗 Sequential chain started!",
@@ -716,17 +719,17 @@ fun TaskChainsTab(scheduler: BackgroundTaskScheduler, coroutineScope: CoroutineS
                 // Example 2: Sequential + Parallel Chain
                 Button(onClick = {
                     coroutineScope.launch {
-                        scheduler.beginWith(TaskRequest(workerClassName = WorkerTypes.SYNC_WORKER))
+                        scheduler.beginWith(TaskRequest(workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.SYNC_WORKER))
                             .then(
                                 listOf(
-                                    TaskRequest(workerClassName = WorkerTypes.UPLOAD_WORKER),
+                                    TaskRequest(workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.UPLOAD_WORKER),
                                     TaskRequest(
-                                        workerClassName = WorkerTypes.HEAVY_PROCESSING_WORKER,
+                                        workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.HEAVY_PROCESSING_WORKER,
                                         constraints = Constraints(isHeavyTask = true)
                                     )
                                 )
                             )
-                            .then(TaskRequest(workerClassName = WorkerTypes.SYNC_WORKER, inputJson = "{\"status\":\"complete\"}"))
+                            .then(TaskRequest(workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.SYNC_WORKER, inputJson = "{\"status\":\"complete\"}"))
                             .enqueue()
                         snackbarHostState.showSnackbar(
                             message = "🔀 Mixed chain started! Running parallel tasks...",
@@ -745,11 +748,11 @@ fun TaskChainsTab(scheduler: BackgroundTaskScheduler, coroutineScope: CoroutineS
                     coroutineScope.launch {
                         scheduler.beginWith(
                             listOf(
-                                TaskRequest(workerClassName = WorkerTypes.SYNC_WORKER),
-                                TaskRequest(workerClassName = WorkerTypes.UPLOAD_WORKER)
+                                TaskRequest(workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.SYNC_WORKER),
+                                TaskRequest(workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.UPLOAD_WORKER)
                             )
                         )
-                            .then(TaskRequest(workerClassName = WorkerTypes.SYNC_WORKER, inputJson = "{\"status\":\"done\"}"))
+                            .then(TaskRequest(workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.SYNC_WORKER, inputJson = "{\"status\":\"done\"}"))
                             .enqueue()
                         snackbarHostState.showSnackbar(
                             message = "⚡ Parallel start chain launched!",

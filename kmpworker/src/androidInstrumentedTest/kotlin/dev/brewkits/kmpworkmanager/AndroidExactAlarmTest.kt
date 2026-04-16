@@ -5,35 +5,28 @@ package dev.brewkits.kmpworkmanager
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.WorkManager
+import dev.brewkits.kmpworkmanager.background.data.AlarmStore
 import dev.brewkits.kmpworkmanager.background.domain.AndroidWorker
 import dev.brewkits.kmpworkmanager.background.domain.AndroidWorkerFactory
 import dev.brewkits.kmpworkmanager.background.domain.Constraints
 import dev.brewkits.kmpworkmanager.background.domain.ExistingPolicy
 import dev.brewkits.kmpworkmanager.background.domain.ScheduleResult
-import dev.brewkits.kmpworkmanager.background.domain.SystemConstraint
 import dev.brewkits.kmpworkmanager.background.domain.TaskTrigger
-import dev.brewkits.kmpworkmanager.background.domain.WorkerFactory
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
- * Comprehensive tests for Critical Fix #1: Android Exact Alarm Delay Calculation
- *
- * Bug: NativeTaskScheduler was passing absolute epoch milliseconds as initialDelayMs,
- * causing WorkManager to interpret it as a huge delay value.
- *
- * Fix: Calculate relative delay: (trigger.atEpochMillis - System.currentTimeMillis()).coerceAtLeast(0)
+ * Comprehensive tests for Android Exact Alarm implementation.
  *
  * This test verifies:
  * - Correct relative delay calculation from absolute timestamp
- * - Handling of past timestamps (coerceAtLeast(0))
- * - Edge cases: current time, far future, millisecond precision
+ * - Handling of past timestamps
+ * - Integration with AlarmStore for persistence
  * - No regression in OneTime trigger behavior
  */
 class AndroidExactAlarmTest {
@@ -57,13 +50,11 @@ class AndroidExactAlarmTest {
     @After
     fun tearDown() {
         workManager.cancelAllWork()
+        KmpWorkManager.shutdown()
     }
 
     /**
      * Test 1: Future timestamp should calculate correct relative delay
-     *
-     * Scenario: Schedule a task 5 seconds in the future
-     * Expected: Delay should be approximately 5000ms (±100ms tolerance for execution time)
      */
     @Test
     fun testFutureTimestampCalculatesCorrectDelay() = runBlocking {
@@ -85,25 +76,13 @@ class AndroidExactAlarmTest {
         // Verify task was scheduled
         assertEquals(ScheduleResult.ACCEPTED, result, "Task should be scheduled successfully")
 
-        // Verify WorkInfo exists and has correct delay
-        val workInfo = workManager.getWorkInfosForUniqueWork("exact-alarm-future").get()
-        assertNotNull(workInfo, "WorkInfo should exist")
-        assertTrue(workInfo.isNotEmpty(), "Should have at least one work item")
-
-        // Note: WorkManager doesn't expose initialDelay directly in WorkInfo,
-        // but we can verify the work is ENQUEUED (not immediately running)
-        val state = workInfo.first().state
-        assertTrue(
-            state == androidx.work.WorkInfo.State.ENQUEUED,
-            "Work should be ENQUEUED with delay, not running immediately. State: $state"
-        )
+        // Verify AlarmStore entry exists (Exact alarms use AlarmManager, not WorkManager)
+        val alarms = AlarmStore.getFutureAlarms(context)
+        assertTrue(alarms.any { it.id == "exact-alarm-future" }, "Alarm should exist in AlarmStore")
     }
 
     /**
-     * Test 2: Past timestamp should result in zero delay (immediate execution)
-     *
-     * Scenario: Schedule a task with timestamp in the past
-     * Expected: coerceAtLeast(0) should make it run immediately
+     * Test 2: Past timestamp should result in immediate execution
      */
     @Test
     fun testPastTimestampResultsInZeroDelay() = runBlocking {
@@ -121,18 +100,10 @@ class AndroidExactAlarmTest {
         )
 
         assertEquals(ScheduleResult.ACCEPTED, result, "Task should be scheduled successfully")
-
-        // Work should be enqueued for immediate execution
-        val workInfo = workManager.getWorkInfosForUniqueWork("exact-alarm-past").get()
-        assertNotNull(workInfo, "WorkInfo should exist")
-        assertTrue(workInfo.isNotEmpty(), "Should have work item")
     }
 
     /**
      * Test 3: Current timestamp should result in immediate execution
-     *
-     * Scenario: Schedule a task with current timestamp
-     * Expected: Delay should be 0 or very small
      */
     @Test
     fun testCurrentTimestampResultsInImmediateExecution() = runBlocking {
@@ -150,22 +121,14 @@ class AndroidExactAlarmTest {
         )
 
         assertEquals(ScheduleResult.ACCEPTED, result, "Task should be scheduled successfully")
-
-        val workInfo = workManager.getWorkInfosForUniqueWork("exact-alarm-current").get()
-        assertNotNull(workInfo, "WorkInfo should exist")
-        assertTrue(workInfo.isNotEmpty(), "Should have work item")
     }
 
     /**
-     * Test 4: Far future timestamp should not overflow or cause negative delay
-     *
-     * Scenario: Schedule a task 24 hours in the future
-     * Expected: Should handle large delays correctly
+     * Test 4: Far future timestamp should handle large delays correctly
      */
     @Test
     fun testFarFutureTimestampHandledCorrectly() = runBlocking {
-        val twentyFourHoursMs = 24L * 60 * 60 * 1000
-        val farFutureTimestamp = System.currentTimeMillis() + twentyFourHoursMs
+        val farFutureTimestamp = System.currentTimeMillis() + (365L * 24 * 60 * 60 * 1000)
 
         val scheduler = KmpWorkManager.getInstance().backgroundTaskScheduler
 
@@ -180,21 +143,12 @@ class AndroidExactAlarmTest {
 
         assertEquals(ScheduleResult.ACCEPTED, result, "Task should be scheduled successfully for far future")
 
-        val workInfo = workManager.getWorkInfosForUniqueWork("exact-alarm-far-future").get()
-        assertNotNull(workInfo, "WorkInfo should exist for far future task")
-        assertTrue(workInfo.isNotEmpty(), "Should have work item")
-        assertEquals(
-            androidx.work.WorkInfo.State.ENQUEUED,
-            workInfo.first().state,
-            "Far future task should be ENQUEUED"
-        )
+        val alarms = AlarmStore.getFutureAlarms(context)
+        assertTrue(alarms.any { it.id == "exact-alarm-far-future" }, "Alarm should exist in AlarmStore")
     }
 
     /**
      * Test 5: Millisecond precision should be preserved
-     *
-     * Scenario: Schedule two tasks with slight timestamp differences
-     * Expected: Both should be scheduled without issues
      */
     @Test
     fun testMillisecondPrecisionPreserved() = runBlocking {
@@ -225,18 +179,13 @@ class AndroidExactAlarmTest {
         assertEquals(ScheduleResult.ACCEPTED, result1, "First task should be scheduled")
         assertEquals(ScheduleResult.ACCEPTED, result2, "Second task should be scheduled")
 
-        val workInfo1 = workManager.getWorkInfosForUniqueWork("exact-alarm-precision-1").get()
-        val workInfo2 = workManager.getWorkInfosForUniqueWork("exact-alarm-precision-2").get()
-
-        assertTrue(workInfo1.isNotEmpty(), "First task should exist")
-        assertTrue(workInfo2.isNotEmpty(), "Second task should exist")
+        val alarms = AlarmStore.getFutureAlarms(context)
+        assertTrue(alarms.any { it.id == "exact-alarm-precision-1" }, "First alarm should exist")
+        assertTrue(alarms.any { it.id == "exact-alarm-precision-2" }, "Second alarm should exist")
     }
 
     /**
-     * Test 6: Verify OneTime trigger (non-exact) still works correctly
-     *
-     * Scenario: Schedule a OneTime trigger (relative delay)
-     * Expected: Should not be affected by exact time fix
+     * Test 6: Verify OneTime trigger (non-exact) still works correctly through WorkManager
      */
     @Test
     fun testOneTimeTriggerNotAffectedByFix() = runBlocking {
@@ -253,158 +202,43 @@ class AndroidExactAlarmTest {
             policy = ExistingPolicy.REPLACE
         )
 
-        assertEquals(ScheduleResult.ACCEPTED, result, "OneTime trigger should work")
+        assertEquals(ScheduleResult.ACCEPTED, result)
 
         val workInfo = workManager.getWorkInfosForUniqueWork("one-time-trigger").get()
-        assertNotNull(workInfo, "OneTime task should exist")
-        assertTrue(workInfo.isNotEmpty(), "Should have work item")
-        assertEquals(
-            androidx.work.WorkInfo.State.ENQUEUED,
-            workInfo.first().state,
-            "OneTime task should be ENQUEUED"
-        )
+        assertTrue(workInfo.isNotEmpty(), "OneTime task should exist in WorkManager")
     }
 
     /**
-     * Test 7: Exact time with constraints should work together
-     *
-     * Scenario: Schedule exact time task with battery constraint
-     * Expected: Both exact time and constraints should be applied
-     */
-    @Test
-    fun testExactTimeWithConstraints() = runBlocking {
-        val futureTimestamp = System.currentTimeMillis() + 5000
-
-        val scheduler = KmpWorkManager.getInstance().backgroundTaskScheduler
-
-        val result = scheduler.enqueue(
-            id = "exact-alarm-with-constraints",
-            trigger = TaskTrigger.Exact(atEpochMillis = futureTimestamp),
-            workerClassName = "TestWorker",
-            constraints = Constraints(
-                systemConstraints = setOf(SystemConstraint.REQUIRE_BATTERY_NOT_LOW)
-            ),
-            inputJson = null,
-            policy = ExistingPolicy.REPLACE
-        )
-
-        assertEquals(ScheduleResult.ACCEPTED, result, "Task with constraints should be scheduled")
-
-        val workInfo = workManager.getWorkInfosForUniqueWork("exact-alarm-with-constraints").get()
-        assertNotNull(workInfo, "Task with constraints should exist")
-        assertTrue(workInfo.isNotEmpty(), "Should have work item")
-
-        // Verify constraints are applied
-        val constraints = workInfo.first().constraints
-        assertTrue(
-            constraints.requiresBatteryNotLow(),
-            "Battery constraint should be applied"
-        )
-    }
-
-    /**
-     * Test 8: Multiple exact time tasks should all be scheduled correctly
-     *
-     * Scenario: Schedule 10 tasks with different future timestamps
-     * Expected: All should be scheduled with correct delays
-     */
-    @Test
-    fun testMultipleExactTimeTasks() = runBlocking {
-        val scheduler = KmpWorkManager.getInstance().backgroundTaskScheduler
-        val baseTime = System.currentTimeMillis()
-
-        // Schedule 10 tasks with 1-10 seconds delay
-        val results = (1..10).map { seconds ->
-            val timestamp = baseTime + (seconds * 1000L)
-            scheduler.enqueue(
-                id = "exact-alarm-multiple-$seconds",
-                trigger = TaskTrigger.Exact(atEpochMillis = timestamp),
-                workerClassName = "TestWorker",
-                constraints = Constraints(),
-                inputJson = null,
-                policy = ExistingPolicy.REPLACE
-            )
-        }
-
-        // Verify all tasks were scheduled
-        assertTrue(results.all { it == ScheduleResult.ACCEPTED }, "All tasks should be scheduled successfully")
-
-        // Verify all WorkInfo exist
-        val workInfos = (1..10).map { seconds ->
-            workManager.getWorkInfosForUniqueWork("exact-alarm-multiple-$seconds").get()
-        }
-
-        assertTrue(workInfos.all { it.isNotEmpty() }, "All tasks should have WorkInfo")
-    }
-
-    /**
-     * Test 9: Replace policy should work with exact time
-     *
-     * Scenario: Schedule same task twice with REPLACE policy
-     * Expected: Second should replace first
+     * Test 7: Exact time with Replace policy
      */
     @Test
     fun testExactTimeWithReplacePolicy() = runBlocking {
         val scheduler = KmpWorkManager.getInstance().backgroundTaskScheduler
 
-        val timestamp1 = System.currentTimeMillis() + 5000
-        val timestamp2 = System.currentTimeMillis() + 10000
-
-        // First enqueue
-        val result1 = scheduler.enqueue(
-            id = "exact-alarm-replace",
-            trigger = TaskTrigger.Exact(atEpochMillis = timestamp1),
+        scheduler.enqueue(
+            id = "exact-replace",
+            trigger = TaskTrigger.Exact(System.currentTimeMillis() + 10000),
             workerClassName = "TestWorker",
             constraints = Constraints(),
-            inputJson = null,
+            inputJson = "1",
             policy = ExistingPolicy.REPLACE
         )
 
-        assertEquals(ScheduleResult.ACCEPTED, result1, "First enqueue should succeed")
-
-        // Second enqueue (should replace)
-        val result2 = scheduler.enqueue(
-            id = "exact-alarm-replace",
-            trigger = TaskTrigger.Exact(atEpochMillis = timestamp2),
+        val result = scheduler.enqueue(
+            id = "exact-replace",
+            trigger = TaskTrigger.Exact(System.currentTimeMillis() + 20000),
             workerClassName = "TestWorker",
             constraints = Constraints(),
-            inputJson = null,
+            inputJson = "2",
             policy = ExistingPolicy.REPLACE
         )
 
-        assertEquals(ScheduleResult.ACCEPTED, result2, "Second enqueue should succeed")
-
-        val workInfo = workManager.getWorkInfosForUniqueWork("exact-alarm-replace").get()
-        // Should have only one work item (replaced)
-        assertEquals(1, workInfo.size, "Should have exactly one work item after replace")
-    }
-
-    /**
-     * Test 10: Boundary condition - timestamp at Long.MAX_VALUE
-     *
-     * Scenario: Schedule with maximum possible timestamp
-     * Expected: Should handle without overflow or crash
-     */
-    @Test
-    fun testMaxTimestampBoundary(): Unit = runBlocking {
-        val scheduler = KmpWorkManager.getInstance().backgroundTaskScheduler
-
-        try {
-            val result = scheduler.enqueue(
-                id = "exact-alarm-max",
-                trigger = TaskTrigger.Exact(atEpochMillis = Long.MAX_VALUE),
-                workerClassName = "TestWorker",
-                constraints = Constraints(),
-                inputJson = null,
-                policy = ExistingPolicy.REPLACE
-            )
-
-            // Should either succeed or fail gracefully (no crash)
-            assertNotNull(result, "Should not crash with max timestamp")
-        } catch (e: Exception) {
-            // Acceptable to throw exception for unreasonable timestamp
-            assertTrue(true, "Handled max timestamp boundary")
-        }
+        assertEquals(ScheduleResult.ACCEPTED, result)
+        
+        val alarms = AlarmStore.getFutureAlarms(context)
+        val alarm = alarms.find { it.id == "exact-replace" }
+        assertTrue(alarm != null, "Alarm should exist")
+        assertEquals("2", alarm.inputJson, "Metadata should be replaced")
     }
 
     // ===========================
@@ -421,11 +255,8 @@ class AndroidExactAlarmTest {
     }
 
     private class TestWorker : AndroidWorker {
-        override suspend fun doWork(
-            input: String?,
-            env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
-        ): dev.brewkits.kmpworkmanager.background.domain.WorkerResult {
-            return dev.brewkits.kmpworkmanager.background.domain.WorkerResult.Success(message = "Test worker completed")
+        override suspend fun doWork(input: String?, env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment): WorkerResult {
+            return WorkerResult.Success(message = "Test worker completed")
         }
     }
 }

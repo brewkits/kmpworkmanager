@@ -172,7 +172,7 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         val wmConstraints = buildWorkManagerConstraints(constraints)
         
         val workData = try {
-            buildWorkData(workerClassName, inputJson)
+            buildPeriodicWorkData(workerClassName, inputJson)
         } catch (e: IllegalArgumentException) {
             Logger.e(LogTags.SCHEDULER, "Rejecting periodic task '$id': ${e.message}")
             return ScheduleResult.REJECTED_OS_POLICY
@@ -248,7 +248,7 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val canSchedule = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) alarmManager.canScheduleExactAlarms() else true
 
-        Logger.d(LogTags.ALARM, "canSchedule: $canSchedule")
+        Logger.i(LogTags.ALARM, "Package: ${context.packageName}, canSchedule: $canSchedule")
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S && !canSchedule) {
             Logger.e(LogTags.ALARM, "SCHEDULE_EXACT_ALARM permission not granted — rejecting exact alarm for '$id'")
             return ScheduleResult.REJECTED_OS_POLICY
@@ -301,8 +301,13 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         wmConstraints: androidx.work.Constraints
     ): OneTimeWorkRequest {
         val workData = buildWorkData(workerClassName, inputJson)
-        val builder = OneTimeWorkRequestBuilder<KmpWorker>()
-            .setInitialDelay(initialDelayMs, TimeUnit.MILLISECONDS)
+        val builder = if (constraints.isHeavyTask) {
+            OneTimeWorkRequestBuilder<KmpHeavyWorker>()
+        } else {
+            OneTimeWorkRequestBuilder<KmpWorker>()
+        }
+
+        builder.setInitialDelay(initialDelayMs, TimeUnit.MILLISECONDS)
             .setConstraints(wmConstraints)
             .setInputData(workData)
             .setBackoffCriteria(
@@ -315,8 +320,12 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
             .addTag("id-$id")
             .addTag("worker-$workerClassName")
 
-        if (initialDelayMs == 0L) {
-            builder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+        if (initialDelayMs == 0L && !constraints.isHeavyTask) {
+            // Expedited work does not support some constraints like charging.
+            // Safe to set only if it's a simple urgent task.
+            if (!constraints.requiresCharging && !constraints.requiresUnmeteredNetwork) {
+                builder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+            }
         }
 
         return builder.build()
@@ -383,7 +392,7 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
             BackoffPolicy.EXPONENTIAL -> androidx.work.BackoffPolicy.EXPONENTIAL
         }
 
-    protected open fun getAlarmReceiverClass(): Class<out AlarmReceiver>? = null
+    protected open fun getAlarmReceiverClass(): Class<out AlarmReceiver>? = DefaultAlarmReceiver::class.java
 
     override fun cancel(id: String) {
         workManager.cancelUniqueWork(id)

@@ -1,4 +1,4 @@
-package dev.brewkits.kmpworkmanager.sample.background.data
+package dev.brewkits.kmpworkmanager.background.data
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -8,8 +8,8 @@ import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import dev.brewkits.kmpworkmanager.sample.R
-import dev.brewkits.kmpworkmanager.sample.background.domain.TaskCompletionEvent
-import dev.brewkits.kmpworkmanager.sample.background.domain.TaskEventBus
+import dev.brewkits.kmpworkmanager.background.domain.TaskCompletionEvent
+import dev.brewkits.kmpworkmanager.background.domain.TaskEventBus
 import dev.brewkits.kmpworkmanager.sample.utils.Logger
 import dev.brewkits.kmpworkmanager.sample.utils.LogTags
 import kotlinx.coroutines.CoroutineScope

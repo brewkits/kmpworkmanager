@@ -1,6 +1,6 @@
 package dev.brewkits.kmpworkmanager.sample.debug
 
-import dev.brewkits.kmpworkmanager.sample.background.data.NativeTaskScheduler
+import dev.brewkits.kmpworkmanager.background.data.NativeTaskScheduler
 import platform.BackgroundTasks.BGTaskScheduler
 import platform.Foundation.NSUserDefaults
 import platform.Foundation.NSDictionary
