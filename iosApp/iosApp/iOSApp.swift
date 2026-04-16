@@ -79,7 +79,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             print("iOS BGTask: No BGTaskSchedulerPermittedIdentifiers found in Info.plist")
             return
         }
-        
+
+        let scheduler = koinIos.getScheduler()
+        let executor = koinIos.getSingleTaskExecutor()
+        let chainExecutor = koinIos.getChainExecutor()
+
         for taskId in taskIds {
             // Guard: BGTaskScheduler throws NSInternalInconsistencyException if the same
             // identifier is registered more than once in the same process. This can happen
@@ -90,15 +94,26 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             }
             AppDelegate.registeredTaskIds.insert(taskId)
             BGTaskScheduler.shared.register(forTaskWithIdentifier: taskId, using: nil) { task in
-                print("iOS BGTask: Generic handler received task: \(task.identifier)")
+                print("iOS BGTask: Handler received task: \(task.identifier)")
                 if taskId == "kmp_chain_executor_task" {
-                    self.handleChainExecutorTask(task: task)
+                    // Delegate chain batch execution to the library handler
+                    IosBackgroundTaskHandler.shared.handleChainExecutorTask(
+                        task: task,
+                        chainExecutor: chainExecutor
+                    )
                 } else {
-                    self.handleSingleTask(task: task)
+                    // Delegate single-task execution to the library handler.
+                    // Reads worker metadata from file storage, executes, and auto-reschedules
+                    // periodic tasks — no Swift boilerplate needed.
+                    IosBackgroundTaskHandler.shared.handleSingleTask(
+                        task: task,
+                        scheduler: scheduler,
+                        executor: executor
+                    )
                 }
             }
         }
-        print("iOS BGTask: Registration attempt completed. Total registered: \(AppDelegate.registeredTaskIds.count)")
+        print("iOS BGTask: Registration completed. Total registered: \(AppDelegate.registeredTaskIds.count)")
     }
 
     //================================================================
@@ -189,134 +204,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             } catch {
                 print(" KMP_PUSH_IOS: Failed to schedule task from push. Error: \(error)")
                 completionHandler(.failed)
-            }
-        }
-    }
-
-    private func handleSingleTask(task: BGTask) {
-        let taskId = task.identifier
-        let userDefaults = UserDefaults.standard
-
-        task.expirationHandler = {
-            print("iOS BGTask: Task \(taskId) expired.")
-            task.setTaskCompleted(success: false)
-        }
-
-        let periodicMeta = userDefaults.dictionary(forKey: "kmp_periodic_meta_" + taskId) as? [String: String]
-        let taskMeta = userDefaults.dictionary(forKey: "kmp_task_meta_" + taskId) as? [String: String]
-
-        let workerClassName: String?
-        let inputJson: String?
-
-        if let meta = periodicMeta, meta["isPeriodic"] == "true" {
-            workerClassName = meta["workerClassName"]
-            inputJson = meta["inputJson"]
-        } else if let meta = taskMeta {
-            workerClassName = meta["workerClassName"]
-            inputJson = meta["inputJson"]
-        } else {
-            print("iOS BGTask: No metadata found for task \(taskId). Cannot execute.")
-            task.setTaskCompleted(success: false)
-            return
-        }
-
-        guard let workerName = workerClassName, !workerName.isEmpty else {
-            print("iOS BGTask: Worker class name is missing for task \(taskId).")
-            task.setTaskCompleted(success: false)
-            return
-        }
-
-        if let latestStr = taskMeta?["windowLatest"], let latestMs = Double(latestStr) {
-            let nowMs = Date().timeIntervalSince1970 * 1000
-            if nowMs > latestMs {
-                let overdueSeconds = Int((nowMs - latestMs) / 1000)
-                print("⚠️ iOS BGTask: DEADLINE_MISSED — Windowed task '\(taskId)' ran \(overdueSeconds)s past its 'latest' deadline. Skipping worker execution to prevent stale work.")
-                task.setTaskCompleted(success: false)
-                return
-            }
-        }
-
-        let executor = koinIos.getSingleTaskExecutor()
-        Task {
-            do {
-                let workerResult = try await executor.executeTask(workerClassName: workerName, input: inputJson, timeoutMs: 25000)
-                let resultString = String(describing: type(of: workerResult))
-                let result = resultString.contains("Success")
-                print("iOS BGTask: Task \(taskId) finished with success: \(result) (type: \(resultString))")
-
-                if let meta = periodicMeta, meta["isPeriodic"] == "true" {
-                    print("iOS BGTask: Re-scheduling periodic task \(taskId).")
-                    let scheduler = self.koinIos.getScheduler()
-                    let intervalMs = Int64(meta["intervalMs"] ?? "0") ?? 0
-                    let requiresNetwork = (meta["requiresNetwork"] ?? "false") == "true"
-                    let requiresCharging = (meta["requiresCharging"] ?? "false") == "true"
-                    let isHeavyTask = (meta["isHeavyTask"] ?? "false") == "true"
-
-                    let constraints = Constraints(requiresNetwork: requiresNetwork, requiresUnmeteredNetwork: false, requiresCharging: requiresCharging, allowWhileIdle: false, qos: .background, isHeavyTask: isHeavyTask, backoffPolicy: .exponential, backoffDelayMs: 30000)
-                    let trigger = TaskTriggerPeriodic(intervalMs: intervalMs, flexMs: nil)
-
-                    Task {
-                        do {
-                            _ = try await scheduler.enqueue(id: taskId, trigger: trigger, workerClassName: workerName, constraints: constraints, inputJson: inputJson, policy: .replace)
-                            print("iOS BGTask: Successfully re-scheduled periodic task \(taskId).")
-                        } catch {
-                            print("iOS BGTask: Failed to re-schedule periodic task \(taskId): \(error)")
-                        }
-                    }
-                }
-
-                task.setTaskCompleted(success: result)
-            } catch {
-                print("iOS BGTask: Task \(taskId) failed with error: \(error.localizedDescription)")
-                task.setTaskCompleted(success: false)
-            }
-        }
-    }
-
-    private func handleChainExecutorTask(task: BGTask) {
-        print("📦 iOS BGTask: Handling KMP Chain Executor Task (Batch Mode)")
-        let chainExecutor = koinIos.getChainExecutor()
-
-        task.expirationHandler = {
-            print("⏰ iOS BGTask: KMP Chain Executor Task expired - initiating graceful shutdown")
-            Task {
-                do {
-                    try await chainExecutor.requestShutdown()
-                    print("✅ iOS BGTask: Graceful shutdown completed")
-                } catch {
-                    print("❌ iOS BGTask: Graceful shutdown failed: \(error)")
-                }
-                task.setTaskCompleted(success: false)
-            }
-        }
-
-        let scheduleNext: () -> Void = {
-            let count = Int(chainExecutor.getChainQueueSize())
-            if count > 0 {
-                print("📦 iOS BGTask: \(count) chain(s) remaining. Rescheduling executor task.")
-                let request = BGProcessingTaskRequest(identifier: "kmp_chain_executor_task")
-                request.earliestBeginDate = Date(timeIntervalSinceNow: 1)
-                request.requiresNetworkConnectivity = true
-                try? BGTaskScheduler.shared.submit(request)
-            } else {
-                print("✅ iOS BGTask: All chains processed. Queue is empty.")
-            }
-        }
-
-        Task {
-            do {
-                let queueCount = Int(chainExecutor.getChainQueueSize())
-                print("📦 iOS BGTask: Chain queue size: \(queueCount)")
-                chainExecutor.resetShutdownState()
-                let executedCount = try await chainExecutor.executeChainsInBatch(maxChains: 3, totalTimeoutMs: 50_000)
-                let count = Int(truncating: executedCount as NSNumber)
-                print("✅ iOS BGTask: Batch execution completed - \(count) chain(s) executed out of \(queueCount)")
-                task.setTaskCompleted(success: true)
-                scheduleNext()
-            } catch {
-                print("❌ iOS BGTask: Batch execution failed with error: \(error.localizedDescription)")
-                task.setTaskCompleted(success: false)
-                scheduleNext()
             }
         }
     }

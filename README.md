@@ -20,7 +20,7 @@
 ```kotlin
 // build.gradle.kts
 commonMain.dependencies {
-    implementation("dev.brewkits:kmpworkmanager:2.3.9")
+    implementation("dev.brewkits:kmpworkmanager:2.4.0")
 }
 ```
 
@@ -188,9 +188,30 @@ and no recovery mechanism for incomplete work. Getting it wrong means your tasks
 
 ---
 
-## What's new in v2.3.8
+## What's new in v2.4.0
 
-### Execution history
+### iOS Native Background Task Handler
+The host application no longer needs to copy and maintain 150+ lines of Swift boilerplate to handle iOS background tasks. The library now provides a native Kotlin API that handles the entire lifecycle:
+
+```swift
+// AppDelegate.swift — now just 3 lines to handle any task
+BGTaskScheduler.shared.register(forTaskWithIdentifier: taskId, using: nil) { task in
+    IosBackgroundTaskHandler.shared.handleSingleTask(
+        task: task,
+        scheduler: koin.getScheduler(),
+        executor: koin.getExecutor()
+    )
+}
+```
+
+This handler automatically:
+- Sets up the `expirationHandler` for graceful shutdown.
+- Resolves worker metadata (`workerClassName`, `inputJson`) from file storage.
+- Executes the worker with timeout protection via `SingleTaskExecutor`.
+- **Auto-reschedules periodic tasks** and the chain executor if the queue is not empty.
+- Performs deadline checks for windowed tasks.
+
+### Execution history (v2.3.8)
 Every chain execution is persisted locally. Collect, upload, clear:
 
 ```kotlin
@@ -257,8 +278,8 @@ Add to `build.gradle.kts`:
 plugins { id("com.google.devtools.ksp") }
 
 dependencies {
-    ksp("dev.brewkits:kmpworker-ksp:2.3.9")
-    commonMain.implementation("dev.brewkits:kmpworker-annotations:2.3.9")
+    ksp("dev.brewkits:kmpworker-ksp:2.4.0")
+    commonMain.implementation("dev.brewkits:kmpworker-annotations:2.4.0")
 }
 ```
 

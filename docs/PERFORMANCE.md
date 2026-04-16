@@ -36,7 +36,7 @@ Time to schedule a task:
 
 **Optimization (v2.3.1+):**
 - Android: WorkManager enqueue is ~10ms
-- iOS: UserDefaults write + BGTask submit ~20ms
+- iOS: IosFileStorage write + BGTask submit ~25ms
 
 ### Task Chain Creation
 
@@ -120,7 +120,7 @@ Measured with real network operations:
 |-----------|---------|-----|-------|
 | Library Size | ~150KB | ~200KB | AAR / Framework |
 | Runtime Memory | <5MB | <5MB | Typical usage |
-| Per Task Metadata | ~1KB | ~1KB | UserDefaults/WorkManager |
+| Per Task Metadata | ~1KB | ~1KB | IosFileStorage/WorkManager |
 
 ### Queue Memory (iOS v2.3.1+)
 

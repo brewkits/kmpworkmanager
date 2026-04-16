@@ -188,7 +188,7 @@ url = "http://api.com/login" // ⚠️ Unencrypted
 ./gradlew dependencyCheckAnalyze
 
 # Keep KMP WorkManager updated
-implementation("dev.brewkits:kmpworkmanager:2.3.8") // ✅ Latest
+implementation("dev.brewkits:kmpworkmanager:2.4.0") // ✅ Latest
 ```
 
 **DON'T:**

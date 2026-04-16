@@ -125,7 +125,7 @@ BackgroundTaskScheduler (interface)
         ├─► Validates task ID against Info.plist
         ├─► Creates BGAppRefreshTaskRequest or BGProcessingTaskRequest
         ├─► Submits to BGTaskScheduler
-        ├─► Stores metadata in UserDefaults
+        ├─► Stores metadata in File Storage (IosFileStorage)
         └─► Returns ScheduleResult
 ```
 
@@ -161,7 +161,7 @@ BGTaskScheduler
         │
         ├─► SingleTaskExecutor.execute() OR ChainExecutor.execute()
         │   │
-        │   ├─► Retrieves metadata from UserDefaults
+        │   ├─► Retrieves metadata from IosFileStorage
         │   ├─► Creates worker via IosWorkerFactory
         │   ├─► Executes worker.doWork() with timeout protection
         │   ├─► Emits TaskCompletionEvent to EventBus
@@ -255,7 +255,7 @@ scheduler.beginWith(TaskRequest("Step1"))
 - Automatic dependency management
 
 **iOS Implementation:**
-- Custom chain serialization to UserDefaults
+- Delegation to native Kotlin `IosBackgroundTaskHandler`
 - ChainExecutor processes chains step-by-step
 - Parallel tasks use `coroutineScope { async { } }.awaitAll()` — each task's result is collected to determine per-task success
 - Per-task completion tracked in `ChainProgress.completedTasksInSteps`; on retry only failed tasks re-execute, already-succeeded tasks are skipped (v2.2.1+)
@@ -372,7 +372,7 @@ class MyWorkerFactory : IosWorkerFactory {
 
 **Solutions:**
 - Timeout protection with `withTimeout()` — callers can pass `deadlineEpochMs` for dynamic time-slicing against the actual BGTask deadline (v2.2.1+)
-- Metadata storage in UserDefaults for task tracking
+- Metadata storage in IosFileStorage for task tracking
 - Chain batching (execute up to 3 chains per invocation)
 - ExistingPolicy support with KEEP/REPLACE
 - Queue corruption recovery via truncation at the first bad record — preserves all valid data before the corruption point (v2.2.1+)
@@ -505,7 +505,7 @@ scheduler.beginWith(task1)
 
 - **Library size**: ~150KB (Android AAR), ~200KB (iOS Framework)
 - **Runtime overhead**: < 5MB additional memory
-- **Metadata storage**: ~1KB per task (UserDefaults on iOS)
+- **Metadata storage**: ~1KB per task (IosFileStorage on iOS)
 
 ### Execution Latency
 

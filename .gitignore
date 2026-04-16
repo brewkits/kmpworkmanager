@@ -17,8 +17,7 @@ captures
 !*.xcworkspace/contents.xcworkspacedata
 **/xcshareddata/WorkspaceSettings.xcsettings
 node_modules/
-.claude
-.claude/settings.local.json
+.claude/
 publish-to-maven-central.sh
 
 # ===================================
@@ -66,6 +65,7 @@ devto-article.md
 rebuild-with-signing.sh
 create-maven-bundle*.sh
 docs/V2.2.2_TECHNICAL_GUIDE.md
+GEMINI.md
 
 # Release process documentation (internal use only)
 RELEASE_PROCESS_SUMMARY.md
@@ -106,7 +106,6 @@ kmpworkmanager-v*.zip
 # IDE specific
 .vscode/
 *.code-workspace
-.claude/
 
 # macOS
 .AppleDouble
@@ -115,11 +114,9 @@ kmpworkmanager-v*.zip
 # Backup files
 *.bak
 *.backup
-HOÀN-THÀNH-v2.3.1.md
 
 # Review and implementation summaries
 *-IMPLEMENTATION-SUMMARY.md
 *-PROFESSIONAL-REVIEW.md
 *-COMPREHENSIVE-REVIEW.md
-HOÀN-THÀNH-*.md
 **/bin/

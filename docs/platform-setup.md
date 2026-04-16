@@ -22,7 +22,7 @@ kotlin {
     sourceSets {
         androidMain.dependencies {
             // KMP WorkManager (required)
-            implementation("dev.brewkits:kmpworkmanager:2.3.9")
+            implementation("dev.brewkits:kmpworkmanager:2.4.0")
 
             // WorkManager (optional - already included transitively)
             implementation("androidx.work:work-runtime-ktx:2.11.0")
@@ -456,16 +456,19 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     }
 
     private func registerBackgroundTasks() {
-        let koinIos = KoinIOS()
+        let scheduler = koinIos.getScheduler()
+        let executor = koinIos.getSingleTaskExecutor()
+        let chainExecutor = koinIos.getChainExecutor()
 
         // Periodic sync task (BGAppRefreshTask)
         BGTaskScheduler.shared.register(
             forTaskWithIdentifier: "periodic-sync-task",
             using: nil
         ) { task in
-            self.handleAppRefreshTask(
-                task: task as! BGAppRefreshTask,
-                scheduler: koinIos.getScheduler()
+            IosBackgroundTaskHandler.shared.handleSingleTask(
+                task: task,
+                scheduler: scheduler,
+                executor: executor
             )
         }
 
@@ -474,9 +477,10 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             forTaskWithIdentifier: "heavy-processing-task",
             using: nil
         ) { task in
-            self.handleProcessingTask(
-                task: task as! BGProcessingTask,
-                scheduler: koinIos.getScheduler()
+            IosBackgroundTaskHandler.shared.handleSingleTask(
+                task: task,
+                scheduler: scheduler,
+                executor: executor
             )
         }
 
@@ -485,38 +489,11 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             forTaskWithIdentifier: "kmp_chain_executor_task",
             using: nil
         ) { task in
-            self.handleChainExecutorTask(
-                task: task as! BGProcessingTask,
-                scheduler: koinIos.getScheduler()
+            IosBackgroundTaskHandler.shared.handleChainExecutorTask(
+                task: task,
+                chainExecutor: chainExecutor
             )
         }
-    }
-
-    private func handleAppRefreshTask(
-        task: BGAppRefreshTask,
-        scheduler: BackgroundTaskScheduler
-    ) {
-        scheduler.handleSingleTask(
-            task: task,
-            taskIdentifier: "periodic-sync-task"
-        )
-    }
-
-    private func handleProcessingTask(
-        task: BGProcessingTask,
-        scheduler: BackgroundTaskScheduler
-    ) {
-        scheduler.handleSingleTask(
-            task: task,
-            taskIdentifier: "heavy-processing-task"
-        )
-    }
-
-    private func handleChainExecutorTask(
-        task: BGProcessingTask,
-        scheduler: BackgroundTaskScheduler
-    ) {
-        scheduler.handleChainExecutorTask(task: task)
     }
 
     private func requestNotificationPermissions() {
@@ -909,14 +886,14 @@ xcrun simctl spawn booted log stream --predicate 'subsystem == "com.apple.BGTask
 
 **Problem**: Task runs once but doesn't repeat
 
-**Solution**: Ensure `handleSingleTask` re-schedules periodic tasks:
+**Solution**: The library's `IosBackgroundTaskHandler` automatically re-schedules periodic tasks upon successful completion. Ensure you are using this handler in your `AppDelegate`:
 
-```kotlin
-// This is handled internally by NativeTaskScheduler
-// Verify metadata is stored correctly
-val defaults = NSUserDefaults.standardUserDefaults
-val metadata = defaults.stringForKey("kmp_periodic_meta_periodic-sync-task")
-println("Periodic metadata: $metadata")
+```swift
+IosBackgroundTaskHandler.shared.handleSingleTask(
+    task: task,
+    scheduler: koin.getScheduler(),
+    executor: koin.getExecutor()
+)
 ```
 
 ---
@@ -937,11 +914,11 @@ println("Periodic metadata: $metadata")
 
 1. **Keep BGAppRefreshTask workers under 20 seconds**
 2. **Use BGProcessingTask (`isHeavyTask = true`) for heavy work**
-3. **Always re-schedule periodic tasks after completion**
+3. **Use `IosBackgroundTaskHandler` to automate re-scheduling and metadata resolution**
 4. **Register task handlers BEFORE scheduling tasks**
 5. **Test on physical devices** (simulator behavior differs)
 6. **Use LLDB commands for testing** (don't wait hours for iOS to trigger)
-7. **Store task metadata in UserDefaults** for persistence
+7. **Metadata is persisted automatically** in `Library/Application Support` (IosFileStorage)
 
 ---
 

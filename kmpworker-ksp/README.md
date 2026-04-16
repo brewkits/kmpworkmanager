@@ -23,9 +23,9 @@ plugins {
 
 ```kotlin
 dependencies {
-    implementation("dev.brewkits:kmpworkmanager:2.3.9")
-    implementation("dev.brewkits:kmpworker-annotations:2.3.9")
-    ksp("dev.brewkits:kmpworker-ksp:2.3.9")
+    implementation("dev.brewkits:kmpworkmanager:2.4.0")
+    implementation("dev.brewkits:kmpworker-annotations:2.4.0")
+    ksp("dev.brewkits:kmpworker-ksp:2.4.0")
 }
 ```
 
@@ -213,5 +213,5 @@ Use the appropriate one per platform.
 
 ---
 
-**Version:** 2.3.9
+**Version:** 2.4.0
 **Feedback:** https://github.com/brewkits/kmpworkmanager/issues

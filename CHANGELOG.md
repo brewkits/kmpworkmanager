@@ -5,6 +5,18 @@ All notable changes to KMP WorkManager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.0] - 2026-04-16
+
+### Added
+- Created `IosBackgroundTaskHandler` in `iosMain` module, providing a native Kotlin API for iOS background task execution.
+- This new API handles worker metadata resolution, execution, and auto-rescheduling for periodic tasks, removing the need for 150+ lines of Swift boilerplate in the host app.
+- Added comprehensive unit tests for the new iOS background task handler.
+
+### Changed
+- Updated iOS sample application to use the new `IosBackgroundTaskHandler.shared` API.
+- Refactored `iOSApp.swift` to remove redundant private background task handler methods.
+- Updated documentation (README, Quickstart, Platform Setup) to reflect the new, simplified iOS integration path.
+
 ## [2.3.9] - 2026-04-11
 
 ### Fixed

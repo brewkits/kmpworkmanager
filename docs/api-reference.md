@@ -4,7 +4,7 @@ Complete API documentation for KMP WorkManager.
 
 ## Table of Contents
 
-- [v2.3.8 APIs](#v238-apis)
+- [v2.4.0 APIs](#v240-apis)
 - [BackgroundTaskScheduler](#backgroundtaskscheduler)
 - [WorkerResult (v2.3.0+)](#workerresult-v230)
 - [Task Triggers](#task-triggers)
@@ -16,9 +16,9 @@ Complete API documentation for KMP WorkManager.
 
 ---
 
-## v2.3.9 APIs
+## v2.4.0 APIs
 
-New types and scheduler methods added in v2.3.9.
+New types and scheduler methods added in v2.4.0.
 
 ### TaskPriority
 

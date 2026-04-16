@@ -21,7 +21,7 @@ Add KMP WorkManager to your `build.gradle.kts` (module level):
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("dev.brewkits:kmpworkmanager:2.3.9")
+            implementation("dev.brewkits:kmpworkmanager:2.4.0")
         }
     }
 }
@@ -142,16 +142,19 @@ struct iOSApp: App {
     }
 
     private func registerBackgroundTasks() {
-        let koinIos = KoinIOS()
+        let scheduler = koinIos.getScheduler()
+        let executor = koinIos.getSingleTaskExecutor()
+        let chainExecutor = koinIos.getChainExecutor()
 
         // Register periodic sync task
         BGTaskScheduler.shared.register(
             forTaskWithIdentifier: "periodic-sync-task",
             using: nil
         ) { task in
-            koinIos.getScheduler().handleSingleTask(
-                task: task as! BGAppRefreshTask,
-                taskIdentifier: "periodic-sync-task"
+            IosBackgroundTaskHandler.shared.handleSingleTask(
+                task: task,
+                scheduler: scheduler,
+                executor: executor
             )
         }
 
@@ -160,9 +163,21 @@ struct iOSApp: App {
             forTaskWithIdentifier: "heavy-processing-task",
             using: nil
         ) { task in
-            koinIos.getScheduler().handleSingleTask(
-                task: task as! BGProcessingTask,
-                taskIdentifier: "heavy-processing-task"
+            IosBackgroundTaskHandler.shared.handleSingleTask(
+                task: task,
+                scheduler: scheduler,
+                executor: executor
+            )
+        }
+
+        // Register chain executor
+        BGTaskScheduler.shared.register(
+            forTaskWithIdentifier: "kmp_chain_executor_task",
+            using: nil
+        ) { task in
+            IosBackgroundTaskHandler.shared.handleChainExecutorTask(
+                task: task,
+                chainExecutor: chainExecutor
             )
         }
     }
