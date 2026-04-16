@@ -66,11 +66,16 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        let koin = KoinIOS()
+        
         BGTaskScheduler.shared.register(
             forTaskWithIdentifier: "kmp_chain_executor_task",
             using: nil
         ) { task in
-            IosBackgroundTaskHandlerKt.handleChainExecutorTask(task as! BGProcessingTask)
+            IosBackgroundTaskHandler.shared.handleChainExecutorTask(
+                task: task,
+                chainExecutor: koin.getChainExecutor()
+            )
         }
         return true
     }

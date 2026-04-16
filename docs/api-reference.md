@@ -1267,13 +1267,46 @@ class KmpHeavyWorker(
 
 ### iOS
 
+#### IosBackgroundTaskHandler
+
+Kotlin-native API for handling the iOS background task lifecycle. Replaces the need for manual Swift boilerplate in `AppDelegate`.
+
+```kotlin
+object IosBackgroundTaskHandler {
+    fun handleSingleTask(
+        task: BGTask,
+        scheduler: BackgroundTaskScheduler,
+        executor: SingleTaskExecutor
+    )
+
+    fun handleChainExecutorTask(
+        task: BGTask,
+        chainExecutor: ChainExecutor
+    )
+}
+```
+
+**Swift Usage:**
+
+```swift
+BGTaskScheduler.shared.register(forTaskWithIdentifier: "my-task", using: nil) { task in
+    IosBackgroundTaskHandler.shared.handleSingleTask(
+        task: task,
+        scheduler: koin.getScheduler(),
+        executor: koin.getExecutor()
+    )
+}
+```
+
+---
+
 #### IosWorker
 
 Interface for iOS background workers.
 
 ```kotlin
-interface IosWorker {
-    suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult
+interface IosWorker : dev.brewkits.kmpworkmanager.background.domain.Worker {
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult
 }
 ```
 
@@ -1282,7 +1315,7 @@ interface IosWorker {
 ```kotlin
 class SyncWorker : IosWorker {
     override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
-        // Your implementation (must complete within 25 seconds)
+        // Your implementation (must complete within 25 seconds for light tasks)
         return WorkerResult.Success(message = "Sync complete")
     }
 }
@@ -1295,14 +1328,8 @@ class SyncWorker : IosWorker {
 Factory for creating worker instances.
 
 ```kotlin
-object IosWorkerFactory {
-    fun createWorker(className: String): IosWorker? {
-        return when (className) {
-            "SyncWorker" -> SyncWorker()
-            "UploadWorker" -> UploadWorker()
-            else -> null
-        }
-    }
+interface IosWorkerFactory : dev.brewkits.kmpworkmanager.background.domain.WorkerFactory {
+    override fun createWorker(workerClassName: String): IosWorker?
 }
 ```
 

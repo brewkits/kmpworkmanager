@@ -1,9 +1,11 @@
 package dev.brewkits.kmpworkmanager.sample.di
 
+import dev.brewkits.kmpworkmanager.KmpWorkManagerConfig
 import dev.brewkits.kmpworkmanager.background.data.ChainExecutor
 import dev.brewkits.kmpworkmanager.background.data.SingleTaskExecutor
 import dev.brewkits.kmpworkmanager.background.data.NativeTaskScheduler
 import dev.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
+import dev.brewkits.kmpworkmanager.kmpWorkerModule
 import dev.brewkits.kmpworkmanager.persistence.ExecutionHistoryStore
 import dev.brewkits.kmpworkmanager.persistence.IosExecutionHistoryStore
 import dev.brewkits.kmpworkmanager.sample.background.data.IosWorkerFactory
@@ -11,6 +13,7 @@ import dev.brewkits.kmpworkmanager.sample.debug.DebugSource
 import dev.brewkits.kmpworkmanager.sample.debug.IosDebugSource
 import dev.brewkits.kmpworkmanager.sample.push.DefaultPushNotificationHandler
 import dev.brewkits.kmpworkmanager.sample.push.PushNotificationHandler
+import dev.brewkits.kmpworkmanager.utils.Logger
 import org.koin.dsl.module
 
 /**
@@ -18,22 +21,16 @@ import org.koin.dsl.module
  * Defines the platform-specific implementations of shared interfaces.
  */
 val iosModule = module {
-    // Execution history store — shared with demo's ExecutionHistoryScreen
-    single<ExecutionHistoryStore> { IosExecutionHistoryStore() }
+    // Include the library core module. 
+    // This provides BackgroundTaskScheduler, ChainExecutor, and SingleTaskExecutor.
+    // NativeTaskScheduler will now have the executors injected for simulator fallback.
+    includes(kmpWorkerModule(
+        workerFactory = IosWorkerFactory(),
+        config = KmpWorkManagerConfig(logLevel = Logger.Level.DEBUG_LEVEL)
+    ))
 
-    // Single instance of the BackgroundTaskScheduler using the iOS-specific implementation.
-    single<BackgroundTaskScheduler> { NativeTaskScheduler() }
-
-    single<DebugSource> { IosDebugSource() }
-    // Single instance of the PushNotificationHandler using the default implementation (if no specific iOS logic is needed here)
+    // Single instance of the PushNotificationHandler using the default implementation
     single<PushNotificationHandler> { DefaultPushNotificationHandler() }
 
-    // Factory for creating iOS-specific workers
-    single<dev.brewkits.kmpworkmanager.background.data.IosWorkerFactory> { IosWorkerFactory() }
-
-    // Single instance of the ChainExecutor for handling task chains on iOS
-    single { ChainExecutor(workerFactory = get()) }
-
-    // Single instance of the SingleTaskExecutor for handling individual tasks on iOS
-    single { SingleTaskExecutor(workerFactory = get()) }
+    single<DebugSource> { IosDebugSource() }
 }

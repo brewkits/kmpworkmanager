@@ -140,7 +140,7 @@ class ChainExecutor(
      * - APP_REFRESH: 20 seconds (tight time budget)
      * - PROCESSING: 120 seconds (2 minutes - more generous)
      */
-    private val taskTimeout: Long = when (taskType) {
+    internal val taskTimeout: Long = when (taskType) {
         BGTaskType.APP_REFRESH -> 20_000L
         BGTaskType.PROCESSING -> 120_000L
     }
@@ -150,7 +150,7 @@ class ChainExecutor(
      * - APP_REFRESH: 25 seconds (iOS BGAppRefreshTask ~30s OS limit)
      * - PROCESSING: 300 seconds (5 minutes from typical 5-10 min window)
      */
-    private val chainTimeout: Long = when (taskType) {
+    internal val chainTimeout: Long = when (taskType) {
         BGTaskType.APP_REFRESH -> 25_000L
         BGTaskType.PROCESSING -> 300_000L
     }
@@ -413,7 +413,7 @@ class ChainExecutor(
         } else {
             calculateAdaptiveBudget(totalTimeoutMs)
         }
-        val minTimePerChain = taskTimeout // Minimum time needed per chain
+        val minTimePerChain = minOf(taskTimeout, conservativeTimeout) // Minimum time needed per chain
 
         Logger.i(LogTags.CHAIN, """
             Starting batch chain execution:

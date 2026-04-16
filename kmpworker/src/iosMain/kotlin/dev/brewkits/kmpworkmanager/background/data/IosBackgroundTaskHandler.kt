@@ -221,7 +221,7 @@ object IosBackgroundTaskHandler {
                 chainExecutor.resetShutdownState()
                 val count = chainExecutor.executeChainsInBatch(
                     maxChains = 3,
-                    totalTimeoutMs = 50_000L
+                    totalTimeoutMs = chainExecutor.chainTimeout
                 )
                 Logger.i(LogTags.CHAIN, "Batch execution done — $count chain(s) processed")
                 task.setTaskCompletedWithSuccess(true)
@@ -229,7 +229,6 @@ object IosBackgroundTaskHandler {
                 Logger.e(LogTags.CHAIN, "Chain executor task failed", e)
                 task.setTaskCompletedWithSuccess(false)
             }
-            rescheduleChainExecutorIfNeeded(chainExecutor)
         }
     }
 
@@ -319,6 +318,16 @@ object IosBackgroundTaskHandler {
             Logger.i(LogTags.SCHEDULER, "Rescheduled periodic task '$taskId' (every ${intervalMs}ms)")
         } catch (e: Exception) {
             Logger.e(LogTags.SCHEDULER, "Failed to reschedule periodic task '$taskId'", e)
+        }
+    }
+
+    /**
+     * Public bridge to trigger chain executor re-scheduling from a non-suspend context.
+     * Used by the [ChainExecutor] continuation callback.
+     */
+    fun triggerChainExecutorReschedule(chainExecutor: ChainExecutor) {
+        scope.launch {
+            rescheduleChainExecutorIfNeeded(chainExecutor)
         }
     }
 

@@ -524,7 +524,10 @@ Create worker classes in `iosMain/background/workers/`:
 ```kotlin
 // SyncWorker.kt
 class SyncWorker : IosWorker {
-    override suspend fun doWork(input: String?): Boolean {
+    override suspend fun doWork(
+        input: String?,
+        env: WorkerEnvironment
+    ): WorkerResult {
         return try {
             // IMPORTANT: Must complete within 25 seconds for BGAppRefreshTask
             // or within a few minutes for BGProcessingTask
@@ -532,14 +535,10 @@ class SyncWorker : IosWorker {
 
             delay(2000) // Simulate work
 
-            TaskEventBus.emit(
-                TaskCompletionEvent("SyncWorker", true, "✅ iOS sync complete")
-            )
-
-            true
+            WorkerResult.Success("✅ iOS sync complete")
         } catch (e: Exception) {
             Logger.e(LogTags.WORKER, "iOS sync failed", e)
-            false
+            WorkerResult.Failure(e.message ?: "Unknown error")
         }
     }
 }

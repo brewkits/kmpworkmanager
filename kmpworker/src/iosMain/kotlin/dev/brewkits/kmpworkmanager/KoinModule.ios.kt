@@ -1,8 +1,6 @@
 package dev.brewkits.kmpworkmanager
 
-import dev.brewkits.kmpworkmanager.background.data.IosWorkerFactory
-import dev.brewkits.kmpworkmanager.background.data.InfoPlistReader
-import dev.brewkits.kmpworkmanager.background.data.NativeTaskScheduler
+import dev.brewkits.kmpworkmanager.background.data.*
 import dev.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
 import dev.brewkits.kmpworkmanager.background.domain.BgTaskIdProvider
 import dev.brewkits.kmpworkmanager.background.domain.TaskEventManager
@@ -103,10 +101,23 @@ actual fun kmpWorkerModule(
         }
     }
 
+    // Internal executors used for task execution and simulator fallback
+    single { SingleTaskExecutor(workerFactory = get()) }
+    single { 
+        ChainExecutor(
+            workerFactory = get(),
+            onContinuationNeeded = { 
+                IosBackgroundTaskHandler.triggerChainExecutorReschedule(get()) 
+            }
+        ) 
+    }
+
     single<BackgroundTaskScheduler> {
         NativeTaskScheduler(
             additionalPermittedTaskIds = iosTaskIds,
-            diskSpaceBufferBytes = config.minFreeDiskSpaceBytes
+            diskSpaceBufferBytes = config.minFreeDiskSpaceBytes,
+            singleTaskExecutor = get(),
+            chainExecutor = get()
         )
     }
 

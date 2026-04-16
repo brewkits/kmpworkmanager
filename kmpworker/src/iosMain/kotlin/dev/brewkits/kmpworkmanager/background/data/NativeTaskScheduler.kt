@@ -12,6 +12,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -70,26 +71,20 @@ import platform.UserNotifications.UNUserNotificationCenter
 public class NativeTaskScheduler(
     /**
      * Additional permitted task IDs beyond those in Info.plist.
-     *
-     * Task IDs are now read from Info.plist automatically.
-     * This parameter is kept for backward compatibility but is optional.
-     *
-     * Recommended: Define all task IDs in Info.plist only.
-     *
-     * Example:
-     * ```kotlin
-     * val scheduler = NativeTaskScheduler(
-     *     additionalPermittedTaskIds = setOf("my-sync-task", "my-upload-task")
-     * )
-     * ```
      */
     additionalPermittedTaskIds: Set<String> = emptySet(),
     /**
      * Minimum free disk space (bytes) required before any task data is written.
-     * Set via [KmpWorkManagerConfig.minFreeDiskSpaceBytes] when using Koin.
-     * Reduce to 25_000_000 (25 MB) for apps targeting older/low-storage devices.
      */
     diskSpaceBufferBytes: Long = 50_000_000L,
+    /**
+     * Optional executor for single tasks — used for simulator fallback.
+     */
+    private val singleTaskExecutor: SingleTaskExecutor? = null,
+    /**
+     * Optional executor for task chains — used for simulator fallback.
+     */
+    private val chainExecutor: ChainExecutor? = null,
     /**
      * Custom storage implementation for testing and isolation.
      */
@@ -99,6 +94,16 @@ public class NativeTaskScheduler(
     private companion object {
         const val CHAIN_EXECUTOR_IDENTIFIER = "kmp_chain_executor_task"
         const val APPLE_TO_UNIX_EPOCH_OFFSET_SECONDS = 978307200.0
+
+        /**
+         * Detect if running on iOS Simulator.
+         * BGTaskScheduler.submit() always fails with error 1 on simulators.
+         */
+        private val isSimulator: Boolean by lazy {
+            val kmpEnv = platform.posix.getenv("KMP_IS_SIMULATOR")?.toKString()
+            val simEnv = platform.posix.getenv("SIMULATOR_DEVICE_NAME")?.toKString()
+            kmpEnv == "1" || simEnv != null
+        }
     }
 
     private val migration = StorageMigration(fileStorage = fileStorage)
@@ -535,7 +540,8 @@ public class NativeTaskScheduler(
     }
 
     /**
-     * Submit task request to BGTaskScheduler with proper error handling
+     * Submit task request to BGTaskScheduler with proper error handling.
+     * Includes a fallback for iOS Simulator where BGTaskScheduler is unavailable.
      */
     private fun submitTaskRequest(request: BGTaskRequest, taskDescription: String): ScheduleResult {
         // In test environment (no app bundle), BGTaskScheduler is unavailable - simulate success
@@ -543,6 +549,37 @@ public class NativeTaskScheduler(
             Logger.d(LogTags.SCHEDULER, "Test mode: simulating accepted submission for $taskDescription")
             return ScheduleResult.ACCEPTED
         }
+
+        // iOS Simulator Fallback
+        if (isSimulator) {
+            Logger.w(LogTags.SCHEDULER, "iOS Simulator detected — BGTaskScheduler is unavailable.")
+            
+            if (singleTaskExecutor != null) {
+                val delaySeconds = request.earliestBeginDate?.timeIntervalSinceNow ?: 0.0
+                val delayMs = (delaySeconds * 1000.0).toLong().coerceAtLeast(0L)
+                
+                Logger.i(LogTags.SCHEDULER, "Simulator fallback: executing '$taskDescription' in ${delayMs}ms")
+                
+                backgroundScope.launch {
+                    delay(delayMs)
+                    val taskId = request.identifier
+                    val meta = IosBackgroundTaskHandler.resolveTaskMetadata(taskId, fileStorage)
+                    if (meta != null) {
+                        singleTaskExecutor.executeTask(meta.workerClassName, meta.inputJson)
+                        if (meta.isPeriodic && meta.rawMeta != null) {
+                            IosBackgroundTaskHandler.reschedulePeriodicTask(
+                                taskId, meta.workerClassName, meta.inputJson, meta.rawMeta, this@NativeTaskScheduler
+                            )
+                        }
+                    }
+                }
+                return ScheduleResult.ACCEPTED
+            } else {
+                Logger.e(LogTags.SCHEDULER, "Simulator fallback failed: singleTaskExecutor not provided to NativeTaskScheduler")
+                // Fall through to OS call which will fail with error 1, providing standard diagnostic
+            }
+        }
+
         return memScoped {
             val errorPtr = alloc<ObjCObjectVar<NSError?>>()
             val success = BGTaskScheduler.sharedScheduler.submitTaskRequest(request, errorPtr.ptr)
@@ -909,6 +946,27 @@ public class NativeTaskScheduler(
         val request = BGProcessingTaskRequest(identifier = CHAIN_EXECUTOR_IDENTIFIER).apply {
             earliestBeginDate = NSDate().dateByAddingTimeInterval(1.0)
             requiresNetworkConnectivity = false
+        }
+
+        // iOS Simulator Fallback for Chains
+        if (isSimulator) {
+            Logger.w(LogTags.CHAIN, "iOS Simulator detected — BGTaskScheduler is unavailable.")
+            
+            if (chainExecutor != null) {
+                Logger.i(LogTags.CHAIN, "Simulator fallback: executing chain batch immediately")
+                backgroundScope.launch {
+                    delay(1000) // Small delay to mimic earliestBeginDate
+                    chainExecutor.resetShutdownState()
+                    chainExecutor.executeChainsInBatch(
+                        maxChains = 3, 
+                        totalTimeoutMs = chainExecutor.chainTimeout
+                    )
+                }
+                return
+            } else {
+                Logger.e(LogTags.CHAIN, "Simulator fallback failed: chainExecutor not provided to NativeTaskScheduler")
+                // Fall through to OS call which will fail with error 1
+            }
         }
 
         memScoped {
