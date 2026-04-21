@@ -88,11 +88,16 @@ public class NativeTaskScheduler(
     /**
      * Custom storage implementation for testing and isolation.
      */
-    internal val fileStorage: IosFileStorage = IosFileStorage(config = IosFileStorageConfig(diskSpaceBufferBytes = diskSpaceBufferBytes))
+    internal val fileStorage: IosFileStorage = IosFileStorage(config = IosFileStorageConfig(diskSpaceBufferBytes = diskSpaceBufferBytes)),
+    /**
+     * Optional scope for background operations (primarily for testing).
+     */
+    private val scope: CoroutineScope? = null
 ) : BackgroundTaskScheduler {
 
     private companion object {
         const val CHAIN_EXECUTOR_IDENTIFIER = "kmp_chain_executor_task"
+        const val MASTER_DISPATCHER_IDENTIFIER = "kmp_master_dispatcher_task"
         const val APPLE_TO_UNIX_EPOCH_OFFSET_SECONDS = 978307200.0
 
         /**
@@ -112,7 +117,7 @@ public class NativeTaskScheduler(
      * Background scope for IO operations (migration, file access)
      * Uses Dispatchers.Default to avoid blocking Main thread during initialization
      */
-    private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val backgroundScope = scope ?: CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     /**
      * Signal that completes when migration is done
@@ -130,6 +135,13 @@ public class NativeTaskScheduler(
      * IMPORTANT: Tasks with IDs not in this list will be silently rejected by iOS
      */
     private val permittedTaskIds: Set<String> = infoPlistTaskIds + additionalPermittedTaskIds
+
+    /**
+     * Check if the dedicated master dispatcher task ID is registered in Info.plist.
+     */
+    private val isMasterDispatcherAvailable: Boolean by lazy {
+        NSBundle.mainBundle.bundleIdentifier == null || MASTER_DISPATCHER_IDENTIFIER in permittedTaskIds
+    }
 
     init {
         // Perform one-time migration from NSUserDefaults to file storage
@@ -228,32 +240,32 @@ public class NativeTaskScheduler(
     }
 
     /**
-     * Validate task ID against permitted identifiers in Info.plist
+     * Validate task ID against permitted identifiers in Info.plist.
+     * Returns true if the ID is explicitly permitted OR if the Master Dispatcher is available
+     * to handle it as a dynamic task.
      */
     private fun validateTaskId(id: String): Boolean {
         // In test environment (no app bundle), skip validation - no Info.plist available
         if (NSBundle.mainBundle.bundleIdentifier == null) return true
-        if (id !in permittedTaskIds) {
-            Logger.e(LogTags.SCHEDULER, """
-                ❌ Task ID '$id' validation failed
 
-                Permitted IDs: ${permittedTaskIds.joinToString()}
+        // 1. Check if ID is explicitly registered
+        if (id in permittedTaskIds) return true
 
-                To fix:
-                1. Add '$id' to Info.plist > BGTaskSchedulerPermittedIdentifiers:
-                   <key>BGTaskSchedulerPermittedIdentifiers</key>
-                   <array>
-                       <string>$id</string>
-                   </array>
-
-                2. Register task handler in AppDelegate/iOSApp.swift:
-                   BGTaskScheduler.shared.register(forTaskWithIdentifier: "$id") { task in
-                       // Handle task
-                   }
-            """.trimIndent())
-            return false
+        // 2. If not registered, check if Master Dispatcher is available to handle it
+        if (isMasterDispatcherAvailable) {
+            Logger.d(LogTags.SCHEDULER, "Task ID '$id' not in Info.plist. Will handle via Master Dispatcher.")
+            return true
         }
-        return true
+
+        Logger.e(LogTags.SCHEDULER, """
+            ❌ Task ID '$id' validation failed
+
+            This ID is not in Info.plist > BGTaskSchedulerPermittedIdentifiers, 
+            and the Master Dispatcher ('$MASTER_DISPATCHER_IDENTIFIER') is also missing.
+
+            To fix, add either '$id' or '$MASTER_DISPATCHER_IDENTIFIER' to your Info.plist.
+        """.trimIndent())
+        return false
     }
 
     /**
@@ -543,7 +555,33 @@ public class NativeTaskScheduler(
      * Submit task request to BGTaskScheduler with proper error handling.
      * Includes a fallback for iOS Simulator where BGTaskScheduler is unavailable.
      */
-    private fun submitTaskRequest(request: BGTaskRequest, taskDescription: String): ScheduleResult {
+    private suspend fun submitTaskRequest(request: BGTaskRequest, taskDescription: String): ScheduleResult {
+        val id = request.identifier
+        
+        // Handle Dynamic Tasks: If the ID is not in Info.plist, we use the internal queue + Master Dispatcher
+        // Note: we check this BEFORE the bundleIdentifier == null check to allow integration testing
+        // of the dispatcher logic in unit tests.
+        if (id != MASTER_DISPATCHER_IDENTIFIER && id != CHAIN_EXECUTOR_IDENTIFIER && id !in infoPlistTaskIds) {
+            Logger.i(LogTags.SCHEDULER, "Task '$id' is dynamic (not in Info.plist). Enqueuing for Master Dispatcher.")
+            
+            try {
+                fileStorage.enqueueTask(id)
+                
+                // Now schedule the Master Dispatcher to process the queue
+                val masterRequest = BGProcessingTaskRequest(MASTER_DISPATCHER_IDENTIFIER).apply {
+                    requiresNetworkConnectivity = false // Individual task constraints handled by dispatcher
+                    requiresExternalPower = false
+                    // Use the earliest date from the dynamic task to trigger the dispatcher
+                    earliestBeginDate = request.earliestBeginDate
+                }
+                
+                return submitTaskRequest(masterRequest, "Master Dispatcher for task '$id'")
+            } catch (e: Exception) {
+                Logger.e(LogTags.SCHEDULER, "Failed to enqueue dynamic task '$id': ${e.message}")
+                return ScheduleResult.REJECTED_OS_POLICY
+            }
+        }
+
         // In test environment (no app bundle), BGTaskScheduler is unavailable - simulate success
         if (NSBundle.mainBundle.bundleIdentifier == null) {
             Logger.d(LogTags.SCHEDULER, "Test mode: simulating accepted submission for $taskDescription")

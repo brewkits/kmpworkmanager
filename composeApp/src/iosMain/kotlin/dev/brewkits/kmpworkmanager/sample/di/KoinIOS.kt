@@ -1,6 +1,7 @@
 package dev.brewkits.kmpworkmanager.sample.di
 
 import dev.brewkits.kmpworkmanager.background.data.ChainExecutor
+import dev.brewkits.kmpworkmanager.background.data.DynamicTaskDispatcher
 import dev.brewkits.kmpworkmanager.background.data.SingleTaskExecutor
 import dev.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
 import dev.brewkits.kmpworkmanager.sample.push.PushNotificationHandler
@@ -20,6 +21,8 @@ class KoinIOS : KoinComponent {
     private val chainExecutor: ChainExecutor by inject()
     // Inject the SingleTaskExecutor dependency
     private val singleTaskExecutor: SingleTaskExecutor by inject()
+    // Inject the DynamicTaskDispatcher dependency
+    private val dynamicTaskDispatcher: DynamicTaskDispatcher by inject()
 
     /**
      * Provides access to the injected BackgroundTaskScheduler instance.
@@ -40,4 +43,9 @@ class KoinIOS : KoinComponent {
      * Provides access to the injected SingleTaskExecutor instance.
      */
     fun getSingleTaskExecutor(): SingleTaskExecutor = singleTaskExecutor
+
+    /**
+     * Provides access to the injected DynamicTaskDispatcher instance.
+     */
+    fun getDynamicTaskDispatcher(): DynamicTaskDispatcher = dynamicTaskDispatcher
 }

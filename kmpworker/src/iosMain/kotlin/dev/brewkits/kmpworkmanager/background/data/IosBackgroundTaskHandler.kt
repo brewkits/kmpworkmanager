@@ -202,6 +202,41 @@ object IosBackgroundTaskHandler {
     }
 
     /**
+     * Handles the KMP master dispatcher task received from BGTaskScheduler.
+     * 
+     * This handler processes the queue of dynamic tasks that do not have 
+     * dedicated identifiers in Info.plist.
+     * 
+     * @param task The [BGTask] received in the BGTaskScheduler registration closure.
+     * @param dispatcher The [DynamicTaskDispatcher] that processes the dynamic task queue.
+     * @param scheduler The [BackgroundTaskScheduler] for rescheduling periodic tasks.
+     */
+    fun handleMasterDispatcherTask(
+        task: BGTask,
+        dispatcher: DynamicTaskDispatcher,
+        scheduler: BackgroundTaskScheduler
+    ) {
+        Logger.i(LogTags.SCHEDULER, "handleMasterDispatcherTask: processing dynamic tasks")
+
+        task.expirationHandler = {
+            Logger.w(LogTags.SCHEDULER, "Master dispatcher task expired - sync shutdown")
+            dispatcher.requestShutdownSync()
+        }
+
+        scope.launch {
+            try {
+                dispatcher.resetShutdownState()
+                val count = dispatcher.executePendingTasks(scheduler)
+                Logger.i(LogTags.SCHEDULER, "Master dispatcher done - $count task(s) processed")
+                task.setTaskCompletedWithSuccess(true)
+            } catch (e: Exception) {
+                Logger.e(LogTags.SCHEDULER, "Master dispatcher failed", e)
+                task.setTaskCompletedWithSuccess(false)
+            }
+        }
+    }
+
+    /**
      * Handles the KMP chain executor batch task received from BGTaskScheduler.
      *
      * Wires the BGTask expiration handler to [ChainExecutor.requestShutdownSync],

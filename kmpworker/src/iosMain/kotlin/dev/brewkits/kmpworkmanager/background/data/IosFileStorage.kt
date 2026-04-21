@@ -119,6 +119,25 @@ public class IosFileStorage(
         )
     }
 
+    private val tasksQueue: AppendOnlyQueue by lazy {
+        val tasksQueueDirURL = baseDir.safeAppend("tasks_queue")
+        ensureDirectoryExists(tasksQueueDirURL)
+        
+        val processName = NSProcessInfo.processInfo.processName
+        val isTest = processName.endsWith("test.kexe")
+        
+        AppendOnlyQueue(
+            baseDirectoryURL = tasksQueueDirURL,
+            compactionScope = backgroundScope,
+            isTestMode = isTest
+        )
+    }
+
+    // Protects coordinated tasksQueue operations
+    private val tasksQueueMutex = Mutex()
+    private val enqueueTasksMutex = Mutex()
+    private val tasksQueueSizeCounter = AtomicInt(UNINITIALIZED_COUNTER)
+
     // ==================== Lock-Ordering Invariant ====================
     // This class uses three coroutine mutexes. To prevent deadlock, they must NEVER
     // be acquired in conflicting orders across code paths. The only permitted ordering is:
@@ -278,11 +297,15 @@ public class IosFileStorage(
 
     init {
         backgroundScope.launch {
-            // Initialize queue size counter from actual queue size on disk.
+            // Initialize queue size counters from actual queue size on disk.
             // This ensures the counter is accurate after app restart.
             val actualQueueSize = queue.getSize()
             queueSizeCounter.value = actualQueueSize
-            Logger.d(LogTags.SCHEDULER, "Initialized queue size counter: $actualQueueSize")
+            Logger.d(LogTags.SCHEDULER, "Initialized chain queue size counter: $actualQueueSize")
+
+            val actualTasksQueueSize = tasksQueue.getSize()
+            tasksQueueSizeCounter.value = actualTasksQueueSize
+            Logger.d(LogTags.SCHEDULER, "Initialized tasks queue size counter: $actualTasksQueueSize")
 
             val hoursSinceLastMaintenance = getHoursSinceLastMaintenance()
 
@@ -370,6 +393,58 @@ public class IosFileStorage(
         }
 
         return chainId
+    }
+
+    /**
+     * Enqueue a task ID to the tasks queue (thread-safe, atomic).
+     */
+    suspend fun enqueueTask(id: String) = enqueueTasksMutex.withLock {
+        val currentSize = tasksQueue.getSize()
+
+        if (currentSize >= MAX_QUEUE_SIZE) {
+            Logger.e(LogTags.SCHEDULER, "Tasks queue size limit reached ($MAX_QUEUE_SIZE). Cannot enqueue task: $id")
+            throw IllegalStateException("Tasks queue size limit exceeded")
+        }
+
+        tasksQueue.enqueue(id)
+
+        if (tasksQueueSizeCounter.value == UNINITIALIZED_COUNTER) {
+            tasksQueueSizeCounter.value = currentSize + 1
+        } else {
+            tasksQueueSizeCounter.incrementAndGet()
+        }
+
+        Logger.v(LogTags.SCHEDULER, "Enqueued task $id. Tasks queue size (disk): $currentSize → ${currentSize + 1}")
+    }
+
+    /**
+     * Dequeue the first task ID from the tasks queue (thread-safe, atomic).
+     */
+    suspend fun dequeueTask(): String? {
+        val taskId = tasksQueue.dequeue()
+
+        if (taskId == null) {
+            Logger.v(LogTags.SCHEDULER, "Tasks queue is empty")
+        } else {
+            tasksQueueSizeCounter.decrementAndGet()
+            Logger.v(LogTags.SCHEDULER, "Dequeued task $taskId. Remaining: ${tasksQueueSizeCounter.value}")
+        }
+
+        return taskId
+    }
+
+    /**
+     * Get current tasks queue size.
+     */
+    suspend fun getTasksQueueSize(): Int {
+        val cached = tasksQueueSizeCounter.value
+        return if (cached == UNINITIALIZED_COUNTER) {
+            val actual = tasksQueue.getSize()
+            tasksQueueSizeCounter.value = actual
+            actual
+        } else {
+            cached
+        }
     }
 
     /**
