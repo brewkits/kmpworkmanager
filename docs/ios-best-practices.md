@@ -15,6 +15,14 @@ This guide covers critical iOS-specific considerations and best practices when u
 
 ## Critical iOS Limitations
 
+### 0. Dynamic Task ID Limitation (Important)
+
+iOS `BGTaskScheduler` requires all task identifiers to be statically declared in your `Info.plist` file (`BGTaskSchedulerPermittedIdentifiers`). 
+**You cannot schedule tasks with dynamically generated IDs (e.g., `upload-photo-123`, `upload-photo-456`) on iOS.** If you do, the OS will reject them. 
+
+Furthermore, attempting to use a single static ID and overriding it multiple times will cause iOS to overwrite pending tasks, leading to data loss.
+For a detailed explanation and the recommended "Dispatcher Pattern" workaround, please read the [iOS Dynamic Task Scheduling Guide](ios-dynamic-task-scheduling.md).
+
 ### 1. Opportunistic Execution
 
 iOS background tasks are **fundamentally different** from Android's WorkManager:
