@@ -43,7 +43,7 @@ class IosRaceConditionTest {
 
     @Test
     fun testConcurrentFlushNowSynchronized() = runBlocking {
-        val fileStorage = IosFileStorage()
+        val fileStorage = IosFileStorage(baseDirectory = testDirectory)
 
         // Create initial progress
         val progress = ChainProgress(
@@ -67,11 +67,12 @@ class IosRaceConditionTest {
         val loaded = fileStorage.loadChainProgress("concurrent-flush")
         assertNotNull(loaded, "Progress should be preserved after concurrent flushes")
         assertEquals(listOf(0, 1, 2), loaded.completedSteps, "Data should not be corrupted")
+        fileStorage.close()
     }
 
     @Test
     fun testFlushNowWaitsForOngoingFlush() = runBlocking {
-        val fileStorage = IosFileStorage()
+        val fileStorage = IosFileStorage(baseDirectory = testDirectory)
 
         val progress1 = ChainProgress(
             chainId = "wait-test",
@@ -97,11 +98,12 @@ class IosRaceConditionTest {
             loaded.completedSteps.contains(1),
             "Latest update should be persisted"
         )
+        fileStorage.close()
     }
 
     @Test
     fun testRapidFlushNowCallsNoCorruption() = runBlocking {
-        val fileStorage = IosFileStorage()
+        val fileStorage = IosFileStorage(baseDirectory = testDirectory)
 
         val progress = ChainProgress(
             chainId = "rapid-flush",
@@ -120,11 +122,12 @@ class IosRaceConditionTest {
         val loaded = fileStorage.loadChainProgress("rapid-flush")
         assertNotNull(loaded, "Progress should still be readable")
         assertEquals(listOf(0, 1), loaded.completedSteps, "Data should not be corrupted")
+        fileStorage.close()
     }
 
     @Test
     fun testConcurrentSavesAndFlushes() = runBlocking {
-        val fileStorage = IosFileStorage()
+        val fileStorage = IosFileStorage(baseDirectory = testDirectory)
 
         // Launch savers
         val saveJobs = (1..10).map { index ->
@@ -155,6 +158,7 @@ class IosRaceConditionTest {
             fileStorage.loadChainProgress("chain-$index") != null
         }
         assertTrue(allReadable, "All saved chains should be readable after concurrent operations")
+        fileStorage.close()
     }
 
     // ==================== Fix #9: ChainExecutor Close Deadlock ====================

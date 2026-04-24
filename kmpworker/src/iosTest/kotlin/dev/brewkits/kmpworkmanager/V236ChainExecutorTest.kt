@@ -12,13 +12,8 @@ import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
-import kotlin.test.AfterTest
-import kotlin.test.BeforeTest
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertNotNull
-import kotlin.test.assertTrue
+import platform.Foundation.*
+import kotlin.test.*
 
 /**
  * iOS-specific regression tests for ChainExecutor bug fixes.
@@ -34,6 +29,7 @@ import kotlin.test.assertTrue
 class V236ChainExecutorTest {
 
     private lateinit var storage: IosFileStorage
+    private lateinit var testDirectory: NSURL
 
     // Factory that always succeeds
     private val successFactory = object : IosWorkerFactory {
@@ -64,11 +60,20 @@ class V236ChainExecutorTest {
 
     @BeforeTest
     fun setup() = runTest {
-        storage = IosFileStorage()
+        val fileManager = NSFileManager.defaultManager
+        val tempDir = fileManager.temporaryDirectory()
+        testDirectory = tempDir.URLByAppendingPathComponent("V236ChainExecutorTest-${NSDate().timeIntervalSince1970()}-${(0..999999).random()}")!!
+
+        fileManager.createDirectoryAtURL(
+            testDirectory,
+            withIntermediateDirectories = true,
+            attributes = null,
+            error = null
+        )
+
+        storage = IosFileStorage(baseDirectory = testDirectory)
+        
         // Drain queue and reset chain state from any previous test run.
-        // "ce1-fail-chain" intentionally fails; its progress/definition persists on disk and
-        // accumulates retryCount across runs. Without cleanup, hasExceededRetries() fires on
-        // run 4, causing the executor to delete the definition — breaking assertNotNull(chainDef).
         while (storage.dequeueChain() != null) { /* drain */ }
         storage.deleteChainDefinition("ce1-fail-chain")
         storage.deleteChainProgress("ce1-fail-chain")
@@ -78,6 +83,8 @@ class V236ChainExecutorTest {
     fun cleanup() = runTest {
         // Drain queue after each test
         while (storage.dequeueChain() != null) { /* drain */ }
+        storage.close()
+        NSFileManager.defaultManager.removeItemAtURL(testDirectory, error = null)
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -86,7 +93,7 @@ class V236ChainExecutorTest {
 
     @Test
     fun `Fix CE-1 - successful chain is removed from queue after completion`() = runTest {
-        val executor = ChainExecutor(successFactory)
+        val executor = ChainExecutor(successFactory, fileStorage = storage)
         executor.resetShutdownState()
 
         val chainId = "ce1-success-chain"
@@ -109,7 +116,7 @@ class V236ChainExecutorTest {
 
     @Test
     fun `Fix CE-1 - failed chain keeps progress for retry`() = runTest {
-        val executor = ChainExecutor(failingFactory)
+        val executor = ChainExecutor(failingFactory, fileStorage = storage)
         executor.resetShutdownState()
 
         val chainId = "ce1-fail-chain"
@@ -135,7 +142,7 @@ class V236ChainExecutorTest {
 
     @Test
     fun `Fix CE-3 - batch stops when queue becomes empty`() = runTest {
-        val executor = ChainExecutor(successFactory)
+        val executor = ChainExecutor(successFactory, fileStorage = storage)
         executor.resetShutdownState()
 
         // Enqueue exactly 2 chains, request up to 10
@@ -159,7 +166,7 @@ class V236ChainExecutorTest {
 
     @Test
     fun `Fix CE-3 - empty queue produces zero executions without hanging`() = runTest {
-        val executor = ChainExecutor(successFactory)
+        val executor = ChainExecutor(successFactory, fileStorage = storage)
         executor.resetShutdownState()
 
         // Queue is empty — batch should return immediately
@@ -174,7 +181,7 @@ class V236ChainExecutorTest {
 
     @Test
     fun `Fix CE-3 - shutdown flag stops loop before exhausting maxChains`() = runTest {
-        val executor = ChainExecutor(successFactory)
+        val executor = ChainExecutor(successFactory, fileStorage = storage)
         executor.resetShutdownState()
 
         // Enqueue enough chains to exceed maxChains check frequency
@@ -205,7 +212,7 @@ class V236ChainExecutorTest {
 
     @Test
     fun `Fix CE-1 and CE-3 - multi-chain batch completes correctly`() = runTest {
-        val executor = ChainExecutor(successFactory)
+        val executor = ChainExecutor(successFactory, fileStorage = storage)
         executor.resetShutdownState()
 
         val chainCount = 3
@@ -236,7 +243,7 @@ class V236ChainExecutorTest {
         // Before CE-2 fix: CancellationException was swallowed by catch(e: Exception),
         // so scope cancellation could not propagate to stop chain execution.
 
-        val executor = ChainExecutor(successFactory)
+        val executor = ChainExecutor(successFactory, fileStorage = storage)
         executor.resetShutdownState()
 
         // Shutdown pre-emptively simulates BGTask expiry before execution starts

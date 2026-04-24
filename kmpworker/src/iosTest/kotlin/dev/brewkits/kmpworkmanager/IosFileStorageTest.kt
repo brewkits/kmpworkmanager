@@ -7,6 +7,7 @@ import dev.brewkits.kmpworkmanager.background.data.IosFileStorage
 import dev.brewkits.kmpworkmanager.background.domain.Constraints
 import dev.brewkits.kmpworkmanager.background.domain.TaskRequest
 import kotlinx.coroutines.test.runTest
+import platform.Foundation.*
 import kotlin.test.*
 
 /**
@@ -20,15 +21,34 @@ import kotlin.test.*
 class IosFileStorageTest {
 
     private lateinit var storage: IosFileStorage
+    private lateinit var testDirectory: NSURL
 
     @BeforeTest
     fun setup() = runTest {
-        storage = IosFileStorage()
+        val fileManager = NSFileManager.defaultManager
+        val tempDir = fileManager.temporaryDirectory()
+        testDirectory = tempDir.URLByAppendingPathComponent("IosFileStorageTest-${NSDate().timeIntervalSince1970()}-${(0..999999).random()}")!!
 
-        // Previous tests may have left data in filesystem
+        fileManager.createDirectoryAtURL(
+            testDirectory,
+            withIntermediateDirectories = true,
+            attributes = null,
+            error = null
+        )
+
+        storage = IosFileStorage(baseDirectory = testDirectory)
+
+        // Previous tests should not have left data because we use a unique directory,
+        // but we drain just in case of any internal reuse.
         while (storage.dequeueChain() != null) {
             // Clear all items
         }
+    }
+
+    @AfterTest
+    fun tearDown() = runTest {
+        storage.close()
+        NSFileManager.defaultManager.removeItemAtURL(testDirectory, error = null)
     }
 
     // ==================== Queue Operations ====================

@@ -13,14 +13,8 @@ import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
-import kotlin.test.AfterTest
-import kotlin.test.BeforeTest
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertNotNull
-import kotlin.test.assertNull
-import kotlin.test.assertTrue
+import platform.Foundation.*
+import kotlin.test.*
 
 /**
  * QA Test: Persistence Resilience — Chain resumes without duplicates after force-kill
@@ -29,16 +23,30 @@ import kotlin.test.assertTrue
 class QA_PersistenceResilienceTest {
 
     private lateinit var storage: IosFileStorage
+    private lateinit var testDirectory: NSURL
 
     @BeforeTest
     fun setup() = runTest {
-        storage = IosFileStorage()
+        val fileManager = NSFileManager.defaultManager
+        val tempDir = fileManager.temporaryDirectory()
+        testDirectory = tempDir.URLByAppendingPathComponent("QA_PersistenceResilienceTest-${NSDate().timeIntervalSince1970()}-${(0..999999).random()}")!!
+
+        fileManager.createDirectoryAtURL(
+            testDirectory,
+            withIntermediateDirectories = true,
+            attributes = null,
+            error = null
+        )
+
+        storage = IosFileStorage(baseDirectory = testDirectory)
         drainQueue()
     }
 
     @AfterTest
     fun cleanup() = runTest {
         drainQueue()
+        storage.close()
+        NSFileManager.defaultManager.removeItemAtURL(testDirectory, error = null)
     }
 
     private suspend fun drainQueue() {
@@ -97,13 +105,14 @@ class QA_PersistenceResilienceTest {
         storage.saveChainProgress(progressBeforeKill)
         storage.flushNow()
 
-        val storageAfterRestart = IosFileStorage()
+        val storageAfterRestart = IosFileStorage(baseDirectory = testDirectory)
         val loadedProgress = storageAfterRestart.loadChainProgress(chainId)
 
         assertNotNull(loadedProgress)
         assertEquals(chainId, loadedProgress.chainId)
         assertEquals(listOf(0, 1, 2), loadedProgress.completedSteps)
         assertEquals(3, loadedProgress.getNextStepIndex())
+        storageAfterRestart.close()
     }
 
     @Test
@@ -140,7 +149,7 @@ class QA_PersistenceResilienceTest {
             }
         }
 
-        val executor = ChainExecutor(resumeFactory)
+        val executor = ChainExecutor(resumeFactory, fileStorage = storage)
         withContext(Dispatchers.Default) { executor.executeChainsInBatch(maxChains = 1) }
         storage.flushNow()
 

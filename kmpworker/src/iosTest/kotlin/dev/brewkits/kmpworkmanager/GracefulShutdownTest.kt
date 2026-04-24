@@ -9,8 +9,7 @@ import dev.brewkits.kmpworkmanager.background.data.IosWorkerFactory
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.*
 import kotlinx.coroutines.test.runTest
-import platform.Foundation.NSDate
-import platform.Foundation.timeIntervalSince1970
+import platform.Foundation.*
 import kotlin.test.*
 
 /**
@@ -26,6 +25,7 @@ class GracefulShutdownTest {
 
     private lateinit var executor: ChainExecutor
     private lateinit var storage: IosFileStorage
+    private lateinit var testDirectory: NSURL
 
     // Simple mock factory for testing
     private val mockFactory = object : IosWorkerFactory {
@@ -36,8 +36,19 @@ class GracefulShutdownTest {
 
     @BeforeTest
     fun setup() = runTest {
+        val fileManager = NSFileManager.defaultManager
+        val tempDir = fileManager.temporaryDirectory()
+        testDirectory = tempDir.URLByAppendingPathComponent("GracefulShutdownTest-${NSDate().timeIntervalSince1970()}-${(0..999999).random()}")!!
+
+        fileManager.createDirectoryAtURL(
+            testDirectory,
+            withIntermediateDirectories = true,
+            attributes = null,
+            error = null
+        )
+
         executor = ChainExecutor(mockFactory)
-        storage = IosFileStorage()
+        storage = IosFileStorage(baseDirectory = testDirectory)
 
         // Ensure executor starts with clean shutdown state
         executor.resetShutdownState()
@@ -50,10 +61,8 @@ class GracefulShutdownTest {
 
     @AfterTest
     fun cleanup() = runTest {
-        // Clean up any remaining chains
-        while (storage.dequeueChain() != null) {
-            // Drain queue
-        }
+        storage.close()
+        NSFileManager.defaultManager.removeItemAtURL(testDirectory, error = null)
     }
 
     @Test

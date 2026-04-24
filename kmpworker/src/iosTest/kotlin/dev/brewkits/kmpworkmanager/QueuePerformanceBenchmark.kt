@@ -5,6 +5,7 @@ package dev.brewkits.kmpworkmanager
 import dev.brewkits.kmpworkmanager.background.data.IosFileStorage
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.test.runTest
+import platform.Foundation.*
 import kotlin.test.*
 import kotlin.time.TimeSource
 
@@ -18,18 +19,28 @@ import kotlin.time.TimeSource
 class QueuePerformanceBenchmark {
 
     private lateinit var storage: IosFileStorage
+    private lateinit var testDirectory: NSURL
 
     @BeforeTest
     fun setup() {
-        storage = IosFileStorage()
+        val fileManager = NSFileManager.defaultManager
+        val tempDir = fileManager.temporaryDirectory()
+        testDirectory = tempDir.URLByAppendingPathComponent("QueuePerformanceBenchmark-${NSDate().timeIntervalSince1970()}-${(0..999999).random()}")!!
+
+        fileManager.createDirectoryAtURL(
+            testDirectory,
+            withIntermediateDirectories = true,
+            attributes = null,
+            error = null
+        )
+
+        storage = IosFileStorage(baseDirectory = testDirectory)
     }
 
     @AfterTest
     fun cleanup() = runTest {
-        // Drain queue to avoid interference between tests
-        while (storage.dequeueChain() != null) {
-            // Keep dequeuing until empty
-        }
+        storage.close()
+        NSFileManager.defaultManager.removeItemAtURL(testDirectory, error = null)
     }
 
     @Test
