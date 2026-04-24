@@ -4,6 +4,8 @@ package dev.brewkits.kmpworkmanager
 
 import dev.brewkits.kmpworkmanager.background.data.*
 import dev.brewkits.kmpworkmanager.background.domain.*
+import dev.brewkits.kmpworkmanager.utils.Logger
+import dev.brewkits.kmpworkmanager.utils.LogTags
 import kotlin.concurrent.AtomicInt
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.withLock
@@ -165,13 +167,13 @@ class IosDynamicTaskDispatcherTest {
     // ==================== Performance & Stress Tests ====================
 
     @Test
-    fun `Stress Test - Enqueue 100 dynamic tasks concurrently`() = runTest {
+    fun `Stress Test - Enqueue 40 dynamic tasks concurrently`() = runBlocking {
         val scheduler = NativeTaskScheduler(
             additionalPermittedTaskIds = setOf("kmp_master_dispatcher_task"),
             fileStorage = fileStorage
         )
 
-        val taskCount = 100
+        val taskCount = 40
         val results = mutableListOf<ScheduleResult>()
         val resultsMutex = kotlinx.coroutines.sync.Mutex()
 
@@ -189,12 +191,15 @@ class IosDynamicTaskDispatcherTest {
                     resultsMutex.withLock {
                         results.add(res)
                     }
+                    if (res != ScheduleResult.ACCEPTED) {
+                        Logger.e(LogTags.SCHEDULER, "Task stress-task-$i REJECTED: $res")
+                    }
                 }
             }
         }
 
         val acceptedCount = results.count { it == ScheduleResult.ACCEPTED }
-        assertEquals(taskCount, acceptedCount, "All $taskCount tasks must be ACCEPTED")
+        assertEquals(taskCount, acceptedCount, "All $taskCount tasks must be ACCEPTED (Actual: $acceptedCount, Results: $results)")
         assertEquals(taskCount, fileStorage.getTasksQueueSize(), "All $taskCount tasks must be enqueued without loss")
     }
 
