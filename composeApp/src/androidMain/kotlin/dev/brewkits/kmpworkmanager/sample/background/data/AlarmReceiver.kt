@@ -23,7 +23,7 @@ import kotlinx.coroutines.launch
  * This implementation demonstrates how to extend the library's abstract [BaseAlarmReceiver]
  * to show custom notifications and emit events back to the UI.
  */
-class AlarmReceiver : BaseAlarmReceiver() {
+class SampleAlarmReceiver : BaseAlarmReceiver() {
 
     companion object {
         private const val CHANNEL_ID = "alarm_channel"

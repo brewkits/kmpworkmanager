@@ -6,6 +6,7 @@ import dev.brewkits.kmpworkmanager.background.data.*
 import dev.brewkits.kmpworkmanager.background.domain.*
 import kotlin.concurrent.AtomicInt
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.test.runTest
 import platform.Foundation.*
 import kotlin.test.*
@@ -21,7 +22,8 @@ class IosDynamicTaskDispatcherTest {
     @BeforeTest
     fun setup() {
         val tempDir = NSTemporaryDirectory()
-        val testDirName = "kmpworkmanager_dynamic_test_${NSDate().timeIntervalSince1970()}"
+        // Use a more unique name to prevent collisions between concurrent test runs
+        val testDirName = "kmp_dynamic_test_${NSDate().timeIntervalSince1970}_${platform.posix.rand()}"
         testDirectoryURL = NSURL.fileURLWithPath("$tempDir$testDirName")
 
         val fileManager = NSFileManager.defaultManager
@@ -37,7 +39,10 @@ class IosDynamicTaskDispatcherTest {
     fun tearDown() = runTest {
         fileStorage.close()
         val fileManager = NSFileManager.defaultManager
-        fileManager.removeItemAtURL(testDirectoryURL, error = null)
+        // Ensure directory exists before removing
+        if (testDirectoryURL.path != null && fileManager.fileExistsAtPath(testDirectoryURL.path!!)) {
+            fileManager.removeItemAtURL(testDirectoryURL, error = null)
+        }
     }
 
     // ==================== IosFileStorage Tasks Queue Tests ====================
@@ -167,10 +172,13 @@ class IosDynamicTaskDispatcherTest {
         )
 
         val taskCount = 100
+        val results = mutableListOf<ScheduleResult>()
+        val resultsMutex = kotlinx.coroutines.sync.Mutex()
+
         coroutineScope {
             repeat(taskCount) { i ->
                 launch {
-                    scheduler.enqueue(
+                    val res = scheduler.enqueue(
                         id = "stress-task-$i",
                         trigger = TaskTrigger.OneTime(0),
                         workerClassName = "StressWorker",
@@ -178,10 +186,15 @@ class IosDynamicTaskDispatcherTest {
                         inputJson = """{"index": $i}""",
                         policy = ExistingPolicy.KEEP
                     )
+                    resultsMutex.withLock {
+                        results.add(res)
+                    }
                 }
             }
         }
 
+        val acceptedCount = results.count { it == ScheduleResult.ACCEPTED }
+        assertEquals(taskCount, acceptedCount, "All $taskCount tasks must be ACCEPTED")
         assertEquals(taskCount, fileStorage.getTasksQueueSize(), "All $taskCount tasks must be enqueued without loss")
     }
 
