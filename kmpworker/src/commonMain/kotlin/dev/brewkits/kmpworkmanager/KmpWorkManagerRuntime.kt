@@ -42,6 +42,11 @@ internal class KmpWorkManagerRuntimeContainer {
 
     // ── Safe Telemetry Helpers ───────────────────────────────────────────────
 
+    fun notifyTaskScheduled(event: TelemetryHook.TaskScheduledEvent) {
+        runCatching { telemetryHook?.onTaskScheduled(event) }
+            .onFailure { dev.brewkits.kmpworkmanager.utils.Logger.w("Telemetry", "onTaskScheduled failed", it) }
+    }
+
     fun notifyTaskStarted(event: TelemetryHook.TaskStartedEvent) {
         runCatching { telemetryHook?.onTaskStarted(event) }
             .onFailure { dev.brewkits.kmpworkmanager.utils.Logger.w("Telemetry", "onTaskStarted failed", it) }

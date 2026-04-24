@@ -31,8 +31,29 @@ sealed interface TaskTrigger {
 
     /**
      * Triggers periodically at regular intervals.
+     *
+     * @param intervalMs The interval between task executions, in milliseconds.
+     * @param flexMs The optional flex window for the execution, in milliseconds (Android only).
+     * @param initialDelayMs The delay before the very first execution, in milliseconds.
+     *   **Note on iOS**: This is a best-effort delay enforced by the system's background budget.
+     * @param runImmediately Whether to run the task immediately on first schedule.
+     *   When `false` and [initialDelayMs] is 0, the first execution is deferred by one full
+     *   [intervalMs]. This eliminates the common workaround of setting
+     *   `initialDelayMs = intervalMs` just to prevent an immediate first run.
+     *   If [initialDelayMs] is already > 0, this flag has no effect — the explicit delay is used.
      */
-    data class Periodic(val intervalMs: Long, val flexMs: Long? = null) : TaskTrigger
+    data class Periodic(
+        val intervalMs: Long,
+        val flexMs: Long? = null,
+        val initialDelayMs: Long = 0,
+        val runImmediately: Boolean = true
+    ) : TaskTrigger {
+        init {
+            require(runImmediately || initialDelayMs == 0L) {
+                "Ambiguous: runImmediately=false has no effect when initialDelayMs=${initialDelayMs}ms is already set. Use one or the other."
+            }
+        }
+    }
 
     /**
      * Triggers once after an optional initial delay.

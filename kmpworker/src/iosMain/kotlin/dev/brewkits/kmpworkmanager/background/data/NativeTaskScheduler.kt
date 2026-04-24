@@ -11,9 +11,11 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlin.coroutines.resume
@@ -88,11 +90,16 @@ public class NativeTaskScheduler(
     /**
      * Custom storage implementation for testing and isolation.
      */
-    internal val fileStorage: IosFileStorage = IosFileStorage(config = IosFileStorageConfig(diskSpaceBufferBytes = diskSpaceBufferBytes))
+    internal val fileStorage: IosFileStorage = IosFileStorage(config = IosFileStorageConfig(diskSpaceBufferBytes = diskSpaceBufferBytes)),
+    /**
+     * Optional scope for background operations (primarily for testing).
+     */
+    private val scope: CoroutineScope? = null
 ) : BackgroundTaskScheduler {
 
     private companion object {
         const val CHAIN_EXECUTOR_IDENTIFIER = "kmp_chain_executor_task"
+        const val MASTER_DISPATCHER_IDENTIFIER = "kmp_master_dispatcher_task"
         const val APPLE_TO_UNIX_EPOCH_OFFSET_SECONDS = 978307200.0
 
         /**
@@ -112,7 +119,7 @@ public class NativeTaskScheduler(
      * Background scope for IO operations (migration, file access)
      * Uses Dispatchers.Default to avoid blocking Main thread during initialization
      */
-    private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val backgroundScope = scope ?: CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     /**
      * Signal that completes when migration is done
@@ -130,6 +137,13 @@ public class NativeTaskScheduler(
      * IMPORTANT: Tasks with IDs not in this list will be silently rejected by iOS
      */
     private val permittedTaskIds: Set<String> = infoPlistTaskIds + additionalPermittedTaskIds
+
+    /**
+     * Check if the dedicated master dispatcher task ID is registered in Info.plist.
+     */
+    private val isMasterDispatcherAvailable: Boolean by lazy {
+        NSBundle.mainBundle.bundleIdentifier == null || MASTER_DISPATCHER_IDENTIFIER in permittedTaskIds
+    }
 
     init {
         // Perform one-time migration from NSUserDefaults to file storage
@@ -206,8 +220,14 @@ public class NativeTaskScheduler(
         inputJson: String?,
         policy: ExistingPolicy
     ): ScheduleResult {
-        // Wait for migration to complete before accessing storage
-        migrationComplete.await()
+        // Wait for migration to complete before accessing storage.
+        // Guard with a timeout: if migration hangs (e.g. corrupted store), we reject rather than deadlock.
+        try {
+            withTimeout(5_000L) { migrationComplete.await() }
+        } catch (e: TimeoutCancellationException) {
+            Logger.e(LogTags.SCHEDULER, "Migration did not complete within 5s — rejecting enqueue for '$id'")
+            return ScheduleResult.REJECTED_OS_POLICY
+        }
 
         Logger.i(LogTags.SCHEDULER, "Enqueue request - ID: '$id', Trigger: ${trigger::class.simpleName}, Policy: $policy")
 
@@ -218,42 +238,63 @@ public class NativeTaskScheduler(
         }
 
         @Suppress("DEPRECATION")  // Keep backward compatibility for deprecated triggers 
-        return when (trigger) {
+        val result = when (trigger) {
             is TaskTrigger.Periodic -> schedulePeriodicTask(id, trigger, workerClassName, constraints, inputJson, policy)
             is TaskTrigger.OneTime -> scheduleOneTimeTask(id, trigger, workerClassName, constraints, inputJson, policy)
             is TaskTrigger.Exact -> scheduleExactAlarm(id, trigger, workerClassName, constraints, inputJson)
             is TaskTrigger.Windowed -> scheduleWindowedTask(id, trigger, workerClassName, constraints, inputJson, policy)
             is TaskTrigger.ContentUri -> rejectUnsupportedTrigger("ContentUri")
         }
+
+        if (result == ScheduleResult.ACCEPTED) {
+            val delayMs = when (trigger) {
+                is TaskTrigger.OneTime -> trigger.initialDelayMs
+                is TaskTrigger.Periodic -> trigger.initialDelayMs
+                is TaskTrigger.Windowed -> (trigger.earliest - (NSDate().timeIntervalSince1970 * 1000).toLong()).coerceAtLeast(0L)
+                is TaskTrigger.Exact -> (trigger.atEpochMillis - (NSDate().timeIntervalSince1970 * 1000).toLong()).coerceAtLeast(0L)
+                else -> 0L
+            }
+            KmpWorkManagerRuntime.notifyTaskScheduled(
+                TelemetryHook.TaskScheduledEvent(
+                    taskId = id,
+                    taskName = workerClassName,
+                    triggerType = trigger::class.simpleName ?: "Unknown",
+                    initialDelayMs = delayMs,
+                    platform = "ios"
+                )
+            )
+        }
+        
+        return result
     }
 
     /**
-     * Validate task ID against permitted identifiers in Info.plist
+     * Validate task ID against permitted identifiers in Info.plist.
+     * Returns true if the ID is explicitly permitted OR if the Master Dispatcher is available
+     * to handle it as a dynamic task.
      */
     private fun validateTaskId(id: String): Boolean {
         // In test environment (no app bundle), skip validation - no Info.plist available
         if (NSBundle.mainBundle.bundleIdentifier == null) return true
-        if (id !in permittedTaskIds) {
-            Logger.e(LogTags.SCHEDULER, """
-                ❌ Task ID '$id' validation failed
 
-                Permitted IDs: ${permittedTaskIds.joinToString()}
+        // 1. Check if ID is explicitly registered
+        if (id in permittedTaskIds) return true
 
-                To fix:
-                1. Add '$id' to Info.plist > BGTaskSchedulerPermittedIdentifiers:
-                   <key>BGTaskSchedulerPermittedIdentifiers</key>
-                   <array>
-                       <string>$id</string>
-                   </array>
-
-                2. Register task handler in AppDelegate/iOSApp.swift:
-                   BGTaskScheduler.shared.register(forTaskWithIdentifier: "$id") { task in
-                       // Handle task
-                   }
-            """.trimIndent())
-            return false
+        // 2. If not registered, check if Master Dispatcher is available to handle it
+        if (isMasterDispatcherAvailable) {
+            Logger.d(LogTags.SCHEDULER, "Task ID '$id' not in Info.plist. Will handle via Master Dispatcher.")
+            return true
         }
-        return true
+
+        Logger.e(LogTags.SCHEDULER, """
+            ❌ Task ID '$id' validation failed
+
+            This ID is not in Info.plist > BGTaskSchedulerPermittedIdentifiers, 
+            and the Master Dispatcher ('$MASTER_DISPATCHER_IDENTIFIER') is also missing.
+
+            To fix, add either '$id' or '$MASTER_DISPATCHER_IDENTIFIER' to your Info.plist.
+        """.trimIndent())
+        return false
     }
 
     /**
@@ -279,15 +320,27 @@ public class NativeTaskScheduler(
         inputJson: String?,
         policy: ExistingPolicy
     ): ScheduleResult {
-        Logger.i(LogTags.SCHEDULER, "Scheduling periodic task - ID: '$id', Interval: ${trigger.intervalMs}ms")
+        val intervalMs = trigger.intervalMs
 
-        // Read anchor time BEFORE handleExistingPolicy, which may delete metadata (REPLACE).
-        // If metadata already has an anchor (reschedule case), preserve it so drift correction
-        // remains anchored to the original schedule, not the reschedule time.
+        // Read anchor time BEFORE handleExistingPolicy
         val existingMeta = fileStorage.loadTaskMetadata(id, periodic = true)
         val nowMs = (NSDate().timeIntervalSince1970 * 1000).toLong()
+        val isFirstSchedule = existingMeta == null
+
+        // When runImmediately = false and no explicit delay is set, defer first run by one
+        // full interval. This eliminates the workaround of setting initialDelayMs = intervalMs.
+        // Only applies to the first schedule — reschedules always use drift correction.
+        val effectiveInitialDelayMs = when {
+            isFirstSchedule && !trigger.runImmediately && trigger.initialDelayMs == 0L -> intervalMs
+            else -> trigger.initialDelayMs.coerceAtLeast(0L)
+        }
+
+        Logger.i(LogTags.SCHEDULER, "Scheduling periodic task - ID: '$id', Interval: ${intervalMs}ms, " +
+            "EffectiveInitialDelay: ${effectiveInitialDelayMs}ms, runImmediately: ${trigger.runImmediately}")
+
+        // Anchor to the first intended run time
         val anchoredStartMs = existingMeta?.get("anchoredStartMs")?.toLongOrNull()
-            ?: nowMs  // First-time scheduling: anchor to now
+            ?: (nowMs + effectiveInitialDelayMs)
 
         // Handle ExistingPolicy
         if (!handleExistingPolicy(id, policy, isPeriodicMetadata = true)) {
@@ -295,18 +348,25 @@ public class NativeTaskScheduler(
             return ScheduleResult.ACCEPTED
         }
 
-        // Compute drift-corrected delay:
-        // Find the next multiple of intervalMs from the anchor that is strictly in the future.
-        val intervalMs = trigger.intervalMs
-        val elapsedMs = nowMs - anchoredStartMs
-        val nextN = if (elapsedMs >= 0) elapsedMs / intervalMs + 1 else 1L
-        val nextFireMs = anchoredStartMs + nextN * intervalMs
-        val delayMs = maxOf(nextFireMs - nowMs, 60_000L) // minimum 1 minute gap
+        val delayMs = if (isFirstSchedule) {
+            effectiveInitialDelayMs
+        } else {
+            // Compute drift-corrected delay for reschedules:
+            // Find the next multiple of intervalMs from the anchor that is strictly in the future.
+            val elapsedMs = nowMs - anchoredStartMs
+            val nextN = if (elapsedMs >= 0) elapsedMs / intervalMs + 1 else 1L
+            val nextFireMs = anchoredStartMs + nextN * intervalMs
+            // Clamp: min 1 min (OS stability), max intervalMs (protects against backward clock jumps
+            // that could produce a multi-year delay when nowMs < anchoredStartMs).
+            maxOf(nextFireMs - nowMs, 60_000L).coerceAtMost(intervalMs)
+        }
 
-        val driftSavedMs = (intervalMs - delayMs).coerceAtLeast(0)
-        if (driftSavedMs > 0) {
-            Logger.d(LogTags.SCHEDULER, "Drift correction for '$id': next fire in ${delayMs / 1000}s " +
-                "(saved ${driftSavedMs / 1000}s drift vs naive now+interval)")
+        if (!isFirstSchedule) {
+            val driftSavedMs = (intervalMs - delayMs).coerceAtLeast(0)
+            if (driftSavedMs > 0) {
+                Logger.d(LogTags.SCHEDULER, "Drift correction for '$id': next fire in ${delayMs / 1000}s " +
+                    "(saved ${driftSavedMs / 1000}s drift vs naive now+interval)")
+            }
         }
 
         // Save metadata for re-scheduling after execution; preserve anchoredStartMs
@@ -517,6 +577,25 @@ public class NativeTaskScheduler(
     }
 
     /**
+     * Returns the earliestBeginDate of the currently-pending Master Dispatcher request,
+     * or null if no such request is pending (or in test mode).
+     * Used to avoid pushing back the dispatcher when a later-dated dynamic task is enqueued.
+     */
+    private suspend fun getPendingMasterDispatcherDate(): NSDate? {
+        if (NSBundle.mainBundle.bundleIdentifier == null) return null
+        return suspendCancellableCoroutine { continuation ->
+            BGTaskScheduler.sharedScheduler.getPendingTaskRequestsWithCompletionHandler { requests ->
+                if (continuation.isActive) {
+                    val master = requests?.filterIsInstance<BGTaskRequest>()
+                        ?.find { it.identifier == MASTER_DISPATCHER_IDENTIFIER }
+                    continuation.resume(master?.earliestBeginDate)
+                }
+            }
+            continuation.invokeOnCancellation { }
+        }
+    }
+
+    /**
      * Create appropriate background task request based on constraints
      * Note: iOS BGTaskScheduler does not have a direct QoS API. QoS is managed by iOS based on:
      * - Task type (BGAppRefreshTask vs BGProcessingTask)
@@ -543,7 +622,44 @@ public class NativeTaskScheduler(
      * Submit task request to BGTaskScheduler with proper error handling.
      * Includes a fallback for iOS Simulator where BGTaskScheduler is unavailable.
      */
-    private fun submitTaskRequest(request: BGTaskRequest, taskDescription: String): ScheduleResult {
+    private suspend fun submitTaskRequest(request: BGTaskRequest, taskDescription: String): ScheduleResult {
+        val id = request.identifier
+        
+        // Handle Dynamic Tasks: If the ID is not in Info.plist, we use the internal queue + Master Dispatcher
+        // Note: we check this BEFORE the bundleIdentifier == null check to allow integration testing
+        // of the dispatcher logic in unit tests.
+        if (id != MASTER_DISPATCHER_IDENTIFIER && id != CHAIN_EXECUTOR_IDENTIFIER && id !in infoPlistTaskIds) {
+            Logger.i(LogTags.SCHEDULER, "Task '$id' is dynamic (not in Info.plist). Enqueuing for Master Dispatcher.")
+
+            try {
+                fileStorage.enqueueTask(id)
+
+                val proposedDate = request.earliestBeginDate
+
+                // Only reschedule Master Dispatcher if the proposed date is earlier than the
+                // currently-pending one. Submitting a later date silently replaces an earlier
+                // pending request, delaying tasks already waiting in the queue.
+                val existingMasterDate = getPendingMasterDispatcherDate()
+                if (existingMasterDate != null && proposedDate != null &&
+                    proposedDate.timeIntervalSinceDate(existingMasterDate) >= 0) {
+                    Logger.d(LogTags.SCHEDULER,
+                        "Master Dispatcher already scheduled earlier — keeping existing schedule for '$id'")
+                    return ScheduleResult.ACCEPTED
+                }
+
+                val masterRequest = BGProcessingTaskRequest(MASTER_DISPATCHER_IDENTIFIER).apply {
+                    requiresNetworkConnectivity = false
+                    requiresExternalPower = false
+                    earliestBeginDate = proposedDate
+                }
+
+                return submitTaskRequest(masterRequest, "Master Dispatcher for task '$id'")
+            } catch (e: Exception) {
+                Logger.e(LogTags.SCHEDULER, "Failed to enqueue dynamic task '$id': ${e.message}")
+                return ScheduleResult.REJECTED_OS_POLICY
+            }
+        }
+
         // In test environment (no app bundle), BGTaskScheduler is unavailable - simulate success
         if (NSBundle.mainBundle.bundleIdentifier == null) {
             Logger.d(LogTags.SCHEDULER, "Test mode: simulating accepted submission for $taskDescription")
@@ -578,6 +694,13 @@ public class NativeTaskScheduler(
                 Logger.e(LogTags.SCHEDULER, "Simulator fallback failed: singleTaskExecutor not provided to NativeTaskScheduler")
                 // Fall through to OS call which will fail with error 1, providing standard diagnostic
             }
+        }
+
+        // iOS silently discards BGTask requests while Low Power Mode is active.
+        // Surface this as REJECTED_OS_POLICY so callers can react (e.g. retry later).
+        if (NSProcessInfo.processInfo.isLowPowerModeEnabled()) {
+            Logger.w(LogTags.SCHEDULER, "Low Power Mode is active — BGTask request for $taskDescription rejected by OS policy")
+            return ScheduleResult.REJECTED_OS_POLICY
         }
 
         return memScoped {
@@ -825,11 +948,11 @@ public class NativeTaskScheduler(
             val nowMs = NSDate().timeIntervalSince1970 * 1000.0
 
             val taskIds = fileStorage.listTaskIds()
-            if (taskIds.isEmpty()) return@launch
+            Logger.d(LogTags.ALARM, "Catch-up scan: streaming metadata entries for missed exact alarms")
 
-            Logger.d(LogTags.ALARM, "Catch-up scan: checking ${taskIds.size} metadata entries for missed exact alarms")
-
+            var scanned = 0
             taskIds.forEach { taskId ->
+                scanned++
                 val metadata = fileStorage.loadTaskMetadata(taskId, periodic = false) ?: return@forEach
                 if (metadata["exactAlarm"] != "true") return@forEach
 
@@ -854,6 +977,7 @@ public class NativeTaskScheduler(
                     // Leave metadata intact so the next foreground attempt can retry
                 }
             }
+            if (scanned > 0) Logger.d(LogTags.ALARM, "Catch-up scan complete: $scanned entries checked")
         }
     }
 
@@ -880,8 +1004,14 @@ public class NativeTaskScheduler(
      * Removed runBlocking calls that could cause deadlocks under load.
      */
     override suspend fun enqueueChain(chain: TaskChain, id: String?, policy: ExistingPolicy) {
-        // Await migration before accessing storage, same as enqueue()
-        migrationComplete.await()
+        // Await migration before accessing storage, same as enqueue().
+        // Guard with a timeout: if migration hangs, we throw rather than deadlock the BGTask budget.
+        try {
+            withTimeout(5_000L) { migrationComplete.await() }
+        } catch (e: TimeoutCancellationException) {
+            Logger.e(LogTags.CHAIN, "Migration did not complete within 5s — rejecting enqueueChain")
+            throw IllegalStateException("KmpWorkManager: storage migration timed out after 5s. Chain not enqueued.")
+        }
 
         // HARD REQUIREMENT: Ensure the generic chain executor task ID is declared in Info.plist.
         // If missing, iOS rejects the BGProcessingTaskRequest without error at the call site.

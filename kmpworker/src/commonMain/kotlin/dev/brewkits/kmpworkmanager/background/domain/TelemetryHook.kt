@@ -33,6 +33,13 @@ interface TelemetryHook {
     // ── Task-level events ────────────────────────────────────────────────────
 
     /**
+     * Called when a task is scheduled with the background system.
+     *
+     * Use this to track scheduling frequency and initial delays.
+     */
+    fun onTaskScheduled(event: TaskScheduledEvent) {}
+
+    /**
      * Called immediately before a worker's [Worker.doWork] is invoked.
      *
      * Use this to start a performance span or increment a "running" counter.
@@ -71,6 +78,14 @@ interface TelemetryHook {
     fun onChainSkipped(event: ChainSkippedEvent) {}
 
     // ── Event data classes ───────────────────────────────────────────────────
+
+    data class TaskScheduledEvent(
+        val taskId: String,
+        val taskName: String,
+        val triggerType: String,
+        val initialDelayMs: Long,
+        val platform: String
+    )
 
     data class TaskStartedEvent(
         /** Worker class name (e.g. "HttpRequestWorker"). */

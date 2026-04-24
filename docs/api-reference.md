@@ -4,7 +4,7 @@ Complete API documentation for KMP WorkManager.
 
 ## Table of Contents
 
-- [v2.4.0 APIs](#v240-apis)
+- [v2.4.1 APIs](#v241-apis)
 - [BackgroundTaskScheduler](#backgroundtaskscheduler)
 - [WorkerResult (v2.3.0+)](#workerresult-v230)
 - [Task Triggers](#task-triggers)
@@ -16,9 +16,9 @@ Complete API documentation for KMP WorkManager.
 
 ---
 
-## v2.4.0 APIs
+## v2.4.1 APIs
 
-New types and scheduler methods added in v2.4.0.
+New types and scheduler methods added in v2.4.1.
 
 ### TaskPriority
 
@@ -476,7 +476,7 @@ class DownloadWorker : CommonWorker {
 class ProcessWorker : CommonWorker {
     override suspend fun doWork(input: String?): WorkerResult {
         // In v2.3.0: Access previous worker data via event bus or custom implementation
-        // In v2.4.0: Automatic data passing will be supported
+        // In v2.4.1: Automatic data passing will be supported
         return WorkerResult.Success(message = "Processed file")
     }
 }
@@ -533,29 +533,46 @@ Execute a task repeatedly at fixed intervals.
 ```kotlin
 data class Periodic(
     val intervalMs: Long,
-    val flexMs: Long? = null
+    val flexMs: Long? = null,
+    val initialDelayMs: Long = 0,
+    val runImmediately: Boolean = true
 ) : TaskTrigger
 ```
 
 **Parameters:**
 
-- `intervalMs: Long` - Interval between executions in milliseconds (minimum: 15 minutes)
-- `flexMs: Long?` - Flex time window for Android WorkManager (optional)
+- `intervalMs: Long` - Interval between executions in milliseconds (minimum: 15 minutes on Android)
+- `flexMs: Long?` - Flex time window for Android WorkManager (optional). Clamped to `[5 min, intervalMs]` automatically.
+- `initialDelayMs: Long` - Delay before the very first execution (default: 0)
+- `runImmediately: Boolean` - Whether to run immediately on first schedule (default: `true`). When `false` and `initialDelayMs == 0`, the first run is deferred by one full `intervalMs`. Setting `runImmediately = false` with `initialDelayMs > 0` throws `IllegalArgumentException` — they are mutually exclusive.
 
 **Supported Platforms:** Android, iOS
 
 **Important Notes:**
 
 - Android: Minimum interval is 15 minutes (enforced by WorkManager)
-- iOS: Task automatically re-schedules after completion
+- iOS: Task automatically re-schedules after completion with drift correction
 - iOS: Actual execution time determined by BGTaskScheduler (opportunistic)
 
 **Example:**
 
 ```kotlin
+// Every 30 minutes, run immediately on first schedule
 TaskTrigger.Periodic(
-    intervalMs = 30 * 60 * 1000, // 30 minutes
-    flexMs = 5 * 60 * 1000       // 5 minutes flex
+    intervalMs = 30 * 60 * 1000,
+    flexMs = 5 * 60 * 1000
+)
+
+// Every hour, but defer the very first run by 1 hour
+TaskTrigger.Periodic(
+    intervalMs = 60 * 60 * 1000,
+    runImmediately = false
+)
+
+// Every 15 minutes, but wait 10 minutes before the first run
+TaskTrigger.Periodic(
+    intervalMs = 15 * 60 * 1000,
+    initialDelayMs = 10 * 60 * 1000
 )
 ```
 
@@ -600,25 +617,25 @@ Execute a task within a time window.
 
 ```kotlin
 data class Windowed(
-    val startEpochMillis: Long,
-    val endEpochMillis: Long
+    val earliest: Long,
+    val latest: Long
 ) : TaskTrigger
 ```
 
 **Parameters:**
 
-- `startEpochMillis: Long` - Window start time in epoch milliseconds
-- `endEpochMillis: Long` - Window end time in epoch milliseconds
+- `earliest: Long` - Window start time in epoch milliseconds
+- `latest: Long` - Window end time in epoch milliseconds. On iOS only `earliest` is enforced via `earliestBeginDate` — the OS decides when to run opportunistically within its background budget.
 
-**Supported Platforms:** Android only (iOS returns `REJECTED_OS_POLICY`)
+**Supported Platforms:** Android ✅ iOS ⚠️ (best-effort, `latest` not enforced)
 
 **Example:**
 
 ```kotlin
 val now = Clock.System.now().toEpochMilliseconds()
 TaskTrigger.Windowed(
-    startEpochMillis = now + 60_000,      // Start in 1 minute
-    endEpochMillis = now + 5 * 60_000     // End in 5 minutes
+    earliest = now + 60_000,        // Start in 1 minute
+    latest   = now + 5 * 60_000    // End in 5 minutes
 )
 ```
 
@@ -653,33 +670,21 @@ TaskTrigger.ContentUri(
 
 ---
 
-### System State Triggers
+### System State Triggers (Deprecated — compile error since v2.3.7)
 
-Trigger tasks based on device state changes.
+`BatteryLow`, `BatteryOkay`, `StorageLow`, `DeviceIdle` were removed as `TaskTrigger` subtypes. They are now `DeprecationLevel.ERROR` — referencing them causes a compile error.
 
-```kotlin
-data object BatteryLow : TaskTrigger
-data object BatteryOkay : TaskTrigger
-data object StorageLow : TaskTrigger
-data object DeviceIdle : TaskTrigger
-```
-
-**Supported Platforms:**
-
-- `BatteryLow`, `BatteryOkay`: Android, iOS
-- `StorageLow`, `DeviceIdle`: Android only
-
-**Example:**
+**Migration:** Use `Constraints(systemConstraints = setOf(...))` instead:
 
 ```kotlin
-// Run heavy processing when battery is good
-scheduler.enqueue(
-    id = "ml-training",
-    trigger = TaskTrigger.BatteryOkay,
-    workerClassName = "MLTrainingWorker",
-    constraints = Constraints(requiresCharging = true)
-)
+// Old (compile error)
+trigger = TaskTrigger.BatteryLow
+
+// New
+constraints = Constraints(systemConstraints = setOf(SystemConstraint.ALLOW_LOW_BATTERY))
 ```
+
+`SystemConstraint` values: `ALLOW_LOW_STORAGE`, `ALLOW_LOW_BATTERY`, `REQUIRE_BATTERY_NOT_LOW`, `DEVICE_IDLE`.
 
 ---
 
@@ -1139,10 +1144,10 @@ Result of a task scheduling operation.
 
 ```kotlin
 enum class ScheduleResult {
-    SUCCESS,                    // Task scheduled successfully
-    REJECTED_OS_POLICY,         // OS rejected the task (e.g., iOS background restrictions)
-    REJECTED_INVALID_PARAMS,    // Invalid parameters provided
-    FAILED_UNKNOWN              // Unknown error occurred
+    ACCEPTED,             // Task scheduled successfully
+    REJECTED_OS_POLICY,   // OS rejected the task (e.g. Info.plist ID missing, Low Power Mode, BGTaskScheduler error)
+    DEADLINE_ALREADY_PASSED, // Exact/Windowed trigger target time is in the past
+    THROTTLED             // OS throttled the request (too many pending tasks)
 }
 ```
 

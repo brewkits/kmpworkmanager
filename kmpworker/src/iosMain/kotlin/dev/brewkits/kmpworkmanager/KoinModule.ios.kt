@@ -111,6 +111,11 @@ actual fun kmpWorkerModule(
             }
         ) 
     }
+    single {
+        DynamicTaskDispatcher(
+            singleTaskExecutor = get()
+        )
+    }
 
     single<BackgroundTaskScheduler> {
         NativeTaskScheduler(

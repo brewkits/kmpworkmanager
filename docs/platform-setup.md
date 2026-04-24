@@ -338,6 +338,7 @@ Add background task identifiers and capabilities:
         <string>upload-task</string>
         <string>heavy-processing-task</string>
         <string>kmp_chain_executor_task</string>
+        <string>kmp_master_dispatcher_task</string>
     </array>
 
     <!-- Background Modes -->
@@ -459,6 +460,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         let scheduler = koinIos.getScheduler()
         let executor = koinIos.getSingleTaskExecutor()
         let chainExecutor = koinIos.getChainExecutor()
+        let dispatcher = koinIos.getDynamicTaskDispatcher()
 
         // Periodic sync task (BGAppRefreshTask)
         BGTaskScheduler.shared.register(
@@ -481,6 +483,18 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                 task: task,
                 scheduler: scheduler,
                 executor: executor
+            )
+        }
+
+        // Master dispatcher task (handles dynamic/unregistered tasks)
+        BGTaskScheduler.shared.register(
+            forTaskWithIdentifier: "kmp_master_dispatcher_task",
+            using: nil
+        ) { task in
+            IosBackgroundTaskHandler.shared.handleMasterDispatcherTask(
+                task: task,
+                dispatcher: dispatcher,
+                scheduler: scheduler
             )
         }
 

@@ -6,6 +6,7 @@ package dev.brewkits.kmpworkmanager
 import dev.brewkits.kmpworkmanager.background.domain.*
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -25,19 +26,50 @@ class TaskTriggerTest {
     }
 
     @Test
-    fun Periodic_trigger_should_preserve_interval_and_flex() {
+    fun Periodic_trigger_should_preserve_interval_flex_and_initialDelayMs() {
         val intervalMs = 900_000L // 15 minutes
         val flexMs = 300_000L // 5 minutes
-        val trigger = TaskTrigger.Periodic(intervalMs = intervalMs, flexMs = flexMs)
+        val initialDelayMs = 600_000L // 10 minutes
+        val trigger = TaskTrigger.Periodic(
+            intervalMs = intervalMs,
+            flexMs = flexMs,
+            initialDelayMs = initialDelayMs
+        )
 
         assertEquals(intervalMs, trigger.intervalMs)
         assertEquals(flexMs, trigger.flexMs)
+        assertEquals(initialDelayMs, trigger.initialDelayMs)
+    }
+
+    @Test
+    fun Periodic_trigger_without_initialDelayMs_should_default_to_zero() {
+        val trigger = TaskTrigger.Periodic(intervalMs = 900_000L)
+        assertEquals(0L, trigger.initialDelayMs)
     }
 
     @Test
     fun Periodic_trigger_without_flex_should_have_null_flex() {
         val trigger = TaskTrigger.Periodic(intervalMs = 900_000L)
         assertEquals(null, trigger.flexMs)
+    }
+
+    @Test
+    fun Periodic_trigger_runImmediately_should_default_to_true() {
+        val trigger = TaskTrigger.Periodic(intervalMs = 900_000L)
+        assertTrue(trigger.runImmediately)
+    }
+
+    @Test
+    fun Periodic_trigger_runImmediately_false_should_be_preserved() {
+        val trigger = TaskTrigger.Periodic(intervalMs = 900_000L, runImmediately = false)
+        assertFalse(trigger.runImmediately)
+    }
+
+    @Test
+    fun Periodic_trigger_runImmediately_false_with_explicit_initialDelay_should_throw() {
+        assertFailsWith<IllegalArgumentException> {
+            TaskTrigger.Periodic(intervalMs = 3_600_000L, initialDelayMs = 300_000L, runImmediately = false)
+        }
     }
 
     @Test

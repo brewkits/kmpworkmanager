@@ -148,13 +148,6 @@ object IosBackgroundTaskHandler {
         val taskId = task.identifier
         Logger.i(LogTags.SCHEDULER, "handleSingleTask: '$taskId'")
 
-        // expirationHandler is called synchronously by iOS when time runs out.
-        // It must complete instantly — no coroutines or I/O here.
-        task.expirationHandler = {
-            Logger.w(LogTags.SCHEDULER, "Task '$taskId' expired — marking failed")
-            task.setTaskCompletedWithSuccess(false)
-        }
-
         val meta = resolveTaskMetadata(taskId, nativeScheduler.fileStorage) ?: run {
             Logger.e(LogTags.SCHEDULER, "No metadata found for task '$taskId' — cannot execute")
             task.setTaskCompletedWithSuccess(false)
@@ -177,7 +170,8 @@ object IosBackgroundTaskHandler {
             }
         }
 
-        scope.launch {
+        // Launch the task in the scope and capture the job so we can cancel it on expiration
+        val job = scope.launch {
             try {
                 val result = executor.executeTask(meta.workerClassName, meta.inputJson)
                 val success = result is WorkerResult.Success
@@ -194,8 +188,55 @@ object IosBackgroundTaskHandler {
 
                 Logger.i(LogTags.SCHEDULER, "Task '$taskId' finished (success=$success)")
                 task.setTaskCompletedWithSuccess(success)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                Logger.w(LogTags.SCHEDULER, "Task '$taskId' cancelled due to expiration")
+                // Do not call setTaskCompletedWithSuccess here, it's called in expirationHandler
+                throw e
             } catch (e: Exception) {
                 Logger.e(LogTags.SCHEDULER, "Task '$taskId' threw exception", e)
+                task.setTaskCompletedWithSuccess(false)
+            }
+        }
+
+        // expirationHandler is called synchronously by iOS when time runs out.
+        // It must complete instantly — no coroutines or I/O here.
+        task.expirationHandler = {
+            Logger.w(LogTags.SCHEDULER, "Task '$taskId' expired — cancelling coroutine and marking failed")
+            job.cancel()
+            task.setTaskCompletedWithSuccess(false)
+        }
+    }
+
+    /**
+     * Handles the KMP master dispatcher task received from BGTaskScheduler.
+     * 
+     * This handler processes the queue of dynamic tasks that do not have 
+     * dedicated identifiers in Info.plist.
+     * 
+     * @param task The [BGTask] received in the BGTaskScheduler registration closure.
+     * @param dispatcher The [DynamicTaskDispatcher] that processes the dynamic task queue.
+     * @param scheduler The [BackgroundTaskScheduler] for rescheduling periodic tasks.
+     */
+    fun handleMasterDispatcherTask(
+        task: BGTask,
+        dispatcher: DynamicTaskDispatcher,
+        scheduler: BackgroundTaskScheduler
+    ) {
+        Logger.i(LogTags.SCHEDULER, "handleMasterDispatcherTask: processing dynamic tasks")
+
+        task.expirationHandler = {
+            Logger.w(LogTags.SCHEDULER, "Master dispatcher task expired - sync shutdown")
+            dispatcher.requestShutdownSync()
+        }
+
+        scope.launch {
+            try {
+                dispatcher.resetShutdownState()
+                val count = dispatcher.executePendingTasks(scheduler)
+                Logger.i(LogTags.SCHEDULER, "Master dispatcher done - $count task(s) processed")
+                task.setTaskCompletedWithSuccess(true)
+            } catch (e: Exception) {
+                Logger.e(LogTags.SCHEDULER, "Master dispatcher failed", e)
                 task.setTaskCompletedWithSuccess(false)
             }
         }
