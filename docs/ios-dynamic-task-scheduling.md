@@ -41,4 +41,23 @@ For the library to be truly "Production-ready," it must hide this complexity and
 * **The Master Dispatcher:** The library defines a default, static identifier (e.g., `dev.brewkits.kmpworkmanager.master_dispatcher`) and instructs developers to add this single key to their `Info.plist`.
 * **Execution:** Whenever a new task is added to the internal queue, the library submits the `master_dispatcher` task to iOS (if not already pending). When iOS wakes up the app, the library automatically reads its internal queue, launches the appropriate Workers for all pending `dynamic_id`s, and removes them from the queue upon completion.
 
-**Conclusion:** Implementing Option 2 at the library layer is the definitive solution. It delivers a seamless, unified Developer Experience (DX) across Android and iOS, perfectly aligning with the "Write once, run anywhere" philosophy of Kotlin Multiplatform.
+---
+
+## 4. Implementation in v2.4.1: The Master Dispatcher
+
+As of version **2.4.1**, KMP WorkManager has implemented **Option 2** (the Library-layer Queue/Dispatcher pattern).
+
+### How it works now:
+1.  **Transparency**: Developers can call `scheduler.enqueue(id = "any-dynamic-id", ...)` just like on Android.
+2.  **Automatic Routing**: The library checks if the `id` is listed in `Info.plist`. If it is NOT, the library automatically routes the task through an internal `AppendOnlyQueue` and schedules a single static task: `kmp_master_dispatcher_task`.
+3.  **The Single Plist Entry**: Developers only need to add one entry to their `Info.plist` to support unlimited dynamic task IDs:
+    ```xml
+    <key>BGTaskSchedulerPermittedIdentifiers</key>
+    <array>
+        <string>kmp_master_dispatcher_task</string>
+    </array>
+    ```
+4.  **Batch Execution**: When iOS fires the master dispatcher, the library's `DynamicTaskDispatcher` drains the internal queue, executing all pending tasks within the available background budget.
+
+This architecture delivers a seamless, unified Developer Experience (DX) across Android and iOS, perfectly aligning with the "Write once, run anywhere" philosophy of Kotlin Multiplatform.
+

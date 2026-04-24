@@ -5,6 +5,30 @@ All notable changes to KMP WorkManager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.1] - 2026-04-23
+
+### Added
+
+- **iOS Internal Dispatcher Queue**: Tasks whose IDs are not pre-registered in `Info.plist` are now automatically routed through a single static `kmp_master_dispatcher_task` using an internal `AppendOnlyQueue`. This removes the hard requirement for every task ID to appear in `Info.plist` — only the master dispatcher ID needs to be declared. Dynamic task IDs (e.g. feature-flag-gated tasks, per-user task IDs) are now fully supported on iOS without plist changes.
+  - `DynamicTaskDispatcher` drains the queue under the master dispatcher BGTask with a proactive 3-minute budget guard. Periodic dynamic tasks re-enqueue themselves after execution.
+  - `submitTaskRequest()` checks `BGTaskScheduler.getPendingTaskRequestsWithCompletionHandler` before submitting the master dispatcher — only reschedules if the proposed date is earlier than any already-pending request, preventing accidental delay of queued tasks.
+- **`runImmediately` flag on `TaskTrigger.Periodic`**: Controls whether a periodic task runs immediately on first schedule.
+  - `runImmediately = false` (with `initialDelayMs = 0`) defers the first run by one full interval — eliminates the previous workaround of setting `initialDelayMs = intervalMs`.
+  - Setting both `runImmediately = false` and `initialDelayMs > 0` throws `IllegalArgumentException` at construction time (they are mutually exclusive).
+  - Applied on both Android (`PeriodicWorkRequest.setInitialDelay()`) and iOS (`earliestBeginDate`).
+- **`initialDelayMs` on `TaskTrigger.Periodic`**: Explicit first-run delay independent of `runImmediately`.
+- **Swift interop helpers**: `createTaskTriggerPeriodicSeconds()` and `createTaskTriggerOneTimeSeconds()` in `TaskTriggerHelper.kt` accept `Double` (seconds) instead of `Long` (milliseconds), making the API feel native to Swift callers.
+- **Drift-corrected periodic rescheduling (iOS)**: `anchoredStartMs` is saved on the first schedule and preserved across re-schedules. Subsequent fires use `ceil(elapsed / interval) * interval + anchor` to prevent drift accumulation. Delay is clamped between 60 s (OS stability) and `intervalMs` (protects against backward system-clock jumps).
+- **Migration deadlock guard**: `enqueue()` and `enqueueChain()` on iOS now wrap `migrationComplete.await()` in `withTimeout(5_000L)`. A hung migration returns `REJECTED_OS_POLICY` instead of blocking the BGTask budget indefinitely.
+- **Low Power Mode rejection (iOS)**: `submitTaskRequest()` now checks `NSProcessInfo.processInfo.isLowPowerModeEnabled` and returns `REJECTED_OS_POLICY` immediately, surfacing the silent OS discard as an explicit, loggable result.
+- **Android flex window clamping**: `effectiveFlexMs` is now `(trigger.flexMs ?: intervalMs/2).coerceAtLeast(5 min).coerceAtMost(intervalMs)`. Prevents the `IllegalArgumentException` WorkManager throws when `flexMs < 5 min`, and the semantic error when `flexMs > intervalMs`.
+- **`listTaskIds()` streaming refactor (iOS)**: Return type changed from `List<String>` to `Sequence<String>`, backed directly by the `NSDirectoryEnumerator`. Memory footprint for the catch-up scan is now O(1) instead of O(N) — relevant on devices with large numbers of task metadata files.
+
+### Fixed
+
+- **Infinite-loop bug in `DynamicTaskDispatcher`**: Periodic dynamic tasks would re-enqueue themselves during `executePendingTasks()`, causing the batch loop to pick them up again in the same BGTask invocation. Fixed by snapshotting the queue size before the loop starts (`val tasksToProcess = fileStorage.getTasksQueueSize()`).
+- **SIGKILL risk in `DynamicTaskDispatcher`**: Tasks near the end of the BGTask budget window would still start execution and be killed mid-run (degrading iOS background credit). Fixed with a proactive budget guard: if `budgetLeft < singleTaskTimeout + 5 s`, the loop breaks and the master dispatcher is rescheduled for the remaining tasks.
+
 ## [2.4.0] - 2026-04-16
 
 ### Added

@@ -63,38 +63,48 @@ Execute a task repeatedly at fixed intervals.
 ```kotlin
 data class Periodic(
     val intervalMs: Long,
-    val flexMs: Long? = null
+    val flexMs: Long? = null,
+    val initialDelayMs: Long = 0,
+    val runImmediately: Boolean = true
 ) : TaskTrigger
 ```
 
 **Parameters:**
-- `intervalMs`: Interval between executions in milliseconds (minimum: 15 minutes)
-- `flexMs`: Flex time window in milliseconds (Android only, optional)
+- `intervalMs`: Interval between executions in milliseconds (minimum: 15 minutes on Android)
+- `flexMs`: Flex time window in milliseconds (Android only, optional). Auto-clamped to `[5 min, intervalMs]`.
+- `initialDelayMs`: Delay before the very first execution in milliseconds (default: 0)
+- `runImmediately`: Whether to run on the first schedule (default: `true`). When `false` and `initialDelayMs == 0`, the first run is deferred by one full `intervalMs`. Setting `runImmediately = false` **and** `initialDelayMs > 0` is ambiguous and throws `IllegalArgumentException`.
 
 **Platform Support:** ✅ Android, ✅ iOS
 
 **Important:**
 - Minimum interval: **15 minutes** (enforced by Android WorkManager)
-- iOS: Task auto-reschedules after completion
+- iOS: Task auto-reschedules after completion with drift correction anchored to the original schedule time
 - Android: WorkManager handles rescheduling automatically
 
 **Example:**
 
 ```kotlin
-// Every 15 minutes (minimum interval)
+// Every 15 minutes, run immediately (default)
 TaskTrigger.Periodic(intervalMs = 15 * 60 * 1000)
 
-// Every 30 minutes
-TaskTrigger.Periodic(intervalMs = 30 * 60 * 1000)
+// Every 1 hour, but skip the immediate first run
+TaskTrigger.Periodic(
+    intervalMs = 60 * 60 * 1000,
+    runImmediately = false
+)
+
+// Every 15 minutes, but wait 1 hour before the very first run
+TaskTrigger.Periodic(
+    intervalMs = 15 * 60 * 1000,
+    initialDelayMs = 60 * 60 * 1000
+)
 
 // Every 1 hour with 15-minute flex window (Android)
 TaskTrigger.Periodic(
     intervalMs = 60 * 60 * 1000,
     flexMs = 15 * 60 * 1000
 )
-
-// Every 6 hours
-TaskTrigger.Periodic(intervalMs = 6 * 60 * 60 * 1000)
 
 // Every 24 hours (daily)
 TaskTrigger.Periodic(intervalMs = 24 * 60 * 60 * 1000)
@@ -199,16 +209,16 @@ Execute a task within a time window (between start and end time).
 
 ```kotlin
 data class Windowed(
-    val startEpochMillis: Long,
-    val endEpochMillis: Long
+    val earliest: Long,
+    val latest: Long
 ) : TaskTrigger
 ```
 
 **Parameters:**
-- `startEpochMillis`: Window start time in epoch milliseconds
-- `endEpochMillis`: Window end time in epoch milliseconds
+- `earliest`: Window start time in epoch milliseconds
+- `latest`: Window end time in epoch milliseconds. On iOS only `earliest` is used via `earliestBeginDate`; `latest` is logged but not enforced — the OS runs the task opportunistically.
 
-**Platform Support:** ✅ Android, ❌ iOS (returns `REJECTED_OS_POLICY`)
+**Platform Support:** ✅ Android, ⚠️ iOS (best-effort — `latest` not enforced)
 
 **Example:**
 
@@ -217,8 +227,8 @@ val now = Clock.System.now().toEpochMilliseconds()
 
 // Execute between 1 minute and 5 minutes from now
 TaskTrigger.Windowed(
-    startEpochMillis = now + 60_000,
-    endEpochMillis = now + 5 * 60_000
+    earliest = now + 60_000,
+    latest   = now + 5 * 60_000
 )
 
 // Execute between 2 PM and 4 PM today
@@ -230,10 +240,7 @@ val end = LocalDateTime(today.year, today.monthNumber, today.dayOfMonth, 16, 0)
     .toInstant(TimeZone.currentSystemDefault())
     .toEpochMilliseconds()
 
-TaskTrigger.Windowed(
-    startEpochMillis = start,
-    endEpochMillis = end
-)
+TaskTrigger.Windowed(earliest = start, latest = end)
 ```
 
 **Use Cases:**
@@ -308,135 +315,32 @@ TaskTrigger.ContentUri(
 
 ---
 
-### BatteryLow
+### BatteryLow / BatteryOkay / StorageLow / DeviceIdle (Removed — compile error since v2.3.7)
 
-Trigger when device battery is low.
+These were removed as `TaskTrigger` subtypes and are now `DeprecationLevel.ERROR`. Any reference to them causes a **compile error**.
 
-```kotlin
-data object BatteryLow : TaskTrigger
-```
-
-**Platform Support:** ✅ Android, ✅ iOS
-
-**Example:**
+**Migration** — use `systemConstraints` in `Constraints` instead:
 
 ```kotlin
-TaskTrigger.BatteryLow
+// Battery low condition
+Constraints(systemConstraints = setOf(SystemConstraint.ALLOW_LOW_BATTERY))
+
+// Require battery not low
+Constraints(systemConstraints = setOf(SystemConstraint.REQUIRE_BATTERY_NOT_LOW))
+
+// Storage low allowed
+Constraints(systemConstraints = setOf(SystemConstraint.ALLOW_LOW_STORAGE))
+
+// Device idle required
+Constraints(systemConstraints = setOf(SystemConstraint.DEVICE_IDLE))
 ```
 
-**Use Cases:**
-- Enable power-saving mode
-- Reduce background sync
-- Show low battery notification
-- Trigger battery optimization
-- Pause non-essential tasks
-
-**Implementation:**
-- **Android**: Uses `android.intent.action.BATTERY_LOW` broadcast
-- **iOS**: Monitors battery state via `UIDevice.current.batteryState`
-
----
-
-### BatteryOkay
-
-Trigger when device battery is NOT low (good battery level).
-
-```kotlin
-data object BatteryOkay : TaskTrigger
-```
-
-**Platform Support:** ✅ Android, ✅ iOS
-
-**Example:**
-
-```kotlin
-TaskTrigger.BatteryOkay
-```
-
-**Use Cases:**
-- Resume background sync
-- Start heavy processing
-- ML model training
-- Video transcoding
-- Large downloads
-
-**Implementation:**
-- **Android**: Uses `android.intent.action.BATTERY_OKAY` broadcast
-- **iOS**: Monitors battery state via `UIDevice.current.batteryState`
-
-**Tip:** Combine with `requiresCharging` constraint for even safer battery usage:
-
-```kotlin
-scheduler.enqueue(
-    id = "heavy-task",
-    trigger = TaskTrigger.BatteryOkay,
-    workerClassName = "HeavyWorker",
-    constraints = Constraints(
-        requiresCharging = true,
-        requiresBatteryNotLow = true
-    )
-)
-```
-
----
-
-### StorageLow
-
-Trigger when device storage is low.
-
-```kotlin
-data object StorageLow : TaskTrigger
-```
-
-**Platform Support:** ✅ Android, ❌ iOS (returns `REJECTED_OS_POLICY`)
-
-**Example:**
-
-```kotlin
-TaskTrigger.StorageLow
-```
-
-**Use Cases:**
-- Delete cache files
-- Clean up temporary files
-- Remove old logs
-- Compress large files
-- Show storage warning
-
-**Implementation:**
-- **Android**: Uses `android.intent.action.DEVICE_STORAGE_LOW` broadcast
-- **iOS**: Not supported (no system-level storage low event)
-
----
-
-### DeviceIdle
-
-Trigger when device is idle (screen off, not recently used).
-
-```kotlin
-data object DeviceIdle : TaskTrigger
-```
-
-**Platform Support:** ✅ Android, ❌ iOS (returns `REJECTED_OS_POLICY`)
-
-**Example:**
-
-```kotlin
-TaskTrigger.DeviceIdle
-```
-
-**Use Cases:**
-- Database maintenance
-- Index updates
-- Cache cleanup
-- Background optimization
-- Non-urgent processing
-
-**Implementation:**
-- **Android**: Uses Doze mode idle state
-- **iOS**: Not supported (BGTaskScheduler already runs when device is idle)
-
-**Note:** Tasks with this trigger run when the device enters Doze mode idle state, typically when screen is off and device is stationary.
+| Old trigger | New `SystemConstraint` | Platform |
+|---|---|---|
+| `BatteryLow` | `ALLOW_LOW_BATTERY` | Android + iOS |
+| `BatteryOkay` | `REQUIRE_BATTERY_NOT_LOW` | Android + iOS |
+| `StorageLow` | `ALLOW_LOW_STORAGE` | Android only |
+| `DeviceIdle` | `DEVICE_IDLE` | Android only |
 
 ---
 
@@ -841,15 +745,15 @@ Constraints(qos = QualityOfService.HIGH)
 
 | Trigger | Android | iOS | Notes |
 |---------|---------|-----|-------|
-| OneTime | ✅ | ✅ | Full support |
-| Periodic | ✅ | ✅ | 15-minute minimum |
-| Exact | ✅ | ✅ | Requires permissions |
-| Windowed | ✅ | ❌ | Android only |
-| ContentUri | ✅ | ❌ | Android only |
-| BatteryLow | ✅ | ✅ | Full support |
-| BatteryOkay | ✅ | ✅ | Full support |
-| StorageLow | ✅ | ❌ | Android only |
-| DeviceIdle | ✅ | ❌ | Android only |
+| `OneTime` | ✅ | ✅ | Full support |
+| `Periodic` | ✅ | ✅ | 15-min minimum; `runImmediately` + drift correction |
+| `Exact` | ✅ | ⚠️ | Android: AlarmManager. iOS: best-effort via UNNotification |
+| `Windowed` | ✅ | ⚠️ | iOS: `latest` not enforced — OS runs opportunistically |
+| `ContentUri` | ✅ | ❌ | Android only |
+| `BatteryLow` | ❌ | ❌ | **Removed** — use `SystemConstraint.ALLOW_LOW_BATTERY` |
+| `BatteryOkay` | ❌ | ❌ | **Removed** — use `SystemConstraint.REQUIRE_BATTERY_NOT_LOW` |
+| `StorageLow` | ❌ | ❌ | **Removed** — use `SystemConstraint.ALLOW_LOW_STORAGE` |
+| `DeviceIdle` | ❌ | ❌ | **Removed** — use `SystemConstraint.DEVICE_IDLE` |
 
 ### Constraints
 
@@ -905,25 +809,11 @@ Constraints(qos = QualityOfService.HIGH)
 - MediaStore sync
 - File watchers
 
-### BatteryLow
-- Power-saving mode
-- Reduce sync frequency
-- Show warnings
-
-### BatteryOkay
-- Resume normal operations
-- Start heavy tasks
-- ML training
-
-### StorageLow
-- Cache cleanup
-- Delete old files
-- Show storage warnings
-
-### DeviceIdle
-- Database maintenance
-- Index updates
-- Background optimization
+### SystemConstraint (replaces removed Battery/Storage/Idle triggers)
+- `ALLOW_LOW_BATTERY` — power-saving mode, reduce sync frequency
+- `REQUIRE_BATTERY_NOT_LOW` — resume heavy tasks when battery recovers
+- `ALLOW_LOW_STORAGE` — cache cleanup, delete old files
+- `DEVICE_IDLE` — database maintenance, index updates, background optimization
 
 ---
 

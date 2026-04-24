@@ -122,10 +122,12 @@ BackgroundTaskScheduler (interface)
     │
     └─► iOS: NativeTaskScheduler.kt (iosMain)
         │
-        ├─► Validates task ID against Info.plist
-        ├─► Creates BGAppRefreshTaskRequest or BGProcessingTaskRequest
-        ├─► Submits to BGTaskScheduler
-        ├─► Stores metadata in File Storage (IosFileStorage)
+        ├─► Check if ID is in Info.plist
+        │   ├─► YES: Submit to BGTaskScheduler directly
+        │   └─► NO: Route via Master Dispatcher
+        │       ├─► Save metadata to IosFileStorage
+        │       ├─► Enqueue to internal AppendOnlyQueue
+        │       └─► Submit 'kmp_master_dispatcher_task' to BGTaskScheduler
         └─► Returns ScheduleResult
 ```
 
@@ -148,6 +150,34 @@ WorkManager
     │       └─► Returns Result (success/failure/retry)
     │
     └─► If constraints not met: Waits until met
+```
+
+#### iOS Flow
+
+```
+BGTaskScheduler (System)
+    │
+    ├─► Wakes up App based on opportunistic budget
+    │
+    ├─► Fires closure for specific Task ID
+    │
+    ├─► If Master Dispatcher fires:
+    │   │
+    │   └─► DynamicTaskDispatcher.executePendingTasks()
+    │       │
+    │       ├─► Drains internal AppendOnlyQueue
+    │       ├─► Checks task-level constraints & budgets
+    │       ├─► Executes corresponding worker(s)
+    │       ├─► Auto-reschedules periodic dynamic tasks
+    │       └─► Returns execution results to OS
+    │
+    └─► If specific Static Task fires:
+        │
+        └─► IosBackgroundTaskHandler.handleSingleTask()
+            │
+            ├─► Executes the single worker
+            ├─► Auto-reschedules if periodic
+            └─► Returns result to OS
 ```
 
 #### iOS Flow

@@ -477,13 +477,8 @@ public class IosFileStorage(
         val size = queue.getSize()
         if (size <= 1) return  // Nothing to sort
 
-        // Drain all chain IDs from queue
-        val chainIds = mutableListOf<String>()
-        repeat(size) {
-            val id = queue.dequeue() ?: return@repeat
-            chainIds.add(id)
-        }
-
+        // Read all items WITHOUT dequeuing them to prevent data loss if process crashes
+        val chainIds = queue.getAllItems()
         if (chainIds.isEmpty()) return
 
         // Sort by max priority weight (highest first), stable (preserves FIFO for equal priorities)
@@ -494,13 +489,12 @@ public class IosFileStorage(
                 ?: TaskPriority.NORMAL.weight
         }
 
-        // Re-enqueue in priority order (bypass size check — we just drained the same items)
-        sorted.forEach { chainId ->
-            queue.enqueue(chainId)
-        }
-
-        if (sorted.first() != chainIds.first()) {
-            Logger.d(LogTags.CHAIN, "Queue reordered by priority: ${sorted.take(3).joinToString()} ...")
+        // Only replace if order actually changed
+        if (sorted != chainIds) {
+            queue.replaceContents(sorted)
+            if (sorted.first() != chainIds.first()) {
+                Logger.d(LogTags.CHAIN, "Queue reordered by priority: ${sorted.take(3).joinToString()} ...")
+            }
         }
     }
 
@@ -1202,30 +1196,34 @@ public class IosFileStorage(
      * List all non-periodic task IDs that have saved metadata.
      * Used by the catch-up executor to find missed exact-alarm tasks.
      *
-     * Uses [NSFileManager.enumeratorAtURL] for lazy streaming rather than loading
-     * all filenames into memory at once. This avoids an O(N) heap allocation when
-     * the metadata directory contains thousands of files (e.g. after extended use
-     * without cleanup). The enumerator yields one entry at a time and is depth-1
-     * (shallow=true), so subdirectories are not traversed.
+     * Returns a lazy [Sequence] over task IDs so callers can stream each entry
+     * without materialising the full list in memory. On a device with 50 000 task
+     * files the old List<String> approach allocates ~4 MB just for ID strings; a
+     * Sequence allocates O(1) — one NSURL at a time from the NSDirectoryEnumerator.
+     *
+     * The enumerator is depth-1 (shallow) so subdirectories are never traversed.
+     *
+     * **Consumption**: The returned Sequence is single-use (backed by a stateful
+     * OS enumerator). Do not iterate it more than once.
      */
-    fun listTaskIds(): List<String> {
+    fun listTaskIds(): Sequence<String> {
         val enumerator = fileManager.enumeratorAtURL(
             tasksDirURL,
             includingPropertiesForKeys = null,
             options = NSDirectoryEnumerationSkipsSubdirectoryDescendants or
                       NSDirectoryEnumerationSkipsHiddenFiles,
             errorHandler = null
-        ) ?: return emptyList()
+        ) ?: return emptySequence()
 
-        val ids = mutableListOf<String>()
-        while (true) {
-            val next = enumerator.nextObject() as? NSURL ?: break
-            val name = next.lastPathComponent ?: continue
-            if (name.endsWith(".json")) {
-                ids.add(name.removeSuffix(".json"))
+        return generateSequence {
+            while (true) {
+                val next = enumerator.nextObject() as? NSURL ?: return@generateSequence null
+                val name = next.lastPathComponent ?: continue
+                if (name.endsWith(".json")) return@generateSequence name.removeSuffix(".json")
             }
+            @Suppress("UNREACHABLE_CODE")
+            null
         }
-        return ids
     }
 
     /**

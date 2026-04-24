@@ -82,6 +82,9 @@ class KMPWorkManagerApp : Application() {
             config = KmpWorkManagerConfig(
                 logLevel = Logger.Level.DEBUG_LEVEL,
                 telemetryHook = object : TelemetryHook {
+                    override fun onTaskScheduled(event: TelemetryHook.TaskScheduledEvent) {
+                        Logger.d("DEMO_TELEMETRY", "📅 Task scheduled: ${event.taskName} type=${event.triggerType} initialDelay=${event.initialDelayMs}ms")
+                    }
                     override fun onTaskStarted(event: TelemetryHook.TaskStartedEvent) {
                         Logger.d("DEMO_TELEMETRY", "▶ Task started: ${event.taskName} chain=${event.chainId} step=${event.stepIndex}")
                     }

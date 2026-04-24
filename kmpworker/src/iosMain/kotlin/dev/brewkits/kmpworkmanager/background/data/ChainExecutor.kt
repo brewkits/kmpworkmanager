@@ -900,14 +900,8 @@ class ChainExecutor(
                 // Chain-level timeout: the aggregate wall-clock time of all steps exceeded
                 // chainTimeout. This is different from a single task timeout — progress WAS
                 // saved after each completed step, so we can resume.
-                //
-                // We re-enqueue (not just return false) because the chain was already dequeued
-                // at the top of executeNextChainFromQueue. Without re-enqueue it would be
-                // silently lost — definition and progress files remain on disk but nothing
-                // would ever trigger execution again.
                 val failedStep = progress.getNextStepIndex() ?: (steps.size - 1)
                 withContext(NonCancellable) {
-                    // Sustainability fix: use withTimeout (no retry count increment)
                     progress = progress.withTimeout(failedStep, "Chain timed out (${chainTimeout}ms)")
                     fileStorage.saveChainProgress(progress)
                 }
@@ -946,13 +940,15 @@ class ChainExecutor(
                 )
 
                 // Re-queue the chain for next execution
-                fileStorage.enqueueChain(chainId)
+                withContext(NonCancellable) {
+                    fileStorage.enqueueChain(chainId)
+                }
                 Logger.i(LogTags.CHAIN, "Re-queued chain $chainId for resumption")
 
                 // Schedule next BGTask to resume this chain
                 scheduleNextBGTask()
 
-                return false
+                throw e // Propagate cancellation to properly terminate the outer execution loop
             }
 
             // 8. Only clean up on successful completion

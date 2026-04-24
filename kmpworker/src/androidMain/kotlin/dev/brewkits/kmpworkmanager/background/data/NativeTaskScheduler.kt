@@ -82,39 +82,47 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         inputJson: String?,
         policy: ExistingPolicy
     ): ScheduleResult {
-        // Validation: Exact trigger requires AlarmManager
-        if (trigger is TaskTrigger.Exact) {
-            return scheduleExactAlarm(id, trigger, workerClassName, constraints, inputJson, policy)
-        }
-
-        // Periodic triggers
-        if (trigger is TaskTrigger.Periodic) {
-            return schedulePeriodicWork(id, trigger, workerClassName, constraints, inputJson, policy)
-        }
-
-        // Content URI triggers
-        if (trigger is TaskTrigger.ContentUri) {
-            return scheduleContentUriWork(id, trigger, workerClassName, constraints, inputJson, policy)
-        }
-
-        // Windowed triggers (best effort)
-        if (trigger is TaskTrigger.Windowed) {
-            val now = System.currentTimeMillis()
-            if (trigger.latest < now) {
-                Logger.w(LogTags.SCHEDULER, "Windowed task '$id' rejected: deadline already passed")
-                return ScheduleResult.DEADLINE_ALREADY_PASSED
+        val result = when (trigger) {
+            is TaskTrigger.Exact -> scheduleExactAlarm(id, trigger, workerClassName, constraints, inputJson, policy)
+            is TaskTrigger.Periodic -> schedulePeriodicWork(id, trigger, workerClassName, constraints, inputJson, policy)
+            is TaskTrigger.ContentUri -> scheduleContentUriWork(id, trigger, workerClassName, constraints, inputJson, policy)
+            is TaskTrigger.Windowed -> {
+                val now = System.currentTimeMillis()
+                if (trigger.latest < now) {
+                    Logger.w(LogTags.SCHEDULER, "Windowed task '$id' rejected: deadline already passed")
+                    ScheduleResult.DEADLINE_ALREADY_PASSED
+                } else {
+                    val delayMs = (trigger.earliest - now).coerceAtLeast(0L)
+                    val updatedConstraints = constraints.copy()
+                    scheduleOneTimeWork(
+                        id, TaskTrigger.OneTime(initialDelayMs = delayMs),
+                        workerClassName, updatedConstraints, inputJson, policy
+                    )
+                }
             }
-            val delayMs = (trigger.earliest - now).coerceAtLeast(0L)
-            val updatedConstraints = constraints.copy()
-            return scheduleOneTimeWork(
-                id, TaskTrigger.OneTime(initialDelayMs = delayMs),
-                workerClassName, updatedConstraints, inputJson, policy
+            is TaskTrigger.OneTime -> scheduleOneTimeWork(id, trigger, workerClassName, constraints, inputJson, policy)
+        }
+
+        if (result == ScheduleResult.ACCEPTED) {
+            val delayMs = when (trigger) {
+                is TaskTrigger.OneTime -> trigger.initialDelayMs
+                is TaskTrigger.Periodic -> trigger.initialDelayMs
+                is TaskTrigger.Windowed -> (trigger.earliest - System.currentTimeMillis()).coerceAtLeast(0L)
+                is TaskTrigger.Exact -> (trigger.atEpochMillis - System.currentTimeMillis()).coerceAtLeast(0L)
+                else -> 0L
+            }
+            KmpWorkManagerRuntime.notifyTaskScheduled(
+                TelemetryHook.TaskScheduledEvent(
+                    taskId = id,
+                    taskName = workerClassName,
+                    triggerType = trigger::class.simpleName ?: "Unknown",
+                    initialDelayMs = delayMs,
+                    platform = "android"
+                )
             )
         }
-
-        // Default: One-time work
-        val oneTimeTrigger = trigger as? TaskTrigger.OneTime ?: TaskTrigger.OneTime()
-        return scheduleOneTimeWork(id, oneTimeTrigger, workerClassName, constraints, inputJson, policy)
+        
+        return result
     }
 
     private fun scheduleOneTimeWork(
@@ -160,9 +168,22 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         policy: ExistingPolicy
     ): ScheduleResult {
         val intervalMs = trigger.intervalMs
-        val flexMs = trigger.flexMs ?: intervalMs
+        // WorkManager requires flexMs >= 5 min. Default to half the interval when not specified.
+        // Clamp between the OS minimum and the interval (flex > interval is nonsensical).
+        val effectiveFlexMs = (trigger.flexMs ?: (intervalMs / 2))
+            .coerceAtLeast(5 * 60 * 1000L)
+            .coerceAtMost(intervalMs)
 
-        Logger.i(LogTags.SCHEDULER, "Scheduling periodic task - ID: '$id', Interval: ${intervalMs}ms")
+        // When runImmediately = false and no explicit delay is set, defer first run by one
+        // full interval. This eliminates the workaround of setting initialDelayMs = intervalMs.
+        val effectiveInitialDelayMs = if (!trigger.runImmediately && trigger.initialDelayMs == 0L) {
+            intervalMs
+        } else {
+            trigger.initialDelayMs
+        }
+
+        Logger.i(LogTags.SCHEDULER, "Scheduling periodic task - ID: '$id', Interval: ${intervalMs}ms, " +
+            "Flex: ${effectiveFlexMs}ms, EffectiveInitialDelay: ${effectiveInitialDelayMs}ms, runImmediately: ${trigger.runImmediately}")
 
         val workManagerPolicy = when (policy) {
             ExistingPolicy.KEEP -> androidx.work.ExistingPeriodicWorkPolicy.KEEP
@@ -170,7 +191,7 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         }
 
         val wmConstraints = buildWorkManagerConstraints(constraints)
-        
+
         val workData = try {
             buildPeriodicWorkData(workerClassName, inputJson)
         } catch (e: IllegalArgumentException) {
@@ -180,8 +201,9 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
 
         val builder = PeriodicWorkRequestBuilder<KmpWorker>(
             intervalMs, TimeUnit.MILLISECONDS,
-            flexMs, TimeUnit.MILLISECONDS
+            effectiveFlexMs, TimeUnit.MILLISECONDS
         )
+            .setInitialDelay(effectiveInitialDelayMs, TimeUnit.MILLISECONDS)
             .setConstraints(wmConstraints)
             .setInputData(workData)
             .setBackoffCriteria(

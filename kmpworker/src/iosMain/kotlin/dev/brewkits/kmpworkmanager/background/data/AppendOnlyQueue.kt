@@ -571,6 +571,68 @@ internal class AppendOnlyQueue(
     }
 
     /**
+     * Atomically replace the entire queue with a new list of items.
+     * Used for sorting or reordering the queue without data loss.
+     *
+     * @param newItems The new list of items to replace the queue contents
+     */
+    suspend fun replaceContents(newItems: List<String>) = kotlinx.coroutines.withContext(Dispatchers.Default) {
+        queueMutex.withLock {
+            val basePath = baseDirectoryURL.path
+            if (basePath == null || !fileManager.fileExistsAtPath(basePath)) {
+                Logger.w(LogTags.QUEUE, "Base directory no longer exists - skipping replacement")
+                return@withLock
+            }
+
+            coordinated(queueFileURL, write = true) { safeQueueUrl ->
+                Logger.d(LogTags.QUEUE, "Replacing queue contents atomically (${newItems.size} items)...")
+
+                // Step 1: Write to temporary file
+                writeItemsToFile(compactedQueueURL, newItems)
+
+                // Step 2: Invalidate cache before replacement
+                linePositionCache.clear()
+                cacheValid = false
+
+                // Step 3: Atomically replace
+                memScoped {
+                    val errorPtr = alloc<ObjCObjectVar<NSError?>>()
+                    val ok = fileManager.replaceItemAtURL(
+                        originalItemURL = safeQueueUrl,
+                        withItemAtURL = compactedQueueURL,
+                        backupItemName = null,
+                        options = NSFileManagerItemReplacementWithoutDeletingBackupItem,
+                        resultingItemURL = null,
+                        error = errorPtr.ptr
+                    )
+
+                    if (!ok) {
+                        val error = errorPtr.value
+                        if (error?.code == NSFileNoSuchFileError || error?.code == NSFileReadNoSuchFileError) {
+                            Logger.w(LogTags.QUEUE, "replaceItemAtURL not available, using fallback")
+                            val queuePath = safeQueueUrl.path ?: throw IllegalStateException("Queue file path is null")
+                            val compactedPath = compactedQueueURL.path ?: throw IllegalStateException("Compacted file path is null")
+                            fileManager.removeItemAtPath(queuePath, errorPtr.ptr)
+                            val success = fileManager.moveItemAtPath(compactedPath, toPath = queuePath, error = errorPtr.ptr)
+                            if (!success) {
+                                throw IllegalStateException("Failed to replace queue file: ${error?.localizedDescription}")
+                            }
+                        } else {
+                            throw IllegalStateException("Failed to replace queue file atomically: ${error?.localizedDescription}")
+                        }
+                    }
+                }
+
+                // Step 4: Reset head pointer to 0 since we only wrote unprocessed items
+                writeHeadPointer(0)
+                queueIndex.deleteIndex()
+
+                Logger.i(LogTags.QUEUE, "Queue contents replaced successfully (${newItems.size} items).")
+            }
+        }
+    }
+
+    /**
      * Count records in the queue file.
      *
      * For the binary format (FORMAT_VERSION), records are parsed by their

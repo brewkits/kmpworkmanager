@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/logo.svg" height="108" alt="KMP WorkManager" />
+<img src="assets/logo.svg" height="160" alt="KMP WorkManager" />
 
 # KMP WorkManager
 
@@ -20,7 +20,7 @@
 ```kotlin
 // build.gradle.kts
 commonMain.dependencies {
-    implementation("dev.brewkits:kmpworkmanager:2.4.0")
+    implementation("dev.brewkits:kmpworkmanager:2.4.1")
 }
 ```
 
@@ -193,7 +193,51 @@ and no recovery mechanism for incomplete work. Getting it wrong means your tasks
 
 ---
 
-## What's new in v2.4.0
+## What's new in v2.4.1
+
+### iOS Dynamic Task IDs (no more Info.plist for every task)
+
+Previously, every task ID had to be declared in `BGTaskSchedulerPermittedIdentifiers` before scheduling. v2.4.1 removes that constraint: only the single master dispatcher ID needs to be in `Info.plist`. All other task IDs are routed through an internal `AppendOnlyQueue` and executed when the OS fires the master dispatcher slot.
+
+```kotlin
+// This ID does NOT need to be in Info.plist
+scheduler.enqueue(
+    id = "user-${userId}-daily-sync",   // dynamic, per-user ID
+    trigger = TaskTrigger.Periodic(intervalMs = 24 * 60 * 60 * 1000),
+    workerClassName = "DailySyncWorker"
+)
+```
+
+```xml
+<!-- Info.plist — only one entry needed for all dynamic tasks -->
+<key>BGTaskSchedulerPermittedIdentifiers</key>
+<array>
+    <string>kmp_master_dispatcher_task</string>
+    <string>kmp_chain_executor_task</string>
+</array>
+```
+
+### Periodic Task Improvements
+Added granular control over the first execution of periodic tasks. You can now defer the initial run or set a specific delay, ensuring your app doesn't choke on heavy sync tasks immediately upon startup.
+
+```kotlin
+// Run every 1 hour, but defer the very first run by 1 hour
+TaskTrigger.Periodic(
+    intervalMs = 3600_000,
+    runImmediately = false
+)
+```
+
+### Swift Interop 2.0
+iOS developers can now use idiomatic `Double` (seconds) instead of `Long` (milliseconds) for all triggers, making the API feel native to the Apple ecosystem.
+
+```swift
+// Swift
+let trigger = createTaskTriggerPeriodicSeconds(
+    intervalSeconds: 3600, 
+    initialDelaySeconds: 600
+)
+```
 
 ### iOS Native Background Task Handler
 The host application no longer needs to copy and maintain 150+ lines of Swift boilerplate to handle iOS background tasks. The library now provides a native Kotlin API that handles the entire lifecycle:
@@ -283,8 +327,8 @@ Add to `build.gradle.kts`:
 plugins { id("com.google.devtools.ksp") }
 
 dependencies {
-    ksp("dev.brewkits:kmpworker-ksp:2.4.0")
-    commonMain.implementation("dev.brewkits:kmpworker-annotations:2.4.0")
+    ksp("dev.brewkits:kmpworker-ksp:2.4.1")
+    commonMain.implementation("dev.brewkits:kmpworker-annotations:2.4.1")
 }
 ```
 

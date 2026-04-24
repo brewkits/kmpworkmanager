@@ -106,6 +106,22 @@ kmpworkmanager-v*.zip
 .vscode/
 *.code-workspace
 
+# ===================================
+# AI & Personal Workflow
+# ===================================
+.gemini_security/
+tasks/
+MEMORY.md
+ACT.md
+PLAN.md
+TEST.md
+
+# Project specific noise
+push.apns
+demos.xml
+view.xml
+test-bg-task.sh
+
 # macOS
 .AppleDouble
 .LSOverride
