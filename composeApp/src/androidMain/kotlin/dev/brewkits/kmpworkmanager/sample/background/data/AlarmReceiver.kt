@@ -1,4 +1,4 @@
-package dev.brewkits.kmpworkmanager.background.data
+package dev.brewkits.kmpworkmanager.sample.background.data
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -8,6 +8,7 @@ import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import dev.brewkits.kmpworkmanager.sample.R
+import dev.brewkits.kmpworkmanager.background.data.AlarmReceiver as BaseAlarmReceiver
 import dev.brewkits.kmpworkmanager.background.domain.TaskCompletionEvent
 import dev.brewkits.kmpworkmanager.background.domain.TaskEventBus
 import dev.brewkits.kmpworkmanager.sample.utils.Logger
@@ -19,27 +20,32 @@ import kotlinx.coroutines.launch
 /**
  * BroadcastReceiver for handling exact alarms triggered by AlarmManager.
  *
- * Responsibilities:
- * - Create notification channel (Android 8.0+)
- * - Display high-priority notification to user
- * - Emit task completion event for UI updates
+ * This implementation demonstrates how to extend the library's abstract [BaseAlarmReceiver]
+ * to show custom notifications and emit events back to the UI.
  */
-class AlarmReceiver : BroadcastReceiver() {
+class AlarmReceiver : BaseAlarmReceiver() {
 
     companion object {
         private const val CHANNEL_ID = "alarm_channel"
         private const val CHANNEL_NAME = "Exact Alarms"
     }
 
-    override fun onReceive(context: Context, intent: Intent) {
-        val title = intent.getStringExtra("title") ?: "Reminder"
-        val message = intent.getStringExtra("message") ?: "Scheduled event"
-        val notificationId = intent.getIntExtra("notificationId", 0)
+    /**
+     * Override handleAlarm to implement custom logic.
+     * Note: This is called by BaseAlarmReceiver.onReceive().
+     */
+    override fun handleAlarm(
+        context: Context,
+        taskId: String,
+        workerClassName: String,
+        inputJson: String?,
+        pendingResult: PendingResult
+    ) {
+        val title = "Reminder: $taskId"
+        val message = "Scheduled event for $workerClassName"
+        val notificationId = taskId.hashCode()
 
         Logger.i(LogTags.ALARM, "Alarm triggered - Title: '$title', ID: $notificationId")
-
-        // goAsync() keeps the process alive until pendingResult.finish() is called.
-        val pendingResult = goAsync()
 
         try {
             // Ensure notification channel exists (Android 8.0+)
