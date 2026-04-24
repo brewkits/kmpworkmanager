@@ -1,4 +1,4 @@
-package dev.brewkits.kmpworkmanager.sample.background.data
+package dev.brewkits.demo.background.data
 
 import android.app.NotificationChannel
 import android.app.NotificationManager

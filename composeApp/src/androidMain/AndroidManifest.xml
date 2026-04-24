@@ -15,7 +15,7 @@
     android:supportsRtl="true"
     android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
-    <receiver android:name=".sample.background.data.DemoAlarmReceiver" android:exported="false" />
+    <receiver android:name="dev.brewkits.demo.background.data.DemoAlarmReceiver" android:exported="false" />
     <activity
         android:name=".MainActivity"
         android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
