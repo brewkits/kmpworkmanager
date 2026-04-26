@@ -170,7 +170,8 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         val intervalMs = trigger.intervalMs
         // WorkManager requires flexMs >= 5 min. Default to half the interval when not specified.
         // Clamp between the OS minimum and the interval (flex > interval is nonsensical).
-        val effectiveFlexMs = (trigger.flexMs ?: (intervalMs / 2))
+        // If runImmediately is true, we use the full interval as flexMs to allow immediate execution.
+        val effectiveFlexMs = (trigger.flexMs ?: if (trigger.runImmediately) intervalMs else (intervalMs / 2))
             .coerceAtLeast(5 * 60 * 1000L)
             .coerceAtMost(intervalMs)
 

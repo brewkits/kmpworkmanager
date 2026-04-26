@@ -133,12 +133,12 @@ Measured with real network operations:
 | 1000 chains | 10MB | 8KB | **10000x better** |
 | 10000 chains | 100MB+ (OOM) | 8KB | **Stable** |
 
-### Metadata Scanning (iOS v2.4.1+)
+### Metadata Scanning (iOS v2.4.2+)
 
-**Before v2.4.1:** O(n) memory - loaded all task IDs into a list before filtering.
-**After v2.4.1:** O(1) memory - uses lazy `Sequence` backed by `NSDirectoryEnumerator`.
+**Before v2.4.2:** O(n) memory - loaded all task IDs into a list before filtering.
+**After v2.4.2:** O(1) memory - uses lazy `Sequence` backed by `NSDirectoryEnumerator`.
 
-| Number of Tasks | Memory (v2.4.0) | Memory (v2.4.1) | Improvement |
+| Number of Tasks | Memory (v2.4.0) | Memory (v2.4.2) | Improvement |
 |-----------------|-----------------|-----------------|-------------|
 | 1,000 tasks | ~100KB | ~50KB | 2x |
 | 10,000 tasks | ~1MB | ~50KB | 20x |

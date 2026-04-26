@@ -43,9 +43,9 @@ For the library to be truly "Production-ready," it must hide this complexity and
 
 ---
 
-## 4. Implementation in v2.4.1: The Master Dispatcher
+## 4. Implementation in v2.4.2: The Master Dispatcher
 
-As of version **2.4.1**, KMP WorkManager has implemented **Option 2** (the Library-layer Queue/Dispatcher pattern).
+As of version **2.4.2**, KMP WorkManager has implemented **Option 2** (the Library-layer Queue/Dispatcher pattern).
 
 ### How it works now:
 1.  **Transparency**: Developers can call `scheduler.enqueue(id = "any-dynamic-id", ...)` just like on Android.

@@ -325,7 +325,11 @@ public class NativeTaskScheduler(
         // Read anchor time BEFORE handleExistingPolicy
         val existingMeta = fileStorage.loadTaskMetadata(id, periodic = true)
         val nowMs = (NSDate().timeIntervalSince1970 * 1000).toLong()
-        val isFirstSchedule = existingMeta == null
+        
+        // Metadata from v2.4.0 and below lacks 'anchoredStartMs'.
+        // Treat such tasks as new schedules to establish a correct anchor and allow immediate run.
+        val hasValidAnchor = existingMeta?.get("anchoredStartMs") != null
+        var isFirstSchedule = existingMeta == null || !hasValidAnchor
 
         // When runImmediately = false and no explicit delay is set, defer first run by one
         // full interval. This eliminates the workaround of setting initialDelayMs = intervalMs.
@@ -342,10 +346,15 @@ public class NativeTaskScheduler(
         val anchoredStartMs = existingMeta?.get("anchoredStartMs")?.toLongOrNull()
             ?: (nowMs + effectiveInitialDelayMs)
 
-        // Handle ExistingPolicy
+        // Handle ExistingPolicy. If REPLACE, we must force isFirstSchedule = true
+        // so that the nextFireMs computation is bypassed in favor of effectiveInitialDelayMs.
         if (!handleExistingPolicy(id, policy, isPeriodicMetadata = true)) {
             Logger.i(LogTags.SCHEDULER, "Task '$id' already exists, KEEP policy - skipping")
             return ScheduleResult.ACCEPTED
+        }
+        
+        if (policy == ExistingPolicy.REPLACE) {
+            isFirstSchedule = true
         }
 
         val delayMs = if (isFirstSchedule) {

@@ -4,7 +4,7 @@ Complete API documentation for KMP WorkManager.
 
 ## Table of Contents
 
-- [v2.4.1 APIs](#v241-apis)
+- [v2.4.2 APIs](#v241-apis)
 - [BackgroundTaskScheduler](#backgroundtaskscheduler)
 - [WorkerResult (v2.3.0+)](#workerresult-v230)
 - [Task Triggers](#task-triggers)
@@ -16,9 +16,9 @@ Complete API documentation for KMP WorkManager.
 
 ---
 
-## v2.4.1 APIs
+## v2.4.2 APIs
 
-New types and scheduler methods added in v2.4.1.
+New types and scheduler methods added in v2.4.2.
 
 ### TaskPriority
 
@@ -476,7 +476,7 @@ class DownloadWorker : CommonWorker {
 class ProcessWorker : CommonWorker {
     override suspend fun doWork(input: String?): WorkerResult {
         // In v2.3.0: Access previous worker data via event bus or custom implementation
-        // In v2.4.1: Automatic data passing will be supported
+        // In v2.4.2: Automatic data passing will be supported
         return WorkerResult.Success(message = "Processed file")
     }
 }

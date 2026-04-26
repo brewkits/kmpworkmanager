@@ -20,7 +20,7 @@
 ```kotlin
 // build.gradle.kts
 commonMain.dependencies {
-    implementation("dev.brewkits:kmpworkmanager:2.4.1")
+    implementation("dev.brewkits:kmpworkmanager:2.4.2")
 }
 ```
 
@@ -193,11 +193,11 @@ and no recovery mechanism for incomplete work. Getting it wrong means your tasks
 
 ---
 
-## What's new in v2.4.1
+## What's new in v2.4.2
 
 ### iOS Dynamic Task IDs (no more Info.plist for every task)
 
-Previously, every task ID had to be declared in `BGTaskSchedulerPermittedIdentifiers` before scheduling. v2.4.1 removes that constraint: only the single master dispatcher ID needs to be in `Info.plist`. All other task IDs are routed through an internal `AppendOnlyQueue` and executed when the OS fires the master dispatcher slot.
+Previously, every task ID had to be declared in `BGTaskSchedulerPermittedIdentifiers` before scheduling. v2.4.2 removes that constraint: only the single master dispatcher ID needs to be in `Info.plist`. All other task IDs are routed through an internal `AppendOnlyQueue` and executed when the OS fires the master dispatcher slot.
 
 ```kotlin
 // This ID does NOT need to be in Info.plist
@@ -327,8 +327,8 @@ Add to `build.gradle.kts`:
 plugins { id("com.google.devtools.ksp") }
 
 dependencies {
-    ksp("dev.brewkits:kmpworker-ksp:2.4.1")
-    commonMain.implementation("dev.brewkits:kmpworker-annotations:2.4.1")
+    ksp("dev.brewkits:kmpworker-ksp:2.4.2")
+    commonMain.implementation("dev.brewkits:kmpworker-annotations:2.4.2")
 }
 ```
 

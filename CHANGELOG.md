@@ -5,6 +5,14 @@ All notable changes to KMP WorkManager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.2] - 2026-04-26
+
+### Fixed
+
+- **Android: Periodic task immediate execution**: Fixed a regression where `runImmediately = true` still resulted in a delay of at least half the interval. This was caused by the default `flexMs` value introduced in v2.4.1.
+- **iOS: Periodic task immediate execution (REPLACE policy)**: Fixed a bug where using `ExistingPolicy.REPLACE` with a periodic task incorrectly applied drift-correction delay instead of executing immediately.
+- **iOS: Periodic task migration (Version Upgrade)**: Fixed a regression where upgrading from v2.4.0 (or below) to v2.4.1 caused all existing periodic tasks to wait for one full interval before their first run due to missing "anchor" metadata.
+
 ## [2.4.1] - 2026-04-23
 
 ### Added
