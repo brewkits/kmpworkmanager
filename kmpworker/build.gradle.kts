@@ -1,3 +1,6 @@
+import java.util.Base64
+import org.gradle.api.publish.maven.tasks.AbstractPublishToMaven
+
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidLibrary)
@@ -174,4 +177,15 @@ publishing {
 // when using the signing plugin with KMP multi-target publications.
 tasks.withType<AbstractPublishToMaven>().configureEach {
     mustRunAfter(tasks.withType<Sign>())
+}
+
+signing {
+    val signingKeyBase64 = project.findProperty("signing.key") as String?
+    val signingPassword = project.findProperty("signing.password") as String? ?: ""
+    isRequired = signingKeyBase64 != null
+    if (signingKeyBase64 != null) {
+        val signingKey = String(Base64.getDecoder().decode(signingKeyBase64))
+        useInMemoryPgpKeys(signingKey, signingPassword)
+    }
+    sign(publishing.publications)
 }

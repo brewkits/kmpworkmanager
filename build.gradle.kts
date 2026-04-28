@@ -44,10 +44,6 @@ tasks.register<Zip>("generateFullMavenZip") {
     dependsOn(":kmpworker-ksp:publishAllPublicationsToMavenCentralLocalRepository")
     
     // Checksums are handled by each module or a global step
-    doFirst {
-        delete(stagingDir)
-    }
-    
     doLast {
         val stagingFile = stagingDir.get().asFile
         if (!stagingFile.exists()) return@doLast

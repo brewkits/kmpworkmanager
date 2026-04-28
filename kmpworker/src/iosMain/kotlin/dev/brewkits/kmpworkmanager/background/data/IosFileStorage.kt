@@ -1279,15 +1279,18 @@ public class IosFileStorage(
                 // NSFileProtectionComplete (the OS default) locks files when the screen is off,
                 // making them unreadable by BGTasks — which defeats the purpose of this library.
                 val attributes = mapOf<Any?, Any?>(NSFileProtectionKey to NSFileProtectionCompleteUntilFirstUserAuthentication)
-                fileManager.createDirectoryAtURL(
+                val ok = fileManager.createDirectoryAtURL(
                     url,
                     withIntermediateDirectories = true,
                     attributes = attributes,
                     error = errorPtr.ptr
                 )
 
-                if (errorPtr.value != null) {
-                    throw IllegalStateException("Failed to create directory: ${errorPtr.value?.localizedDescription}")
+                if (!ok) {
+                    val fallbackOk = fileManager.createDirectoryAtURL(url, withIntermediateDirectories = true, attributes = null, error = null)
+                    if (!fallbackOk) {
+                        throw IllegalStateException("Failed to create directory: ${errorPtr.value?.localizedDescription ?: "Unknown error"}")
+                    }
                 }
             }
         }

@@ -238,7 +238,10 @@ class IosEventStore(
             // background tasks after first unlock. The OS default (NSFileProtectionComplete)
             // would lock files when screen is off, breaking all background event writes.
             val attributes = mapOf<Any?, Any?>(NSFileProtectionKey to NSFileProtectionCompleteUntilFirstUserAuthentication)
-            fileManager.createDirectoryAtURL(url, withIntermediateDirectories = true, attributes = attributes, error = null)
+            val ok = fileManager.createDirectoryAtURL(url, withIntermediateDirectories = true, attributes = attributes, error = null)
+            if (!ok) {
+                fileManager.createDirectoryAtURL(url, withIntermediateDirectories = true, attributes = null, error = null)
+            }
         }
     }
 }

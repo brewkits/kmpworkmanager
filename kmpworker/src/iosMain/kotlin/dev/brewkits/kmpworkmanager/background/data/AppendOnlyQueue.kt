@@ -1166,12 +1166,16 @@ internal class AppendOnlyQueue(
                 // NSFileProtectionCompleteUntilFirstUserAuthentication: accessible to background
                 // tasks after first unlock. Default (NSFileProtectionComplete) blocks BGTask access.
                 val attributes = mapOf<Any?, Any?>(NSFileProtectionKey to NSFileProtectionCompleteUntilFirstUserAuthentication)
-                fileManager.createDirectoryAtPath(
+                val ok = fileManager.createDirectoryAtPath(
                     path,
                     withIntermediateDirectories = true,
                     attributes = attributes,
                     error = errorPtr.ptr
                 )
+                if (!ok) {
+                    // Fallback for simulators or environments where File Protection is unsupported
+                    fileManager.createDirectoryAtPath(path, withIntermediateDirectories = true, attributes = null, error = null)
+                }
             }
         }
     }
@@ -1185,7 +1189,7 @@ internal class AppendOnlyQueue(
         return IosFileCoordinator.coordinate(
             url = url,
             write = write,
-            isTestMode = false, // Or auto-detect
+            isTestMode = this.isTestMode,
             block = block
         )
     }
