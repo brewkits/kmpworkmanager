@@ -98,8 +98,17 @@ class IosExecutionHistoryStore : ExecutionHistoryStore {
 
     override suspend fun getRecords(limit: Int): List<ExecutionRecord> = withContext(IosDispatchers.IO) {
         mutex.withLock {
-            val lines = readAllLines()
-            lines.reversed().take(limit).mapNotNull<String, ExecutionRecord> { line ->
+            val path = historyFileURL.path ?: return@withLock emptyList()
+            if (!fileManager.fileExistsAtPath(path)) return@withLock emptyList()
+            if (limit <= 0) return@withLock emptyList()
+            // Sliding window: only the last `limit` lines are kept in RAM at any time,
+            // so peak allocation is O(limit) regardless of total file size.
+            val window = ArrayDeque<String>()
+            streamLinesFromPath(path) { line ->
+                if (window.size >= limit) window.removeFirst()
+                window.addLast(line)
+            }
+            window.reversed().mapNotNull { line ->
                 runCatching { json.decodeFromString<ExecutionRecord>(line) }.getOrNull()
             }
         }

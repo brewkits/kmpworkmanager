@@ -33,43 +33,26 @@ import platform.UserNotifications.UNNotificationSound
 import platform.UserNotifications.UNUserNotificationCenter
 
 /**
- * iOS implementation of BackgroundTaskScheduler using BGTaskScheduler for background tasks
- * and UNUserNotificationCenter for exact time scheduling (via notifications).
+ * iOS implementation of [BackgroundTaskScheduler].
  *
- * Key Features:
- * - BGAppRefreshTask for light tasks (≤30s)
- * - BGProcessingTask for heavy tasks (minutes)
- * - File-based storage for improved performance and thread safety
- * - Automatic migration from NSUserDefaults (v2.x)
- * - ExistingPolicy support (KEEP/REPLACE)
- * - Task ID validation against Info.plist
- * - Proper error handling with NSError
+ * We use Apple's [BGTaskScheduler] for deferrable background work and [UNUserNotificationCenter] 
+ * for exact-time scheduling (leveraging the Notification Service Extension pattern).
  *
- * **ChainExecutor Usage:**
- *
- * When registering BGTask handlers in Swift/Objective-C, specify the correct BGTaskType:
- *
- * ```swift
- * // For BGAppRefreshTask (30s limit)
- * BGTaskScheduler.shared.register(forTaskWithIdentifier: "app.refresh") { task in
- *     let executor = ChainExecutor(
- *         workerFactory: factory,
- *         taskType: BGTaskType.appRefresh  // ← 20s task timeout, 50s chain timeout
- *     )
- *     // ... execute chains ...
- * }
- *
- * // For BGProcessingTask (5-10 min limit)
- * BGTaskScheduler.shared.register(forTaskWithIdentifier: "chain.processor") { task in
- *     let executor = ChainExecutor(
- *         workerFactory: factory,
- *         taskType: BGTaskType.processing  // ← 120s task timeout, 300s chain timeout
- *     )
- *     // ... execute chains ...
- * }
- * ```
+ * ## Key iOS Behaviors
+ * - **Dynamic IDs**: All dynamic task IDs are queued internally and processed when a 
+ *   "Master Dispatcher" task fires.
+ * - **Memory Safety**: We use Okio for all file operations to ensure constant memory 
+ *   usage even with large backlogs.
+ * - **Drift Correction**: Periodic tasks are anchored to their initial start time to 
+ *   prevent execution windows from drifting over time.
+ * - **Graceful Expiration**: We automatically handle the system's expiration handler 
+ *   to save state before the process is killed.
  */
-@OptIn(ExperimentalForeignApi::class, kotlinx.cinterop.BetaInteropApi::class)
+@OptIn(
+    ExperimentalForeignApi::class,
+    kotlinx.cinterop.BetaInteropApi::class,
+    dev.brewkits.kmpworkmanager.background.domain.InternalKmpWorkManagerApi::class
+)
 public class NativeTaskScheduler(
     /**
      * Additional permitted task IDs beyond those in Info.plist.
@@ -94,13 +77,36 @@ public class NativeTaskScheduler(
     /**
      * Optional scope for background operations (primarily for testing).
      */
-    private val scope: CoroutineScope? = null
+    private val scope: CoroutineScope? = null,
+    /**
+     * Force the migration gate even in test mode. Set to true in integration tests that
+     * verify migration-then-enqueue ordering. Prevents the isTestMode bypass from masking
+     * migration sequencing bugs in multi-module consumer test suites.
+     *
+     * **Do not use in production.** Annotate call sites with
+     * `@OptIn(InternalKmpWorkManagerApi::class)`.
+     */
+    @dev.brewkits.kmpworkmanager.background.domain.InternalKmpWorkManagerApi
+    val forceWaitMigration: Boolean = false
 ) : BackgroundTaskScheduler {
 
     private companion object {
         const val CHAIN_EXECUTOR_IDENTIFIER = "kmp_chain_executor_task"
         const val MASTER_DISPATCHER_IDENTIFIER = "kmp_master_dispatcher_task"
         const val APPLE_TO_UNIX_EPOCH_OFFSET_SECONDS = 978307200.0
+
+        // Kotlin/Native test runner always produces an executable ending with this suffix.
+        // If the naming convention ever changes, update here — one place.
+        private const val TEST_BINARY_SUFFIX = "test.kexe"
+
+        /**
+         * True when running inside a unit-test binary (.kexe) or when bundleIdentifier is null
+         * (which only occurs in test runners, not in App Extensions — extensions have their own ID).
+         * Cached once at class load; NSProcessInfo.processName is stable for the process lifetime.
+         */
+        val isTestMode: Boolean =
+            NSBundle.mainBundle.bundleIdentifier == null ||
+            NSProcessInfo.processInfo.processName.endsWith(TEST_BINARY_SUFFIX)
 
         /**
          * Detect if running on iOS Simulator.
@@ -117,9 +123,10 @@ public class NativeTaskScheduler(
 
     /**
      * Background scope for IO operations (migration, file access)
-     * Uses Dispatchers.Default to avoid blocking Main thread during initialization
+     * Uses IosDispatchers.IO to avoid blocking the limited Dispatchers.Default pool
+     * and to prevent deadlocks in tests where the main thread is blocked.
      */
-    private val backgroundScope = scope ?: CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val backgroundScope = scope ?: CoroutineScope(SupervisorJob() + IosDispatchers.IO)
 
     /**
      * Signal that completes when migration is done
@@ -148,7 +155,7 @@ public class NativeTaskScheduler(
     init {
         // Perform one-time migration from NSUserDefaults to file storage
         // Uses background thread to avoid blocking Main thread during app startup
-        backgroundScope.launch {
+        backgroundScope.launch(IosDispatchers.IO) {
             try {
                 // 1. Check if migration is needed
                 if (!migration.isMigrated()) {
@@ -169,6 +176,7 @@ public class NativeTaskScheduler(
             } catch (e: Exception) {
                 Logger.e(LogTags.SCHEDULER, "Storage initialization error", e)
             } finally {
+                Logger.d(LogTags.SCHEDULER, "Storage initialization completed (migration + maintenance)")
                 // Always complete signal, even if migration/maintenance fails
                 migrationComplete.complete(Unit)
             }
@@ -222,11 +230,13 @@ public class NativeTaskScheduler(
     ): ScheduleResult {
         // Wait for migration to complete before accessing storage.
         // Guard with a timeout: if migration hangs (e.g. corrupted store), we reject rather than deadlock.
-        try {
-            withTimeout(5_000L) { migrationComplete.await() }
-        } catch (e: TimeoutCancellationException) {
-            Logger.e(LogTags.SCHEDULER, "Migration did not complete within 5s — rejecting enqueue for '$id'")
-            return ScheduleResult.REJECTED_OS_POLICY
+        if (!isTestMode || forceWaitMigration) {
+            try {
+                withTimeout(5_000L) { migrationComplete.await() }
+            } catch (e: TimeoutCancellationException) {
+                Logger.e(LogTags.SCHEDULER, "Migration did not complete within 5s — isTestMode=$isTestMode, forceWaitMigration=$forceWaitMigration. Rejecting enqueue for '$id'")
+                return ScheduleResult.REJECTED_OS_POLICY
+            }
         }
 
         Logger.i(LogTags.SCHEDULER, "Enqueue request - ID: '$id', Trigger: ${trigger::class.simpleName}, Policy: $policy")
@@ -274,8 +284,8 @@ public class NativeTaskScheduler(
      * to handle it as a dynamic task.
      */
     private fun validateTaskId(id: String): Boolean {
-        // In test environment (no app bundle), skip validation - no Info.plist available
-        if (NSBundle.mainBundle.bundleIdentifier == null) return true
+        // In test environment, skip validation - no Info.plist available or it's a dummy test.kexe
+        if (isTestMode) return true
 
         // 1. Check if ID is explicitly registered
         if (id in permittedTaskIds) return true
@@ -342,9 +352,13 @@ public class NativeTaskScheduler(
         Logger.i(LogTags.SCHEDULER, "Scheduling periodic task - ID: '$id', Interval: ${intervalMs}ms, " +
             "EffectiveInitialDelay: ${effectiveInitialDelayMs}ms, runImmediately: ${trigger.runImmediately}")
 
-        // Anchor to the first intended run time
-        val anchoredStartMs = existingMeta?.get("anchoredStartMs")?.toLongOrNull()
-            ?: (nowMs + effectiveInitialDelayMs)
+        // Anchor to the first intended run time.
+        // If REPLACE policy is used, we treat it as a fresh start and ignore any existing anchor.
+        val anchoredStartMs = if (policy == ExistingPolicy.REPLACE) {
+            (nowMs + effectiveInitialDelayMs)
+        } else {
+            existingMeta?.get("anchoredStartMs")?.toLongOrNull() ?: (nowMs + effectiveInitialDelayMs)
+        }
 
         // Handle ExistingPolicy. If REPLACE, we must force isFirstSchedule = true
         // so that the nextFireMs computation is bypassed in favor of effectiveInitialDelayMs.
@@ -669,8 +683,8 @@ public class NativeTaskScheduler(
             }
         }
 
-        // In test environment (no app bundle), BGTaskScheduler is unavailable - simulate success
-        if (NSBundle.mainBundle.bundleIdentifier == null) {
+        // In test environment, BGTaskScheduler is unavailable - simulate success
+        if (isTestMode) {
             Logger.d(LogTags.SCHEDULER, "Test mode: simulating accepted submission for $taskDescription")
             return ScheduleResult.ACCEPTED
         }

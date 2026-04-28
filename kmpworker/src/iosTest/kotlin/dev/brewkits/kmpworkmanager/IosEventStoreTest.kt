@@ -276,4 +276,51 @@ class IosEventStoreTest {
         assertFalse(events[0].event.success)
         assertEquals("Something went wrong: network timeout", events[0].event.message)
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Streaming invariant tests (OOM regression — issue: NSString.stringWithContentsOfURL
+    // loaded the entire file into RAM; now replaced by NSInputStream streaming).
+    //
+    // Invariant: getUnconsumedEvents() result size == number of truly unconsumed events,
+    // not total file size. Peak RAM must NOT scale with consumed-event backlog.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `getUnconsumedEvents - large consumed backlog returns only pending events`() = runTest {
+        val totalSaved = 200
+        val pendingCount = 5
+
+        val ids = (1..totalSaved).map { i ->
+            store.saveEvent(TaskCompletionEvent("Batch-$i", true, "msg"))
+        }
+        // Consume all but the last pendingCount
+        ids.dropLast(pendingCount).forEach { id -> store.markEventConsumed(id) }
+
+        val unconsumed = store.getUnconsumedEvents()
+        assertEquals(
+            pendingCount, unconsumed.size,
+            "Must return exactly $pendingCount unconsumed events from a $totalSaved-event file " +
+            "(streaming filter must not load all consumed events into result)"
+        )
+        // Verify they are the CORRECT ones (last pendingCount saved)
+        val names = unconsumed.map { it.event.taskName }.toSet()
+        ((totalSaved - pendingCount + 1)..totalSaved).forEach { i ->
+            assertTrue("Batch-$i" in names, "Batch-$i should be in unconsumed but was missing")
+        }
+    }
+
+    @Test
+    fun `getEventCount includes both consumed and unconsumed events`() = runTest {
+        val id1 = store.saveEvent(TaskCompletionEvent("CountA", true, "msg"))
+        val id2 = store.saveEvent(TaskCompletionEvent("CountB", true, "msg"))
+        store.saveEvent(TaskCompletionEvent("CountC", true, "msg"))
+
+        store.markEventConsumed(id1)
+        store.markEventConsumed(id2)
+
+        assertEquals(3, store.getEventCount(),
+            "getEventCount must count all lines (consumed + unconsumed), got wrong total")
+        assertEquals(1, store.getUnconsumedEvents().size,
+            "Only 1 event should remain unconsumed")
+    }
 }

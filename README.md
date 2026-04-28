@@ -260,6 +260,13 @@ This handler automatically:
 - **Auto-reschedules periodic tasks** and the chain executor if the queue is not empty.
 - Performs deadline checks for windowed tasks.
 
+### Hardened iOS Persistence & Safety
+We've overhauled the iOS storage engine to ensure industrial-grade reliability:
+- **Okio Streaming**: All file operations (Events, History, Queue) now use Okio. Peak RAM usage is now constant (O(1)) regardless of file size, preventing OOM kills on older devices.
+- **Race Condition Fixes**: Critical fix in `IosFileCoordinator` using `AtomicInt` to ensure background blocks are executed exactly once, even during high-concurrency stress or timeouts.
+- **Self-Healing Queue**: We now detect CRC32 checksum mismatches and automatically recover/reset corrupted records to prevent persistent job stalls.
+- **UTF-8 Safety**: Guaranteed safety against multi-byte character corruption (Emoji/CJK) at chunk boundaries.
+
 ### Execution history (v2.3.8)
 Every chain execution is persisted locally. Collect, upload, clear:
 

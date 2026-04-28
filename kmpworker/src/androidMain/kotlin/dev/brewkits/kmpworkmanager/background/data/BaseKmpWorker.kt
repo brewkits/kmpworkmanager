@@ -40,7 +40,10 @@ abstract class BaseKmpWorker : CoroutineWorker {
         this.workerFactory = workerFactory
     }
 
-    @Deprecated("Use constructor with workerFactory")
+    @Deprecated(
+        "Use the constructor that accepts a workerFactory parameter for proper DI support.",
+        level = DeprecationLevel.WARNING
+    )
     constructor(
         appContext: Context,
         workerParams: WorkerParameters

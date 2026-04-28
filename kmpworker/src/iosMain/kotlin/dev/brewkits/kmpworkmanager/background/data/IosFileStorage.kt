@@ -311,7 +311,8 @@ public class IosFileStorage(
 
             if (hoursSinceLastMaintenance >= 24) {
                 // Run immediately if maintenance hasn't run in 24+ hours
-                Logger.i(LogTags.SCHEDULER, "Maintenance overdue ($hoursSinceLastMaintenance hours). Running immediately...")
+                val overdueMsg = if (hoursSinceLastMaintenance == Int.MAX_VALUE) "never run" else "$hoursSinceLastMaintenance hours"
+                Logger.i(LogTags.SCHEDULER, "Maintenance overdue ($overdueMsg). Running immediately...")
                 performMaintenanceTasks()
             } else {
                 // Wait 5s for app to stabilize before running maintenance

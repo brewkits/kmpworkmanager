@@ -78,6 +78,55 @@ class BugFixes_v242_IosTest {
         assertTrue(anchor2 > anchor1!!, "Anchor must be reset during REPLACE policy, expected $anchor2 > $anchor1")
     }
 
+    /**
+     * Stronger regression for issue #23:
+     * Verifies the SEMANTIC invariant, not just that anchor2 > anchor1.
+     *
+     * Invariant: after REPLACE, anchoredStartMs ∈ [nowBefore, nowAfter + small_tolerance].
+     * If the old anchor (e.g. from 30 min ago) were preserved, the new anchor would be
+     * way below nowBefore — this test catches that.
+     */
+    @Test
+    fun testREPLACEPolicySetsAnchorCloseToNowNotReusingOldAnchor() = runTest {
+        val storage = makeStorage("ios-replace-anchor-now")
+        val scheduler = NativeTaskScheduler(fileStorage = storage)
+        val taskId = "anchor-now-task"
+        val interval = 60 * 60 * 1000L // 1 hour
+
+        // Plant old metadata with an anchor from 30 minutes ago (simulates a stale schedule)
+        val thirtyMinAgo = (NSDate().timeIntervalSince1970 * 1000).toLong() - 30 * 60_000L
+        storage.saveTaskMetadata(taskId, mapOf(
+            "isPeriodic"        to "true",
+            "intervalMs"        to "$interval",
+            "anchoredStartMs"   to "$thirtyMinAgo",
+            "workerClassName"   to "TestWorker",
+            "inputJson"         to ""
+        ), periodic = true)
+
+        val nowBefore = (NSDate().timeIntervalSince1970 * 1000).toLong()
+        scheduler.enqueue(
+            id = taskId,
+            trigger = TaskTrigger.Periodic(intervalMs = interval, runImmediately = true),
+            workerClassName = "TestWorker",
+            constraints = Constraints(),
+            inputJson = null,
+            policy = ExistingPolicy.REPLACE
+        )
+        val nowAfter = (NSDate().timeIntervalSince1970 * 1000).toLong()
+
+        val anchor = storage.loadTaskMetadata(taskId, periodic = true)
+            ?.get("anchoredStartMs")?.toLong()
+        assertNotNull(anchor, "Anchor must be saved after REPLACE")
+        assertTrue(
+            anchor >= nowBefore,
+            "Anchor ($anchor) must be >= nowBefore ($nowBefore) — REPLACE must not reuse the 30-min-old anchor"
+        )
+        assertTrue(
+            anchor <= nowAfter + 1_000L,
+            "Anchor ($anchor) must be within 1s of nowAfter ($nowAfter) — it should reflect current time"
+        )
+    }
+
     @Test
     fun testMissingAnchoredStartMsInMetadataIsTreatedAsFirstSchedule() = runTest {
         val storage = makeStorage("ios-upgrade-anchor")

@@ -29,7 +29,10 @@ class KmpHeavyWorker(
     workerFactory: AndroidWorkerFactory
 ) : BaseKmpWorker(appContext, workerParams, workerFactory) {
 
-    @Deprecated("Use constructor with workerFactory")
+    @Deprecated(
+        "Use the constructor that accepts a workerFactory parameter for proper DI support.",
+        level = DeprecationLevel.WARNING
+    )
     constructor(appContext: Context, workerParams: WorkerParameters) : this(
         appContext,
         workerParams,

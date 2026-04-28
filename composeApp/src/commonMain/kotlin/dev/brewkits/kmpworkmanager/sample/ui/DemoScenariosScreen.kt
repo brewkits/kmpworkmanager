@@ -18,6 +18,7 @@ import dev.brewkits.kmpworkmanager.sample.background.WorkerTypes
 import dev.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
 import dev.brewkits.kmpworkmanager.background.domain.Constraints
 import dev.brewkits.kmpworkmanager.background.domain.ExistingPolicy
+import dev.brewkits.kmpworkmanager.background.domain.ScheduleResult
 import dev.brewkits.kmpworkmanager.background.domain.TaskRequest
 import dev.brewkits.kmpworkmanager.background.domain.TaskTrigger
 import kotlinx.coroutines.launch
@@ -69,6 +70,22 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                 runningTaskName = ""
             }
         }
+    }
+
+    // Schedules a task and shows a truthful snackbar based on the ScheduleResult.
+    // Use this for direct scheduler.enqueue() calls (not chain .enqueue() which returns Unit).
+    suspend fun scheduleTask(successMessage: String, block: suspend () -> ScheduleResult) {
+        val result = block()
+        val message = if (result == ScheduleResult.ACCEPTED) successMessage else when (result) {
+            ScheduleResult.REJECTED_OS_POLICY -> "Rejected by OS (Low Power Mode, missing Info.plist entry, or migration timeout)"
+            ScheduleResult.DEADLINE_ALREADY_PASSED -> "Deadline already passed — task was not scheduled"
+            ScheduleResult.THROTTLED -> "Throttled by OS — too many pending tasks"
+            else -> "Failed to schedule"
+        }
+        snackbarHostState.showSnackbar(
+            message = message,
+            duration = SnackbarDuration.Short
+        )
     }
 
     Scaffold(
@@ -149,12 +166,13 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     enabled = !isAnyTaskRunning,
                     onClick = {
                         runTask("Quick Sync") {
-                            scheduler.enqueue(
-                                id = "demo-quick-sync",
-                                trigger = TaskTrigger.OneTime(initialDelayMs = 2.seconds.inWholeMilliseconds),
-                                workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.SYNC_WORKER
-                            )
-                            snackbarHostState.showSnackbar(message = "Quick Sync scheduled (2s delay)", duration = SnackbarDuration.Short)
+                            scheduleTask("Quick Sync scheduled (2s delay)") {
+                                scheduler.enqueue(
+                                    id = "demo-quick-sync",
+                                    trigger = TaskTrigger.OneTime(initialDelayMs = 2.seconds.inWholeMilliseconds),
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.SYNC_WORKER
+                                )
+                            }
                         }
                     }
                 )
@@ -165,13 +183,14 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     enabled = !isAnyTaskRunning,
                     onClick = {
                         runTask("File Upload") {
-                            scheduler.enqueue(
-                                id = "demo-file-upload",
-                                trigger = TaskTrigger.OneTime(initialDelayMs = 5.seconds.inWholeMilliseconds),
-                                workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.UPLOAD_WORKER,
-                                constraints = Constraints(requiresNetwork = true)
-                            )
-                            snackbarHostState.showSnackbar(message = "File Upload scheduled (5s, network required)", duration = SnackbarDuration.Short)
+                            scheduleTask("File Upload scheduled (5s, network required)") {
+                                scheduler.enqueue(
+                                    id = "demo-file-upload",
+                                    trigger = TaskTrigger.OneTime(initialDelayMs = 5.seconds.inWholeMilliseconds),
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.UPLOAD_WORKER,
+                                    constraints = Constraints(requiresNetwork = true)
+                                )
+                            }
                         }
                     }
                 )
@@ -182,12 +201,13 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     enabled = !isAnyTaskRunning,
                     onClick = {
                         runTask("Database Operation") {
-                            scheduler.enqueue(
-                                id = "demo-database",
-                                trigger = TaskTrigger.OneTime(initialDelayMs = 3.seconds.inWholeMilliseconds),
-                                workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.DATABASE_WORKER
-                            )
-                            snackbarHostState.showSnackbar(message = "Database Worker scheduled (3s delay)", duration = SnackbarDuration.Short)
+                            scheduleTask("Database Worker scheduled (3s delay)") {
+                                scheduler.enqueue(
+                                    id = "demo-database",
+                                    trigger = TaskTrigger.OneTime(initialDelayMs = 3.seconds.inWholeMilliseconds),
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.DATABASE_WORKER
+                                )
+                            }
                         }
                     }
                 )
@@ -205,13 +225,14 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     enabled = !isAnyTaskRunning,
                     onClick = {
                         runTask("Hourly Sync") {
-                            scheduler.enqueue(
-                                id = "demo-hourly-sync",
-                                trigger = TaskTrigger.Periodic(intervalMs = 1.hours.inWholeMilliseconds),
-                                workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.SYNC_WORKER,
-                                constraints = Constraints(requiresNetwork = true, requiresUnmeteredNetwork = true)
-                            )
-                            snackbarHostState.showSnackbar(message = "Hourly Sync scheduled (1h interval)", duration = SnackbarDuration.Short)
+                            scheduleTask("Hourly Sync scheduled (1h interval)") {
+                                scheduler.enqueue(
+                                    id = "demo-hourly-sync",
+                                    trigger = TaskTrigger.Periodic(intervalMs = 1.hours.inWholeMilliseconds),
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.SYNC_WORKER,
+                                    constraints = Constraints(requiresNetwork = true, requiresUnmeteredNetwork = true)
+                                )
+                            }
                         }
                     }
                 )
@@ -222,13 +243,14 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     enabled = !isAnyTaskRunning,
                     onClick = {
                         runTask("Daily Cleanup") {
-                            scheduler.enqueue(
-                                id = "demo-daily-cleanup",
-                                trigger = TaskTrigger.Periodic(intervalMs = 24.hours.inWholeMilliseconds),
-                                workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.CLEANUP_WORKER,
-                                constraints = Constraints(requiresCharging = true)
-                            )
-                            snackbarHostState.showSnackbar(message = "Daily Cleanup scheduled (24h, charging)", duration = SnackbarDuration.Short)
+                            scheduleTask("Daily Cleanup scheduled (24h, charging)") {
+                                scheduler.enqueue(
+                                    id = "demo-daily-cleanup",
+                                    trigger = TaskTrigger.Periodic(intervalMs = 24.hours.inWholeMilliseconds),
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.CLEANUP_WORKER,
+                                    constraints = Constraints(requiresCharging = true)
+                                )
+                            }
                         }
                     }
                 )
@@ -239,12 +261,13 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     enabled = !isAnyTaskRunning,
                     onClick = {
                         runTask("Location Sync") {
-                            scheduler.enqueue(
-                                id = "demo-location-sync",
-                                trigger = TaskTrigger.Periodic(intervalMs = 15.minutes.inWholeMilliseconds),
-                                workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.LOCATION_SYNC_WORKER
-                            )
-                            snackbarHostState.showSnackbar(message = "Location Sync scheduled (15min)", duration = SnackbarDuration.Short)
+                            scheduleTask("Location Sync scheduled (15min)") {
+                                scheduler.enqueue(
+                                    id = "demo-location-sync",
+                                    trigger = TaskTrigger.Periodic(intervalMs = 15.minutes.inWholeMilliseconds),
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.LOCATION_SYNC_WORKER
+                                )
+                            }
                         }
                     }
                 )
@@ -341,13 +364,14 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     enabled = !isAnyTaskRunning,
                     onClick = {
                         runTask("Network Required") {
-                            scheduler.enqueue(
-                                id = "demo-network-required",
-                                trigger = TaskTrigger.OneTime(initialDelayMs = 3.seconds.inWholeMilliseconds),
-                                workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.SYNC_WORKER,
-                                constraints = Constraints(requiresNetwork = true)
-                            )
-                            snackbarHostState.showSnackbar(message = "Network-constrained task scheduled", duration = SnackbarDuration.Short)
+                            scheduleTask("Network-constrained task scheduled") {
+                                scheduler.enqueue(
+                                    id = "demo-network-required",
+                                    trigger = TaskTrigger.OneTime(initialDelayMs = 3.seconds.inWholeMilliseconds),
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.SYNC_WORKER,
+                                    constraints = Constraints(requiresNetwork = true)
+                                )
+                            }
                         }
                     }
                 )
@@ -358,13 +382,14 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     enabled = !isAnyTaskRunning,
                     onClick = {
                         runTask("Unmetered Network (WiFi Only)") {
-                            scheduler.enqueue(
-                                id = "demo-unmetered",
-                                trigger = TaskTrigger.OneTime(initialDelayMs = 3.seconds.inWholeMilliseconds),
-                                workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.BATCH_UPLOAD_WORKER,
-                                constraints = Constraints(requiresNetwork = true, requiresUnmeteredNetwork = true)
-                            )
-                            snackbarHostState.showSnackbar(message = "WiFi-only task scheduled", duration = SnackbarDuration.Short)
+                            scheduleTask("WiFi-only task scheduled") {
+                                scheduler.enqueue(
+                                    id = "demo-unmetered",
+                                    trigger = TaskTrigger.OneTime(initialDelayMs = 3.seconds.inWholeMilliseconds),
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.BATCH_UPLOAD_WORKER,
+                                    constraints = Constraints(requiresNetwork = true, requiresUnmeteredNetwork = true)
+                                )
+                            }
                         }
                     }
                 )
@@ -375,13 +400,14 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     enabled = !isAnyTaskRunning,
                     onClick = {
                         runTask("Charging Required") {
-                            scheduler.enqueue(
-                                id = "demo-charging",
-                                trigger = TaskTrigger.OneTime(initialDelayMs = 3.seconds.inWholeMilliseconds),
-                                workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.HEAVY_PROCESSING_WORKER,
-                                constraints = Constraints(requiresCharging = true, isHeavyTask = true)
-                            )
-                            snackbarHostState.showSnackbar(message = "Charging-constrained task scheduled", duration = SnackbarDuration.Short)
+                            scheduleTask("Charging-constrained task scheduled") {
+                                scheduler.enqueue(
+                                    id = "demo-charging",
+                                    trigger = TaskTrigger.OneTime(initialDelayMs = 3.seconds.inWholeMilliseconds),
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.HEAVY_PROCESSING_WORKER,
+                                    constraints = Constraints(requiresCharging = true, isHeavyTask = true)
+                                )
+                            }
                         }
                     }
                 )
@@ -392,12 +418,13 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     enabled = !isAnyTaskRunning,
                     onClick = {
                         runTask("Battery Not Low (Android)") {
-                            scheduler.enqueue(
-                                id = "demo-battery-ok",
-                                trigger = TaskTrigger.OneTime(), constraints = Constraints(systemConstraints = setOf(dev.brewkits.kmpworkmanager.background.domain.SystemConstraint.REQUIRE_BATTERY_NOT_LOW)),
-                                workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.IMAGE_PROCESSING_WORKER
-                            )
-                            snackbarHostState.showSnackbar(message = "Battery-OK task scheduled", duration = SnackbarDuration.Short)
+                            scheduleTask("Battery-OK task scheduled") {
+                                scheduler.enqueue(
+                                    id = "demo-battery-ok",
+                                    trigger = TaskTrigger.OneTime(), constraints = Constraints(systemConstraints = setOf(dev.brewkits.kmpworkmanager.background.domain.SystemConstraint.REQUIRE_BATTERY_NOT_LOW)),
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.IMAGE_PROCESSING_WORKER
+                                )
+                            }
                         }
                     }
                 )
@@ -408,12 +435,13 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     enabled = !isAnyTaskRunning,
                     onClick = {
                         runTask("Storage Low Cleanup (Android)") {
-                            scheduler.enqueue(
-                                id = "demo-storage-low",
-                                trigger = TaskTrigger.OneTime(),
-                                workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.CLEANUP_WORKER
-                            )
-                            snackbarHostState.showSnackbar(message = "Storage-low task scheduled (Android only)", duration = SnackbarDuration.Short)
+                            scheduleTask("Storage-low task scheduled (Android only)") {
+                                scheduler.enqueue(
+                                    id = "demo-storage-low",
+                                    trigger = TaskTrigger.OneTime(),
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.CLEANUP_WORKER
+                                )
+                            }
                         }
                     }
                 )
@@ -424,16 +452,17 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     enabled = !isAnyTaskRunning,
                     onClick = {
                         runTask("Device Idle (Android)") {
-                            scheduler.enqueue(
-                                id = "demo-device-idle",
-                                trigger = TaskTrigger.OneTime(),
-                                workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.HEAVY_PROCESSING_WORKER,
-                                constraints = Constraints(
-                                    isHeavyTask = true,
-                                    systemConstraints = setOf(dev.brewkits.kmpworkmanager.background.domain.SystemConstraint.DEVICE_IDLE)
+                            scheduleTask("Device-idle task scheduled (Android only)") {
+                                scheduler.enqueue(
+                                    id = "demo-device-idle",
+                                    trigger = TaskTrigger.OneTime(),
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.HEAVY_PROCESSING_WORKER,
+                                    constraints = Constraints(
+                                        isHeavyTask = true,
+                                        systemConstraints = setOf(dev.brewkits.kmpworkmanager.background.domain.SystemConstraint.DEVICE_IDLE)
+                                    )
                                 )
-                            )
-                            snackbarHostState.showSnackbar(message = "Device-idle task scheduled (Android only)", duration = SnackbarDuration.Short)
+                            }
                         }
                     }
                 )
@@ -452,12 +481,13 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     enabled = !isAnyTaskRunning,
                     onClick = {
                         runTask("Network Retry with Backoff") {
-                            scheduler.enqueue(
-                                id = "demo-retry",
-                                trigger = TaskTrigger.OneTime(initialDelayMs = 2.seconds.inWholeMilliseconds),
-                                workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.NETWORK_RETRY_WORKER
-                            )
-                            snackbarHostState.showSnackbar(message = "Retry demo started (watch logs)", duration = SnackbarDuration.Short)
+                            scheduleTask("Retry demo started (watch logs)") {
+                                scheduler.enqueue(
+                                    id = "demo-retry",
+                                    trigger = TaskTrigger.OneTime(initialDelayMs = 2.seconds.inWholeMilliseconds),
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.NETWORK_RETRY_WORKER
+                                )
+                            }
                         }
                     }
                 )
@@ -468,12 +498,13 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     enabled = !isAnyTaskRunning,
                     onClick = {
                         runTask("Random Database Failure") {
-                            scheduler.enqueue(
-                                id = "demo-db-fail",
-                                trigger = TaskTrigger.OneTime(initialDelayMs = 2.seconds.inWholeMilliseconds),
-                                workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.DATABASE_WORKER
-                            )
-                            snackbarHostState.showSnackbar(message = "Database worker scheduled (may fail)", duration = SnackbarDuration.Short)
+                            scheduleTask("Database worker scheduled (may fail)") {
+                                scheduler.enqueue(
+                                    id = "demo-db-fail",
+                                    trigger = TaskTrigger.OneTime(initialDelayMs = 2.seconds.inWholeMilliseconds),
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.DATABASE_WORKER
+                                )
+                            }
                         }
                     }
                 )
@@ -491,13 +522,14 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     enabled = !isAnyTaskRunning,
                     onClick = {
                         runTask("Heavy Processing") {
-                            scheduler.enqueue(
-                                id = "demo-heavy",
-                                trigger = TaskTrigger.OneTime(initialDelayMs = 3.seconds.inWholeMilliseconds),
-                                workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.HEAVY_PROCESSING_WORKER,
-                                constraints = Constraints(isHeavyTask = true)
-                            )
-                            snackbarHostState.showSnackbar(message = "Heavy task scheduled (ForegroundService/BGProcessingTask)", duration = SnackbarDuration.Short)
+                            scheduleTask("Heavy task scheduled (ForegroundService/BGProcessingTask)") {
+                                scheduler.enqueue(
+                                    id = "demo-heavy",
+                                    trigger = TaskTrigger.OneTime(initialDelayMs = 3.seconds.inWholeMilliseconds),
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.HEAVY_PROCESSING_WORKER,
+                                    constraints = Constraints(isHeavyTask = true)
+                                )
+                            }
                         }
                     }
                 )
@@ -508,12 +540,13 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     enabled = !isAnyTaskRunning,
                     onClick = {
                         runTask("Batch Upload (5 Files)") {
-                            scheduler.enqueue(
-                                id = "demo-batch-upload",
-                                trigger = TaskTrigger.OneTime(initialDelayMs = 2.seconds.inWholeMilliseconds),
-                                workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.BATCH_UPLOAD_WORKER
-                            )
-                            snackbarHostState.showSnackbar(message = "Batch upload started (5 files)", duration = SnackbarDuration.Short)
+                            scheduleTask("Batch upload started (5 files)") {
+                                scheduler.enqueue(
+                                    id = "demo-batch-upload",
+                                    trigger = TaskTrigger.OneTime(initialDelayMs = 2.seconds.inWholeMilliseconds),
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.BATCH_UPLOAD_WORKER
+                                )
+                            }
                         }
                     }
                 )
@@ -524,12 +557,13 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     enabled = !isAnyTaskRunning,
                     onClick = {
                         runTask("Image Processing (5 Images x 3 Sizes)") {
-                            scheduler.enqueue(
-                                id = "demo-image-proc",
-                                trigger = TaskTrigger.OneTime(initialDelayMs = 2.seconds.inWholeMilliseconds),
-                                workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.IMAGE_PROCESSING_WORKER
-                            )
-                            snackbarHostState.showSnackbar(message = "Image processing started (15 operations)", duration = SnackbarDuration.Short)
+                            scheduleTask("Image processing started (15 operations)") {
+                                scheduler.enqueue(
+                                    id = "demo-image-proc",
+                                    trigger = TaskTrigger.OneTime(initialDelayMs = 2.seconds.inWholeMilliseconds),
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.IMAGE_PROCESSING_WORKER
+                                )
+                            }
                         }
                     }
                 )
@@ -799,14 +833,15 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                                 body = """{"title": "foo", "body": "bar", "userId": 1}""",
                                 headers = mapOf("Content-Type" to "application/json")
                             )
-                            scheduler.enqueue(
-                                id = "demo-builtin-httprequest",
-                                trigger = TaskTrigger.OneTime(initialDelayMs = 1.seconds.inWholeMilliseconds),
-                                workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.HTTP_REQUEST_WORKER,
-                                inputJson = Json.encodeToString(HttpRequestConfig.serializer(), config),
-                                constraints = Constraints(requiresNetwork = true)
-                            )
-                            snackbarHostState.showSnackbar(message = "HttpRequestWorker scheduled", duration = SnackbarDuration.Short)
+                            scheduleTask("HttpRequestWorker scheduled") {
+                                scheduler.enqueue(
+                                    id = "demo-builtin-httprequest",
+                                    trigger = TaskTrigger.OneTime(initialDelayMs = 1.seconds.inWholeMilliseconds),
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.HTTP_REQUEST_WORKER,
+                                    inputJson = Json.encodeToString(HttpRequestConfig.serializer(), config),
+                                    constraints = Constraints(requiresNetwork = true)
+                                )
+                            }
                         }
                     }
                 )
@@ -827,14 +862,15 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                                 requestBody = requestBody,
                                 headers = mapOf("Content-Type" to "application/json")
                             )
-                            scheduler.enqueue(
-                                id = "demo-builtin-httpsync",
-                                trigger = TaskTrigger.OneTime(initialDelayMs = 1.seconds.inWholeMilliseconds),
-                                workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.HTTP_SYNC_WORKER,
-                                inputJson = Json.encodeToString(HttpSyncConfig.serializer(), config),
-                                constraints = Constraints(requiresNetwork = true)
-                            )
-                            snackbarHostState.showSnackbar(message = "HttpSyncWorker scheduled", duration = SnackbarDuration.Short)
+                            scheduleTask("HttpSyncWorker scheduled") {
+                                scheduler.enqueue(
+                                    id = "demo-builtin-httpsync",
+                                    trigger = TaskTrigger.OneTime(initialDelayMs = 1.seconds.inWholeMilliseconds),
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.HTTP_SYNC_WORKER,
+                                    inputJson = Json.encodeToString(HttpSyncConfig.serializer(), config),
+                                    constraints = Constraints(requiresNetwork = true)
+                                )
+                            }
                         }
                     }
                 )
@@ -849,14 +885,15 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                                 url = "https://httpbin.org/bytes/10240", // 10KB test file (works on iOS simulator)
                                 savePath = getDummyDownloadPath(context)
                             )
-                            scheduler.enqueue(
-                                id = "demo-builtin-httpdownload",
-                                trigger = TaskTrigger.OneTime(initialDelayMs = 1.seconds.inWholeMilliseconds),
-                                workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.HTTP_DOWNLOAD_WORKER,
-                                inputJson = Json.encodeToString(HttpDownloadConfig.serializer(), config),
-                                constraints = Constraints(requiresNetwork = true)
-                            )
-                            snackbarHostState.showSnackbar(message = "HttpDownloadWorker scheduled", duration = SnackbarDuration.Short)
+                            scheduleTask("HttpDownloadWorker scheduled") {
+                                scheduler.enqueue(
+                                    id = "demo-builtin-httpdownload",
+                                    trigger = TaskTrigger.OneTime(initialDelayMs = 1.seconds.inWholeMilliseconds),
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.HTTP_DOWNLOAD_WORKER,
+                                    inputJson = Json.encodeToString(HttpDownloadConfig.serializer(), config),
+                                    constraints = Constraints(requiresNetwork = true)
+                                )
+                            }
                         }
                     }
                 )
@@ -876,14 +913,15 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                                 fileName = "upload_test.txt",
                                 mimeType = "text/plain"
                             )
-                            scheduler.enqueue(
-                                id = "demo-builtin-httpupload",
-                                trigger = TaskTrigger.OneTime(initialDelayMs = 1.seconds.inWholeMilliseconds),
-                                workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.HTTP_UPLOAD_WORKER,
-                                inputJson = Json.encodeToString(HttpUploadConfig.serializer(), config),
-                                constraints = Constraints(requiresNetwork = true)
-                            )
-                            snackbarHostState.showSnackbar(message = "HttpUploadWorker scheduled. (Requires dummy file)", duration = SnackbarDuration.Short)
+                            scheduleTask("HttpUploadWorker scheduled. (Requires dummy file)") {
+                                scheduler.enqueue(
+                                    id = "demo-builtin-httpupload",
+                                    trigger = TaskTrigger.OneTime(initialDelayMs = 1.seconds.inWholeMilliseconds),
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.HTTP_UPLOAD_WORKER,
+                                    inputJson = Json.encodeToString(HttpUploadConfig.serializer(), config),
+                                    constraints = Constraints(requiresNetwork = true)
+                                )
+                            }
                         }
                     }
                 )
@@ -900,13 +938,14 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                                 outputPath = getDummyCompressionOutputPath(context),
                                 compressionLevel = "medium"
                             )
-                            scheduler.enqueue(
-                                id = "demo-builtin-filecompression",
-                                trigger = TaskTrigger.OneTime(initialDelayMs = 1.seconds.inWholeMilliseconds),
-                                workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.FILE_COMPRESSION_WORKER,
-                                inputJson = Json.encodeToString(FileCompressionConfig.serializer(), config)
-                            )
-                            snackbarHostState.showSnackbar(message = "FileCompressionWorker scheduled. (Requires dummy folder)", duration = SnackbarDuration.Short)
+                            scheduleTask("FileCompressionWorker scheduled. (Requires dummy folder)") {
+                                scheduler.enqueue(
+                                    id = "demo-builtin-filecompression",
+                                    trigger = TaskTrigger.OneTime(initialDelayMs = 1.seconds.inWholeMilliseconds),
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.FILE_COMPRESSION_WORKER,
+                                    inputJson = Json.encodeToString(FileCompressionConfig.serializer(), config)
+                                )
+                            }
                         }
                     }
                 )
@@ -926,16 +965,14 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     enabled = !isAnyTaskRunning,
                     onClick = {
                         runTask("Fix1: Expedited task (WorkManager 2.10.0+ compat)") {
-                            scheduler.enqueue(
-                                id = "v233-fix1-expedited",
-                                trigger = TaskTrigger.OneTime(initialDelayMs = 2.seconds.inWholeMilliseconds),
-                                workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.SYNC_WORKER,
-                                constraints = Constraints(isHeavyTask = false)
-                            )
-                            snackbarHostState.showSnackbar(
-                                message = "✅ Fix #1: Expedited task scheduled — no crash on WorkManager 2.10.0+",
-                                duration = SnackbarDuration.Short
-                            )
+                            scheduleTask("✅ Fix #1: Expedited task scheduled — no crash on WorkManager 2.10.0+") {
+                                scheduler.enqueue(
+                                    id = "v233-fix1-expedited",
+                                    trigger = TaskTrigger.OneTime(initialDelayMs = 2.seconds.inWholeMilliseconds),
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.SYNC_WORKER,
+                                    constraints = Constraints(isHeavyTask = false)
+                                )
+                            }
                         }
                     }
                 )
@@ -986,16 +1023,14 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                         runTask("i18n: Localized notification") {
                             // Schedule a regular task — if WorkManager promotes it to foreground,
                             // the notification title will be resolved from string resources (device locale)
-                            scheduler.enqueue(
-                                id = "v233-i18n-notification",
-                                trigger = TaskTrigger.OneTime(initialDelayMs = 1.seconds.inWholeMilliseconds),
-                                workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.SYNC_WORKER,
-                                constraints = Constraints(isHeavyTask = false)
-                            )
-                            snackbarHostState.showSnackbar(
-                                message = "ℹ️ i18n: Override 'kmp_worker_notification_title' in res/values-xx/strings.xml for your language",
-                                duration = SnackbarDuration.Long
-                            )
+                            scheduleTask("ℹ️ i18n: Override 'kmp_worker_notification_title' in res/values-xx/strings.xml for your language") {
+                                scheduler.enqueue(
+                                    id = "v233-i18n-notification",
+                                    trigger = TaskTrigger.OneTime(initialDelayMs = 1.seconds.inWholeMilliseconds),
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.SYNC_WORKER,
+                                    constraints = Constraints(isHeavyTask = false)
+                                )
+                            }
                         }
                     }
                 )
@@ -1016,19 +1051,17 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     enabled = !isAnyTaskRunning,
                     onClick = {
                         runTask("Fix AND-2: Periodic with Flex Interval") {
-                            scheduler.enqueue(
-                                id = "v236-and2-periodic-flex",
-                                trigger = TaskTrigger.Periodic(
-                                    intervalMs = 1.hours.inWholeMilliseconds,
-                                    flexMs = 15.minutes.inWholeMilliseconds
-                                ),
-                                workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.SYNC_WORKER,
-                                constraints = Constraints(requiresNetwork = true)
-                            )
-                            snackbarHostState.showSnackbar(
-                                message = "Fix AND-2: Periodic with 15min flex window scheduled (Android: flexMs now respected)",
-                                duration = SnackbarDuration.Short
-                            )
+                            scheduleTask("Fix AND-2: Periodic with 15min flex window scheduled (Android: flexMs now respected)") {
+                                scheduler.enqueue(
+                                    id = "v236-and2-periodic-flex",
+                                    trigger = TaskTrigger.Periodic(
+                                        intervalMs = 1.hours.inWholeMilliseconds,
+                                        flexMs = 15.minutes.inWholeMilliseconds
+                                    ),
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.SYNC_WORKER,
+                                    constraints = Constraints(requiresNetwork = true)
+                                )
+                            }
                         }
                     }
                 )
@@ -1046,15 +1079,13 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                             // With Fix AND-3, this task correctly falls back to non-expedited mode
                             // instead of crashing with IllegalArgumentException.
                             @Suppress("DEPRECATION")
-                            scheduler.enqueue(
-                                id = "v236-and3-battery-not-low",
-                                trigger = TaskTrigger.OneTime(), constraints = Constraints(systemConstraints = setOf(dev.brewkits.kmpworkmanager.background.domain.SystemConstraint.REQUIRE_BATTERY_NOT_LOW)),
-                                workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.CLEANUP_WORKER
-                            )
-                            snackbarHostState.showSnackbar(
-                                message = "Fix AND-3: BatteryOkay task scheduled (non-expedited fallback — no crash)",
-                                duration = SnackbarDuration.Short
-                            )
+                            scheduleTask("Fix AND-3: BatteryOkay task scheduled (non-expedited fallback — no crash)") {
+                                scheduler.enqueue(
+                                    id = "v236-and3-battery-not-low",
+                                    trigger = TaskTrigger.OneTime(), constraints = Constraints(systemConstraints = setOf(dev.brewkits.kmpworkmanager.background.domain.SystemConstraint.REQUIRE_BATTERY_NOT_LOW)),
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.CLEANUP_WORKER
+                                )
+                            }
                         }
                     }
                 )
@@ -1123,6 +1154,53 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                                 message = "Fix CE-1/2/3: Chain scheduled — success flag, cancellation and loop break all fixed",
                                 duration = SnackbarDuration.Short
                             )
+                        }
+                    }
+                )
+            }
+
+            DemoSection(
+                title = "v2.4.2 Bug Fixes",
+                icon = Icons.Default.BugReport,
+                containerColor = MaterialTheme.colorScheme.secondaryContainer
+            ) {
+                DemoCard(
+                    title = "Fix: Periodic runImmediately=true",
+                    description = "Android: runImmediately=true now executes without delay, even with flexMs defaults.",
+                    icon = Icons.Default.FastForward,
+                    enabled = !isAnyTaskRunning,
+                    onClick = {
+                        runTask("Fix: Periodic runImmediately=true") {
+                            scheduleTask("Periodic runImmediately=true scheduled") {
+                                scheduler.enqueue(
+                                    id = "v242-periodic-immediate",
+                                    trigger = TaskTrigger.Periodic(
+                                        intervalMs = 15.minutes.inWholeMilliseconds,
+                                        runImmediately = true
+                                    ),
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.SYNC_WORKER
+                                )
+                            }
+                        }
+                    }
+                )
+                DemoCard(
+                    title = "Fix: Periodic with REPLACE policy",
+                    description = "iOS: REPLACE policy no longer incorrectly applies drift-correction delay.",
+                    icon = Icons.Default.PublishedWithChanges,
+                    enabled = !isAnyTaskRunning,
+                    onClick = {
+                        runTask("Fix: Periodic with REPLACE policy") {
+                            scheduleTask("Periodic with REPLACE policy scheduled") {
+                                scheduler.enqueue(
+                                    id = "v242-periodic-replace",
+                                    trigger = TaskTrigger.Periodic(
+                                        intervalMs = 15.minutes.inWholeMilliseconds
+                                    ),
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.SYNC_WORKER,
+                                    policy = dev.brewkits.kmpworkmanager.background.domain.ExistingPolicy.REPLACE
+                                )
+                            }
                         }
                     }
                 )

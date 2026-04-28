@@ -1,7 +1,11 @@
-@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
+@file:OptIn(
+    kotlinx.cinterop.ExperimentalForeignApi::class,
+    dev.brewkits.kmpworkmanager.background.domain.InternalKmpWorkManagerApi::class
+)
 
 package dev.brewkits.kmpworkmanager
 
+import dev.brewkits.kmpworkmanager.background.data.IosFileStorage
 import dev.brewkits.kmpworkmanager.background.data.SingleTaskExecutor
 import dev.brewkits.kmpworkmanager.background.data.NativeTaskScheduler
 import dev.brewkits.kmpworkmanager.background.domain.Constraints
@@ -244,8 +248,10 @@ class IosScopeAndMigrationTest {
     fun testFirstEnqueueWaitsForMigration() = runBlocking {
         val workerFactory = TestWorkerFactory()
 
+        // Create isolated storage
+        val storage = IosFileStorage(baseDirectory = testDirectory)
         // Create scheduler (starts migration in background)
-        val scheduler = NativeTaskScheduler()
+        val scheduler = NativeTaskScheduler(fileStorage = storage, forceWaitMigration = true)
 
         // Immediately enqueue (should wait for migration)
         val result = scheduler.enqueue(
@@ -272,9 +278,8 @@ class IosScopeAndMigrationTest {
     fun testMultipleEnqueuesWaitForMigration() = runBlocking {
         val workerFactory = TestWorkerFactory()
 
-        val scheduler = NativeTaskScheduler(
-            
-        )
+        val storage = IosFileStorage(baseDirectory = testDirectory)
+        val scheduler = NativeTaskScheduler(fileStorage = storage, forceWaitMigration = true)
 
         // Rapidly enqueue multiple tasks
         val results = (1..10).map { index ->
@@ -308,9 +313,8 @@ class IosScopeAndMigrationTest {
     fun testMigrationCompletesBeforeOperations() = runBlocking {
         val workerFactory = TestWorkerFactory()
 
-        val scheduler = NativeTaskScheduler(
-            
-        )
+        val storage = IosFileStorage(baseDirectory = testDirectory)
+        val scheduler = NativeTaskScheduler(fileStorage = storage, forceWaitMigration = true)
 
         // Give migration time to complete
         delay(100)
@@ -347,9 +351,8 @@ class IosScopeAndMigrationTest {
     fun testNoRaceConditionMigrationAndEnqueue() = runBlocking {
         val workerFactory = TestWorkerFactory()
 
-        val scheduler = NativeTaskScheduler(
-            
-        )
+        val storage = IosFileStorage(baseDirectory = testDirectory)
+        val scheduler = NativeTaskScheduler(fileStorage = storage, forceWaitMigration = true)
 
         // Launch many concurrent enqueues immediately (during migration)
         val jobs = (1..50).map { index ->
@@ -386,9 +389,8 @@ class IosScopeAndMigrationTest {
     fun testCancelWaitsForMigration() = runBlocking {
         val workerFactory = TestWorkerFactory()
 
-        val scheduler = NativeTaskScheduler(
-            
-        )
+        val storage = IosFileStorage(baseDirectory = testDirectory)
+        val scheduler = NativeTaskScheduler(fileStorage = storage, forceWaitMigration = true)
 
         // Immediately try to cancel (should wait for migration)
         // This shouldn't crash even though task doesn't exist yet
@@ -427,13 +429,13 @@ class IosScopeAndMigrationTest {
         )
 
         val scheduler1 = NativeTaskScheduler(
-            
-            
+            fileStorage = IosFileStorage(baseDirectory = scheduler1Dir),
+            forceWaitMigration = true
         )
 
         val scheduler2 = NativeTaskScheduler(
-            
-            
+            fileStorage = IosFileStorage(baseDirectory = scheduler2Dir),
+            forceWaitMigration = true
         )
 
         // Both should successfully enqueue after their migrations

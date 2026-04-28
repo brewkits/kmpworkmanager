@@ -356,7 +356,7 @@ object IosBackgroundTaskHandler {
         try {
             scheduler.enqueue(
                 id = taskId,
-                trigger = TaskTrigger.Periodic(intervalMs),
+                trigger = TaskTrigger.Periodic(intervalMs, runImmediately = false),
                 workerClassName = workerClassName,
                 constraints = Constraints(
                     requiresNetwork = requiresNetwork,
@@ -364,7 +364,7 @@ object IosBackgroundTaskHandler {
                     isHeavyTask = isHeavyTask
                 ),
                 inputJson = inputJson,
-                policy = ExistingPolicy.REPLACE
+                policy = ExistingPolicy.KEEP
             )
             Logger.i(LogTags.SCHEDULER, "Rescheduled periodic task '$taskId' (every ${intervalMs}ms)")
         } catch (e: Exception) {

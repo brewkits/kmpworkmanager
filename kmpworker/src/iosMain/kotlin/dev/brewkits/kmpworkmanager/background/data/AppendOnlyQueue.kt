@@ -14,17 +14,18 @@ import dev.brewkits.kmpworkmanager.utils.LogTags
 import dev.brewkits.kmpworkmanager.utils.crc32
 
 /**
+ * O(1) append-only queue backed by a binary JSONL file on disk.
  *
- * **Performance**: O(1) for enqueue and dequeue operations
- * - Previous implementation: O(N) - read entire file, modify, write entire file
- * - New implementation: O(1) - append single line or update head pointer
+ * Enqueue appends a single line; dequeue advances a head-pointer file.
+ * The queue file is never rewritten in-place — compaction writes a new file atomically
+ * and swaps it in when 80%+ of entries have been consumed.
  *
  * **Architecture**:
  * ```
  * queue/
  * ├── queue.jsonl          # Append-only log (never rewritten)
  * ├── head_pointer.txt     # Current read position (simple integer)
- * └── queue_compacted.jsonl  # Generated during compaction (temporary)
+ * └── queue_compacted.jsonl  # Temporary file produced during compaction
  * ```
  *
  * **Features**:
@@ -42,8 +43,8 @@ import dev.brewkits.kmpworkmanager.utils.crc32
  * ```
  *
  * @param baseDirectoryURL Base directory URL for queue storage
- * @param compactionScope CoroutineScope for background compaction operations
- *                        Defaults to a supervised scope with Default dispatcher
+ * @param compactionScope CoroutineScope for background compaction operations.
+ *                        Defaults to a supervised scope with Default dispatcher.
  */
 @OptIn(ExperimentalForeignApi::class, kotlinx.cinterop.BetaInteropApi::class)
 internal class AppendOnlyQueue(
@@ -200,7 +201,15 @@ internal class AppendOnlyQueue(
                 // (App Extensions writing to the same queue) is not fully guaranteed for this
                 // read; App Extensions must use the same queueMutex-based API rather than
                 // writing directly to queueFileURL to avoid partial-record races.
-                val item = readLineAtIndex(queueFileURL, headIndex)
+                val item = try {
+                    readLineAtIndex(queueFileURL, headIndex)
+                } catch (e: CorruptQueueException) {
+                    Logger.e(LogTags.QUEUE, "Fatal: Queue record corruption at index $headIndex", e)
+                    // Mark as corrupt and force next call to truncate/reset
+                    isQueueCorrupt = true
+                    corruptionOffset = linePositionCache[headIndex] ?: 0UL
+                    null
+                }
 
                 if (item != null) {
                     // Increment head pointer (O(1) operation)

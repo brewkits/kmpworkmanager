@@ -72,9 +72,7 @@ class IosEventStore(
             )
 
             try {
-                // Atomicity: entire append must be inside coordination
                 IosFileCoordinator.coordinate(eventsFileURL, write = true) { safeUrl ->
-                    // Disk space guard
                     val usableSpace = checkFreeSpace(safeUrl)
                     if (usableSpace < 1024 * 1024L) {
                         Logger.e(LogTags.SCHEDULER, "IosEventStore: disk critically low, skipping save")
@@ -115,10 +113,16 @@ class IosEventStore(
     override suspend fun getUnconsumedEvents(): List<StoredEvent> = withContext(IosDispatchers.IO) {
         fileLock.withLock {
             try {
-                val lines = readAllLines()
-                lines.mapNotNull<String, StoredEvent> { line ->
-                    runCatching { json.decodeFromString<StoredEvent>(line) }.getOrNull()
-                }.filter { !it.consumed }.sortedBy { it.timestamp }
+                val path = eventsFileURL.path ?: return@withLock emptyList()
+                if (!fileManager.fileExistsAtPath(path)) return@withLock emptyList()
+                // Stream line-by-line: only unconsumed events are collected, so peak RAM
+                // scales with the number of pending tasks, not with the total file size.
+                val unconsumed = mutableListOf<StoredEvent>()
+                streamLinesCoordinated(eventsFileURL) { line ->
+                    val event = runCatching { json.decodeFromString<StoredEvent>(line) }.getOrNull()
+                    if (event != null && !event.consumed) unconsumed.add(event)
+                }
+                unconsumed.sortedBy { it.timestamp }
             } catch (e: Exception) {
                 Logger.e(LogTags.SCHEDULER, "IosEventStore: Failed to read events", e)
                 emptyList()
@@ -165,7 +169,11 @@ class IosEventStore(
 
     override suspend fun getEventCount(): Int = withContext(IosDispatchers.IO) {
         fileLock.withLock {
-            readAllLines().size
+            val path = eventsFileURL.path ?: return@withLock 0
+            if (!fileManager.fileExistsAtPath(path)) return@withLock 0
+            var count = 0
+            streamLinesCoordinated(eventsFileURL) { count++ }
+            count
         }
     }
 
@@ -174,7 +182,6 @@ class IosEventStore(
     private fun readAllLines(): List<String> {
         val path = eventsFileURL.path ?: return emptyList()
         if (!fileManager.fileExistsAtPath(path)) return emptyList()
-        // COORDINATED READ
         val content = IosFileCoordinator.coordinateSync(eventsFileURL, write = false) { safeUrl ->
             NSString.stringWithContentsOfURL(safeUrl, encoding = NSUTF8StringEncoding, error = null)
         } ?: return emptyList()

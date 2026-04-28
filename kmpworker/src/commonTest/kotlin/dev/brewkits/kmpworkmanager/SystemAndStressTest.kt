@@ -2,6 +2,8 @@ package dev.brewkits.kmpworkmanager
 
 import dev.brewkits.kmpworkmanager.background.domain.*
 import dev.brewkits.kmpworkmanager.testing.FakeBackgroundTaskScheduler
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.datetime.Clock
 import kotlin.test.Test
@@ -36,15 +38,19 @@ class SystemAndStressTest {
         val taskId = "concurrent-task"
         val count = 50
         
-        repeat(count) {
-            scheduler.enqueue(
-                id = taskId,
-                trigger = TaskTrigger.Periodic(15 * 60 * 1000L),
-                workerClassName = "TestWorker",
-                constraints = Constraints(),
-                inputJson = null,
-                policy = ExistingPolicy.REPLACE
-            )
+        coroutineScope {
+            repeat(count) {
+                launch {
+                    scheduler.enqueue(
+                        id = taskId,
+                        trigger = TaskTrigger.Periodic(15 * 60 * 1000L),
+                        workerClassName = "TestWorker",
+                        constraints = Constraints(),
+                        inputJson = null,
+                        policy = ExistingPolicy.REPLACE
+                    )
+                }
+            }
         }
         
         // enqueuedTasks is a record of all calls. 
@@ -73,7 +79,10 @@ class SystemAndStressTest {
         val steps = (1..10).map { i ->
             listOf(TaskRequest(workerClassName = "Worker-$i"))
         }
-        val chain = scheduler.beginWith(steps.first())
+        var chain = scheduler.beginWith(steps.first())
+        steps.drop(1).forEach {
+            chain = chain.then(it)
+        }
         
         val start = Clock.System.now().toEpochMilliseconds()
         scheduler.enqueueChain(chain)

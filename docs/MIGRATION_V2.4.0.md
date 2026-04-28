@@ -43,12 +43,11 @@ BGTaskScheduler.shared.register(forTaskWithIdentifier: "kmp_chain_executor_task"
 }
 ```
 
-### 2. Framework Name Change
-To avoid namespace collisions with apps named "KMPWorkManager", the internal library framework has been renamed to `KmpWorkerLibrary`. 
+### 2. Framework Verification
+Ensure your iOS target configuration is using the unified framework name `KMPWorkManager`.
 
-If you were manually importing the framework in Swift, change:
-`import KMPWorkManager` → `import ComposeApp` (or your shared module name).
-
+If you were manually importing the framework in Swift, ensure it matches:
+`import KMPWorkManager` or `import ComposeApp` (depending on how you export it).
 ---
 
 ## Unified Background Engine

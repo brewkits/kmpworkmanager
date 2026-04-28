@@ -1,36 +1,11 @@
 package dev.brewkits.kmpworkmanager.background.domain
 
 /**
- * Platform-agnostic worker factory interface.
- *
- * Users implement this interface to provide their custom worker implementations.
- * The library uses this factory to instantiate workers at runtime based on class names.
- *
- * **Fail Fast**: throw [IllegalArgumentException] for unrecognised class names.
- * The library catches it and emits a `TaskCompletionEvent(success = false)` — the
- * task fails immediately and visibly rather than silently disappearing.
- *
- * Example (Common code):
- * ```kotlin
- * class MyWorkerFactory : WorkerFactory {
- *     override fun createWorker(workerClassName: String): Worker {
- *         return when (workerClassName) {
- *             "SyncWorker" -> SyncWorker()
- *             "UploadWorker" -> UploadWorker()
- *             else -> throw IllegalArgumentException("Unregistered worker: $workerClassName")
- *         }
- *     }
- * }
- * ```
- *
- * Replaces hardcoded worker registrations
- */
-/**
  * Environment provided to a [Worker] during execution.
  *
- * Allows the worker to:
- * - Report progress via [progressListener]
- * - Check if execution has been cancelled via [isCancelled]
+ * Use this to:
+ * - Report progress back to the UI via [progressListener].
+ * - Check if the system has requested cancellation via [isCancelled].
  */
 class WorkerEnvironment(
     val progressListener: ProgressListener? = null,
@@ -38,53 +13,61 @@ class WorkerEnvironment(
 )
 
 /**
- * Platform-agnostic worker interface.
+ * The core interface for background tasks.
  *
- * Implement this interface for each type of background work.
+ * Implement this interface to define your background logic. Your implementation
+ * should be platform-agnostic whenever possible.
  *
  * Example:
  * ```kotlin
  * class SyncWorker : Worker {
  *     override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
- *         // Report progress
- *         env.progressListener?.onProgressUpdate(WorkerProgress(50, "Halfway there"))
+ *         // 1. Check for cancellation early
+ *         if (env.isCancelled()) return WorkerResult.Failure("Cancelled by OS")
  *
- *         // Check cancellation
- *         if (env.isCancelled()) return WorkerResult.Failure("Cancelled")
+ *         // 2. Report progress
+ *         env.progressListener?.onProgressUpdate(WorkerProgress(50, "Syncing data..."))
  *
- *         return WorkerResult.Success("Done")
+ *         // 3. Return a success or failure result
+ *         return WorkerResult.Success("Data synced successfully")
  *     }
  * }
  * ```
  */
 interface Worker {
     /**
-     * Performs the background work.
+     * Executes the background task.
      *
-     * @param input Optional input data passed from scheduler.enqueue()
-     * @param env Environment providing progress reporting and cancellation checks
-     * @return WorkerResult indicating success/failure
+     * @param input Optional JSON string passed during scheduling.
+     * @param env Provides hooks for progress reporting and cancellation checks.
+     * @return [WorkerResult] representing the outcome of the work.
      */
     suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult
 
     /**
-     * Called immediately after [doWork] returns.
+     * Cleanup hook called immediately after [doWork] finishes, regardless of the result.
+     * Use this to release resources like database connections or file handles.
      */
     fun close() {}
 }
 
 /**
- * Factory interface for creating worker instances.
+ * Factory for instantiating workers by their class name.
+ *
+ * You must provide an implementation of this interface to KMP WorkManager so it can
+ * map strings (workerClassName) to real object instances at runtime.
  */
 interface WorkerFactory {
+    /**
+     * Returns a new instance of the worker class, or null if not handled by this factory.
+     */
     fun createWorker(workerClassName: String): Worker?
 }
 
 /**
- * A [WorkerFactory] that delegates to a list of other factories.
+ * A composite factory that searches through multiple sub-factories.
  *
- * Allows combining multiple libraries or modules that each provide their own workers.
- * The first factory that returns a non-null worker wins.
+ * Useful for modular architectures where different feature modules provide their own workers.
  */
 class DelegatingWorkerFactory(
     private val factories: List<WorkerFactory>

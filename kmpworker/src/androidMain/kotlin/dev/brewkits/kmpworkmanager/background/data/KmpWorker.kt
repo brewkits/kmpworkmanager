@@ -16,7 +16,10 @@ class KmpWorker(
     workerFactory: AndroidWorkerFactory
 ) : BaseKmpWorker(appContext, workerParams, workerFactory) {
 
-    @Deprecated("Use constructor with workerFactory")
+    @Deprecated(
+        "Use the constructor that accepts a workerFactory parameter for proper DI support.",
+        level = DeprecationLevel.WARNING
+    )
     constructor(appContext: Context, workerParams: WorkerParameters) : this(
         appContext,
         workerParams,
@@ -34,15 +37,10 @@ class KmpWorker(
                 return WorkerResult.Failure("Worker not found: $workerClassName")
             }
 
-        // Extensibility: Provide environment with progress reporting and cancellation
         val env = WorkerEnvironment(
             progressListener = object : ProgressListener {
                 override fun onProgressUpdate(progress: WorkerProgress) {
-                    // Report progress to WorkManager
                     setProgressAsync(androidx.work.Data.Builder().putInt("progress", progress.progress).build())
-                    
-                    // Also emit as a durable event if it's a significant milestone
-                    // Note: frequent progress updates are throttled in builtin workers
                 }
             },
             isCancelled = { isStopped }

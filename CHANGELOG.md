@@ -5,10 +5,15 @@ All notable changes to KMP WorkManager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.4.2] - 2026-04-26
+## [2.4.2] - 2026-04-28
 
 ### Fixed
-
+- **iOS: Periodic Task Loop (Simulator)**: Fixed an infinite loop in the iOS Simulator fallback where periodic tasks would reschedule and execute immediately without delay. Resolved by switching to `ExistingPolicy.KEEP` and `runImmediately = false` during internal reschedules.
+- **iOS**: Fixed critical race condition in `IosFileCoordinator` where background blocks could execute late after a timeout, causing potential crashes or duplicate executions.
+- **iOS**: Fixed regression in periodic task scheduling where drift correction was missing due to inconsistent interval calculation.
+- **iOS**: Resolved migration deadlock where `enqueue()` could wait indefinitely for a stalled background task.
+- **iOS**: Fixed `NoSuchElementException` in `ExecutionHistoryStore` when requesting 0 records.
+- **Common**: Fixed logic bug in stress tests where "concurrent" operations were actually running sequentially.
 - **Android: Periodic task immediate execution**: Fixed a regression where `runImmediately = true` still resulted in a delay of at least half the interval. This was caused by the default `flexMs` value introduced in v2.4.1.
 - **iOS: Periodic task immediate execution (REPLACE policy)**: Fixed a bug where using `ExistingPolicy.REPLACE` with a periodic task incorrectly applied drift-correction delay instead of executing immediately.
 - **iOS: Periodic task migration (Version Upgrade)**: Fixed a regression where upgrading from v2.4.0 (or below) to v2.4.1 caused all existing periodic tasks to wait for one full interval before their first run due to missing "anchor" metadata.

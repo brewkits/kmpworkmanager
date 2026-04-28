@@ -123,8 +123,12 @@ internal object IosFileCoordinator {
         var blockError: Exception? = null
         val startTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
 
+        // AtomicInt flag (0=false, 1=true) ensures the block executes exactly once:
+        // if the GCD async block fires late after a timeout fallback has already returned,
+        // its compareAndSet fails and the block is a no-op. Native-safe via kotlin.concurrent.
+        val isCompleted = kotlin.concurrent.AtomicInt(0)
+
         // Use a GCD semaphore so the coordinator call has a real thread-level timeout.
-        // This prevents unbounded blocking if another process holds the coordination lock.
         val semaphore = dispatch_semaphore_create(0)
         val queue = dispatch_get_global_queue(0, 0u)
 
@@ -132,38 +136,38 @@ internal object IosFileCoordinator {
             memScoped {
                 val errorPtr = alloc<ObjCObjectVar<NSError?>>()
 
+                val byAccessor: (NSURL?) -> Unit = { actualURL ->
+                    if (isCompleted.compareAndSet(expected = 0, newValue = 1)) {
+                        try {
+                            result = block(actualURL ?: url)
+                        } catch (e: Exception) {
+                            blockError = e
+                        }
+                    }
+                }
+
                 if (write) {
                     fileCoordinator.coordinateWritingItemAtURL(
                         url = url,
                         options = 0u,
                         error = errorPtr.ptr,
-                        byAccessor = { actualURL ->
-                            try {
-                                result = block(actualURL ?: url)
-                            } catch (e: Exception) {
-                                blockError = e
-                            }
-                        }
+                        byAccessor = byAccessor
                     )
                 } else {
                     fileCoordinator.coordinateReadingItemAtURL(
                         url = url,
                         options = 0u,
                         error = errorPtr.ptr,
-                        byAccessor = { actualURL ->
-                            try {
-                                result = block(actualURL ?: url)
-                            } catch (e: Exception) {
-                                blockError = e
-                            }
-                        }
+                        byAccessor = byAccessor
                     )
                 }
 
                 errorPtr.value?.let { error ->
-                    blockError = blockError ?: IllegalStateException(
-                        "File coordination failed for ${url.path}: ${error.localizedDescription}"
-                    )
+                    if (blockError == null) {
+                        blockError = IllegalStateException(
+                            "File coordination failed for ${url.path}: ${error.localizedDescription}"
+                        )
+                    }
                 }
             }
             dispatch_semaphore_signal(semaphore)
@@ -172,25 +176,21 @@ internal object IosFileCoordinator {
         val timeoutNs = dispatch_time(DISPATCH_TIME_NOW, timeoutMs * NSEC_PER_MSEC.toLong())
         val timedOut = dispatch_semaphore_wait(semaphore, timeoutNs) != 0L
 
-        val duration = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime
-
         if (timedOut) {
             // Coordination lock was not acquired within timeoutMs. Bypass coordination and
-            // execute directly to avoid a permanent hang. This risks a brief write conflict
-            // with another process, but is far safer than blocking indefinitely.
-            Logger.w(
-                LogTags.CHAIN,
-                "⚠️ NSFileCoordinator timed out after ${timeoutMs}ms for ${url.lastPathComponent} " +
-                    "— bypassing coordination (likely iCloud contention). Proceeding without lock."
-            )
-            fileCoordinator.cancel()
-            return try {
-                block(url)
-            } catch (e: Exception) {
-                throw e
+            // execute directly to avoid a permanent hang.
+            if (isCompleted.compareAndSet(expected = 0, newValue = 1)) {
+                Logger.w(
+                    LogTags.CHAIN,
+                    "⚠️ NSFileCoordinator timed out after ${timeoutMs}ms for ${url.lastPathComponent} " +
+                        "— bypassing coordination. Proceeding without lock."
+                )
+                fileCoordinator.cancel()
+                return block(url)
             }
         }
 
+        val duration = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime
         if (duration > timeoutMs / 2) {
             Logger.w(
                 LogTags.CHAIN,
