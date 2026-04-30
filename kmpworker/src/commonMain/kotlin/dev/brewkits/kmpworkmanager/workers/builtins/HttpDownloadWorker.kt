@@ -48,6 +48,10 @@ class HttpDownloadWorker(
                 return WorkerResult.Failure("Invalid or unsafe URL")
             }
 
+            if (!SecurityValidator.validateFilePath(config.savePath)) {
+                return WorkerResult.Failure("Invalid or unsafe save path")
+            }
+
             downloadFile(httpClient, config, env)
         } catch (e: Exception) {
             Logger.e("HttpDownloadWorker", "Download failed", e)

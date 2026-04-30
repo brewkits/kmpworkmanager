@@ -49,4 +49,24 @@ class BugFixes_v243_Test {
         assertTrue(exception is IllegalArgumentException)
         assertTrue(exception.message?.contains("Ambiguous") == true)
     }
+
+    /**
+     * Verify that SecurityValidator.sanitizeHeaders removes headers with CR/LF.
+     */
+    @Test
+    fun `sanitizeHeaders removes malicious entries with CR or LF`() {
+        val input = mapOf(
+            "Valid-Header" to "ValidValue",
+            "Injected\nHeader" to "Value",
+            "Header" to "Injected\rValue",
+            "Another\r\nHeader" to "Value",
+            "Safe" to "Value\nWith\rMixed"
+        )
+
+        val sanitized = dev.brewkits.kmpworkmanager.workers.utils.SecurityValidator.sanitizeHeaders(input)
+
+        assertEquals(1, sanitized?.size, "Only the valid header should remain")
+        assertTrue(sanitized?.containsKey("Valid-Header") == true)
+        assertEquals("ValidValue", sanitized?.get("Valid-Header"))
+    }
 }

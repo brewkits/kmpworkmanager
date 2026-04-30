@@ -8,6 +8,7 @@ import dev.brewkits.kmpworkmanager.background.data.NativeTaskScheduler
 import dev.brewkits.kmpworkmanager.background.domain.ExistingPolicy
 import dev.brewkits.kmpworkmanager.background.domain.TaskTrigger
 import dev.brewkits.kmpworkmanager.background.domain.Constraints
+import kotlinx.coroutines.*
 import kotlinx.coroutines.test.runTest
 import platform.Foundation.*
 import kotlin.test.*
@@ -153,5 +154,63 @@ class BugFixes_v243_IosTest {
 
         val meta = storage.loadTaskMetadata(taskId, periodic = true)
         assertNotNull(meta?.get("anchoredStartMs"), "Anchor must be established when missing from old metadata")
+    }
+
+    @Test
+    fun testConcurrentCoordinationsOnDifferentUrlsCompleteIndependently() = runTest {
+        // Verifies that per-call NSFileCoordinator instantiation means coordinations on
+        // separate URLs complete independently — cancelling one does not block the other.
+        // In simulator tests the process name triggers the fast path (no NSFileCoordinator),
+        // so this validates the cooperative fast-path behavior.
+        val dir = makeTempDir("coordinator-independent")
+        val url1 = dir.URLByAppendingPathComponent("file1.txt")!!
+        val url2 = dir.URLByAppendingPathComponent("file2.txt")!!
+        NSData().writeToURL(url1, true)
+        NSData().writeToURL(url2, true)
+
+        val coordinator = dev.brewkits.kmpworkmanager.background.data.IosFileCoordinator
+        val counter = kotlin.concurrent.AtomicInt(0)
+
+        val job1 = launch {
+            coordinator.coordinate(url1, write = true) {
+                counter.incrementAndGet()
+            }
+        }
+        val job2 = launch {
+            coordinator.coordinate(url2, write = true) {
+                counter.incrementAndGet()
+            }
+        }
+        job1.join()
+        job2.join()
+
+        assertEquals(2, counter.value, "Both coordinations must complete independently")
+    }
+
+    /**
+     * Verify that tasks with IDs not in Info.plist are routed to the Master Dispatcher queue.
+     */
+    @Test
+    fun testDynamicTaskIdRoutingToMasterDispatcher() = runTest {
+        val storage = makeStorage("ios-dynamic-routing")
+        val scheduler = NativeTaskScheduler(fileStorage = storage)
+        val taskId = "dynamic-task-${(NSDate().timeIntervalSince1970 * 1000).toLong()}"
+
+        // In test environment, permittedTaskIds is empty, so any taskId is "dynamic"
+        scheduler.enqueue(
+            id = taskId,
+            trigger = TaskTrigger.OneTime(),
+            workerClassName = "TestWorker",
+            constraints = Constraints(),
+            inputJson = null,
+            policy = ExistingPolicy.REPLACE
+        )
+
+        // Verify it went to the queue
+        val queueSize = storage.getTasksQueueSize()
+        assertEquals(1, queueSize, "Task should be routed to the master dispatcher queue")
+        
+        val dequeuedId = storage.dequeueTask()
+        assertEquals(taskId, dequeuedId, "The correct task ID should be in the queue")
     }
 }

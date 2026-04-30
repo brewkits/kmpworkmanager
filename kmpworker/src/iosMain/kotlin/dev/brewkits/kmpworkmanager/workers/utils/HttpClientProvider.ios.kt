@@ -7,6 +7,7 @@ import io.ktor.client.plugins.compression.*
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.request.*
 import io.ktor.http.HttpHeaders
+import io.ktor.http.URLBuilder
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.serialization.json.Json
 import platform.Foundation.*
@@ -92,6 +93,15 @@ internal actual fun createPlatformHttpClient(): HttpClient {
                 val redirectRequest = HttpRequestBuilder().apply {
                     takeFrom(request)
                     url(location)
+                    // Strip credential headers on cross-origin redirects (RFC 7235 §3.1).
+                    // takeFrom() copies ALL headers including Authorization and Cookie — sending
+                    // these to a different host leaks credentials to an unintended server.
+                    val originalHost = request.url.host
+                    val redirectHost = URLBuilder(location).host
+                    if (originalHost != redirectHost) {
+                        headers.remove(HttpHeaders.Authorization)
+                        headers.remove(HttpHeaders.Cookie)
+                    }
                 }
                 call = execute(redirectRequest)
             }

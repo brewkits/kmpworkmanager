@@ -87,4 +87,50 @@ class BugFixes_v243_AndroidTest {
         // Clean up
         scheduler.cancel(taskId)
     }
+
+    /**
+     * Verify that cleanupZombieInputFiles deletes old kmp_input_*.json files.
+     */
+    @Test
+    fun testZombieFileCleanup() = runTest {
+        val cacheDir = context.cacheDir
+        
+        // 1. Create a fresh file (should NOT be deleted)
+        val freshFile = java.io.File(cacheDir, "kmp_input_fresh.json")
+        freshFile.writeText("{}")
+        
+        // 2. Create an old file (should BE deleted)
+        val oldFile = java.io.File(cacheDir, "kmp_input_old.json")
+        oldFile.writeText("{}")
+        // Manually set last modified to 48 hours ago
+        val oldTimestamp = System.currentTimeMillis() - (48 * 60 * 60 * 1000L)
+        oldFile.setLastModified(oldTimestamp)
+        
+        // 3. Create a non-matching file (should NOT be deleted even if old)
+        val nonMatchingFile = java.io.File(cacheDir, "other_file.json")
+        nonMatchingFile.writeText("{}")
+        nonMatchingFile.setLastModified(oldTimestamp)
+
+        // Reset the singleton guard for testing purposes
+        NativeTaskScheduler.resetCleanupStartedForTesting()
+
+        // Run cleanup
+        NativeTaskScheduler.cleanupZombieInputFiles(context)
+        
+        // Wait for CoroutineScope(Dispatchers.IO).launch to complete
+        // Since we can't easily await the internal scope, we poll
+        var attempts = 0
+        while (oldFile.exists() && attempts < 20) {
+            kotlinx.coroutines.delay(100)
+            attempts++
+        }
+        
+        assertTrue("Fresh file should remain", freshFile.exists())
+        assertTrue("Old file should be deleted", !oldFile.exists())
+        assertTrue("Non-matching file should remain", nonMatchingFile.exists())
+        
+        // Clean up
+        freshFile.delete()
+        nonMatchingFile.delete()
+    }
 }
