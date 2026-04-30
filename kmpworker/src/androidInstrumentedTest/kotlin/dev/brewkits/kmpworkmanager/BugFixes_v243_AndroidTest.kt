@@ -18,13 +18,13 @@ import org.junit.runner.RunWith
 import java.util.concurrent.TimeUnit
 
 /**
- * Android instrumented tests for v2.4.2 bug fixes.
+ * Android instrumented tests for v2.4.3 bug fixes.
  * 
  * Verifies that periodic task scheduling correctly handles flexMs and initialDelay
  * based on the runImmediately flag.
  */
 @RunWith(AndroidJUnit4::class)
-class BugFixes_v242_AndroidTest {
+class BugFixes_v243_AndroidTest {
 
     private lateinit var context: Context
     private lateinit var workManager: WorkManager

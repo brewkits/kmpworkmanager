@@ -457,6 +457,16 @@ object SecurityValidator {
      * @param bytes The size in bytes
      * @return Formatted string (e.g., "1.5 MB", "512 KB")
      */
+    /**
+     * Returns a copy of [headers] with any entry whose key or value contains CR or LF removed.
+     * CR/LF in header fields enable HTTP header injection attacks.
+     */
+    fun sanitizeHeaders(headers: Map<String, String>?): Map<String, String>? =
+        headers?.filter { (key, value) ->
+            !key.contains('\r') && !key.contains('\n') &&
+            !value.contains('\r') && !value.contains('\n')
+        }
+
     fun formatByteSize(bytes: Long): String {
         return when {
             bytes < 1024 -> "$bytes B"

@@ -7,7 +7,8 @@ import dev.brewkits.kmpworkmanager.background.domain.Constraints
 import kotlinx.coroutines.*
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
-import kotlin.test.assertTrue
+import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 
 class RaceConditionTest {
 
@@ -33,9 +34,11 @@ class RaceConditionTest {
         }
 
         jobs.joinAll()
-        
-        // Verify that metadata exists and integrity is maintained after race
+
+        // Verify that exactly one enqueue won (KEEP policy) and data integrity is maintained.
         val metadata = scheduler.fileStorage.loadTaskMetadata(taskId, periodic = false)
-        assertTrue(metadata != null, "Metadata should exist")
+        assertNotNull(metadata, "Metadata should exist after concurrent KEEP enqueues")
+        assertEquals(workerClassName, metadata["workerClassName"], "Worker class name must be preserved correctly")
+        assertEquals("", metadata["inputJson"], "inputJson must be written (empty string for null input)")
     }
 }

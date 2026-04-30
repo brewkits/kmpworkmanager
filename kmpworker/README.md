@@ -76,7 +76,7 @@ startKoin {
 
 ```kotlin
 commonMain.dependencies {
-    implementation("dev.brewkits:kmpworkmanager:2.2.0")
+    implementation("dev.brewkits:kmpworkmanager:2.4.3")
 }
 ```
 
@@ -84,7 +84,7 @@ commonMain.dependencies {
 
 ```toml
 [versions]
-kmpworkmanager = "2.2.0"
+kmpworkmanager = "2.4.3"
 
 [libraries]
 kmpworkmanager = { module = "dev.brewkits:kmpworkmanager", version.ref = "kmpworkmanager" }

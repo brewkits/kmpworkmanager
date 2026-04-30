@@ -89,7 +89,7 @@ abstract class BaseKmpWorker : CoroutineWorker {
     protected fun checkBatteryGuard(): Boolean {
         val minBattery = KmpWorkManagerRuntime.minBatteryLevelPercent
         if (minBattery <= 0) return false
-        val bm = applicationContext.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+        val bm = applicationContext.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager ?: return false
         val level = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
         val isCharging = bm.isCharging
         if (level in 0 until minBattery && !isCharging) {

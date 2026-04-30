@@ -14,6 +14,7 @@ import dev.brewkits.kmpworkmanager.workers.utils.SecurityValidator
 import dev.brewkits.kmpworkmanager.utils.platformFileSystem
 import dev.brewkits.kmpworkmanager.utils.currentTimeMillis
 import io.ktor.client.*
+import io.ktor.client.plugins.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
@@ -62,7 +63,12 @@ class HttpDownloadWorker(
             savePath.parent?.let { if (!fileSystem.exists(it)) fileSystem.createDirectories(it) }
 
             val response: HttpResponse = client.get(config.url) {
-                config.headers?.forEach { (key, value) -> header(key, value) }
+                timeout {
+                    requestTimeoutMillis = config.timeoutMs
+                    connectTimeoutMillis = config.timeoutMs
+                    socketTimeoutMillis = config.timeoutMs
+                }
+                SecurityValidator.sanitizeHeaders(config.headers)?.forEach { (key, value) -> header(key, value) }
             }
 
             if (!response.status.isSuccess()) {

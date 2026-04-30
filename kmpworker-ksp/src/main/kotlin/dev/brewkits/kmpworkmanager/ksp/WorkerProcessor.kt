@@ -72,6 +72,7 @@ class WorkerProcessor(
                 .firstOrNull { it.name?.asString() == "aliases" }
                 ?.value as? List<*>)
                 ?.filterIsInstance<String>()
+                ?.filter { it.isNotEmpty() }
                 ?: emptyList()
 
             val info = WorkerInfo(

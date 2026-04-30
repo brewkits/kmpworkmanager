@@ -51,7 +51,7 @@ iOS's `BGTaskScheduler` normally requires every task ID to be hardcoded in `Info
 ### 1. The Append-Only Binary Queue
 - **Integrity**: Every record is prefixed with a CRC32 checksum.
 - **Resilience**: If the app is killed during a write, the system detects the corruption point and truncates the file to the last known-good state.
-- **O(1) Memory**: (v2.4.2) Powered by **Okio**. Peak RAM remains constant regardless of queue size.
+- **O(1) Memory**: (v2.4.3) Powered by **Okio**. Peak RAM remains constant regardless of queue size.
 
 ---
 
@@ -81,4 +81,4 @@ Android's `PeriodicWorkRequest` has a minimum interval of 15 minutes. To support
 ---
 
 **Last Updated:** April 2026
-**Version:** 2.4.2
+**Version:** 2.4.3

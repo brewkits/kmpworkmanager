@@ -6,6 +6,7 @@ import io.ktor.client.plugins.*
 import io.ktor.client.plugins.compression.*
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.request.*
+import io.ktor.http.HttpHeaders
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.serialization.json.Json
 import java.util.concurrent.TimeUnit
@@ -43,9 +44,9 @@ internal actual fun createPlatformHttpClient(): HttpClient {
                 // Retry on connection failure
                 retryOnConnectionFailure(true)
 
-                // Follow redirects
-                followRedirects(true)
-                followSslRedirects(true)
+                // Disable engine-level redirect following — validated manually via HttpSend interceptor below
+                followRedirects(false)
+                followSslRedirects(false)
             }
         }
 
@@ -74,13 +75,36 @@ internal actual fun createPlatformHttpClient(): HttpClient {
         // Don't throw on non-2xx responses
         expectSuccess = false
 
-        // Follow redirects automatically
-        followRedirects = true
+        // Disable Ktor's automatic HttpRedirect plugin — redirects are followed manually
+        // in the HttpSend interceptor below so each hop is validated by SecurityValidator.
+        followRedirects = false
 
         // Default request headers
         defaultRequest {
             header("User-Agent", "KmpWorkManager/2.3.4")
             header("Connection", "keep-alive")
+        }
+    }.also { client ->
+        // Security-aware redirect following: validate each Location URL before following.
+        // Prevents SSRF attacks where the initial URL passes validation but a redirect
+        // targets a private/loopback address (e.g. 302 → http://169.254.169.254/...).
+        client.plugin(HttpSend).intercept { request ->
+            var call = execute(request)
+            var hops = 0
+            while (call.response.status.value in 301..308 && hops++ < 10) {
+                val location = call.response.headers[HttpHeaders.Location] ?: break
+                if (!SecurityValidator.validateURL(location)) {
+                    throw IllegalStateException(
+                        "Redirect to unsafe URL blocked: ${SecurityValidator.sanitizedURL(location)}"
+                    )
+                }
+                val redirectRequest = HttpRequestBuilder().apply {
+                    takeFrom(request)
+                    url(location)
+                }
+                call = execute(redirectRequest)
+            }
+            call
         }
     }
 }

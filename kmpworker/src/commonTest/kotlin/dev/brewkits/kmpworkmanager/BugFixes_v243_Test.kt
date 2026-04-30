@@ -6,9 +6,9 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Common tests for v2.4.2 bug fixes and regressions related to periodic tasks.
+ * Common tests for v2.4.3 bug fixes and regressions related to periodic tasks.
  */
-class BugFixes_v242_Test {
+class BugFixes_v243_Test {
 
     /**
      * Verify that TaskTrigger.Periodic parameters are correctly validated.

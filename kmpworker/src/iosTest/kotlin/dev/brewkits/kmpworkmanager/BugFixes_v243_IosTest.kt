@@ -13,14 +13,14 @@ import platform.Foundation.*
 import kotlin.test.*
 
 /**
- * iOS-specific tests for v2.4.2 bug fixes.
+ * iOS-specific tests for v2.4.3 bug fixes.
  * 
  * Verifies that the drift-correction logic correctly handles:
  * - Version upgrades (missing anchoredStartMs)
  * - REPLACE policy (resetting the anchor)
  * - Immediate execution (delayMs = 0)
  */
-class BugFixes_v242_IosTest {
+class BugFixes_v243_IosTest {
 
     private fun makeTempDir(name: String): NSURL {
         val tmpDir = NSTemporaryDirectory()
