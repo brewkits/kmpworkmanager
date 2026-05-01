@@ -1174,7 +1174,10 @@ internal class AppendOnlyQueue(
                 )
                 if (!ok) {
                     // Fallback for simulators or environments where File Protection is unsupported
-                    fileManager.createDirectoryAtPath(path, withIntermediateDirectories = true, attributes = null, error = null)
+                    val fallbackOk = fileManager.createDirectoryAtPath(path, withIntermediateDirectories = true, attributes = null, error = null)
+                    if (!fallbackOk) {
+                        throw IllegalStateException("AppendOnlyQueue: failed to create directory: $path")
+                    }
                 }
             }
         }
