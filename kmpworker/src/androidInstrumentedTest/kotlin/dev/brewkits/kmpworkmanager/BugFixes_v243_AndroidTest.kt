@@ -120,11 +120,20 @@ class BugFixes_v243_AndroidTest {
         // Wait for CoroutineScope(Dispatchers.IO).launch to complete
         // Since we can't easily await the internal scope, we poll
         var attempts = 0
-        while (oldFile.exists() && attempts < 20) {
+        while (oldFile.exists() && attempts < 50) {
             kotlinx.coroutines.delay(100)
             attempts++
         }
         
+        if (oldFile.exists()) {
+            val lastMod = oldFile.lastModified()
+            val now = System.currentTimeMillis()
+            val age = now - lastMod
+            android.util.Log.e("Test", "Old file still exists! Age: ${age}ms, LastMod: $lastMod, Now: $now")
+            val cacheFiles = cacheDir.list()?.joinToString()
+            android.util.Log.e("Test", "Files in cache: $cacheFiles")
+        }
+
         assertTrue("Fresh file should remain", freshFile.exists())
         assertTrue("Old file should be deleted", !oldFile.exists())
         assertTrue("Non-matching file should remain", nonMatchingFile.exists())

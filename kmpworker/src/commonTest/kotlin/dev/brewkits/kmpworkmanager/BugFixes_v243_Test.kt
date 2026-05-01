@@ -69,4 +69,19 @@ class BugFixes_v243_Test {
         assertTrue(sanitized?.containsKey("Valid-Header") == true)
         assertEquals("ValidValue", sanitized?.get("Valid-Header"))
     }
+
+    /**
+     * Verify that TaskTrigger.Periodic uses correct defaults for flexMs.
+     */
+    @Test
+    fun `Periodic trigger uses expected defaults for flexMs`() {
+        val interval = 20 * 60 * 1000L
+        
+        // When runImmediately is true, flexMs defaults to intervalMs (internally handled in NativeTaskScheduler, but check trigger state)
+        val trigger1 = TaskTrigger.Periodic(intervalMs = interval, runImmediately = true)
+        assertEquals(null, trigger1.flexMs, "flexMs should be null by default in the data class")
+
+        // In Android NativeTaskScheduler:
+        // val effectiveFlexMs = (trigger.flexMs ?: if (trigger.runImmediately) intervalMs else (intervalMs / 2))
+    }
 }
