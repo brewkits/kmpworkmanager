@@ -188,6 +188,13 @@ tasks.withType<AbstractPublishToMaven>().configureEach {
     mustRunAfter(tasks.withType<Sign>())
 }
 
+// K/N test runner defaults to one worker per CPU core. Multiple workers emit test events
+// concurrently, triggering a ConcurrentModificationException in Gradle's non-thread-safe
+// TestOutputStore$Writer. SIMCTL_CHILD_ prefix passes the var into the simulator process.
+tasks.withType<org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeSimulatorTest>().configureEach {
+    environment("SIMCTL_CHILD_KOTLIN_TEST_WORKERS", "1")
+}
+
 signing {
     val signingKeyBase64 = project.findProperty("signing.key") as String?
     val signingPassword = project.findProperty("signing.password") as String? ?: ""
