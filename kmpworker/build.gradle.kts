@@ -143,31 +143,34 @@ val mavenCentralJavadocJar by tasks.registering(Jar::class) {
     archiveClassifier.set("javadoc")
 }
 
-publishing {
-    publications.withType<MavenPublication> {
-        artifact(mavenCentralJavadocJar)
+afterEvaluate {
+    publishing {
+        publications.withType<MavenPublication> {
+            artifactId = artifactId.replace("kmpworker", "kmpworkmanager")
+            artifact(mavenCentralJavadocJar)
 
-        pom {
-            name.set("KMP WorkManager")
-            description.set("Kotlin Multiplatform library for background task scheduling on Android and iOS.")
-            url.set("https://github.com/brewkits/kmpworkmanager")
-            licenses {
-                license {
-                    name.set("The Apache License, Version 2.0")
-                    url.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
-                }
-            }
-            developers {
-                developer {
-                    id.set("brewkits")
-                    name.set("Brewkits Team")
-                    email.set("vietnguyentuan@gmail.com")
-                }
-            }
-            scm {
-                connection.set("scm:git:git://github.com/brewkits/kmpworkmanager.git")
-                developerConnection.set("scm:git:ssh://github.com/brewkits/kmpworkmanager.git")
+            pom {
+                name.set("KMP WorkManager")
+                description.set("Kotlin Multiplatform library for background task scheduling on Android and iOS.")
                 url.set("https://github.com/brewkits/kmpworkmanager")
+                licenses {
+                    license {
+                        name.set("The Apache License, Version 2.0")
+                        url.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
+                    }
+                }
+                developers {
+                    developer {
+                        id.set("brewkits")
+                        name.set("Brewkits Team")
+                        email.set("vietnguyentuan@gmail.com")
+                    }
+                }
+                scm {
+                    connection.set("scm:git:git://github.com/brewkits/kmpworkmanager.git")
+                    developerConnection.set("scm:git:ssh://github.com/brewkits/kmpworkmanager.git")
+                    url.set("https://github.com/brewkits/kmpworkmanager")
+                }
             }
         }
     }

@@ -26,6 +26,11 @@ subprojects {
     }
 }
 
+// Task to clean root build directory
+tasks.register<Delete>("clean") {
+    delete(rootProject.layout.buildDirectory)
+}
+
 // Task to generate a full Maven Central distribution ZIP
 tasks.register<Zip>("generateFullMavenZip") {
     group = "publishing"
@@ -44,9 +49,9 @@ tasks.register<Zip>("generateFullMavenZip") {
     dependsOn(":kmpworker-ksp:publishAllPublicationsToMavenCentralLocalRepository")
     
     // Checksums are handled by each module or a global step
-    doLast {
+    doFirst {
         val stagingFile = stagingDir.get().asFile
-        if (!stagingFile.exists()) return@doLast
+        if (!stagingFile.exists()) return@doFirst
 
         var checksumCount = 0
         stagingFile.walk().forEach { file ->
