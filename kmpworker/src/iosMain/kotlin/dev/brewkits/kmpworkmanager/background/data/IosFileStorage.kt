@@ -97,6 +97,8 @@ public class IosFileStorage(
 
     private val fileManager = NSFileManager.defaultManager
 
+    private val isTestMode: Boolean = config.isTestMode ?: NSProcessInfo.processInfo.processName.endsWith("test.kexe")
+
     // Tolerant Json for all persisted data: ignores unknown keys so that data written by a
     // newer schema version does not crash on rollback or when consumed by an older class.
     private val persistenceJson = Json { ignoreUnknownKeys = true }
@@ -106,22 +108,20 @@ public class IosFileStorage(
     private val queue: AppendOnlyQueue by lazy {
         val queueDirURL = baseDir.safeAppend("queue")
         ensureDirectoryExists(queueDirURL)
-        val isTest = config.isTestMode ?: NSProcessInfo.processInfo.processName.endsWith("test.kexe")
         AppendOnlyQueue(
             baseDirectoryURL = queueDirURL,
             compactionScope = backgroundScope,
-            isTestMode = isTest
+            isTestMode = isTestMode
         )
     }
 
     private val tasksQueue: AppendOnlyQueue by lazy {
         val tasksQueueDirURL = baseDir.safeAppend("tasks_queue")
         ensureDirectoryExists(tasksQueueDirURL)
-        val isTest = config.isTestMode ?: NSProcessInfo.processInfo.processName.endsWith("test.kexe")
         AppendOnlyQueue(
             baseDirectoryURL = tasksQueueDirURL,
             compactionScope = backgroundScope,
-            isTestMode = isTest
+            isTestMode = isTestMode
         )
     }
 
@@ -846,7 +846,7 @@ public class IosFileStorage(
 
             content.writeToFile(
                 path,
-                atomically = true,
+                atomically = !isTestMode,
                 encoding = NSUTF8StringEncoding,
                 error = errorPtr.ptr
             )
@@ -1407,7 +1407,7 @@ public class IosFileStorage(
 
             val success = nsString.writeToFile(
                 path,
-                atomically = true,
+                atomically = !isTestMode,
                 encoding = NSUTF8StringEncoding,
                 error = errorPtr.ptr
             )
