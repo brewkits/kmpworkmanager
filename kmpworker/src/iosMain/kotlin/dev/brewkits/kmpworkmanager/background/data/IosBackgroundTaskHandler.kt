@@ -170,8 +170,32 @@ object IosBackgroundTaskHandler {
             }
         }
 
-        // Launch the task in the scope and capture the job so we can cancel it on expiration
-        val job = scope.launch {
+        // Guard against calling setTaskCompletedWithSuccess twice.
+        // iOS BGTask API has undefined behavior if setTaskCompleted is called more than once.
+        // Two scenarios require this guard:
+        //   1. Job throws an exception AND expiration fires simultaneously.
+        //   2. The window between job completion and iOS acknowledging it — iOS could still
+        //      fire the expiration handler concurrently on the main thread.
+        val isCompleted = kotlin.concurrent.AtomicInt(0)
+        fun completeTask(success: Boolean) {
+            if (isCompleted.compareAndSet(expected = 0, newValue = 1)) {
+                task.setTaskCompletedWithSuccess(success)
+            }
+        }
+
+        // expirationHandler MUST be set before scope.launch to close the window where
+        // iOS expires the task before the handler is assigned (handler would be null → job
+        // would not be cancelled → task keeps running after expiration).
+        // We capture `job` via a lateinit-style holder so the handler can cancel it.
+        var job: kotlinx.coroutines.Job? = null
+
+        task.expirationHandler = {
+            Logger.w(LogTags.SCHEDULER, "Task '$taskId' expired — cancelling coroutine and marking failed")
+            job?.cancel()
+            completeTask(false)
+        }
+
+        job = scope.launch {
             try {
                 val result = executor.executeTask(meta.workerClassName, meta.inputJson)
                 val success = result is WorkerResult.Success
@@ -187,23 +211,15 @@ object IosBackgroundTaskHandler {
                 }
 
                 Logger.i(LogTags.SCHEDULER, "Task '$taskId' finished (success=$success)")
-                task.setTaskCompletedWithSuccess(success)
+                completeTask(success)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 Logger.w(LogTags.SCHEDULER, "Task '$taskId' cancelled due to expiration")
-                // Do not call setTaskCompletedWithSuccess here, it's called in expirationHandler
+                // completeTask(false) already called by expirationHandler
                 throw e
             } catch (e: Exception) {
                 Logger.e(LogTags.SCHEDULER, "Task '$taskId' threw exception", e)
-                task.setTaskCompletedWithSuccess(false)
+                completeTask(false)
             }
-        }
-
-        // expirationHandler is called synchronously by iOS when time runs out.
-        // It must complete instantly — no coroutines or I/O here.
-        task.expirationHandler = {
-            Logger.w(LogTags.SCHEDULER, "Task '$taskId' expired — cancelling coroutine and marking failed")
-            job.cancel()
-            task.setTaskCompletedWithSuccess(false)
         }
     }
 

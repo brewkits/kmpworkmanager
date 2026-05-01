@@ -1160,7 +1160,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
             }
 
             DemoSection(
-                title = "v2.4.2 Bug Fixes",
+                title = "v2.4.3 Bug Fixes",
                 icon = Icons.Default.BugReport,
                 containerColor = MaterialTheme.colorScheme.secondaryContainer
             ) {

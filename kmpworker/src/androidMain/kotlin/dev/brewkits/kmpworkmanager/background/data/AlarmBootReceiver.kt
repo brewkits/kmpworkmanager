@@ -74,6 +74,9 @@ abstract class AlarmBootReceiver : BroadcastReceiver() {
         val logReason = if (isUpdate) "App updated" else "Device booted"
         Logger.i(LogTags.ALARM, "$logReason — checking for alarms to reschedule")
 
+        // Clean up any zombie overflow files from previous crashed sessions
+        NativeTaskScheduler.cleanupZombieInputFiles(context)
+
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
         // Skip if permission was revoked while the device was off

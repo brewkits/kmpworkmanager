@@ -64,7 +64,7 @@ class HttpUploadWorker(
 
         val response = client.post(config.url) {
             headers {
-                config.headers?.forEach { (k, v) -> append(k, v) }
+                SecurityValidator.sanitizeHeaders(config.headers)?.forEach { (k, v) -> append(k, v) }
                 append(HttpHeaders.ContentType, "multipart/form-data; boundary=$boundary")
             }
 

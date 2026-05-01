@@ -10,8 +10,8 @@ plugins {
 
 // Pin Kotlin stdlib to the version matching the Kotlin Gradle plugin.
 // Without this, newer AndroidX transitive deps (e.g. lifecycle 2.9+) pull in a
-// stdlib 2.3.0 klib which is ABI-incompatible with the KGP 2.1.0 compiler and
-// causes "Could not find kotlin-stdlib-2.3.0-commonMain-*.klib" build errors.
+// stdlib klib that is ABI-incompatible with the KGP compiler and causes
+// "Could not find kotlin-stdlib-X-commonMain-*.klib" build errors.
 val kotlinVersion = libs.versions.kotlin.get()
 subprojects {
     configurations.all {

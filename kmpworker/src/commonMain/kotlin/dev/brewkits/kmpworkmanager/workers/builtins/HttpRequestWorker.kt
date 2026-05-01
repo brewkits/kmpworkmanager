@@ -10,6 +10,7 @@ import dev.brewkits.kmpworkmanager.workers.config.HttpRequestConfig
 import dev.brewkits.kmpworkmanager.workers.utils.HttpClientProvider
 import dev.brewkits.kmpworkmanager.workers.utils.SecurityValidator
 import io.ktor.client.*
+import io.ktor.client.plugins.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
@@ -60,8 +61,13 @@ class HttpRequestWorker(
                     WorkerHttpMethod.PATCH -> HttpMethod.Patch
                 }
 
-                // Set headers
-                config.headers?.forEach { (key, value) ->
+                timeout {
+                    requestTimeoutMillis = config.timeoutMs
+                    connectTimeoutMillis = config.timeoutMs
+                    socketTimeoutMillis = config.timeoutMs
+                }
+
+                SecurityValidator.sanitizeHeaders(config.headers)?.forEach { (key, value) ->
                     header(key, value)
                 }
 

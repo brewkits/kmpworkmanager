@@ -53,7 +53,7 @@ class HttpSyncWorker(
                     "PATCH" -> HttpMethod.Patch
                     else -> HttpMethod.Post
                 }
-                config.headers?.forEach { (key, value) -> header(key, value) }
+                SecurityValidator.sanitizeHeaders(config.headers)?.forEach { (key, value) -> header(key, value) }
                 if (config.requestBody != null) {
                     setBody(config.requestBody)
                     contentType(ContentType.Application.Json)

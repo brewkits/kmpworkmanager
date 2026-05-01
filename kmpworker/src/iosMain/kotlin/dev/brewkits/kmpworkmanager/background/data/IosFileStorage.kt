@@ -388,9 +388,13 @@ public class IosFileStorage(
         if (chainId == null) {
             Logger.v(LogTags.CHAIN, "Queue is empty")
         } else {
-            // Decrement counter atomically (lock-free)
-            queueSizeCounter.decrementAndGet()
-            Logger.v(LogTags.CHAIN, "Dequeued chain $chainId. Remaining: ${queueSizeCounter.value}")
+            // Decrement counter atomically (lock-free), only if already initialized
+            val currentVal = queueSizeCounter.value
+            if (currentVal != UNINITIALIZED_COUNTER && currentVal > 0) {
+                queueSizeCounter.decrementAndGet()
+            }
+            val remaining = if (queueSizeCounter.value == UNINITIALIZED_COUNTER) "unknown" else queueSizeCounter.value.toString()
+            Logger.v(LogTags.CHAIN, "Dequeued chain $chainId. Remaining: $remaining")
         }
 
         return chainId
@@ -427,8 +431,12 @@ public class IosFileStorage(
         if (taskId == null) {
             Logger.v(LogTags.SCHEDULER, "Tasks queue is empty")
         } else {
-            tasksQueueSizeCounter.decrementAndGet()
-            Logger.v(LogTags.SCHEDULER, "Dequeued task $taskId. Remaining: ${tasksQueueSizeCounter.value}")
+            val currentVal = tasksQueueSizeCounter.value
+            if (currentVal != UNINITIALIZED_COUNTER && currentVal > 0) {
+                tasksQueueSizeCounter.decrementAndGet()
+            }
+            val remaining = if (tasksQueueSizeCounter.value == UNINITIALIZED_COUNTER) "unknown" else tasksQueueSizeCounter.value.toString()
+            Logger.v(LogTags.SCHEDULER, "Dequeued task $taskId. Remaining: $remaining")
         }
 
         return taskId
@@ -914,8 +922,9 @@ public class IosFileStorage(
         val (bufferSnapshot, completionSignal) = signal
 
         // Write all progress files in batch (outside mutex to allow concurrent saves)
+        val remainingToFlush = bufferSnapshot.toMutableMap()
         try {
-            bufferSnapshot.forEach { (chainId, progress) ->
+            for ((chainId, progress) in bufferSnapshot) {
                 // Check cancellation before each file write. This ensures that if
                 // withTimeoutOrNull fires, we exit as soon as the current NSFileCoordinator
                 // call returns (the coordinator itself cannot be interrupted mid-call).
@@ -933,26 +942,34 @@ public class IosFileStorage(
                     coordinatedSuspend(progressFile, write = true) { safeUrl ->
                         writeStringToFile(safeUrl, json)
                     }
+                    remainingToFlush.remove(chainId)
                     Logger.v(
                         LogTags.CHAIN,
                         "Flushed progress for $chainId (${progress.getCompletionPercentage()}% complete)"
                     )
                 } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     Logger.e(LogTags.CHAIN, "Failed to flush progress for $chainId", e)
-                    // Re-buffer failed writes for retry on next flush
-                    progressMutex.withLock {
-                        progressBuffer[chainId] = progress
-                    }
+                    // We don't remove it from remainingToFlush, so it gets re-buffered in finally block
                 }
             }
 
             Logger.i(LogTags.CHAIN, "✅ Progress flush completed (${bufferSnapshot.size} updates)")
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            Logger.w(LogTags.CHAIN, "Progress flush cancelled! ${remainingToFlush.size} unwritten updates will be re-buffered.")
+            throw e
         } finally {
             // Always complete signal and reset, even if flush failed — prevents
             // saveChainProgress() from blocking indefinitely on the signal.
             progressMutex.withLock {
                 flushCompletionSignal = null
-                // Re-schedule a flush if new items arrived while we were flushing.
+                
+                // Re-buffer any items that failed or were cancelled to prevent data loss
+                if (remainingToFlush.isNotEmpty()) {
+                    progressBuffer.putAll(remainingToFlush)
+                }
+                
+                // Re-schedule a flush if new items arrived or if we rebuffered items.
                 // Previously: saveChainProgress() called during a flush saw flushCompletionSignal != null
                 // and skipped scheduling a new job. After the flush completed, those items stayed in
                 // progressBuffer indefinitely if no further saveChainProgress() was called.

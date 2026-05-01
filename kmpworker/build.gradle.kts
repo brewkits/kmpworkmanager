@@ -173,6 +173,15 @@ publishing {
     }
 }
 
+publishing {
+    repositories {
+        maven {
+            name = "MavenCentralLocal"
+            url = uri(rootProject.layout.buildDirectory.dir("maven-central-staging"))
+        }
+    }
+}
+
 // Workaround for Gradle implicit dependency false-positive between sign and publish tasks
 // when using the signing plugin with KMP multi-target publications.
 tasks.withType<AbstractPublishToMaven>().configureEach {

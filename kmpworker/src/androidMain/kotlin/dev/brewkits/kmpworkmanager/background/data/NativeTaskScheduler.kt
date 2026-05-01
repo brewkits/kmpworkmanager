@@ -31,11 +31,24 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
 
     private val workManager = WorkManager.getInstance(context)
 
+    init {
+        // Clean up any leaked overflow JSON files from previous crashed sessions
+        cleanupZombieInputFiles(context)
+    }
+
     companion object {
         const val TAG_KMP_TASK = "kmp-worker-task"
         const val KEY_INPUT_JSON_FILE = "inputJsonFile"
         internal const val OVERFLOW_THRESHOLD_BYTES = 8192 // 8 KB
         private const val ZOMBIE_FILE_MAX_AGE_MS = 24 * 60 * 60 * 1000L // 24 hours
+        private val cleanupStarted = java.util.concurrent.atomic.AtomicBoolean(false)
+
+        /**
+         * Resets the cleanup flag. Used only for testing.
+         */
+        internal fun resetCleanupStartedForTesting() {
+            cleanupStarted.set(false)
+        }
 
         /**
          * Scans `cacheDir` for overflow input-JSON files (`kmp_input_*.json`) older than
@@ -44,6 +57,8 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
          * Uses CoroutineScope with Dispatchers.IO to reuse system threads.
          */
         fun cleanupZombieInputFiles(context: Context) {
+            if (cleanupStarted.getAndSet(true)) return
+            
             val cacheDir = context.cacheDir
             val cutoffMs = System.currentTimeMillis() - ZOMBIE_FILE_MAX_AGE_MS
             
@@ -304,7 +319,7 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         cancelAlarmManagerPendingIntent(id)
 
         val pendingIntent = PendingIntent.getBroadcast(
-            context, id.hashCode(), intent,
+            context, taskIdToRequestCode(id), intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
@@ -438,7 +453,7 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
                 putExtra(AlarmReceiver.EXTRA_TASK_ID, id)
             }
             val existingPi = PendingIntent.getBroadcast(
-                context, id.hashCode(), intent,
+                context, taskIdToRequestCode(id), intent,
                 PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
             )
             if (existingPi != null) {
@@ -497,5 +512,21 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
 
     override suspend fun clearExecutionHistory() {
         KmpWorkManagerRuntime.executionHistoryStore?.clear()
+    }
+
+    /**
+     * Converts a task ID to a stable, collision-resistant PendingIntent request code.
+     *
+     * [String.hashCode] is a 32-bit polynomial that collides frequently for typical UUID/name
+     * strings (birthday paradox: ~50% collision at ~65k tasks). CRC32 uses a different polynomial
+     * with better distribution and is available on all Android API levels via java.util.zip.
+     *
+     * We mask the sign bit (and 0x7FFFFFFF) to keep the value non-negative, which avoids
+     * confusing the Android PendingIntent system and makes log output easier to read.
+     */
+    private fun taskIdToRequestCode(id: String): Int {
+        val crc = java.util.zip.CRC32()
+        crc.update(id.toByteArray(Charsets.UTF_8))
+        return (crc.value and 0x7FFFFFFFL).toInt()
     }
 }

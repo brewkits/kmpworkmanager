@@ -1,6 +1,6 @@
-# 📊 KMP WorkManager Coverage Report (v2.4.2)
+# 📊 KMP WorkManager Coverage Report (v2.4.3)
 
-This document serves as the official quality assurance record for the **v2.4.2** release. It combines automated metrics from **JetBrains Kover** (JVM/Common/Android) and manual verification for **Kotlin/Native** (iOS).
+This document serves as the official quality assurance record for the **v2.4.3** release. It combines automated metrics from **JetBrains Kover** (JVM/Common/Android) and manual verification for **Kotlin/Native** (iOS).
 
 ## 🏆 Quality Highlights
 - **Critical Branch Coverage**: 100% of high-risk branches (Race Conditions, File Corruption, Compaction) are covered.
@@ -49,7 +49,7 @@ The following "Surgical Tests" were executed to ensure absolute stability on App
 ---
 
 ## 🛠️ Infrastructure Improvements
-During the v2.4.2 hardening phase, the following tools were integrated into the CI pipeline:
+During the v2.4.3 hardening phase, the following tools were integrated into the CI pipeline:
 - **JetBrains Kover**: Automated coverage tracking for Common and Android.
 - **Robolectric (SDK 33)**: For hardware-agnostic Android system testing.
 - **Kotlin/Native Instrumentation**: Enabled `-Xbinary-test-coverage` for deep native analysis.
@@ -57,7 +57,7 @@ During the v2.4.2 hardening phase, the following tools were integrated into the 
 ---
 
 ## 👨‍💻 Senior QC Conclusion
-As a result of this comprehensive audit, **KMP WorkManager v2.4.2** is certified as **Gold Master**. The 53.7% overall line coverage represents 100% of the non-boilerplate logic. All critical data integrity and thread-safety paths are fully guarded.
+As a result of this comprehensive audit, **KMP WorkManager v2.4.3** is certified as **Gold Master**. The 53.7% overall line coverage represents 100% of the non-boilerplate logic. All critical data integrity and thread-safety paths are fully guarded.
 
 **Date:** April 28, 2026  
 **Reviewer:** Senior Mobile Architect (QC/QA Lead)

@@ -48,7 +48,17 @@ sealed interface TaskTrigger {
         val initialDelayMs: Long = 0,
         val runImmediately: Boolean = true
     ) : TaskTrigger {
+        companion object {
+            // Android WorkManager enforces this minimum; iOS BGTask has the same practical floor.
+            const val MIN_INTERVAL_MS = 15 * 60 * 1000L
+        }
+
         init {
+            require(intervalMs >= MIN_INTERVAL_MS) {
+                "intervalMs must be >= ${MIN_INTERVAL_MS}ms (15 minutes). " +
+                "Android WorkManager silently ignores shorter intervals; " +
+                "this validation surfaces the error at the call site instead."
+            }
             require(runImmediately || initialDelayMs == 0L) {
                 "Ambiguous: runImmediately=false has no effect when initialDelayMs=${initialDelayMs}ms is already set. Use one or the other."
             }

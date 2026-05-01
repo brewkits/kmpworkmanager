@@ -16,15 +16,30 @@ class EdgeCasesTest {
     }
 
     @Test
-    fun TaskTrigger_Periodic_with_zero_interval_should_accept_value() {
-        val trigger = TaskTrigger.Periodic(intervalMs = 0)
-        assertEquals(0L, trigger.intervalMs)
+    fun TaskTrigger_Periodic_with_zero_interval_should_reject_value() {
+        assertFailsWith<IllegalArgumentException> {
+            TaskTrigger.Periodic(intervalMs = 0)
+        }
     }
 
     @Test
-    fun TaskTrigger_Periodic_with_negative_interval_should_accept_value() {
-        val trigger = TaskTrigger.Periodic(intervalMs = -1000)
-        assertEquals(-1000L, trigger.intervalMs)
+    fun TaskTrigger_Periodic_with_negative_interval_should_reject_value() {
+        assertFailsWith<IllegalArgumentException> {
+            TaskTrigger.Periodic(intervalMs = -1000)
+        }
+    }
+
+    @Test
+    fun TaskTrigger_Periodic_with_sub_minimum_interval_should_reject_value() {
+        assertFailsWith<IllegalArgumentException> {
+            TaskTrigger.Periodic(intervalMs = 60_000) // 1 minute < 15 minutes
+        }
+    }
+
+    @Test
+    fun TaskTrigger_Periodic_with_minimum_interval_should_accept_value() {
+        val trigger = TaskTrigger.Periodic(intervalMs = TaskTrigger.Periodic.MIN_INTERVAL_MS)
+        assertEquals(TaskTrigger.Periodic.MIN_INTERVAL_MS, trigger.intervalMs)
     }
 
     @Test

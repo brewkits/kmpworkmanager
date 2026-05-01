@@ -8,6 +8,7 @@ import dev.brewkits.kmpworkmanager.workers.builtins.HttpSyncWorker
 import dev.brewkits.kmpworkmanager.workers.config.HttpRequestConfig
 import io.ktor.client.*
 import io.ktor.client.engine.mock.*
+import io.ktor.client.plugins.*
 import io.ktor.http.*
 import kotlinx.serialization.encodeToString
 import kotlin.test.*
@@ -23,6 +24,10 @@ import okio.buffer
 
 class BuiltinWorkersTest {
 
+    private fun mockClient(engine: MockEngine) = HttpClient(engine) {
+        install(HttpTimeout)
+    }
+
     @Test
     fun testHttpDownloadWorkerSuccess() = runTest {
         val testFile = "test_download.txt".toPath()
@@ -33,7 +38,7 @@ class BuiltinWorkersTest {
             )
         }
         val fileSystem = FileSystem.SYSTEM
-        val worker = HttpDownloadWorker(HttpClient(mockEngine), fileSystem)
+        val worker = HttpDownloadWorker(mockClient(mockEngine), fileSystem)
         
         val config = HttpDownloadConfig(
             url = "https://api.example.com/file",
@@ -66,7 +71,7 @@ class BuiltinWorkersTest {
                 status = HttpStatusCode.OK
             )
         }
-        val worker = HttpUploadWorker(HttpClient(mockEngine), fileSystem)
+        val worker = HttpUploadWorker(mockClient(mockEngine), fileSystem)
         
         val config = HttpUploadConfig(
             url = "https://api.example.com/upload",
@@ -94,8 +99,7 @@ class BuiltinWorkersTest {
                 headers = headersOf(HttpHeaders.ContentType, "application/json")
             )
         }
-        val client = HttpClient(mockEngine)
-        val worker = HttpRequestWorker(client)
+        val worker = HttpRequestWorker(mockClient(mockEngine))
 
         val config = HttpRequestConfig(
             url = "https://api.example.com/test",
@@ -117,8 +121,7 @@ class BuiltinWorkersTest {
                 status = HttpStatusCode.NotFound
             )
         }
-        val client = HttpClient(mockEngine)
-        val worker = HttpRequestWorker(client)
+        val worker = HttpRequestWorker(mockClient(mockEngine))
 
         val config = HttpRequestConfig(
             url = "https://api.example.com/invalid",
@@ -141,8 +144,7 @@ class BuiltinWorkersTest {
                 status = HttpStatusCode.InternalServerError
             )
         }
-        val client = HttpClient(mockEngine)
-        val worker = HttpRequestWorker(client)
+        val worker = HttpRequestWorker(mockClient(mockEngine))
 
         val config = HttpRequestConfig(
             url = "https://api.example.com/buggy",
@@ -183,7 +185,7 @@ class BuiltinWorkersTest {
                 status = HttpStatusCode.OK
             )
         }
-        val worker = HttpSyncWorker(HttpClient(mockEngine))
+        val worker = HttpSyncWorker(mockClient(mockEngine))
         val config = """{"url":"https://api.example.com/sync", "method":"GET"}"""
 
         val result = worker.doWork(config, WorkerEnvironment(null, { false }))
@@ -206,8 +208,8 @@ class BuiltinWorkersTest {
                 status = HttpStatusCode.InternalServerError
             )
         }
-        val worker = HttpUploadWorker(HttpClient(mockEngine), fileSystem)
-        
+        val worker = HttpUploadWorker(mockClient(mockEngine), fileSystem)
+
         val config = HttpUploadConfig(
             url = "https://api.example.com/upload",
             filePath = testFile.toString(),

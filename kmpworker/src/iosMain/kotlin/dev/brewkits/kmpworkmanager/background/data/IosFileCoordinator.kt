@@ -22,8 +22,6 @@ import platform.darwin.NSEC_PER_MSEC
  */
 internal object IosFileCoordinator {
 
-    private val fileCoordinator = NSFileCoordinator(filePresenter = null)
-
     // Sentinel to distinguish "callback not called" from "callback returned null"
     private object UNSET
 
@@ -112,6 +110,10 @@ internal object IosFileCoordinator {
 
     /**
      * Synchronous implementation of coordination. Always called from [IosDispatchers.IO].
+     *
+     * A fresh [NSFileCoordinator] is created per call so that a timeout-triggered [cancel]
+     * only cancels this coordination and never affects concurrent coordinations sharing a
+     * singleton coordinator.
      */
     private fun <T> coordinateBlocking(
         url: NSURL,
@@ -119,6 +121,7 @@ internal object IosFileCoordinator {
         timeoutMs: Long,
         block: (NSURL) -> T
     ): T {
+        val fileCoordinator = NSFileCoordinator(filePresenter = null)
         var result: Any? = UNSET
         var blockError: Exception? = null
         val startTime = (NSDate().timeIntervalSince1970 * 1000).toLong()

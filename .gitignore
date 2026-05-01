@@ -130,6 +130,10 @@ test-bg-task.sh
 *.bak
 *.backup
 
+# Test reports and results
+reports/
+test-results/
+
 # Review and implementation summaries
 *-IMPLEMENTATION-SUMMARY.md
 *-PROFESSIONAL-REVIEW.md
