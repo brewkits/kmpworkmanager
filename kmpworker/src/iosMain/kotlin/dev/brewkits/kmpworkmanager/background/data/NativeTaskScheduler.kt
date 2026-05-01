@@ -1174,8 +1174,10 @@ public class NativeTaskScheduler(
      * In production, the scheduler is typically a singleton for app lifetime.
      * Call this in tests to prevent coroutine leaks.
      */
-    fun close() {
+    suspend fun close() {
+        val job = backgroundScope.coroutineContext[kotlinx.coroutines.Job]
         backgroundScope.cancel()
+        job?.join()
         Logger.d(LogTags.SCHEDULER, "NativeTaskScheduler background scope cancelled")
     }
 

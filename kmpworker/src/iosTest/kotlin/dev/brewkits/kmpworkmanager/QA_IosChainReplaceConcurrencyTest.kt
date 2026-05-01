@@ -43,7 +43,10 @@ class QA_IosChainReplaceConcurrencyTest {
 
     @AfterTest
     fun tearDown() {
-        kotlinx.coroutines.runBlocking { fileStorage.close() }
+        kotlinx.coroutines.runBlocking { 
+            scheduler.close()
+            fileStorage.close() 
+        }
         NSFileManager.defaultManager.removeItemAtURL(testDirectoryURL, error = null)
     }
 
