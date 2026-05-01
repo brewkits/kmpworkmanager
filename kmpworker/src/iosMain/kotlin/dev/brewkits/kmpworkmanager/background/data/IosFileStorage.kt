@@ -104,14 +104,9 @@ public class IosFileStorage(
     private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private val queue: AppendOnlyQueue by lazy {
-        // Create queue subdirectory for better organization
         val queueDirURL = baseDir.safeAppend("queue")
         ensureDirectoryExists(queueDirURL)
-        
-        // Auto-detect test mode based on process name
-        val processName = NSProcessInfo.processInfo.processName
-        val isTest = processName.endsWith("test.kexe")
-        
+        val isTest = config.isTestMode ?: NSProcessInfo.processInfo.processName.endsWith("test.kexe")
         AppendOnlyQueue(
             baseDirectoryURL = queueDirURL,
             compactionScope = backgroundScope,
@@ -122,10 +117,7 @@ public class IosFileStorage(
     private val tasksQueue: AppendOnlyQueue by lazy {
         val tasksQueueDirURL = baseDir.safeAppend("tasks_queue")
         ensureDirectoryExists(tasksQueueDirURL)
-        
-        val processName = NSProcessInfo.processInfo.processName
-        val isTest = processName.endsWith("test.kexe")
-        
+        val isTest = config.isTestMode ?: NSProcessInfo.processInfo.processName.endsWith("test.kexe")
         AppendOnlyQueue(
             baseDirectoryURL = tasksQueueDirURL,
             compactionScope = backgroundScope,
@@ -1289,19 +1281,22 @@ public class IosFileStorage(
         val path = url.path ?: return
 
         if (!fileManager.fileExistsAtPath(path)) {
+            // In test mode (CI simulator pre-first-unlock), NSFileProtectionCompleteUntilFirstUserAuthentication
+            // blocks atomic writes (NSString.writeToFile atomically:YES needs a temp file in the same directory).
+            // Skip the protection attribute entirely in test environments.
+            val isTestEnv = config.isTestMode ?: NSProcessInfo.processInfo.processName.endsWith("test.kexe")
             memScoped {
                 val errorPtr = alloc<ObjCObjectVar<NSError?>>()
-                // NSFileProtectionCompleteUntilFirstUserAuthentication: files remain encrypted at
-                // rest but are accessible to background tasks after the first unlock post-boot.
-                // NSFileProtectionComplete (the OS default) locks files when the screen is off,
-                // making them unreadable by BGTasks — which defeats the purpose of this library.
-                val attributes = mapOf<Any?, Any?>(NSFileProtectionKey to NSFileProtectionCompleteUntilFirstUserAuthentication)
-                val ok = fileManager.createDirectoryAtURL(
-                    url,
-                    withIntermediateDirectories = true,
-                    attributes = attributes,
-                    error = errorPtr.ptr
-                )
+                val ok = if (isTestEnv) {
+                    fileManager.createDirectoryAtURL(url, withIntermediateDirectories = true, attributes = null, error = errorPtr.ptr)
+                } else {
+                    // NSFileProtectionCompleteUntilFirstUserAuthentication: files remain encrypted at
+                    // rest but are accessible to background tasks after the first unlock post-boot.
+                    // NSFileProtectionComplete (the OS default) locks files when the screen is off,
+                    // making them unreadable by BGTasks — which defeats the purpose of this library.
+                    val attributes = mapOf<Any?, Any?>(NSFileProtectionKey to NSFileProtectionCompleteUntilFirstUserAuthentication)
+                    fileManager.createDirectoryAtURL(url, withIntermediateDirectories = true, attributes = attributes, error = errorPtr.ptr)
+                }
 
                 if (!ok) {
                     val fallbackOk = fileManager.createDirectoryAtURL(url, withIntermediateDirectories = true, attributes = null, error = null)

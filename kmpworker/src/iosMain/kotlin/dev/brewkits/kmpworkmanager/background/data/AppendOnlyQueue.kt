@@ -1163,17 +1163,17 @@ internal class AppendOnlyQueue(
         if (!fileManager.fileExistsAtPath(path)) {
             memScoped {
                 val errorPtr = alloc<ObjCObjectVar<NSError?>>()
-                // NSFileProtectionCompleteUntilFirstUserAuthentication: accessible to background
-                // tasks after first unlock. Default (NSFileProtectionComplete) blocks BGTask access.
-                val attributes = mapOf<Any?, Any?>(NSFileProtectionKey to NSFileProtectionCompleteUntilFirstUserAuthentication)
-                val ok = fileManager.createDirectoryAtPath(
-                    path,
-                    withIntermediateDirectories = true,
-                    attributes = attributes,
-                    error = errorPtr.ptr
-                )
+                // In test mode (CI simulator pre-first-unlock), NSFileProtectionCompleteUntilFirstUserAuthentication
+                // blocks atomic writes. Skip the protection attribute in test environments.
+                val ok = if (isTestMode) {
+                    fileManager.createDirectoryAtPath(path, withIntermediateDirectories = true, attributes = null, error = errorPtr.ptr)
+                } else {
+                    // NSFileProtectionCompleteUntilFirstUserAuthentication: accessible to background
+                    // tasks after first unlock. Default (NSFileProtectionComplete) blocks BGTask access.
+                    val attributes = mapOf<Any?, Any?>(NSFileProtectionKey to NSFileProtectionCompleteUntilFirstUserAuthentication)
+                    fileManager.createDirectoryAtPath(path, withIntermediateDirectories = true, attributes = attributes, error = errorPtr.ptr)
+                }
                 if (!ok) {
-                    // Fallback for simulators or environments where File Protection is unsupported
                     val fallbackOk = fileManager.createDirectoryAtPath(path, withIntermediateDirectories = true, attributes = null, error = null)
                     if (!fallbackOk) {
                         throw IllegalStateException("AppendOnlyQueue: failed to create directory: $path")
