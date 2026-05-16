@@ -407,6 +407,9 @@ RFC 3986 UserInfo bypass and multi-`@` authority attacks are both handled. DNS r
 | [Built-in Workers](docs/BUILTIN_WORKERS_GUIDE.md) | Worker reference and input schema |
 | [Constraints & Triggers](docs/constraints-triggers.md) | All scheduling options |
 | [iOS Best Practices](docs/ios-best-practices.md) | BGTask gotchas and recommendations |
+| [iOS BGTask Hard Limits](docs/IOS_BGTASK_LIMITS.md) | Opportunistic scheduling, time budget, headless DI |
+| [Android FGS Type Guide](docs/ANDROID_FGS_GUIDE.md) | `mediaProcessing` / `camera` / `dataSync` setup |
+| [iOS Background URLSession](docs/IOS_BACKGROUND_URL_SESSION.md) | Surviving app termination during long downloads |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Common issues |
 | [CHANGELOG](CHANGELOG.md) | Release history |
 

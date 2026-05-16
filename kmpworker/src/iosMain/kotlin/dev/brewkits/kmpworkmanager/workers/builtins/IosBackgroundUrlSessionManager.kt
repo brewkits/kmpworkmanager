@@ -59,12 +59,12 @@ import platform.darwin.NSObject
  */
 object IosBackgroundUrlSessionManager {
 
-    private val sessionsMutex = Mutex()
-    private val sessions: MutableMap<String, NSURLSession> = mutableMapOf()
-    private val savePaths: MutableMap<Long, String> = mutableMapOf() // taskIdentifier → savePath
-    private val taskNames: MutableMap<Long, String> = mutableMapOf() // taskIdentifier → workerName
-    private val completionHandlers: MutableMap<String, () -> Unit> = mutableMapOf()
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    internal val sessionsMutex = Mutex()
+    internal val sessions: MutableMap<String, NSURLSession> = mutableMapOf()
+    internal val savePaths: MutableMap<Long, String> = mutableMapOf() // taskIdentifier → savePath
+    internal val taskNames: MutableMap<Long, String> = mutableMapOf() // taskIdentifier → workerName
+    internal val completionHandlers: MutableMap<String, () -> Unit> = mutableMapOf()
+    internal val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     /**
      * Register a background session for [sessionIdentifier]. Idempotent — calling twice
@@ -81,7 +81,7 @@ object IosBackgroundUrlSessionManager {
             config.setDiscretionary(false)
             NSURLSession.sessionWithConfiguration(
                 configuration = config,
-                delegate = Delegate,
+                delegate = IosBackgroundUrlSessionManagerDelegate(),
                 delegateQueue = NSOperationQueue()
             )
         }
@@ -134,7 +134,24 @@ object IosBackgroundUrlSessionManager {
 
     // ── Delegate impl ───────────────────────────────────────────────────────────
 
-    private object Delegate : NSObject(), NSURLSessionDownloadDelegateProtocol {
+
+    /**
+     * Convenience: read from the suspended map without a coroutine. Returns null if the
+     * mutex is contended — callers fall back gracefully. We only use this from delegate
+     * methods that are invoked on the URLSession queue, so contention with `enqueueDownload`
+     * is brief.
+     */
+    internal inline fun <T> runBlockingMap(crossinline block: () -> T?): T? {
+        // The map mutations are quick and happen under sessionsMutex; reading without the
+        // lock is acceptable since iOS delivers delegate callbacks sequentially on the
+        // session's NSOperationQueue. A racy null read just means "we already cleaned up"
+        // which is handled by the caller's null guard.
+        return block()
+    }
+}
+
+
+    internal class IosBackgroundUrlSessionManagerDelegate : NSObject(), NSURLSessionDownloadDelegateProtocol {
 
         override fun URLSession(
             session: NSURLSession,
@@ -142,8 +159,8 @@ object IosBackgroundUrlSessionManager {
             didFinishDownloadingToURL: NSURL
         ) {
             val id = downloadTask.taskIdentifier.toLong()
-            val savePath = runBlockingMap { savePaths[id] }
-            val workerName = runBlockingMap { taskNames[id] } ?: "IosBackgroundDownloadWorker"
+            val savePath = IosBackgroundUrlSessionManager.runBlockingMap { IosBackgroundUrlSessionManager.savePaths[id] }
+            val workerName = IosBackgroundUrlSessionManager.runBlockingMap { IosBackgroundUrlSessionManager.taskNames[id] } ?: "IosBackgroundDownloadWorker"
             if (savePath == null) {
                 Logger.w(LogTags.WORKER, "Background download completed but no savePath known for id=$id")
                 return
@@ -174,7 +191,7 @@ object IosBackgroundUrlSessionManager {
         ) {
             val id = task.taskIdentifier.toLong()
             val err = didCompleteWithError
-            val workerName = runBlockingMap { taskNames[id] } ?: "IosBackgroundDownloadWorker"
+            val workerName = IosBackgroundUrlSessionManager.runBlockingMap { IosBackgroundUrlSessionManager.taskNames[id] } ?: "IosBackgroundDownloadWorker"
             // `didFinishDownloadingToURL` already emitted the success event; we only
             // surface explicit failures here. Skip when error is null (success path).
             if (err != null) {
@@ -185,10 +202,10 @@ object IosBackgroundUrlSessionManager {
                 emitCompletion(workerName, success = false, message = err.localizedDescription)
             }
             // Always clean up the maps so they don't grow without bound.
-            scope.launch {
-                sessionsMutex.withLock {
-                    savePaths.remove(id)
-                    taskNames.remove(id)
+            IosBackgroundUrlSessionManager.scope.launch {
+                IosBackgroundUrlSessionManager.sessionsMutex.withLock {
+                    IosBackgroundUrlSessionManager.savePaths.remove(id)
+                    IosBackgroundUrlSessionManager.taskNames.remove(id)
                 }
             }
         }
@@ -198,8 +215,8 @@ object IosBackgroundUrlSessionManager {
             // Find the matching completion handler stored from `handleBackgroundEvents`
             // and invoke on the main queue (UIKit requirement).
             val ident = session.configuration.identifier ?: return
-            scope.launch {
-                val handler = sessionsMutex.withLock { completionHandlers.remove(ident) }
+            IosBackgroundUrlSessionManager.scope.launch {
+                val handler = IosBackgroundUrlSessionManager.sessionsMutex.withLock { IosBackgroundUrlSessionManager.completionHandlers.remove(ident) }
                 if (handler != null) {
                     platform.darwin.dispatch_async(platform.darwin.dispatch_get_main_queue()) {
                         handler.invoke()
@@ -209,7 +226,7 @@ object IosBackgroundUrlSessionManager {
         }
 
         private fun emitCompletion(workerName: String, success: Boolean, message: String) {
-            scope.launch {
+            IosBackgroundUrlSessionManager.scope.launch {
                 TaskEventManager.emit(
                     TaskCompletionEvent(
                         taskName = workerName,
@@ -221,18 +238,3 @@ object IosBackgroundUrlSessionManager {
             }
         }
     }
-
-    /**
-     * Convenience: read from the suspended map without a coroutine. Returns null if the
-     * mutex is contended — callers fall back gracefully. We only use this from delegate
-     * methods that are invoked on the URLSession queue, so contention with `enqueueDownload`
-     * is brief.
-     */
-    private inline fun <T> runBlockingMap(crossinline block: () -> T?): T? {
-        // The map mutations are quick and happen under sessionsMutex; reading without the
-        // lock is acceptable since iOS delivers delegate callbacks sequentially on the
-        // session's NSOperationQueue. A racy null read just means "we already cleaned up"
-        // which is handled by the caller's null guard.
-        return block()
-    }
-}

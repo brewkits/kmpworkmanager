@@ -79,14 +79,28 @@ already has these features in production; KMP catches up here.
   The worker returns `Success` as soon as the OS accepts the request;
   completion is delivered later via `TaskEventBus`.
 
-### Tracked but not yet started (v2.5 stretch)
+### P1.5 — pulled into 2.5 after architecture re-review
+
+- ✅ iOS chain retry semantics — `WorkerResult.Retry.delayMs` / `attemptCap`
+  honored at the executor level. `ChainProgress.stepRetryCounts` tracks per-step
+  attempts across BGTask invocations; `ChainExecutor.requestedNextBgTaskDelayMs`
+  exposes the max delay hint so Swift hosts can re-arm `BGProcessingTaskRequest`
+  with `earliestBeginDate = now + delayMs`. Adversarial coverage:
+  `ChainProgressRetryTest` proves step counter is independent from chain-level
+  `retryCount`.
+- ✅ `KmpHeavyWorker.foregroundServiceType` is now overrideable. Camera-app
+  transcoders can set `FGS_MEDIA_PROCESSING` (Android 15+) instead of inheriting
+  the silently-wrong `dataSync` default that would trigger Play Store policy
+  flags. Companion-object aliases (`FGS_DATA_SYNC`, `FGS_MEDIA_PROCESSING`,
+  `FGS_CAMERA`, …) avoid forcing host code to import
+  `android.content.pm.ServiceInfo`. Coverage: `KmpHeavyWorkerFgsTypeTest`.
+  Manifest snippets per type: [`docs/ANDROID_FGS_GUIDE.md`](./ANDROID_FGS_GUIDE.md).
+
+### Tracked but deferred to 2.6 (v2.5 stretch ↛ not shipped)
 
 - 🚧 `IosFileStorage` SRP split — stage 0 design lock-in
   (`docs/internal/IOS_FILE_STORAGE_SPLIT.md`) + `storage/BaseDirectory.kt`
   scaffold committed; per-store extraction across stages 1–5 still pending.
-- ⏳ iOS chain retry semantics — `WorkerResult.Retry.delayMs` / `attemptCap`
-  honored at the executor level (re-arm `BGProcessingTaskRequest` with
-  `earliestBeginDate = now + delayMs`; persist attempt counter per step).
 - ⏳ `IosBackgroundDownloadWorker` polish — authentication challenges, TLS
   pinning hook, upload variant (background URL session uploads).
 
@@ -97,14 +111,17 @@ already has these features in production; KMP catches up here.
 **Theme:** make the library easy to operate. The functionality already works;
 v2.6 polishes the rough edges that surface during on-call.
 
-### 1. Foreground service guidance (Android 14 / 15)
-- ⏳ Add a `docs/ANDROID_FGS_GUIDE.md` with manifest snippets per FGS type
-  (`mediaProcessing`, `dataSync`, `connectedDevice`, `shortService`).
-- ⏳ Document the runtime permission table for `FOREGROUND_SERVICE_*` siblings
-  introduced in API 34.
-- ⏳ Add a `KmpHeavyWorker` constructor parameter (or `KmpWorkManagerConfig`
-  setting) to declare the FGS type, with a lint-style runtime check that the
-  host manifest matches.
+### 1. Foreground service guidance (Android 14 / 15) — ✅ shipped in 2.5
+- ✅ `docs/ANDROID_FGS_GUIDE.md` with manifest snippets per FGS type
+  (`mediaProcessing`, `dataSync`, `connectedDevice`, …).
+- ✅ Runtime permission table for `FOREGROUND_SERVICE_*` siblings introduced
+  in API 34, including the Android 15 6-hour `dataSync` cap.
+- ✅ `KmpHeavyWorker.foregroundServiceType` is overrideable via
+  `protected open val`, with companion-object aliases (`FGS_DATA_SYNC`,
+  `FGS_MEDIA_PROCESSING`, `FGS_CAMERA`, …). Coverage:
+  `KmpHeavyWorkerFgsTypeTest`.
+- ⏳ Stretch: lint-style runtime check that the host manifest declares a
+  matching `<service android:foregroundServiceType=…>` entry.
 
 ### 2. Threat model + SRE runbook
 - ⏳ `docs/THREAT_MODEL.md` — STRIDE table for the scheduler, persistence
@@ -154,6 +171,15 @@ v2.6 polishes the rough edges that surface during on-call.
 - ⏳ **Bandwidth throttling** — token-bucket on download/upload bytes-per-second.
   Less critical than the others; Android already exposes
   `Constraints.requiresUnmeteredNetwork` for the "Wi-Fi only" axis.
+
+### 7. iOS ZIP compression via zlib cinterop
+- ⏳ Replace the `allowIosUncompressedFallback` opt-in with a real ZIP
+  implementation backed by `/usr/lib/libz.dylib` (zlib is part of the iOS SDK,
+  no third-party Swift package needed). Plan: small Kotlin wrapper that emits
+  the ZIP container (local file headers + central directory + EOCD) and
+  delegates the compressed payload to `deflate`. ~150 lines + cinterop stub.
+  This closes the camera-app blocker called out in
+  [`docs/IOS_BGTASK_LIMITS.md`](./IOS_BGTASK_LIMITS.md) §4.
 
 ---
 
