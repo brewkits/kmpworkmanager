@@ -95,18 +95,18 @@ public class NativeTaskScheduler(
         const val MASTER_DISPATCHER_IDENTIFIER = "kmp_master_dispatcher_task"
         const val APPLE_TO_UNIX_EPOCH_OFFSET_SECONDS = 978307200.0
 
-        // Kotlin/Native test runner always produces an executable ending with this suffix.
-        // If the naming convention ever changes, update here — one place.
-        private const val TEST_BINARY_SUFFIX = "test.kexe"
-
         /**
-         * True when running inside a unit-test binary (.kexe) or when bundleIdentifier is null
-         * (which only occurs in test runners, not in App Extensions — extensions have their own ID).
-         * Cached once at class load; NSProcessInfo.processName is stable for the process lifetime.
+         * True when running inside a unit-test binary (.kexe), Xcode XCTest harness, or
+         * when bundleIdentifier is null (which only occurs in test runners, not in App
+         * Extensions — extensions have their own ID).
+         *
+         * Detection logic centralised in [dev.brewkits.kmpworkmanager.utils.IosTestEnvironment]
+         * so the cascade of signals (env vars + process-name suffix) lives in one place
+         * and stays consistent across the codebase (v2.5.0 QA hardening).
          */
         val isTestMode: Boolean =
             NSBundle.mainBundle.bundleIdentifier == null ||
-            NSProcessInfo.processInfo.processName.endsWith(TEST_BINARY_SUFFIX)
+            dev.brewkits.kmpworkmanager.utils.IosTestEnvironment.isTestEnvironment
 
         /**
          * Detect if running on iOS Simulator.
@@ -690,15 +690,45 @@ public class NativeTaskScheduler(
         }
 
         // iOS Simulator Fallback
+        //
+        // ⚠️ Important contract — this fallback uses `delay()` on a coroutine, which does NOT
+        // model production BGTaskScheduler behaviour:
+        //
+        //   • On production iOS, BGTaskScheduler hands the task off to a system daemon
+        //     (`dasd` / `BackgroundTaskAgent`). The daemon decides when to wake the app.
+        //     Delays are clock-wall: a task scheduled for 10 min runs ~10 min later regardless
+        //     of whether the user backgrounded the app.
+        //
+        //   • In the simulator fallback, `delay(delayMs)` runs on a GCD-backed K/N worker
+        //     thread. When the iOS Simulator suspends the app (user hits Home button), GCD
+        //     queues are paused — `delay()` FREEZES. The task runs only after the user
+        //     re-foregrounds the app, with the suspended time NOT counted.
+        //
+        // Net effect: a developer who writes a test on the simulator may see the task fire
+        // "after 10 minutes" of foreground time, conclude the schedule works, then ship to
+        // production where iOS may never fire the BGTask (opportunistic scheduling, see
+        // docs/IOS_BGTASK_LIMITS.md). This is a DX trap, not a correctness bug — but it is
+        // a real one, hence the loud warning in every fallback invocation.
         if (isSimulator) {
-            Logger.w(LogTags.SCHEDULER, "iOS Simulator detected — BGTaskScheduler is unavailable.")
-            
+            Logger.w(
+                LogTags.SCHEDULER,
+                "iOS Simulator detected — BGTaskScheduler is unavailable. Falling back to " +
+                    "coroutine `delay()` simulation. THIS IS NOT REPRESENTATIVE OF PRODUCTION " +
+                    "BEHAVIOUR: delay() freezes when the simulator app is backgrounded, whereas " +
+                    "production BGTaskScheduler uses wall-clock scheduling decided by the OS. " +
+                    "Always validate scheduling on a real device. See docs/IOS_BGTASK_LIMITS.md."
+            )
+
             if (singleTaskExecutor != null) {
                 val delaySeconds = request.earliestBeginDate?.timeIntervalSinceNow ?: 0.0
                 val delayMs = (delaySeconds * 1000.0).toLong().coerceAtLeast(0L)
-                
-                Logger.i(LogTags.SCHEDULER, "Simulator fallback: executing '$taskDescription' in ${delayMs}ms")
-                
+
+                Logger.i(
+                    LogTags.SCHEDULER,
+                    "Simulator fallback: executing '$taskDescription' in ${delayMs}ms " +
+                        "(wall-clock if app stays foregrounded; pauses if backgrounded)"
+                )
+
                 backgroundScope.launch {
                     delay(delayMs)
                     val taskId = request.identifier
@@ -932,12 +962,55 @@ public class NativeTaskScheduler(
     /**
      * Execute any exact-alarm tasks that were missed while the app was not running.
      *
-     * **When to call**: From `applicationDidBecomeActive` in your AppDelegate. This covers two
-     * failure modes:
-     * 1. **Notification permission denied** — `UNUserNotificationCenter` never fires, so the task
-     *    is silently lost without this catch-up.
-     * 2. **User ignored/dismissed notification** — the notification fired but no background work
-     *    was triggered.
+     * ## ⚠️ EXACT ALARMS ON iOS ARE NOT GUARANTEED TO EXECUTE IF THE USER NEVER OPENS THE APP
+     *
+     * Unlike Android's `AlarmManager.setExactAndAllowWhileIdle` (which the OS will fire
+     * even when the app is fully closed), iOS has **no equivalent primitive** for
+     * "wake up at exactly time T and run this code". The closest iOS offers are:
+     *
+     *  - `UNUserNotificationCenter` local notifications — these fire at the requested time,
+     *    but they only show a banner / play a sound. They do not run your code unless the
+     *    user taps the notification.
+     *  - `BGTaskScheduler` — opportunistic, no guaranteed timing (see `docs/IOS_BGTASK_LIMITS.md`).
+     *
+     * This library's exact-alarm implementation on iOS does a "best-effort + catch-up"
+     * pattern: it schedules a local notification AND attempts to use BGTaskScheduler,
+     * but the actual worker code only runs when one of these happens:
+     *
+     *  1. iOS opportunistically fires the BGTask (rare for time-critical workloads —
+     *     `dasd` deprioritises apps that don't see regular foreground use).
+     *  2. The user **opens the app**, triggering [applicationDidBecomeActive] → this
+     *     catch-up function → missed-task execution.
+     *
+     * ### What this means for you
+     *
+     * **DO NOT** use exact alarms on iOS for any of these:
+     *
+     *  - 🚫 **Alarm clock / wake-up apps** — the user expects an alarm to ring at 7 AM
+     *    regardless of whether they've opened your app recently. iOS will not deliver this.
+     *  - 🚫 **Medication reminders** — same reason. Use a `UNCalendarNotificationTrigger`
+     *    notification with sound (which iOS will fire reliably), and put your code in
+     *    `userNotificationCenter(_:didReceive:)` if the user taps it.
+     *  - 🚫 **Trading / financial transaction triggers** — "execute trade at 3 PM" cannot
+     *    be guaranteed. Use a server-side scheduler.
+     *  - 🚫 **Anything where missing the time window has irreversible cost** — invitations
+     *    expiring, time-locked content unlock, etc. Drive these from a server / push.
+     *
+     * Exact alarms on iOS via this library are appropriate for **non-critical opportunistic
+     * work** that the user is expected to open the app for anyway: "sync drafts when the
+     * app opens after 2 AM", "remind the user the next time they open the app and it's
+     * past 8 PM", etc.
+     *
+     * ### What this catch-up function actually covers
+     *
+     * **When to call**: From `applicationDidBecomeActive` in your AppDelegate. This catches
+     * three failure modes:
+     * 1. **Notification permission denied** — `UNUserNotificationCenter` never fires, so the
+     *    task is silently lost without this catch-up.
+     * 2. **User ignored/dismissed notification** — the notification fired but no background
+     *    work was triggered. (Most common case in practice.)
+     * 3. **iOS never opportunistically fired the BGTask** — `dasd` deprioritised the
+     *    request, or the device was in Low Power Mode at the scheduled time.
      *
      * Tasks scheduled with [ExactAlarmIOSBehavior.ATTEMPT_BACKGROUND_RUN] are also caught here
      * if iOS never ran the BGTask opportunity.

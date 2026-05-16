@@ -113,7 +113,38 @@ open class KmpHeavyWorker(
     override val workerLogTag: String get() = "KmpHeavyWorker"
 
     override suspend fun doWork(): Result {
-        setForeground(createForegroundInfo())
+        // QA double-check fix: setForeground() can throw on Android 14+ when the FGS type
+        // declared by [foregroundServiceType] doesn't match the host app's manifest. The
+        // raw exception (ForegroundServiceStartNotAllowedException on API 31+, SecurityException
+        // on permission gaps, plain IllegalStateException on misconfig) used to escape the
+        // worker and crash the WorkManager job runner with an opaque stack trace. We catch
+        // it here and translate into a Result.failure() carrying an actionable diagnostic
+        // pointing to docs/ANDROID_FGS_GUIDE.md.
+        try {
+            setForeground(createForegroundInfo())
+        } catch (e: SecurityException) {
+            Logger.e(
+                LogTags.WORKER,
+                "Foreground service start denied (SecurityException). " +
+                    "Type=$foregroundServiceType requires a matching FOREGROUND_SERVICE_<TYPE> " +
+                    "permission in AndroidManifest.xml. See docs/ANDROID_FGS_GUIDE.md.",
+                e,
+            )
+            return Result.failure()
+        } catch (e: IllegalStateException) {
+            // ForegroundServiceStartNotAllowedException (API 31+) and
+            // ForegroundServiceTypeException (API 34+) both extend IllegalStateException.
+            Logger.e(
+                LogTags.WORKER,
+                "Foreground service start not allowed: ${e::class.simpleName} — ${e.message}. " +
+                    "This typically means: (a) the host app is in a state where it cannot start " +
+                    "an FGS (background-without-special-permission), OR (b) the FGS type " +
+                    "$foregroundServiceType is not declared on <service android:foregroundServiceType=…> " +
+                    "in the manifest. See docs/ANDROID_FGS_GUIDE.md for type-by-type setup.",
+                e,
+            )
+            return Result.failure()
+        }
         return doWorkInternal()
     }
 

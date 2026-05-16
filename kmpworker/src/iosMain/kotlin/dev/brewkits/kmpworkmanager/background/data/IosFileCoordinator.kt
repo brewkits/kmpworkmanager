@@ -53,19 +53,11 @@ internal object IosFileCoordinator {
         timeoutMs: Long = 30_000L,
         block: (NSURL) -> T
     ): T {
-        // Detect test environment:
-        // Priority 1 — explicit parameter from test setup
-        // Priority 2 — env var KMPWORKMANAGER_TEST_MODE=1 set by test runner
-        // Priority 3 — process name ends with "test.kexe" (Kotlin/Native test runner)
-        // NOTE: We intentionally do NOT use generic "Test" string matching to avoid
-        //       bypassing NSFileCoordinator in production apps whose name contains "Test".
-        val isTestEnvironment = isTestMode || when {
-            NSProcessInfo.processInfo.environment.containsKey("KMPWORKMANAGER_TEST_MODE") -> {
-                val value = NSProcessInfo.processInfo.environment["KMPWORKMANAGER_TEST_MODE"] as? String
-                value == "1" || value?.equals("true", ignoreCase = true) == true
-            }
-            else -> NSProcessInfo.processInfo.processName.endsWith("test.kexe")
-        }
+        // Centralised in [IosTestEnvironment] (v2.5.0 QA hardening) — single source of
+        // truth, with XCTest env-var signals in addition to the legacy `test.kexe` suffix.
+        // Caller can still force test mode via the `isTestMode` parameter.
+        val isTestEnvironment = isTestMode ||
+            dev.brewkits.kmpworkmanager.utils.IosTestEnvironment.isTestEnvironment
 
         if (isTestEnvironment) {
             Logger.v(LogTags.CHAIN, "Test mode detected - skipping NSFileCoordinator for ${url.lastPathComponent}")
@@ -93,15 +85,8 @@ internal object IosFileCoordinator {
         timeoutMs: Long = 30_000L,
         block: (NSURL) -> T
     ): T {
-        // Mirror the test-mode detection from coordinate() — both must behave identically.
-        val isTestEnvironment = when {
-            NSProcessInfo.processInfo.environment.containsKey("KMPWORKMANAGER_TEST_MODE") -> {
-                val value = NSProcessInfo.processInfo.environment["KMPWORKMANAGER_TEST_MODE"] as? String
-                value == "1" || value?.equals("true", ignoreCase = true) == true
-            }
-            else -> NSProcessInfo.processInfo.processName.endsWith("test.kexe")
-        }
-        if (isTestEnvironment) {
+        // Use shared detector — single source of truth across both entry points.
+        if (dev.brewkits.kmpworkmanager.utils.IosTestEnvironment.isTestEnvironment) {
             Logger.v(LogTags.CHAIN, "Test mode detected - skipping NSFileCoordinator (sync) for ${url.lastPathComponent}")
             return block(url)
         }

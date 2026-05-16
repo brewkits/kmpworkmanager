@@ -97,7 +97,8 @@ public class IosFileStorage(
 
     private val fileManager = NSFileManager.defaultManager
 
-    private val isTestMode: Boolean = config.isTestMode ?: NSProcessInfo.processInfo.processName.endsWith("test.kexe")
+    private val isTestMode: Boolean =
+        config.isTestMode ?: dev.brewkits.kmpworkmanager.utils.IosTestEnvironment.isTestEnvironment
 
     // Tolerant Json for all persisted data: ignores unknown keys so that data written by a
     // newer schema version does not crash on rollback or when consumed by an older class.
@@ -1284,7 +1285,8 @@ public class IosFileStorage(
             // In test mode (CI simulator pre-first-unlock), NSFileProtectionCompleteUntilFirstUserAuthentication
             // blocks atomic writes (NSString.writeToFile atomically:YES needs a temp file in the same directory).
             // Skip the protection attribute entirely in test environments.
-            val isTestEnv = config.isTestMode ?: NSProcessInfo.processInfo.processName.endsWith("test.kexe")
+            val isTestEnv = config.isTestMode
+                ?: dev.brewkits.kmpworkmanager.utils.IosTestEnvironment.isTestEnvironment
             memScoped {
                 val errorPtr = alloc<ObjCObjectVar<NSError?>>()
                 val ok = if (isTestEnv) {

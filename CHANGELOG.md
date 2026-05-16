@@ -48,6 +48,32 @@ for upgrade notes from v2.4.x.
 - **Maven Central bundle** — `generateFullMavenZip` produces a signed bundle
   ready for manual upload via the Sonatype Central Portal UI.
 
+### Hardening (DX & docs, found in QA review third pass)
+- **Android — `KmpHeavyWorker.doWork` guards `setForeground()`** against
+  `SecurityException` / `ForegroundServiceStartNotAllowedException` /
+  `ForegroundServiceTypeException`. Pre-fix, a manifest/runtime FGS-type mismatch
+  crashed the worker with an opaque WorkManager stack trace. Now logs an
+  actionable diagnostic pointing to `docs/ANDROID_FGS_GUIDE.md` and returns
+  `Result.failure()`.
+- **iOS — test-environment detection centralised** in `IosTestEnvironment` (was
+  duplicated across `IosFileCoordinator`, `IosFileStorage`, `NativeTaskScheduler`
+  with the fragile `processName.endsWith("test.kexe")` heuristic). New detector
+  layers `XCTestConfigurationFilePath` / `XCInjectBundleInto` env-var signals on
+  top of the suffix check; `KMPWORKMANAGER_TEST_MODE=1` remains the explicit
+  override. A future Kotlin/Native binary-naming change no longer silently
+  breaks test-mode short-circuits.
+- **iOS — Simulator fallback** in `NativeTaskScheduler` now logs a prominent
+  warning at every fallback invocation explaining that `delay()`-based simulation
+  freezes when the app is backgrounded and is **not** representative of
+  production `BGTaskScheduler` semantics. Closes the "false sense of security"
+  trap where developers test on simulator and ship to production without
+  validating wall-clock scheduling behaviour.
+- **iOS — `checkAndExecuteMissedExactAlarms` KDoc** now leads with an
+  all-caps warning that iOS exact alarms are **not guaranteed to execute** when
+  the user never opens the app. Spells out the do-NOT-use-for list (alarm
+  clocks, medication reminders, trading triggers, time-locked unlock).
+  Companion section added to `docs/IOS_BGTASK_LIMITS.md` §5.
+
 ### Fixed (P0/P1, found in QA double-check pre-publish)
 - **iOS — `AppendOnlyQueue` CRC corruption wiped entire queue**. The validator
   set a precise `corruptionOffset` but `dequeue`'s null-handling overwrote it

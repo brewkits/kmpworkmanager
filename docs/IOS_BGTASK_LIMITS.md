@@ -277,6 +277,53 @@ Until this lands, **camera apps that need real compression on iOS** should:
 
 ---
 
+## 5. Exact alarms on iOS need a user action to "catch up"
+
+**The reality.** Unlike Android's `AlarmManager.setExactAndAllowWhileIdle` (which the
+OS fires even when the app is fully closed), **iOS has no equivalent primitive**.
+The closest iOS offers are:
+
+- `UNUserNotificationCenter` local notifications — fire on time but only show a
+  banner; do not run your code unless the user taps the notification.
+- `BGTaskScheduler` — opportunistic, no guaranteed timing (see §1).
+
+`NativeTaskScheduler.checkAndExecuteMissedExactAlarms()` is the library's
+"catch-up" pattern: when the user opens the app via `applicationDidBecomeActive`,
+the library scans persisted exact-alarm metadata and runs any that should have
+fired by now. If the user never opens the app, **the task waits indefinitely**.
+
+### DO NOT use exact alarms on iOS for
+
+- 🚫 **Alarm clocks / wake-up apps** — the user expects sound at 7 AM whether or
+  not they've opened your app this week.
+- 🚫 **Medication / prescription reminders** — same reason.
+- 🚫 **Trading / financial transaction triggers** — "execute at 3 PM" cannot be
+  guaranteed by an iOS client. Use a server-side scheduler.
+- 🚫 **Time-locked content unlock / expiring invitations** — anything where
+  missing the time window has irreversible cost.
+
+### What exact alarms ARE good for on iOS
+
+- ✅ "Sync drafts when the app opens after 2 AM" — opportunistic work the user
+  is expected to open the app for anyway.
+- ✅ "Show a 'long time no see' nudge the next time the user opens the app and
+  it's been > 7 days."
+- ✅ Best-effort triggers where missing one occurrence is fine and the next user
+  visit will catch up.
+
+### Library guarantees
+
+`KmpWorkManager` on iOS:
+
+- ✅ Persists exact-alarm metadata so `checkAndExecuteMissedExactAlarms()` can
+  catch up on next launch.
+- ✅ Tries opportunistic `BGTaskScheduler` paths in parallel so a lucky wake
+  may fire the alarm without a foreground visit.
+- ❌ Cannot wake the app at an exact time without a user-initiated action or
+  silent push. **Nothing on iOS can.**
+
+---
+
 ## Summary table
 
 | Limit | Hard ceiling | Library can mitigate? | Workaround |
@@ -285,6 +332,7 @@ Until this lands, **camera apps that need real compression on iOS** should:
 | Time budget | ~30 s App Refresh, few min Processing | Partial (checkpointing, expirationHandler) | Granular steps ≤ 5 s; prefer `BGProcessingTaskRequest` |
 | Headless DI cold-start | ~10 s before budget starts ticking | No | Lazy-init non-BGTask deps; measure cold-start on real devices |
 | No ZIP codec | K/N stdlib gap | Yes (fail-fast default) | Use Swift host for compression, or wait for v2.6 zlib cinterop |
+| Exact alarms need user action | iOS has no "wake at time T and run code" primitive | Partial (catch-up on app open) | Use `UNUserNotification` for user-visible alarms; server-side scheduler for SLA-critical timing |
 
 ---
 
