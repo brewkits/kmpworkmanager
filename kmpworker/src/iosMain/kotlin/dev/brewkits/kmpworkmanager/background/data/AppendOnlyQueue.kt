@@ -240,25 +240,34 @@ internal class AppendOnlyQueue(
                         // Launch compaction in background (non-blocking)
                         scheduleCompaction()
                     }
-                } else {
+                } else if (isQueueCorrupt) {
+                    // CRC validation failed inside readSingleRecordWithValidation. That
+                    // function has already set `corruptionOffset` to the precise byte where
+                    // the corrupt record starts — DO NOT overwrite it here, otherwise we
+                    // would force `truncateAtCorruptionPoint` to wipe the entire queue and
+                    // lose every pending task ahead of the corrupt one (regression from
+                    // v2.5.0 QA review).
+                    Logger.w(
+                        LogTags.QUEUE,
+                        "CRC corruption detected at index $headIndex (offset $corruptionOffset). " +
+                            "Will truncate at corruption point on next dequeue, preserving prior records."
+                    )
+                } else if (cacheValid && linePositionCache.containsKey(headIndex)) {
                     // Distinguish legitimate "queue empty" from "file externally truncated/replaced".
-                    // If the cache has an entry for this index but the read returned null, the
-                    // entire file was externally truncated or replaced. Setting corruptionOffset
-                    // to 0 forces truncateAtCorruptionPoint() to take the full-reset path
-                    // (offset <= headerSize), discarding any corrupt content and rebuilding the
-                    // file cleanly. A partial truncate would be wrong here because even bytes
-                    // before our cached offset may not be valid binary records.
-                    if (cacheValid && linePositionCache.containsKey(headIndex)) {
-                        Logger.w(
-                            LogTags.QUEUE,
-                            "Expected record at index $headIndex (cached offset ${linePositionCache[headIndex]}) " +
-                                "but got EOF — file appears to have been externally replaced, scheduling full reset"
-                        )
-                        isQueueCorrupt = true
-                        corruptionOffset = 0UL  // Force full reset via truncateAtCorruptionPoint
-                    } else {
-                        Logger.v(LogTags.QUEUE, "Queue is empty")
-                    }
+                    // Cache says this index existed; the read returned null without setting
+                    // `isQueueCorrupt` → the file shrank under us (external truncate, iCloud sync
+                    // swap, App Extension wrote a new file, etc.). Bytes before our cached offset
+                    // may also be invalid binary records, so a precise truncate is unsafe — only
+                    // a full reset is correct here.
+                    Logger.w(
+                        LogTags.QUEUE,
+                        "Expected record at index $headIndex (cached offset ${linePositionCache[headIndex]}) " +
+                            "but got EOF — file appears to have been externally replaced, scheduling full reset"
+                    )
+                    isQueueCorrupt = true
+                    corruptionOffset = 0UL  // Force full reset via truncateAtCorruptionPoint
+                } else {
+                    Logger.v(LogTags.QUEUE, "Queue is empty")
                 }
 
                 item

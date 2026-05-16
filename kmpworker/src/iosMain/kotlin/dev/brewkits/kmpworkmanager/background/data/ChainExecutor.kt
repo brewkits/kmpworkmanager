@@ -1253,12 +1253,21 @@ class ChainExecutor(
         // Protects device battery from drain during background execution.
         val minBattery = KmpWorkManagerRuntime.minBatteryLevelPercent
         if (minBattery > 0) {
-            UIDevice.currentDevice().batteryMonitoringEnabled = true
-            val batteryFloat = UIDevice.currentDevice().batteryLevel
-            val batteryState = UIDevice.currentDevice().batteryState
-            // Disable immediately after reading — leaving batteryMonitoringEnabled=true keeps
-            // the hardware sensor active continuously and wastes battery.
-            UIDevice.currentDevice().batteryMonitoringEnabled = false
+            val device = UIDevice.currentDevice()
+            // QA double-check fix: capture the host app's prior setting and only flip it
+            // if it was off. Some host apps enable batteryMonitoringEnabled for their own
+            // UI (e.g. settings screen showing battery state); unconditionally toggling
+            // it off after our read would silently break their feature.
+            val hostHadMonitoringEnabled = device.batteryMonitoringEnabled
+            if (!hostHadMonitoringEnabled) {
+                device.batteryMonitoringEnabled = true
+            }
+            val batteryFloat = device.batteryLevel
+            val batteryState = device.batteryState
+            // Restore only if we turned it on. If the host had it on already, leave it as is.
+            if (!hostHadMonitoringEnabled) {
+                device.batteryMonitoringEnabled = false
+            }
             val isCharging = batteryState != UIDeviceBatteryState.UIDeviceBatteryStateUnplugged &&
                 batteryState != UIDeviceBatteryState.UIDeviceBatteryStateUnknown
             val batteryPct = if (batteryFloat >= 0f) (batteryFloat * 100).toInt() else -1

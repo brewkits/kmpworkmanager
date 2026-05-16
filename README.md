@@ -20,7 +20,7 @@
 ```kotlin
 // build.gradle.kts
 commonMain.dependencies {
-    implementation("dev.brewkits:kmpworkmanager:2.4.3")
+    implementation("dev.brewkits:kmpworkmanager:2.5.0")
 }
 ```
 
@@ -193,6 +193,38 @@ and no recovery mechanism for incomplete work. Getting it wrong means your tasks
 
 ---
 
+## What's new in v2.5.0
+
+v2.5.0 is a hardening release driven by a production architecture review for camera-app workloads. Highlights:
+
+- **Parallel HTTP download/upload workers** — `ParallelHttpDownloadWorker` splits one
+  file into N HTTP `Range` chunks (default 4, up to 16) with per-chunk `.partN` resume;
+  `ParallelHttpUploadWorker` runs one POST per file under a `maxConcurrent` semaphore.
+- **Checksum verification** for `HttpDownloadWorker` — `expectedChecksum` +
+  `ChecksumAlgorithm` (MD5 / SHA-1 / SHA-256 / SHA-512) via Okio's `HashingSource`.
+- **DuplicatePolicy** on `HttpDownloadConfig` — `OVERWRITE` (default, preserves
+  pre-v2.5 behaviour), `SKIP` (return Success without network), `RENAME` (append `_1`,
+  `_2`, … to the stem).
+- **iOS background URLSession download** — `IosBackgroundDownloadWorker` survives
+  full app termination; persisted state store ensures cold-launch completion events
+  are delivered to the right `savePath` (the P0 bug fixed in this release).
+- **iOS chain retry honoring** — `WorkerResult.Retry(delayMs, attemptCap)` is now
+  honored at the chain executor level on iOS via `ChainProgress.stepRetryCounts` +
+  `ChainExecutor.requestedNextBgTaskDelayMs`.
+- **Android FGS type configurable** — `KmpHeavyWorker.foregroundServiceType` is
+  overrideable. Companion-object aliases (`FGS_DATA_SYNC`, `FGS_MEDIA_PROCESSING`,
+  `FGS_CAMERA`, …) make camera-app workloads first-class.
+- **Adversarial test coverage** — collision proof for `PendingIntent` request codes
+  (CRC32 vs `String.hashCode`), `BroadcastReceiver` lifecycle (Robolectric), iOS
+  per-step retry counter, backward-compat with v2.4.3-shaped JSON files, cold-launch
+  survival for background URLSession state.
+- **Hard-limit docs** — [`docs/IOS_BGTASK_LIMITS.md`](docs/IOS_BGTASK_LIMITS.md),
+  [`docs/ANDROID_FGS_GUIDE.md`](docs/ANDROID_FGS_GUIDE.md),
+  [`docs/APPLE_APP_STORE_REVIEW_GUIDELINES.md`](docs/APPLE_APP_STORE_REVIEW_GUIDELINES.md).
+
+Full breakdown: [`CHANGELOG.md`](CHANGELOG.md). Upgrade notes for users on v2.4.x:
+[`docs/MIGRATION_V2.5.0.md`](docs/MIGRATION_V2.5.0.md).
+
 ## What's new in v2.4.3
 
 ### iOS Dynamic Task IDs (no more Info.plist for every task)
@@ -334,8 +366,8 @@ Add to `build.gradle.kts`:
 plugins { id("com.google.devtools.ksp") }
 
 dependencies {
-    ksp("dev.brewkits:kmpworker-ksp:2.4.3")
-    commonMain.implementation("dev.brewkits:kmpworker-annotations:2.4.3")
+    ksp("dev.brewkits:kmpworker-ksp:2.5.0")
+    commonMain.implementation("dev.brewkits:kmpworker-annotations:2.5.0")
 }
 ```
 
@@ -414,7 +446,7 @@ RFC 3986 UserInfo bypass and multi-`@` authority attacks are both handled. DNS r
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Common issues |
 | [CHANGELOG](CHANGELOG.md) | Release history |
 
-**Migration:** [v2.2.2 → v2.3.0](docs/MIGRATION_V2.3.0.md) · [v2.3.3 → v2.3.4](docs/MIGRATION_V2.3.3_TO_V2.3.4.md)
+**Migration:** [v2.2.2 → v2.3.0](docs/MIGRATION_V2.3.0.md) · [v2.3.3 → v2.3.4](docs/MIGRATION_V2.3.3_TO_V2.3.4.md) · [v2.4.x → v2.5.0](docs/MIGRATION_V2.5.0.md)
 
 ---
 

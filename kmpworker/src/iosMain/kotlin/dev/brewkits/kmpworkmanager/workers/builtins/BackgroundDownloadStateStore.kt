@@ -166,15 +166,29 @@ internal object BackgroundDownloadStateStore {
     fun getSync(sessionIdentifier: String, taskIdentifier: Long): Entry? {
         // Reading [cache] via @Volatile gives us happens-before relative to any prior
         // suspend put/remove that did `cache = …` after writing to disk. On cold-launch,
-        // [cache] is null until the first delegate callback or first suspend get(); the
-        // call below loads from disk and publishes via the volatile write.
+        // [cache] is null until the first delegate callback; we load from disk and publish
+        // — but ONLY if no other thread (a concurrent put/remove) beat us to it.
         //
-        // We don't synchronize because K/N has no `synchronized` keyword and the worst
-        // case (two delegate threads both observing null and both loading from disk) is
-        // benign — they read the same file and end up with the same Map. iOS in practice
-        // serialises delegate callbacks per session, so concurrent loads are unlikely.
-        val snapshot = cache ?: readUnlocked().entries.also { cache = it }
-        return snapshot["$sessionIdentifier:$taskIdentifier"]
+        // The pre-fix code used `cache ?: readUnlocked().also { cache = it }` which had
+        // a race: between observing cache==null and the `also` write-back, a concurrent
+        // put() could have updated the cache with fresh data; the also-block would then
+        // clobber that fresh write with our stale disk read. We now compare-and-set on
+        // the publish, only writing if the cache is still null. This re-introduces the
+        // same orphan-download bug v2.5.0 fixed if not guarded — caught in QA review
+        // double-check pass.
+        val cached = cache
+        if (cached != null) return cached["$sessionIdentifier:$taskIdentifier"]
+
+        val fromDisk = readUnlocked().entries
+        // Only publish to cache if still null — a concurrent put/remove may have
+        // already populated cache with a fresher snapshot, which we must NOT clobber.
+        if (cache == null) cache = fromDisk
+
+        // Look up against the freshest known map. If a concurrent write landed during
+        // our disk read, `cache` is now non-null and newer; prefer it. Otherwise use
+        // the disk snapshot we just published.
+        val authoritative = cache ?: fromDisk
+        return authoritative["$sessionIdentifier:$taskIdentifier"]
     }
 
     /**

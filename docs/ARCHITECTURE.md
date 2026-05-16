@@ -80,5 +80,5 @@ Android's `PeriodicWorkRequest` has a minimum interval of 15 minutes. To support
 
 ---
 
-**Last Updated:** April 2026
-**Version:** 2.4.3
+**Last Updated:** May 2026
+**Version:** 2.5.0

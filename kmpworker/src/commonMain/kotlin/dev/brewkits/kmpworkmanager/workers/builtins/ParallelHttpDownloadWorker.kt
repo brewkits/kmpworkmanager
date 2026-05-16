@@ -92,9 +92,14 @@ class ParallelHttpDownloadWorker(
             throw e
         } catch (e: Exception) {
             Logger.e("ParallelHttpDownloadWorker", "Download failed", e)
+            // attemptCap=4 guards against a degenerate retry storm — e.g. the merge step
+            // hitting disk-full on every attempt. Without a cap, the chain could re-enter
+            // here forever (caught in QA review double-check). 4 attempts × 15 s delay =
+            // ~1 min of recovery time, enough for transient disk/network issues to clear.
             WorkerResult.Retry(
                 reason = "download failed: ${e.message ?: e::class.simpleName ?: "unknown"}",
-                delayMs = 15_000L
+                delayMs = 15_000L,
+                attemptCap = 4,
             )
         }
     }
@@ -232,8 +237,23 @@ class ParallelHttpDownloadWorker(
                     "in ${config.numChunks} chunks"
             )
         } catch (e: Exception) {
-            // Defensive: leave part files for the next attempt to resume.
+            // Pre-fix behaviour: leave .partN intact, only delete .merged. The QA review
+            // showed this caused a retry storm for disk-pressure failures — every retry
+            // would see .partN files exist at expected sizes, skip the download, then
+            // hit the same disk-full mergeChunks and loop forever (still no progress).
+            //
+            // Fix: when merge fails (or any post-merge step), purge .partN too. The next
+            // retry has to re-download — slower but guarantees forward progress. Combined
+            // with the outer `Retry(attemptCap = 4)` in [doWork], a permanently full
+            // disk fails the worker cleanly after ~1 minute instead of looping forever.
+            Logger.w(
+                "ParallelHttpDownloadWorker",
+                "Merge/finalize failed (${e::class.simpleName}: ${e.message}). " +
+                    "Purging .merged and ${partPaths.size} .partN files to prevent retry storm. " +
+                    "Next attempt will re-download from scratch."
+            )
             deleteIfExists(mergedPath)
+            partPaths.forEach { deleteIfExists(it) }
             throw e
         }
     }

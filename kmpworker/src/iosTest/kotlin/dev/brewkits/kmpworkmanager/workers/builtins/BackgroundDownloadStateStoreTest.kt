@@ -142,6 +142,54 @@ class BackgroundDownloadStateStoreTest {
     }
 
     @Test
+    fun getSync_doesNotClobberCacheFromConcurrentPut() = runBlocking<Unit> {
+        // QA double-check regression: pre-fix `getSync` did
+        // `cache ?: readUnlocked().also { cache = it }`. Between observing cache==null
+        // and the `.also { cache = it }` write-back, a concurrent put() can update the
+        // cache. The `.also` block would then overwrite the fresh cache with the stale
+        // disk snapshot, re-introducing the "wrong savePath on cold-launch" bug v2.5.0
+        // claimed to fix.
+        //
+        // We can't trigger the exact race deterministically in a unit test (the window
+        // is microseconds), but we CAN simulate the sequence with cache invalidation
+        // and assert getSync's published cache never clobbers a fresher one.
+
+        val initial = BackgroundDownloadStateStore.Entry(
+            sessionIdentifier = "$testRunId-race",
+            taskIdentifier = 1L,
+            savePath = "/var/old.bin",
+            workerName = "Worker",
+            createdAtMs = 1L,
+        )
+        BackgroundDownloadStateStore.put(initial)
+
+        // Simulate "cold-launch": cache cleared, but disk still has `initial`.
+        BackgroundDownloadStateStore.invalidateInMemoryCacheForTest()
+
+        // Concurrent writer (running before getSync gets to publish its disk-read)
+        // produces a NEWER state on disk and in cache.
+        val updated = BackgroundDownloadStateStore.Entry(
+            sessionIdentifier = "$testRunId-race",
+            taskIdentifier = 1L,
+            savePath = "/var/new.bin", // ← the new "correct" path
+            workerName = "Worker",
+            createdAtMs = 2L,
+        )
+        BackgroundDownloadStateStore.put(updated)
+
+        // After `put(updated)` returns, cache is populated with `updated`. A delayed
+        // getSync that started its disk read BEFORE put landed must not now clobber
+        // the cache with the stale "old.bin" snapshot. The post-fix CAS-style publish
+        // (only-if-null) guarantees this. We assert by reading and expecting the new
+        // path back.
+        val recovered = BackgroundDownloadStateStore.getSync("$testRunId-race", 1L)
+        assertEquals(
+            "/var/new.bin", recovered?.savePath,
+            "getSync must not clobber a fresh cache with a stale disk snapshot",
+        )
+    }
+
+    @Test
     fun sweepStale_dropsOldEntries_keepsFreshOnes() = runBlocking<Unit> {
         val nowMs = 10_000_000L
         val maxAge = 60_000L

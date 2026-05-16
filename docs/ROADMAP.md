@@ -79,6 +79,39 @@ already has these features in production; KMP catches up here.
   The worker returns `Success` as soon as the OS accepts the request;
   completion is delivered later via `TaskEventBus`.
 
+### P0.6 — second-pass QA double-check fixes (4 critical bugs)
+
+A double-check audit after the initial QA review surfaced four more critical
+bugs that the first pass missed. All four are real and verified against the
+source; all are fixed in v2.5.0 before publish:
+
+- ✅ **Queue full-reset on CRC corruption** (data loss, `AppendOnlyQueue.dequeue`).
+  When `readSingleRecordWithValidation` set `corruptionOffset` precisely at the
+  corrupt record, the `dequeue` else-branch unconditionally overwrote it to
+  `0UL`, forcing `truncateAtCorruptionPoint` to wipe the entire queue. Fix:
+  added `else if (isQueueCorrupt)` guard so the precise offset is preserved.
+  Coverage: `AppendOnlyQueueCrcCorruptionTest`.
+- ✅ **`BackgroundDownloadStateStore.getSync` cache stale-write race**. The
+  pre-fix code `cache ?: readUnlocked().also { cache = it }` had a window where
+  a concurrent `put`/`remove` could land between observing `cache == null` and
+  the write-back; the write-back would then clobber the fresh cache with a
+  stale disk snapshot — re-introducing the cold-launch orphan bug v2.5 was
+  supposed to fix. Fix: compare-and-set publish (only-if-still-null). Coverage:
+  `BackgroundDownloadStateStoreTest.getSync_doesNotClobberCacheFromConcurrentPut`.
+- ✅ **`ChainExecutor` battery monitoring side-effect**. The chain executor
+  unconditionally set `UIDevice.batteryMonitoringEnabled = true; …; = false`,
+  clobbering any host-app prior state. Fix: capture
+  `hostHadMonitoringEnabled` and only toggle if the host had it off.
+- ✅ **`ParallelHttpDownloadWorker` retry storm on disk-full**. Pre-fix the
+  merge-failure catch kept `.partN` files; on retry `downloadOneChunk` would
+  skip the network (parts match expected sizes) and `mergeChunks` would fail
+  again with the same error, looping forever until the user freed disk space.
+  Fix: (a) merge-failure catch now purges `.partN` as well so retry must
+  re-download, (b) outer Retry now carries `attemptCap = 4` to cap the loop
+  at ~1 min regardless. Coverage:
+  `ParallelHttpDownloadWorkerTest.parallel_mergeFailure_cleansUpAllParts_breaksRetryStorm`
+  + `parallel_outerRetryHasAttemptCap_toBreakInfiniteLoop`.
+
 ### P0.5 — critical bug fix after QA/QC review (Senior Dev lens)
 
 - ✅ `IosBackgroundUrlSessionManager` cold-launch survival. The pre-v2.5.0

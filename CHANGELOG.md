@@ -5,6 +5,111 @@ All notable changes to KMP WorkManager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0] - 2026-05-16
+
+Production-hardening release driven by a camera-app architecture review.
+See [`docs/release-notes/v2.5.0-RELEASE-NOTES.md`](docs/release-notes/v2.5.0-RELEASE-NOTES.md)
+for the full breakdown and [`docs/MIGRATION_V2.5.0.md`](docs/MIGRATION_V2.5.0.md)
+for upgrade notes from v2.4.x.
+
+### Added
+- **`ParallelHttpDownloadWorker`** — splits one file into N HTTP `Range` chunks
+  (1..16, default 4) with per-chunk `.partN` resume. Sequential fallback when
+  the server lacks `Accept-Ranges: bytes`.
+- **`ParallelHttpUploadWorker`** — one POST per file under a `Semaphore`-bounded
+  concurrency cap (1..16, default 3) with per-file retry on 5xx / network
+  errors only (`maxRetries` 0..5, default 1; 4xx never retried).
+- **Checksum verification** on `HttpDownloadConfig` — `expectedChecksum` +
+  `ChecksumAlgorithm` (MD5 / SHA-1 / SHA-256 / SHA-512) via Okio's
+  `HashingSource`. Mismatch deletes the partial file and Fails.
+- **`DuplicatePolicy`** on `HttpDownloadConfig` — `OVERWRITE` (default,
+  preserves pre-v2.5 behaviour), `SKIP` (return Success without network),
+  `RENAME` (append `_1`, `_2`, … to the stem, bounded at 10 000 probes).
+- **`IosBackgroundDownloadWorker`** + `IosBackgroundUrlSessionManager` —
+  downloads survive full app termination via `URLSessionConfiguration.background`.
+- **`WorkerResult.Retry(reason, delayMs, attemptCap)`** — explicit retry signal.
+  Android maps to `Result.retry()` with attempt-cap ceiling via
+  `runAttemptCount`; iOS `ChainExecutor` honors `delayMs` (re-arms
+  `BGProcessingTaskRequest`) and `attemptCap` (abandons step on reach).
+- **`ChainProgress.stepRetryCounts`** — per-step attempt counter on iOS,
+  independent from chain-level `retryCount`.
+- **Configurable Android FGS type** — `KmpHeavyWorker.foregroundServiceType` is
+  overrideable. Companion aliases (`FGS_DATA_SYNC`, `FGS_MEDIA_PROCESSING` for
+  Android 15+, `FGS_CAMERA`, `FGS_LOCATION`, …).
+- **`BackgroundDownloadStateStore`** (internal) — atomic JSON-backed map of
+  in-flight `URLSession` downloads keyed by `(sessionIdentifier, taskIdentifier)`.
+- **File-size queue compaction trigger** — `AppendOnlyQueue` compacts when the
+  queue file exceeds 5 MB with ≥ 20 % processed.
+- **CI matrix** — Android API 28/30/33/35, iOS 16/17/18, Robolectric on Ubuntu,
+  KSP processor tests isolated.
+- **CodeQL** (`java-kotlin`) on every PR + weekly schedule.
+- **Dependabot grouping** — `kotlin-toolchain`, `ktor`, `coroutines`,
+  `androidx`, `compose`.
+- **Maven Central bundle** — `generateFullMavenZip` produces a signed bundle
+  ready for manual upload via the Sonatype Central Portal UI.
+
+### Fixed (P0/P1, found in QA double-check pre-publish)
+- **iOS — `AppendOnlyQueue` CRC corruption wiped entire queue**. The validator
+  set a precise `corruptionOffset` but `dequeue`'s null-handling overwrote it
+  to `0UL`, forcing a full reset on the next dequeue. Pending tasks ahead of
+  the corrupt record were lost. v2.5 keeps the precise offset; truncate now
+  preserves all valid records before the corruption point.
+- **iOS — `BackgroundDownloadStateStore.getSync` cache race**. A concurrent
+  `put`/`remove` between the volatile-null-check and the write-back could be
+  silently clobbered by a stale disk snapshot — re-introducing the cold-launch
+  orphan bug v2.5 was supposed to fix. v2.5 uses compare-and-set publish
+  semantics.
+- **iOS — `ChainExecutor` clobbered host battery monitoring state**. The chain
+  executor unconditionally toggled `UIDevice.batteryMonitoringEnabled = true; …; = false`,
+  breaking any host app that had it set. v2.5 captures the prior state and
+  restores it.
+- **`ParallelHttpDownloadWorker` retry storm**. Merge-failure catch kept
+  `.partN` files; on retry the worker skipped downloads (parts match expected
+  sizes) and the merge failed again with the same error → infinite loop. v2.5
+  purges all parts on merge failure (retry re-downloads from scratch) and
+  caps the outer Retry at `attemptCap = 4`.
+
+### Fixed
+- **iOS — `IosBackgroundUrlSessionManager` cold-launch orphan** (P0). Before
+  v2.5.0 the manager kept `savePaths` / `taskNames` only in process memory.
+  iOS app-kill + cold-launch wiped them; the completion delegate had no
+  `savePath` and orphaned the downloaded file in `NSTemporaryDirectory`.
+  v2.5.0 persists state to disk via `BackgroundDownloadStateStore` before
+  `task.resume()`. Adversarial coverage in `BackgroundDownloadStateStoreTest`.
+- **iOS — `FileCompressionWorker` silent copy** (correctness). Pre-v2.5 the
+  worker silently `copyItemAtPath`'d the file (no ZIP codec on Kotlin/Native)
+  and reported Success. v2.5 fails fast by default; opt in via
+  `FileCompressionConfig.allowIosUncompressedFallback = true`.
+- **Android — `PendingIntent` request-code collisions**. Alarm codes used
+  `String.hashCode()` which collides on UUID-style IDs (`"Aa".hashCode() ==
+  "BB".hashCode() == 2112`). v2.5 uses `PendingIntentCodes.forTaskId()` (CRC32).
+  Adversarial proof in `PendingIntentCodesAdversarialTest`.
+- **Android — `BaseAlarmReceiver` lifecycle leak**.
+  `CoroutineScope(Dispatchers.IO).launch{}` in `onReceive` could outlive the
+  receiver's ~10 s budget. v2.5 uses `SupervisorJob` + `withTimeout(workTimeoutMs)`
+  (default 8 s) + `scope.cancel()` in `finally`. Coverage:
+  `BaseAlarmReceiverLifecycleTest`.
+- **SSRF blocklist** — RFC 6598 CGNAT `100.64.0.0/10` and `0.0.0.0/8` now blocked.
+
+### Changed
+- **`HttpDownloadWorker`** — 5xx responses now return
+  `WorkerResult.Retry(delayMs = 30_000)` (was `Failure(shouldRetry = true)`).
+  Resumable downloads via `<savePath>.partial` + HTTP `Range`.
+- **`KmpHeavyWorker`** is now `open` so subclasses can override
+  `foregroundServiceType`. Type API range extended from API 31+ to API 29+
+  (Q) — `ForegroundInfo`'s type-aware constructor has always existed on Q.
+
+### Docs
+- `docs/ANDROID_FGS_GUIDE.md` — manifest snippets per FGS type, Android 15
+  6-hour `dataSync` cap.
+- `docs/IOS_BGTASK_LIMITS.md` — opportunistic scheduling, time budget,
+  headless DI cold-start, ZIP codec gap.
+- `docs/IOS_BACKGROUND_URL_SESSION.md` — AppDelegate wiring + cold-launch
+  survival explainer.
+- `docs/APPLE_APP_STORE_REVIEW_GUIDELINES.md` — §2.5.4 compliance for dynamic
+  task dispatch.
+- `docs/MIGRATION_V2.5.0.md` — upgrade guide from v2.4.x.
+
 ## [2.4.3] - 2026-04-30
 
 ### Highlights

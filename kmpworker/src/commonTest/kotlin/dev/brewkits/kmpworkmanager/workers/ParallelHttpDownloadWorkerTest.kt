@@ -215,6 +215,101 @@ class ParallelHttpDownloadWorkerTest {
     }
 
     @Test
+    fun parallel_mergeFailure_cleansUpAllParts_breaksRetryStorm() = runTest {
+        // QA double-check regression: pre-fix, if mergeChunks threw (e.g. disk full),
+        // the catch block deleted only `.merged` and KEPT `.partN`. On retry,
+        // downloadOneChunk saw all parts at expected size and skipped the download,
+        // mergeChunks would fire again and fail with the same error → infinite retry
+        // loop with no forward progress. Post-fix: on any merge/post-merge failure,
+        // BOTH `.merged` and all `.partN` files must be purged so the next retry has
+        // to re-download from scratch (clean slate).
+        //
+        // We trigger a post-merge failure by giving a deliberately-wrong checksum.
+        // The checksum-mismatch path is the same try block as merge — it exercises
+        // the same cleanup code. (We can't easily simulate IOException-on-merge from
+        // a pure-JVM/K-N test, but the cleanup branch is shared.)
+        val payload = "valid payload".encodeToByteArray()
+        val (engine, _) = rangeServer(payload)
+
+        val savePath = "test_merge_fail_${kotlin.random.Random.nextInt()}.bin".toPath()
+        val fs = FileSystem.SYSTEM
+        val worker = ParallelHttpDownloadWorker(mockClient(engine), fs)
+        val config = ParallelHttpDownloadConfig(
+            url = "https://example.com/file",
+            savePath = savePath.toString(),
+            numChunks = 2,
+            expectedChecksum = "deadbeef".repeat(8), // forces post-merge failure
+            checksumAlgorithm = ChecksumAlgorithm.SHA256,
+        )
+        val input = KmpWorkManagerRuntime.json.encodeToString(config)
+
+        try {
+            worker.doWork(input, WorkerEnvironment(null) { false })
+
+            // Post-fix: all artefacts must be gone. If a regression keeps .partN files,
+            // a subsequent retry would loop forever.
+            assertFalse(fs.exists(savePath), "savePath must be gone after merge failure")
+            assertFalse(fs.exists("${savePath}.merged".toPath()),
+                ".merged must be cleaned up after failure")
+            for (i in 0..1) {
+                assertFalse(
+                    fs.exists("${savePath}.part$i".toPath()),
+                    "part file $i must be cleaned up to prevent retry storm",
+                )
+            }
+        } finally {
+            if (fs.exists(savePath)) fs.delete(savePath)
+            for (i in 0..1) {
+                val p = "${savePath}.part$i".toPath()
+                if (fs.exists(p)) fs.delete(p)
+            }
+            val merged = "${savePath}.merged".toPath()
+            if (fs.exists(merged)) fs.delete(merged)
+        }
+    }
+
+    @Test
+    fun parallel_outerRetryHasAttemptCap_toBreakInfiniteLoop() = runTest {
+        // QA double-check regression: ParallelHttpDownloadWorker's outer catch returns
+        // `WorkerResult.Retry(...)` without an attemptCap pre-fix. If the merge step
+        // hit a permanent error (disk full, permission denied), the chain would
+        // re-enter the worker forever. Post-fix: outer Retry sets attemptCap = 4.
+        //
+        // Trigger the outer catch by serving an unreachable URL. This bypasses the
+        // configured checksum mismatch path (which returns Failure) and exercises
+        // the network-error → outer Retry path.
+        val savePath = "test_retry_cap_${kotlin.random.Random.nextInt()}.bin".toPath()
+        val fs = FileSystem.SYSTEM
+        // Engine that errors on every request — simulates total network failure.
+        val engine = MockEngine { _ -> error("simulated network failure") }
+        val worker = ParallelHttpDownloadWorker(mockClient(engine), fs)
+        val config = ParallelHttpDownloadConfig(
+            url = "https://example.com/file",
+            savePath = savePath.toString(),
+            numChunks = 2,
+        )
+        val input = KmpWorkManagerRuntime.json.encodeToString(config)
+
+        try {
+            val result = worker.doWork(input, WorkerEnvironment(null) { false })
+            assertTrue(result is WorkerResult.Retry, "expected Retry on network failure, got $result")
+            val retry = result as WorkerResult.Retry
+            assertEquals(4, retry.attemptCap,
+                "outer Retry must carry attemptCap = 4 to prevent infinite retry storm")
+            assertTrue((retry.delayMs ?: 0L) > 0,
+                "Retry must carry a positive delayMs (got ${retry.delayMs})")
+        } finally {
+            if (fs.exists(savePath)) fs.delete(savePath)
+            for (i in 0..1) {
+                val p = "${savePath}.part$i".toPath()
+                if (fs.exists(p)) fs.delete(p)
+            }
+            val merged = "${savePath}.merged".toPath()
+            if (fs.exists(merged)) fs.delete(merged)
+        }
+    }
+
+    @Test
     fun parallel_checksumMismatch_returnsFailure_andCleansUp() = runTest {
         val payload = "valid payload".encodeToByteArray()
         val (engine, _) = rangeServer(payload)

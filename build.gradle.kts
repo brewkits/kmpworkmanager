@@ -33,7 +33,7 @@ tasks.register<Delete>("clean") {
 
 // Wipes the Maven staging dir so a new bundle can never accidentally pick up
 // artifacts from a previous run (e.g. the older version's `.module` files when
-// you bump from 2.4.3 → 2.4.4 in the same workspace). Must run BEFORE the
+// you bump from 2.4.3 → 2.5.0 in the same workspace). Must run BEFORE the
 // per-module `publishAllPublicationsToMavenCentralLocalRepository` tasks.
 val cleanMavenStaging by tasks.registering(Delete::class) {
     group = "publishing"
