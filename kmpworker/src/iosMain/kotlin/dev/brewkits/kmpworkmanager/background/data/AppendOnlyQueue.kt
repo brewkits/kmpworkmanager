@@ -83,8 +83,25 @@ internal class AppendOnlyQueue(
     // Persistent index for O(1) startup
     private val queueIndex = QueueIndex(indexFileURL)
 
-    // Compaction threshold: trigger when 80%+ items are processed
+    // Ratio-based compaction trigger: fire when 80%+ items are processed AND there are
+    // at least 100 processed items to reclaim. Good for steady-state dequeue workloads.
     private val COMPACTION_THRESHOLD = 0.8
+
+    // File-size-based compaction trigger (v2.5 — QA review action item).
+    //
+    // The ratio-based trigger above breaks down in two scenarios:
+    //   1. Enqueue-heavy: 5 000 items enqueued, only 50 dequeued — ratio is 1 %, no compact,
+    //      file keeps growing. Reviewer flagged this as a real production risk (long-running
+    //      sync apps).
+    //   2. Bursty: 200 items dequeued (compaction fires, head reset to 0), then another
+    //      9 000 items enqueued without dequeue — file is 5+ MB even though head=0.
+    //
+    // The file-size trigger fires when the queue file exceeds 5 MB AND any item has been
+    // processed (so there's actually slack to reclaim). Compaction itself only removes
+    // processed items, so this is a no-op when head=0; the value is in lowering the ratio
+    // threshold so we don't have to wait for 80 % to clear before reclaiming space.
+    private val MAX_QUEUE_FILE_SIZE_BYTES: ULong = 5UL * 1024UL * 1024UL  // 5 MB
+    private val FILE_SIZE_COMPACTION_RATIO = 0.2  // 20 % processed is enough when file is large
 
     // Maximum queue size to prevent unbounded growth
     private val MAX_QUEUE_SIZE = 10_000
@@ -716,17 +733,61 @@ internal class AppendOnlyQueue(
     }
 
     /**
-     * Check if compaction is needed
-     * Compaction is beneficial when 80%+ of items are processed
+     * Check if compaction is needed.
+     *
+     * Two triggers, either one fires:
+     *  - **Ratio trigger** — 80 %+ items processed AND at least 100 processed (steady state).
+     *  - **File-size trigger** (v2.5) — queue file > 5 MB AND ≥ 20 % processed AND ≥ 50
+     *    processed items (large-file slack reclaim). Lower ratio threshold here because the
+     *    cost of waiting longer is paid in disk space and read-time I/O.
+     *
+     * Both triggers require `headIndex > 0` because compaction only reclaims processed
+     * items; firing it when nothing has been dequeued is a no-op that wastes CPU.
      */
     private fun shouldCompact(): Boolean {
         val headIndex = readHeadPointer()
         val totalLines = countTotalLines()
 
-        if (totalLines == 0) return false
+        if (totalLines == 0 || headIndex == 0) return false
 
         val processedRatio = headIndex.toDouble() / totalLines
-        return processedRatio >= COMPACTION_THRESHOLD && headIndex > 100  // Only compact if significant waste
+
+        // Ratio-based trigger.
+        if (processedRatio >= COMPACTION_THRESHOLD && headIndex > 100) {
+            return true
+        }
+
+        // File-size-based trigger.
+        val fileSize = currentQueueFileSize()
+        if (fileSize > MAX_QUEUE_FILE_SIZE_BYTES &&
+            processedRatio >= FILE_SIZE_COMPACTION_RATIO &&
+            headIndex > 50
+        ) {
+            Logger.i(
+                LogTags.QUEUE,
+                "Queue file size ${fileSize} bytes exceeds threshold ${MAX_QUEUE_FILE_SIZE_BYTES}; " +
+                    "scheduling early compaction (processed=${headIndex}/${totalLines})"
+            )
+            return true
+        }
+
+        return false
+    }
+
+    /**
+     * Best-effort file-size lookup. Returns 0 on any I/O failure — we don't want
+     * compaction decisions to throw and block dequeue.
+     */
+    private fun currentQueueFileSize(): ULong {
+        val path = queueFileURL.path ?: return 0UL
+        if (!fileManager.fileExistsAtPath(path)) return 0UL
+        return try {
+            val attrs = fileManager.attributesOfItemAtPath(path, null) ?: return 0UL
+            val size = attrs[platform.Foundation.NSFileSize] as? platform.Foundation.NSNumber
+            size?.unsignedLongLongValue ?: 0UL
+        } catch (e: Exception) {
+            0UL
+        }
     }
 
     /**

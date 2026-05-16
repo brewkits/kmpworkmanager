@@ -79,6 +79,23 @@ already has these features in production; KMP catches up here.
   The worker returns `Success` as soon as the OS accepts the request;
   completion is delivered later via `TaskEventBus`.
 
+### P1.6 — pulled in after QA/QC review (Senior Dev lens)
+
+- ✅ File-size-based compaction trigger for `AppendOnlyQueue` — addresses the
+  enqueue-heavy workload edge case where the ratio-based trigger (80 % processed)
+  never fires. New trigger: file > 5 MB AND ≥ 20 % processed AND ≥ 50 processed
+  items. Pinned by `QueueScaleStressTest.fileSizeCompaction_reclaimsSpaceAfterDequeue`.
+- ✅ Backward-compatibility regression net — `BackwardCompatibilityTest` pins
+  that v2.4.3-shaped `ChainProgress` JSON files load on v2.5.0 without data
+  loss (additive `stepRetryCounts` defaults to `emptyMap()`), tolerates
+  hypothetical v2.6+ unknown fields, and self-heals corrupt input rather than
+  throwing.
+- ✅ Scale stress test — `QueueScaleStressTest.enqueue_2k_dequeue_2k_correctnessAtScale`
+  guards against accidental O(N²) regressions (would push runtime past 5 min
+  ceiling) and complements the existing 200-op test in `AppendOnlyQueueTest`.
+- ✅ `docs/APPLE_APP_STORE_REVIEW_GUIDELINES.md` — App Store §2.5.4 compliance
+  guide for dynamic task dispatch under one `BGTaskScheduler` identifier.
+
 ### P1.5 — pulled into 2.5 after architecture re-review
 
 - ✅ iOS chain retry semantics — `WorkerResult.Retry.delayMs` / `attemptCap`
