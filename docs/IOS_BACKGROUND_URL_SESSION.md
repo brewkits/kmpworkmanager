@@ -116,6 +116,62 @@ TaskEventBus.events
       grants the relaunch budget. (Many apps already have this for `BGTaskScheduler`.)
 - [ ] Consumer subscribes to `TaskEventBus` early in the launch sequence — events fired
       during a relaunch arrive before the rest of the UI is mounted.
+- [ ] Optionally call `IosBackgroundUrlSessionManager.sweepStaleStateOnLaunch()` from
+      `didFinishLaunchingWithOptions` so abandoned state entries (downloads iOS gave up
+      on after more than 7 days) are cleaned out. Without this, the state file grows
+      slowly but unboundedly across years of installs.
+
+## How cold-launch survival actually works (v2.5+)
+
+A common assumption is that the URL session manager keeps an in-memory map of
+`taskIdentifier → savePath`. **That assumption is wrong on iOS** — when the user
+swipes the app away and iOS later relaunches it to deliver a completion event, the
+in-memory map is empty. Before v2.5.0 this exact bug caused completed downloads
+to be silently orphaned in `NSTemporaryDirectory`.
+
+v2.5.0 backs the mapping with a JSON file at
+`<AppSupport>/dev.brewkits.kmpworkmanager/bg_url_session_state.json`. The flow:
+
+```
+Time t=0    enqueueDownload() called
+            ↓
+            BackgroundDownloadStateStore.put(entry)   ← persisted FIRST
+            ↓
+            task.resume()                              ← daemon takes over
+
+Time t=N    User swipes the app away
+            ↓
+            App process dies; in-memory maps wiped
+            ↓
+            Download keeps going inside nsurlsessiond (system daemon)
+
+Time t=N+M  Download finishes
+            ↓
+            iOS cold-launches the app
+            ↓
+            AppDelegate forwards handleEventsForBackgroundURLSession
+            ↓
+            Session re-registered; delegate fires didFinishDownloadingToURL
+            ↓
+            getSync() reads the JSON file (cache was empty)
+            ↓
+            File moved synchronously to savePath
+            ↓
+            TaskCompletionEvent emitted
+            ↓
+            Entry removed from store
+```
+
+The synchronous disk read in step 4 is critical — iOS deletes the temporary
+download file the moment the delegate method returns, so the move must finish
+before the function exits. The store uses atomic writes (`writeToURL(atomically: true)`),
+so a power loss mid-write keeps the previous version of the JSON file rather
+than leaving a half-written one.
+
+If the JSON file gets wiped between enqueue and completion (user reinstalls
+the app, "Reset Settings", disk repair), the library logs a warning and the
+file is intentionally orphaned — that's the price of self-healing rather than
+crashing on missing state.
 
 ## Status
 

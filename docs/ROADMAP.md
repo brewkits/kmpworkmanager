@@ -79,6 +79,23 @@ already has these features in production; KMP catches up here.
   The worker returns `Success` as soon as the OS accepts the request;
   completion is delivered later via `TaskEventBus`.
 
+### P0.5 — critical bug fix after QA/QC review (Senior Dev lens)
+
+- ✅ `IosBackgroundUrlSessionManager` cold-launch survival. The pre-v2.5.0
+  manager kept `savePaths`/`taskNames` only in process memory. When iOS killed
+  the app and cold-launched it to deliver a `URLSession` delegate callback, the
+  in-memory map was empty and the downloaded file was orphaned in
+  `NSTemporaryDirectory` while no completion event was ever emitted.
+  v2.5.0 backs the mapping with a JSON file in Application Support
+  (`BackgroundDownloadStateStore`). The store keys by `(sessionIdentifier,
+  taskIdentifier)` to disambiguate iOS's per-session task ID recycling.
+  Synchronous disk read in the delegate ensures the file move completes before
+  iOS reclaims the temp file. Atomic writes (`writeToURL(atomically=true)`)
+  survive power loss. Adversarial coverage:
+  `BackgroundDownloadStateStoreTest` proves: round-trip, simulated cold-launch
+  via cache invalidation, `(session, task)` disambiguation, idempotent remove,
+  stale-entry sweep.
+
 ### P1.6 — pulled in after QA/QC review (Senior Dev lens)
 
 - ✅ File-size-based compaction trigger for `AppendOnlyQueue` — addresses the
