@@ -346,12 +346,20 @@ dependencies {
 | Worker | Status | Notes |
 |--------|--------|-------|
 | `HttpRequestWorker` | Stable | One-shot HTTP with configurable method, headers, body. SSRF-validated. |
-| `HttpDownloadWorker` | ⚠️ Experimental | Resumable download via HTTP `Range` (v2.5+). Partial progress saved to `<savePath>.partial`; a process kill resumes from last byte. Requires server `206 Partial Content` support. |
-| `HttpUploadWorker` | ⚠️ Experimental | Streaming multipart upload. **No resumable / chunked upload** — same restart-from-zero caveat. |
+| `HttpDownloadWorker` | Stable (v2.5+) | Resumable download via HTTP `Range`. `<savePath>.partial` survives process kill; a process kill resumes from last byte. Supports SHA-256/SHA-1/SHA-512/MD5 checksum verification and `DuplicatePolicy` (overwrite / skip / rename). |
+| `ParallelHttpDownloadWorker` | New in v2.5 | Splits a single file into N (1..16, default 4) HTTP `Range` chunks downloaded concurrently with per-chunk `.partN` resume. Automatic sequential fallback when the server does not advertise `Accept-Ranges: bytes`. Same checksum verification surface as `HttpDownloadWorker`. |
+| `HttpUploadWorker` | ⚠️ Experimental | Streaming multipart upload. No resumable / chunked upload yet (see `ParallelHttpUploadWorker` for multi-file uploads). |
+| `ParallelHttpUploadWorker` | New in v2.5 | One POST per file with per-host `maxConcurrent` limit (1..16, default 3) and per-file retry on 5xx / network errors (`maxRetries` 0..5). Per-file outcomes exposed via `WorkerResult.Success.data.fileResults`. |
+| `IosBackgroundDownloadWorker` | iOS-only, experimental (v2.5+) | Hands the download to `URLSessionConfiguration.background` so the transfer survives **full app termination**. Host AppDelegate must wire `application(_:handleEventsForBackgroundURLSession:completionHandler:)` — see [docs/IOS_BACKGROUND_URL_SESSION.md](docs/IOS_BACKGROUND_URL_SESSION.md). |
 | `HttpSyncWorker` | Stable | Fetch-and-persist data sync. |
 | `FileCompressionWorker` | ✅ Android · 🚧 iOS | **iOS has no ZIP codec in Kotlin/Native.** The default behavior on iOS is to **fail fast** with an explicit error. Set `FileCompressionConfig.allowIosUncompressedFallback = true` to accept an uncompressed copy at the output path (useful for demo chains; the output is **not** a real ZIP). For real iOS compression, integrate [ZIPFoundation](https://github.com/weichsel/ZIPFoundation) via cinterop. |
 
-> **Camera / media-app advisory.** `HttpDownloadWorker` now supports HTTP `Range` resume (v2.5). `HttpUploadWorker` does not yet — if you upload large originals (HEIC / RAW / 4K video) over cellular, pin uploads to Wi-Fi (`Constraints(requiresUnmeteredNetwork = true)`) or write a thin custom worker around the lib's chain + persistence primitives until resumable upload lands.
+> **Camera / media-app advisory.** For burst upload (50 photos at once), use
+> `ParallelHttpUploadWorker` instead of one chain step per file. For RAW / video
+> downloads over cellular, prefer `IosBackgroundDownloadWorker` on iOS so the
+> transfer survives swipe-to-quit. `HttpUploadWorker` is the only stable worker
+> without resumable/chunked semantics — pin those uploads to Wi-Fi
+> (`Constraints(requiresUnmeteredNetwork = true)`) until v2.6.
 
 ---
 

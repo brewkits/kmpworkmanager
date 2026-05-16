@@ -21,4 +21,10 @@ object WorkerTypes {
     const val HTTP_DOWNLOAD_WORKER = "dev.brewkits.kmpworkmanager.workers.builtins.HttpDownloadWorker"
     const val HTTP_UPLOAD_WORKER = "dev.brewkits.kmpworkmanager.workers.builtins.HttpUploadWorker"
     const val FILE_COMPRESSION_WORKER = "dev.brewkits.kmpworkmanager.workers.builtins.FileCompressionWorker"
+
+    // v2.5 built-in workers (Flutter parity for camera-app workloads)
+    const val PARALLEL_HTTP_DOWNLOAD_WORKER = "dev.brewkits.kmpworkmanager.workers.builtins.ParallelHttpDownloadWorker"
+    const val PARALLEL_HTTP_UPLOAD_WORKER = "dev.brewkits.kmpworkmanager.workers.builtins.ParallelHttpUploadWorker"
+    /** iOS-only — see docs/IOS_BACKGROUND_URL_SESSION.md for AppDelegate wire-up. */
+    const val IOS_BACKGROUND_DOWNLOAD_WORKER = "dev.brewkits.kmpworkmanager.workers.builtins.IosBackgroundDownloadWorker"
 }

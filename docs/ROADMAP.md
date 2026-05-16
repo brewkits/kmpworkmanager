@@ -7,13 +7,16 @@ Status legend: ✅ done · 🚧 in progress · ⏳ planned · 💭 idea / unsche
 
 ---
 
-## v2.5 — production hardening (in flight)
+## v2.5 — production hardening + Flutter parity (Group 1)
 
 **Theme:** unblock production camera-app adoption. Everything in this milestone
-is either a correctness fix or removes a footgun that we have evidence has bit
-real users.
+is either (a) a correctness fix for a bug discovered in the v2.4.3 architecture
+review, or (b) a Flutter-parity feature that camera workflows depend on. The
+[Flutter `native_workmanager`](https://github.com/Brewkits/native_workmanager)
+already has these features in production; KMP catches up here.
 
 ### P0 — shipped in 2.5
+
 - ✅ `FileCompressionWorker` (iOS) — opt-in fallback, fail-fast default. The
   default behavior used to silently copy the file uncompressed. See
   `FileCompressionConfig.allowIosUncompressedFallback`.
@@ -22,39 +25,70 @@ real users.
   status documented honestly.
 - ✅ `PendingIntent` request code unified on CRC32 (`PendingIntentCodes`) —
   `String.hashCode()` collisions on UUID-style IDs were splitting
-  `FLAG_UPDATE_CURRENT` alarms across reboots.
+  `FLAG_UPDATE_CURRENT` alarms across reboots. Adversarial test
+  (`PendingIntentCodesAdversarialTest`) proves the collision exists for the
+  canonical `"Aa"`/`"BB"` pair and that CRC32 distinguishes them.
 - ✅ `BaseAlarmReceiver` migrated to a structured `SupervisorJob` + per-call
   scope + `withTimeout(workTimeoutMs)`. The previous `CoroutineScope(IO).launch`
   pattern leaked work past the BroadcastReceiver lifetime.
 
 ### P1 — landing in 2.5
+
+**Correctness (architecture review fallout)**
 - ✅ `WorkerResult.Retry(reason, delayMs, attemptCap)` — explicit retry signal
   alongside the legacy `Failure(shouldRetry = true)`. Android maps to
-  `Result.retry()` with an attempt-cap ceiling; iOS captures into telemetry
-  (chain executor honoring is tracked under "iOS chain retry semantics" below).
+  `Result.retry()` with an attempt-cap ceiling; iOS captures into telemetry.
 - ✅ `HttpDownloadWorker` resumable downloads via `<savePath>.partial` +
-  HTTP `Range`. Camera-media uploads on cellular survive process kill / retry
+  HTTP `Range`. Camera-media downloads on cellular survive process kill / retry
   loops without restarting from byte 0.
 - ✅ CI matrix — Android API 28/30/33/35 instrumented, iOS 16/17/18 simulator,
   Robolectric unit tests on Ubuntu, KSP processor tests isolated.
 - ✅ Static analysis — CodeQL (`java-kotlin`) on every PR + weekly schedule;
   Dependabot grouping `kotlin-toolchain` / `ktor` / `coroutines` / `androidx` /
   `compose`, ignoring major bumps that need coordinated migration.
-- ✅ Maven Central auto-publish — Sonatype Central Portal API integrated into
-  `release.yml`. `USER_MANAGED` by default (one manual click in the portal);
-  `AUTOMATIC` opt-in via workflow input.
+- ✅ Maven Central bundle — `generateFullMavenZip` produces a signed bundle
+  (3 modules × 4 platforms × .asc/.md5/.sha1/.sha256/.sha512) ready for manual
+  upload via the Sonatype Central Portal UI. Upload remains a maintainer-driven
+  click; CI does not push automatically.
 - ✅ SSRF blocklist — RFC 6598 CGNAT `100.64.0.0/10` (Tailscale + ISP CGNAT)
   and `0.0.0.0/8` ("this network") blocked. Tests pin the /10 boundary.
+
+**Flutter parity — built-in workers (Group 1)**
+- ✅ Checksum verification for `HttpDownloadWorker` — `expectedChecksum` +
+  `ChecksumAlgorithm` (MD5 / SHA-1 / SHA-256 / SHA-512) on top of Okio's
+  `HashingSource`. Mismatch deletes the partial and Fails (not Retry — the
+  bytes on disk are demonstrably wrong, CDN cache pinning is the usual root cause).
+- ✅ `DuplicatePolicy` enum on `HttpDownloadConfig` — `OVERWRITE` (default,
+  preserves pre-v2.5 behaviour), `SKIP` (return Success without network call),
+  `RENAME` (append `_1`, `_2`, … to the stem). Bounded at 10 000 suffix probes
+  so a directory full of `photo_*.jpg` cannot hang the worker.
+- ✅ `ParallelHttpDownloadWorker` — splits a file into N (1..16, default 4)
+  HTTP `Range` chunks, downloads concurrently, persists `.partN` for per-chunk
+  resume, merges into the final file. Automatic sequential fallback when the
+  server returns no `Content-Length` or no `Accept-Ranges: bytes`. Per-chunk
+  resume skips parts whose `.partN` matches the expected slice size exactly
+  (proven by `parallel_resumesPreviousAttempt_whenPartFilesAreComplete`).
+- ✅ `ParallelHttpUploadWorker` — one POST per file with `maxConcurrent`
+  (1..16, default 3) per-host limit, `maxRetries` (0..5, default 1) on 5xx /
+  network errors only (4xx is never retried), per-file `ParallelUploadFileResult`
+  surfaced through `WorkerResult.Success.data.fileResults`.
+- ✅ `IosBackgroundDownloadWorker` + `IosBackgroundUrlSessionManager` —
+  experimental scaffold for downloads that survive **full app termination**
+  via `URLSessionConfiguration.background`. Host integration required, see
+  [`docs/IOS_BACKGROUND_URL_SESSION.md`](./IOS_BACKGROUND_URL_SESSION.md).
+  The worker returns `Success` as soon as the OS accepts the request;
+  completion is delivered later via `TaskEventBus`.
+
+### Tracked but not yet started (v2.5 stretch)
+
 - 🚧 `IosFileStorage` SRP split — stage 0 design lock-in
   (`docs/internal/IOS_FILE_STORAGE_SPLIT.md`) + `storage/BaseDirectory.kt`
   scaffold committed; per-store extraction across stages 1–5 still pending.
-
-### Tracked but not yet started (v2.5 stretch goals)
 - ⏳ iOS chain retry semantics — `WorkerResult.Retry.delayMs` / `attemptCap`
   honored at the executor level (re-arm `BGProcessingTaskRequest` with
   `earliestBeginDate = now + delayMs`; persist attempt counter per step).
-- ⏳ `HttpUploadWorker` chunked / resumable upload (`Content-Range` writes,
-  server-side ETag continuation).
+- ⏳ `IosBackgroundDownloadWorker` polish — authentication challenges, TLS
+  pinning hook, upload variant (background URL session uploads).
 
 ---
 
@@ -71,9 +105,6 @@ v2.6 polishes the rough edges that surface during on-call.
 - ⏳ Add a `KmpHeavyWorker` constructor parameter (or `KmpWorkManagerConfig`
   setting) to declare the FGS type, with a lint-style runtime check that the
   host manifest matches.
-- 💭 Optional: pre-baked `BaseFgsForegroundService` that consumers extend, so
-  the library hosts the foreground notification instead of every app
-  re-implementing it.
 
 ### 2. Threat model + SRE runbook
 - ⏳ `docs/THREAT_MODEL.md` — STRIDE table for the scheduler, persistence
@@ -91,8 +122,6 @@ v2.6 polishes the rough edges that surface during on-call.
   running. KMP-friendly contract: `LiveActivityChannel` flow that the host
   app subscribes to from Swift (no `ActivityKit` Kotlin types — let the host
   own the UI).
-- 💭 Companion `LiveActivityTaskCompletionEvent` on `TaskEventBus` so the
-  host app does not have to track chain IDs manually.
 
 ### 4. Per-task QoS profiles
 - ⏳ Introduce `TaskQoSProfile` enum:
@@ -111,6 +140,20 @@ v2.6 polishes the rough edges that surface during on-call.
   module stays as an opt-in convenience.
 - ⏳ Provide a Hilt-friendly `KmpWorkManagerHiltModule` for Android consumers
   who already use Hilt.
+
+### 6. Flutter parity — Group 2 built-in workers
+- ⏳ **HMAC-SHA256 request signing** (`request_signing.dart` parity) —
+  canonical format `METHOD\nURL\nBODY\nTIMESTAMP` → HMAC-SHA256 → header
+  `X-Signature` + optional `X-Timestamp`. Configurable secret key (min
+  16 chars), header name, prefix (`sha256=` for GitHub webhook style),
+  `signBody` and `includeTimestamp` flags.
+- ⏳ **Token refresh on 401** (`token_refresh_config.dart` parity) — when a
+  request returns 401, POST a configurable refresh endpoint, extract the new
+  token via dot-notation key (`auth.access_token`), retry the original
+  request. Mirrors the Flutter config 1-to-1.
+- ⏳ **Bandwidth throttling** — token-bucket on download/upload bytes-per-second.
+  Less critical than the others; Android already exposes
+  `Constraints.requiresUnmeteredNetwork` for the "Wi-Fi only" axis.
 
 ---
 
@@ -149,6 +192,17 @@ projects and warrant a major-version bump. None are scheduled — call this a
   (tasks "just don't run").
 - 💭 Stretch: synthesize the boot receiver + Hilt module so consumers can drop
   the plugin and have zero manual wiring.
+
+### 4. Flutter parity — Group 3 built-in workers (long tail)
+- 💭 **Image processing worker** — resize (maxWidth/maxHeight + maintain aspect
+  ratio), crop(x, y, w, h), format convert (JPEG ↔ PNG ↔ WEBP), quality 0-100.
+  Requires platform-specific image decoder bindings (`UIImage` on iOS,
+  `BitmapFactory` on Android) — non-trivial cinterop scope.
+- 💭 **Typed result classes** — `DownloadResult`, `ParallelUploadResult` as
+  data classes with computed properties (`successCount`, `failedCount`,
+  `totalBytes`) instead of raw `JsonObject?`. Cleaner consumer ergonomics but
+  requires a parallel typed-result surface and a deserialization story for
+  cross-process delivery.
 
 ---
 

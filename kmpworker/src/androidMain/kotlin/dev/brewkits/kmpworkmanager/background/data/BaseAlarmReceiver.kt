@@ -66,12 +66,43 @@ abstract class BaseAlarmReceiver : AlarmReceiver() {
         pendingResult: PendingResult,
         overflowFilePath: String?
     ) {
-        // Per-invocation scope (SupervisorJob isolates child failures from siblings) so that
-        // we can cancel the coroutine deterministically in `finally`. Using the unstructured
-        // `CoroutineScope(Dispatchers.IO).launch` from earlier versions leaked work past the
-        // receiver lifetime — the BroadcastReceiver process could be killed while the coroutine
-        // kept running, which left overflow files orphaned and `pendingResult` in an undefined
-        // state.
+        runHandleAlarmScope(
+            context = context,
+            taskId = taskId,
+            workerClassName = workerClassName,
+            inputJson = inputJson,
+            overflowFilePath = overflowFilePath,
+            onFinish = {
+                // Always release the BroadcastReceiver. Catch defensively — `finish()` may
+                // throw IllegalStateException if the receiver already completed.
+                try {
+                    pendingResult.finish()
+                } catch (e: Exception) {
+                    Logger.w(LogTags.ALARM, "pendingResult.finish() failed for '$taskId'", e)
+                }
+            }
+        )
+    }
+
+    /**
+     * The actual launch/timeout/cleanup body, broken out so unit tests can exercise it
+     * without needing a real `BroadcastReceiver.PendingResult` (which is a protected
+     * inner class and cannot be mocked from outside the framework).
+     *
+     * Per-invocation `SupervisorJob` scope so we can cancel the coroutine deterministically
+     * in `finally`. The pre-v2.5 unstructured `CoroutineScope(Dispatchers.IO).launch`
+     * leaked work past the receiver lifetime — the OS could kill the receiver process
+     * while the coroutine kept running, leaving overflow files orphaned and the
+     * `PendingResult` in an undefined state.
+     */
+    internal fun runHandleAlarmScope(
+        context: Context,
+        taskId: String,
+        workerClassName: String,
+        inputJson: String?,
+        overflowFilePath: String?,
+        onFinish: () -> Unit
+    ) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         scope.launch {
             try {
@@ -91,7 +122,6 @@ abstract class BaseAlarmReceiver : AlarmReceiver() {
             } catch (e: Exception) {
                 Logger.e(LogTags.ALARM, "BaseAlarmReceiver: doAlarmWork failed for task '$taskId'", e)
             } finally {
-                // Delete overflow file after work completes — success or failure.
                 overflowFilePath?.let { path ->
                     val deleted = try {
                         java.io.File(path).delete()
@@ -103,14 +133,7 @@ abstract class BaseAlarmReceiver : AlarmReceiver() {
                         Logger.d(LogTags.ALARM, "Deleted overflow file for task '$taskId': $path")
                     }
                 }
-                // Always release the BroadcastReceiver. Catch defensively — `finish()` may
-                // throw IllegalStateException if the receiver already completed (shouldn't
-                // happen in this code path, but the cost of guarding is one branch).
-                try {
-                    pendingResult.finish()
-                } catch (e: Exception) {
-                    Logger.w(LogTags.ALARM, "pendingResult.finish() failed for '$taskId'", e)
-                }
+                onFinish()
                 // Tear down the scope so any straggler children (e.g. if doAlarmWork spawned
                 // unstructured launches) are cancelled rather than left running detached.
                 scope.cancel("BaseAlarmReceiver: handleAlarm done for '$taskId'")

@@ -91,6 +91,43 @@ class ChainExecutor(
     private val closedFlag = AtomicInt(0)
     private val closeMutex = Mutex()
 
+    /**
+     * Maximum `WorkerResult.Retry.delayMs` observed across all step failures in the
+     * current batch. Reset to 0 at the start of each batch (`executeChainsInBatch`),
+     * propagated to [scheduleNextBGTask] so the BGProcessingTaskRequest's
+     * `earliestBeginDate` is pushed back accordingly. Not persisted — iOS will fire
+     * the BGTask eventually regardless; this is a best-effort defer hint.
+     *
+     * 64-bit reads/writes are atomic on iOS arm64 and x86_64, so no explicit memory
+     * fence is required for the producer (chain executor thread) → consumer (Swift
+     * continuation callback) handoff.
+     */
+    private var nextBgTaskDeferMs: Long = 0
+
+    /**
+     * Read by the Swift `onContinuationNeeded` callback to honour
+     * `WorkerResult.Retry.delayMs` hints surfaced during the batch.
+     *
+     * Use it when assembling the next `BGProcessingTaskRequest`:
+     *
+     * ```swift
+     * let executor = ChainExecutor(
+     *     workerFactory: factory,
+     *     onContinuationNeeded: { [weak executor] in
+     *         let request = BGProcessingTaskRequest(identifier: "chain_executor")
+     *         let delayMs = executor?.requestedNextBgTaskDelayMs ?? 0
+     *         let secs = max(1.0, Double(delayMs) / 1000.0)
+     *         request.earliestBeginDate = Date(timeIntervalSinceNow: secs)
+     *         try? BGTaskScheduler.shared.submit(request)
+     *     }
+     * )
+     * ```
+     *
+     * Returns 0 if no Retry.delayMs hint was emitted. Always non-negative.
+     */
+    val requestedNextBgTaskDelayMs: Long
+        get() = nextBgTaskDeferMs
+
     // Stored as WeakReference to break potential Swift retain cycles.
     // If the closure captures `self` and the Swift object holds a strong reference to this
     // executor, a strong reference here would form a cycle. WeakReference allows the Swift
@@ -400,6 +437,11 @@ class ChainExecutor(
             Logger.w(LogTags.CHAIN, "Batch execution skipped - shutdown in progress")
             return 0
         }
+
+        // Reset the cross-batch defer accumulator. Any WorkerResult.Retry.delayMs
+        // observed during step failures in this batch will push the next BGTask's
+        // earliestBeginDate back. See [nextBgTaskDeferMs].
+        nextBgTaskDeferMs = 0
 
         val startTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
 
@@ -844,22 +886,55 @@ class ChainExecutor(
 
                         Logger.i(LogTags.CHAIN, "Executing step ${index + 1}/${steps.size} for chain $chainId (${step.size} tasks)")
 
-                        val (stepSuccess, updatedProgress, stepError) = executeStep(step, index, progress, chainId)
-                        progress = updatedProgress
-                        if (!stepSuccess) {
+                        val stepOutcome = executeStep(step, index, progress, chainId)
+                        progress = stepOutcome.updatedProgress
+                        val stepError = stepOutcome.errorMessage
+                        if (!stepOutcome.success) {
                             Logger.e(LogTags.CHAIN, "Step ${index + 1} failed. Updating progress for chain $chainId")
 
-                            // Update progress with failure, retry count, and error message
+                            // Update progress with failure, retry count, error message, and
+                            // per-step attempt counter (used to enforce WorkerResult.Retry.attemptCap).
                             withContext(NonCancellable) {
-                                progress = progress.withFailure(index, stepError)
+                                progress = progress
+                                    .withFailure(index, stepError)
+                                    .withStepAttempt(index)
                                 fileStorage.saveChainProgress(progress)
                             }
 
-                            // Check if we should abandon this chain
-                            if (progress.hasExceededRetries()) {
+                            // Per-step attemptCap enforcement (v2.5): a worker that returned
+                            // `WorkerResult.Retry(attemptCap = N)` is contractually saying "do not
+                            // retry me more than N times in total". If this step has now been tried
+                            // N or more times, abandon the chain regardless of the chain-level retry
+                            // budget. Chain-level `hasExceededRetries` remains the secondary guard.
+                            val perStepCap = stepOutcome.attemptCap
+                            val capReached = perStepCap != null && progress.stepAttempts(index) >= perStepCap
+                            if (capReached) {
                                 Logger.e(
                                     LogTags.CHAIN,
-                                    "Chain $chainId exceeded max retries after step ${index + 1} failure. Abandoning."
+                                    "Chain $chainId step ${index + 1}: per-step attemptCap ($perStepCap) reached after " +
+                                        "${progress.stepAttempts(index)} attempts. Abandoning chain."
+                                )
+                            }
+
+                            // Capture Retry.delayMs so the next BGTaskRequest is deferred. This is
+                            // a hint, not a hard guarantee — iOS may dispatch the BGTask later than
+                            // the requested earliest date, never earlier.
+                            stepOutcome.retryDelayMs?.let { defer ->
+                                if (defer > 0) {
+                                    Logger.i(
+                                        LogTags.CHAIN,
+                                        "Chain $chainId: deferring next BGTask wake by ${defer}ms " +
+                                            "(WorkerResult.Retry.delayMs)"
+                                    )
+                                    nextBgTaskDeferMs = maxOf(nextBgTaskDeferMs, defer)
+                                }
+                            }
+
+                            // Check if we should abandon this chain (either chain-level or per-step).
+                            if (progress.hasExceededRetries() || capReached) {
+                                Logger.e(
+                                    LogTags.CHAIN,
+                                    "Chain $chainId abandoning: hasExceededRetries=${progress.hasExceededRetries()}, capReached=$capReached"
                                 )
                                 fileStorage.deleteChainDefinition(chainId)
                                 fileStorage.deleteChainProgress(chainId)
@@ -872,10 +947,10 @@ class ChainExecutor(
                                     platform = "ios",
                                     error = stepError ?: "Unknown failure",
                                     retryCount = progress.retryCount,
-                                    willRetry = !progress.hasExceededRetries()
+                                    willRetry = !progress.hasExceededRetries() && !capReached
                                 )
                             )
-                            historyStatus = if (progress.hasExceededRetries()) ExecutionStatus.ABANDONED else ExecutionStatus.FAILURE
+                            historyStatus = if (progress.hasExceededRetries() || capReached) ExecutionStatus.ABANDONED else ExecutionStatus.FAILURE
                             historyFailedStep = index
                             historyError = stepError
                             historyRetryCount = progress.retryCount
@@ -1046,42 +1121,37 @@ class ChainExecutor(
      * the mutex in ~N ms total — negligible compared to typical task durations (100ms–60s).
      * The physical I/O is batched: N saves in a 100ms window = 1 actual disk write.
      *
-     * @return Triple of (stepSucceeded, updatedProgress, firstErrorMessage?)
+     * @return [StepOutcome] capturing the aggregate result of the step, including any
+     *   Retry hints emitted by the FIRST failed task (used by the chain executor to set
+     *   `BGProcessingTaskRequest.earliestBeginDate` and enforce per-step `attemptCap`).
      */
     private suspend fun executeStep(
         tasks: List<TaskRequest>,
         stepIndex: Int,
         progress: ChainProgress,
         chainId: String
-    ): Triple<Boolean, ChainProgress, String?> {
-        if (tasks.isEmpty()) return Triple(true, progress, null)
+    ): StepOutcome {
+        if (tasks.isEmpty()) return StepOutcome(success = true, updatedProgress = progress)
 
         var currentProgress = progress
         // Shared across all async blocks launched below — do not extract into a separate function.
         val progressMutex = Mutex()
 
-        // Each async block returns Pair(success, errorMessage?)
-        val results: List<Pair<Boolean, String?>> = coroutineScope {
+        // Each async block returns a TaskOutcome carrying success + (optional) Retry hints.
+        val results: List<TaskOutcome> = coroutineScope {
             tasks.mapIndexed { taskIndex, task ->
                 async {
-                    // Skip tasks that already succeeded in a previous attempt (prior run, persisted to disk).
-                    // Use the immutable `progress` snapshot captured before this coroutineScope block,
-                    // NOT the mutable `currentProgress` shared with siblings.  Using `currentProgress`
-                    // would be an unsynchronised read-outside-lock; more importantly, a sibling's
-                    // in-flight success must NOT cause us to skip this task — we only want to honour
-                    // completions from prior persisted runs, which are all captured in `progress`.
                     if (progress.isTaskInStepCompleted(stepIndex, taskIndex)) {
                         Logger.d(
                             LogTags.CHAIN,
                             "Skipping already-completed task $taskIndex in step $stepIndex (${task.workerClassName})"
                         )
-                        return@async Pair(true, null)
+                        return@async TaskOutcome(success = true)
                     }
 
                     val result = executeTask(task, chainId, stepIndex, progress.retryCount)
                     val success = result is WorkerResult.Success
                     if (success) {
-                        // Protect progress save from cancellation
                         withContext(NonCancellable) {
                             progressMutex.withLock {
                                 currentProgress = currentProgress.withCompletedTaskInStep(stepIndex, taskIndex)
@@ -1089,27 +1159,59 @@ class ChainExecutor(
                             }
                         }
                     }
-                    // Capture error from either Failure or Retry. iOS chain-step retry semantics
-                    // are "the step is not complete; the next BGTask wake will re-execute it".
-                    // WorkerResult.Retry.delayMs / attemptCap are NOT yet honored on iOS — see
-                    // P1.3 in ROADMAP.md. They are captured into telemetry only.
-                    val errorMessage = when (result) {
-                        is WorkerResult.Failure -> result.message
-                        is WorkerResult.Retry -> "retry requested: ${result.reason}"
-                        is WorkerResult.Success -> null
+                    when (result) {
+                        is WorkerResult.Success -> TaskOutcome(success = true)
+                        is WorkerResult.Failure -> TaskOutcome(success = false, errorMessage = result.message)
+                        is WorkerResult.Retry -> TaskOutcome(
+                            success = false,
+                            errorMessage = "retry requested: ${result.reason}",
+                            retryDelayMs = result.delayMs,
+                            attemptCap = result.attemptCap
+                        )
                     }
-                    Pair(success, errorMessage)
                 }
             }.awaitAll()
         }
 
-        val allSucceeded = results.all { it.first }
+        val allSucceeded = results.all { it.success }
         if (!allSucceeded) {
-            Logger.w(LogTags.CHAIN, "Step $stepIndex had ${results.count { !it.first }} failed task(s) out of ${tasks.size}")
+            Logger.w(LogTags.CHAIN, "Step $stepIndex had ${results.count { !it.success }} failed task(s) out of ${tasks.size}")
         }
-        val firstError = results.firstOrNull { !it.first }?.second
-        return Triple(allSucceeded, currentProgress, firstError)
+        val firstFailure = results.firstOrNull { !it.success }
+        return StepOutcome(
+            success = allSucceeded,
+            updatedProgress = currentProgress,
+            errorMessage = firstFailure?.errorMessage,
+            retryDelayMs = firstFailure?.retryDelayMs,
+            attemptCap = firstFailure?.attemptCap
+        )
     }
+
+    /**
+     * Result of one task within a parallel step. Captures Retry hints from `WorkerResult.Retry`
+     * so the outer chain executor can honour `delayMs` (deferred next BGTask wake) and
+     * `attemptCap` (per-step abandonment).
+     */
+    private data class TaskOutcome(
+        val success: Boolean,
+        val errorMessage: String? = null,
+        val retryDelayMs: Long? = null,
+        val attemptCap: Int? = null
+    )
+
+    /**
+     * Aggregate of one step's execution. Retry hints are sourced from the first failed
+     * task (deterministic by iteration order). When a step has multiple failing tasks
+     * with conflicting hints, the first one wins — callers should treat the values as
+     * "guidance, not contract" and ensure their workers agree if they care about ordering.
+     */
+    private data class StepOutcome(
+        val success: Boolean,
+        val updatedProgress: ChainProgress,
+        val errorMessage: String? = null,
+        val retryDelayMs: Long? = null,
+        val attemptCap: Int? = null
+    )
 
     /**
      * Execute a single task with timeout protection and detailed logging.
@@ -1448,11 +1550,24 @@ class ChainExecutor(
      * ```
      */
     private fun scheduleNextBGTask() {
-        Logger.i(LogTags.CHAIN, "📅 Continuation needed: Queue has remaining chains")
+        val deferMs = nextBgTaskDeferMs
+        Logger.i(
+            LogTags.CHAIN,
+            "📅 Continuation needed: Queue has remaining chains" +
+                if (deferMs > 0) " (deferred ${deferMs}ms by WorkerResult.Retry.delayMs)" else ""
+        )
 
         val callback = weakContinuationCallback?.get()
         if (callback != null) {
-            Logger.d(LogTags.CHAIN, "Invoking continuation callback to schedule next BGTask")
+            // Expose `nextBgTaskDeferMs` to the Swift caller via the public property so
+            // they can read it in their onContinuationNeeded callback and use it to set
+            // `BGProcessingTaskRequest.earliestBeginDate = Date(timeIntervalSinceNow: delay/1000)`.
+            // We do not change the callback signature to remain source-compatible with v2.4 hosts.
+            Logger.d(
+                LogTags.CHAIN,
+                "Invoking continuation callback to schedule next BGTask. " +
+                    "Read ChainExecutor.requestedNextBgTaskDelayMs to honor Retry.delayMs hints."
+            )
             callback.invoke()
         } else if (!hasContinuationCallback) {
             // No callback was ever provided — developer opted out of continuation scheduling.
