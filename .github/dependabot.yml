@@ -1,0 +1,57 @@
+version: 2
+updates:
+  # Gradle (Kotlin Multiplatform, Android, KSP, Compose, Ktor, Koin, Okio, …)
+  - package-ecosystem: "gradle"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Asia/Ho_Chi_Minh"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "gradle"
+    # Group routine version bumps so the PR queue stays sane. Security updates
+    # always get their own PR regardless of grouping.
+    groups:
+      kotlin-toolchain:
+        patterns:
+          - "org.jetbrains.kotlin*"
+          - "org.jetbrains.kotlin.plugin*"
+          - "com.google.devtools.ksp*"
+      ktor:
+        patterns:
+          - "io.ktor:*"
+      coroutines:
+        patterns:
+          - "org.jetbrains.kotlinx:kotlinx-coroutines*"
+      androidx:
+        patterns:
+          - "androidx.*"
+      compose:
+        patterns:
+          - "org.jetbrains.compose*"
+          - "org.jetbrains.compose.*"
+    ignore:
+      # Pin Kotlin to whatever the project sets in libs.versions.toml. Major
+      # Kotlin bumps require coordinated KGP / KSP / Compose updates and should
+      # be manual PRs, not Dependabot one-liners.
+      - dependency-name: "org.jetbrains.kotlin:*"
+        update-types: [ "version-update:semver-major" ]
+      # AGP majors break Gradle compatibility — handle manually.
+      - dependency-name: "com.android.tools.build:gradle"
+        update-types: [ "version-update:semver-major" ]
+
+  # GitHub Actions used by .github/workflows/*.yml
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Asia/Ho_Chi_Minh"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "github-actions"

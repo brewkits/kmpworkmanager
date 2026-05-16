@@ -514,19 +514,5 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         KmpWorkManagerRuntime.executionHistoryStore?.clear()
     }
 
-    /**
-     * Converts a task ID to a stable, collision-resistant PendingIntent request code.
-     *
-     * [String.hashCode] is a 32-bit polynomial that collides frequently for typical UUID/name
-     * strings (birthday paradox: ~50% collision at ~65k tasks). CRC32 uses a different polynomial
-     * with better distribution and is available on all Android API levels via java.util.zip.
-     *
-     * We mask the sign bit (and 0x7FFFFFFF) to keep the value non-negative, which avoids
-     * confusing the Android PendingIntent system and makes log output easier to read.
-     */
-    private fun taskIdToRequestCode(id: String): Int {
-        val crc = java.util.zip.CRC32()
-        crc.update(id.toByteArray(Charsets.UTF_8))
-        return (crc.value and 0x7FFFFFFFL).toInt()
-    }
+    private fun taskIdToRequestCode(id: String): Int = PendingIntentCodes.forTaskId(id)
 }

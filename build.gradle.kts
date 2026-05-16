@@ -31,6 +31,27 @@ tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
 }
 
+// Wipes the Maven staging dir so a new bundle can never accidentally pick up
+// artifacts from a previous run (e.g. the older version's `.module` files when
+// you bump from 2.4.3 → 2.4.4 in the same workspace). Must run BEFORE the
+// per-module `publishAllPublicationsToMavenCentralLocalRepository` tasks.
+val cleanMavenStaging by tasks.registering(Delete::class) {
+    group = "publishing"
+    description = "Delete build/maven-central-staging and build/distributions before bundling."
+    delete(layout.buildDirectory.dir("maven-central-staging"))
+    delete(layout.buildDirectory.dir("distributions"))
+}
+
+// Force each module's publish task to run AFTER the clean. Without this Gradle
+// is free to schedule the publish before the clean wipes the staging dir,
+// which would zero out the freshly-published artifacts.
+subprojects {
+    afterEvaluate {
+        tasks.matching { it.name == "publishAllPublicationsToMavenCentralLocalRepository" }
+            .configureEach { mustRunAfter(cleanMavenStaging) }
+    }
+}
+
 // Task to generate a full Maven Central distribution ZIP
 tasks.register<Zip>("generateFullMavenZip") {
     group = "publishing"
@@ -43,7 +64,8 @@ tasks.register<Zip>("generateFullMavenZip") {
 
     from(stagingDir)
 
-    // Ensure all modules are published to local staging first
+    // Always start from an empty staging dir, then publish all 3 modules into it.
+    dependsOn(cleanMavenStaging)
     dependsOn(":kmpworker:publishAllPublicationsToMavenCentralLocalRepository")
     dependsOn(":kmpworker-annotations:publishAllPublicationsToMavenCentralLocalRepository")
     dependsOn(":kmpworker-ksp:publishAllPublicationsToMavenCentralLocalRepository")

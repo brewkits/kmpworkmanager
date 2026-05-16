@@ -1089,7 +1089,15 @@ class ChainExecutor(
                             }
                         }
                     }
-                    val errorMessage = if (!success) (result as? WorkerResult.Failure)?.message else null
+                    // Capture error from either Failure or Retry. iOS chain-step retry semantics
+                    // are "the step is not complete; the next BGTask wake will re-execute it".
+                    // WorkerResult.Retry.delayMs / attemptCap are NOT yet honored on iOS — see
+                    // P1.3 in ROADMAP.md. They are captured into telemetry only.
+                    val errorMessage = when (result) {
+                        is WorkerResult.Failure -> result.message
+                        is WorkerResult.Retry -> "retry requested: ${result.reason}"
+                        is WorkerResult.Success -> null
+                    }
                     Pair(success, errorMessage)
                 }
             }.awaitAll()
@@ -1235,17 +1243,17 @@ class ChainExecutor(
                         }
                         is WorkerResult.Failure -> {
                             Logger.w(LogTags.CHAIN, "❌ Task ${task.workerClassName} failed: ${result.message} (${duration}ms)")
-                            
+
                             val completionEvent = TaskCompletionEvent(
                                 taskName = task.workerClassName,
                                 success = false,
                                 message = result.message,
                                 outputData = null
                             )
-                            
+
                             // Durable emission
                             TaskEventManager.emit(completionEvent)
-                            
+
                             KmpWorkManagerRuntime.notifyTaskCompleted(
                                 TelemetryHook.TaskCompletedEvent(
                                     taskName = task.workerClassName,
@@ -1264,6 +1272,37 @@ class ChainExecutor(
                                     stepIndex = stepIndex,
                                     platform = "ios",
                                     error = result.message ?: "Unknown failure",
+                                    durationMs = duration,
+                                    retryCount = retryCount
+                                )
+                            )
+                            result
+                        }
+                        is WorkerResult.Retry -> {
+                            // iOS chain retry is "step not marked complete; next BGTask wake re-runs it".
+                            // delayMs / attemptCap are captured into telemetry but not yet honored at the
+                            // executor level — tracked under P1.3 in ROADMAP.md.
+                            Logger.i(
+                                LogTags.CHAIN,
+                                "🔁 Task ${task.workerClassName} requested retry: ${result.reason} " +
+                                    "(delayMs=${result.delayMs}, attemptCap=${result.attemptCap}, attempt=$retryCount, ${duration}ms)"
+                            )
+                            val msg = "retry requested: ${result.reason}"
+                            TaskEventManager.emit(
+                                TaskCompletionEvent(
+                                    taskName = task.workerClassName,
+                                    success = false,
+                                    message = msg,
+                                    outputData = null
+                                )
+                            )
+                            KmpWorkManagerRuntime.notifyTaskFailed(
+                                TelemetryHook.TaskFailedEvent(
+                                    taskName = task.workerClassName,
+                                    chainId = chainId,
+                                    stepIndex = stepIndex,
+                                    platform = "ios",
+                                    error = msg,
                                     durationMs = duration,
                                     retryCount = retryCount
                                 )

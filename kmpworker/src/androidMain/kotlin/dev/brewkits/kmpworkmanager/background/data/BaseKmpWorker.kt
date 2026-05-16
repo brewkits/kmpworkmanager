@@ -158,14 +158,14 @@ abstract class BaseKmpWorker : CoroutineWorker {
                 }
                 is WorkerResult.Failure -> {
                     Logger.w(LogTags.WORKER, "$workerLogTag failure: $workerClassName — ${result.message}")
-                    
+
                     val completionEvent = TaskCompletionEvent(
                         taskName = workerClassName,
                         success = false,
                         message = result.message,
                         outputData = null
                     )
-                    
+
                     TaskEventManager.emit(completionEvent)
                     KmpWorkManagerRuntime.notifyTaskCompleted(
                         TelemetryHook.TaskCompletedEvent(
@@ -192,6 +192,61 @@ abstract class BaseKmpWorker : CoroutineWorker {
                     } else {
                         return Result.failure()
                     }
+                }
+                is WorkerResult.Retry -> {
+                    Logger.i(
+                        LogTags.WORKER,
+                        "$workerLogTag retry: $workerClassName — ${result.reason}" +
+                            (result.delayMs?.let { " (delayMs=$it)" } ?: "") +
+                            (result.attemptCap?.let { " (attemptCap=$it, runAttemptCount=$runAttemptCount)" } ?: "")
+                    )
+
+                    // Honor attemptCap as a hard ceiling. runAttemptCount is 0-based, so
+                    // attemptCap=3 means we accept runs 0, 1, 2 — retry only if (runAttemptCount + 1) < cap.
+                    val cap = result.attemptCap
+                    if (cap != null && runAttemptCount + 1 >= cap) {
+                        Logger.w(
+                            LogTags.WORKER,
+                            "$workerLogTag retry cap reached for $workerClassName (cap=$cap, attempt=$runAttemptCount). Marking as permanent failure."
+                        )
+                        TaskEventManager.emit(
+                            TaskCompletionEvent(
+                                taskName = workerClassName,
+                                success = false,
+                                message = "Retry cap reached: ${result.reason}",
+                                outputData = null
+                            )
+                        )
+                        KmpWorkManagerRuntime.notifyTaskFailed(
+                            TelemetryHook.TaskFailedEvent(
+                                taskName = workerClassName,
+                                platform = "android",
+                                error = "Retry cap reached: ${result.reason}",
+                                durationMs = duration,
+                                retryCount = runAttemptCount
+                            )
+                        )
+                        historyStatus = ExecutionStatus.ABANDONED
+                        return Result.failure()
+                    }
+
+                    // Honor delayMs by passing through WorkManager's `Result.retry()` — the
+                    // request-level backoff policy still drives the actual wait. We log the
+                    // requested delay so consumers can correlate when WorkManager fires the
+                    // retry vs what the worker asked for. Per-result custom backoff requires
+                    // request-level configuration; emit it for diagnostics only.
+                    KmpWorkManagerRuntime.notifyTaskFailed(
+                        TelemetryHook.TaskFailedEvent(
+                            taskName = workerClassName,
+                            platform = "android",
+                            error = "Retry requested: ${result.reason}",
+                            durationMs = duration,
+                            retryCount = runAttemptCount
+                        )
+                    )
+                    historyStatus = ExecutionStatus.FAILURE
+                    isRetrying = true
+                    return Result.retry()
                 }
             }
         } catch (e: CancellationException) {

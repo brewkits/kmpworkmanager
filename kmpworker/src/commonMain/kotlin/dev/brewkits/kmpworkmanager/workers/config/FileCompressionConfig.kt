@@ -31,6 +31,11 @@ enum class CompressionLevel {
  * @property compressionLevel Compression level (low, medium, high) - default: medium
  * @property excludePatterns List of patterns to exclude (e.g., "*.tmp", ".DS_Store")
  * @property deleteOriginal Whether to delete original files after compression - default: false
+ * @property allowIosUncompressedFallback Opt-in for iOS only. When `true`, iOS falls back
+ *   to copying the file uncompressed if a native ZIP implementation is not wired in
+ *   (default `false` — the worker fails fast with an explicit error so callers do not
+ *   silently ship un-zipped data). See `docs/BUILTIN_WORKERS_GUIDE.md` for how to wire
+ *   ZIPFoundation. Ignored on Android (which always uses `java.util.zip`).
  */
 @Serializable
 data class FileCompressionConfig(
@@ -38,7 +43,8 @@ data class FileCompressionConfig(
     val outputPath: String,
     val compressionLevel: String = "medium",
     val excludePatterns: List<String>? = null,
-    val deleteOriginal: Boolean = false
+    val deleteOriginal: Boolean = false,
+    val allowIosUncompressedFallback: Boolean = false
 ) {
     val level: CompressionLevel
         get() = CompressionLevel.fromString(compressionLevel)

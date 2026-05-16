@@ -343,13 +343,15 @@ dependencies {
 
 ## Built-in workers
 
-| Worker | Purpose |
-|--------|---------|
-| `HttpRequestWorker` | HTTP request with configurable method, headers, body |
-| `HttpDownloadWorker` | Resumable file download to local storage |
-| `HttpUploadWorker` | Multipart file upload |
-| `HttpSyncWorker` | Fetch-and-persist data sync |
-| `FileCompressionWorker` | File compression (Android: built-in · iOS: requires ZIPFoundation) |
+| Worker | Status | Notes |
+|--------|--------|-------|
+| `HttpRequestWorker` | Stable | One-shot HTTP with configurable method, headers, body. SSRF-validated. |
+| `HttpDownloadWorker` | ⚠️ Experimental | Resumable download via HTTP `Range` (v2.5+). Partial progress saved to `<savePath>.partial`; a process kill resumes from last byte. Requires server `206 Partial Content` support. |
+| `HttpUploadWorker` | ⚠️ Experimental | Streaming multipart upload. **No resumable / chunked upload** — same restart-from-zero caveat. |
+| `HttpSyncWorker` | Stable | Fetch-and-persist data sync. |
+| `FileCompressionWorker` | ✅ Android · 🚧 iOS | **iOS has no ZIP codec in Kotlin/Native.** The default behavior on iOS is to **fail fast** with an explicit error. Set `FileCompressionConfig.allowIosUncompressedFallback = true` to accept an uncompressed copy at the output path (useful for demo chains; the output is **not** a real ZIP). For real iOS compression, integrate [ZIPFoundation](https://github.com/weichsel/ZIPFoundation) via cinterop. |
+
+> **Camera / media-app advisory.** `HttpDownloadWorker` now supports HTTP `Range` resume (v2.5). `HttpUploadWorker` does not yet — if you upload large originals (HEIC / RAW / 4K video) over cellular, pin uploads to Wi-Fi (`Constraints(requiresUnmeteredNetwork = true)`) or write a thin custom worker around the lib's chain + persistence primitives until resumable upload lands.
 
 ---
 
@@ -361,7 +363,9 @@ dependencies {
 169.254.169.254   AWS/GCP/Azure IMDS
 fd00:ec2::254     AWS EC2 (IPv6)
 100.100.100.200   Alibaba Cloud metadata
-localhost, 0.0.0.0, [::1], 10.x, 172.16–31.x, 192.168.x
+localhost, 0.0.0.0/8, [::1], 10.x, 172.16–31.x, 192.168.x
+100.64.0.0/10     CGNAT (Tailscale, carrier-grade NAT)
+fc00::/7, fe80::/10
 ```
 
 RFC 3986 UserInfo bypass and multi-`@` authority attacks are both handled. DNS rebinding is a known limitation — use certificate pinning or an egress proxy for high-trust environments.
