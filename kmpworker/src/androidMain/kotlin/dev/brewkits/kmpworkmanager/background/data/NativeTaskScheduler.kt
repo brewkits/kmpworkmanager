@@ -307,6 +307,9 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
                     try {
                         tempFile.bufferedWriter().use { it.write(inputJson) }
                         putExtra(AlarmReceiver.EXTRA_INPUT_JSON_FILE, tempFile.absolutePath)
+                        // Register so cancel(id) can find and delete this file. v2.5 QA fix —
+                        // previously the file was orphaned in cacheDir until the 24 h sweep ran.
+                        OverflowFileRegistry.register(context, id, tempFile.absolutePath)
                     } catch (e: Exception) {
                         return ScheduleResult.REJECTED_OS_POLICY
                     }
@@ -338,7 +341,7 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         initialDelayMs: Long,
         wmConstraints: androidx.work.Constraints
     ): OneTimeWorkRequest {
-        val workData = buildWorkData(workerClassName, inputJson)
+        val workData = buildWorkData(id, workerClassName, inputJson)
         val builder = if (constraints.isHeavyTask) {
             OneTimeWorkRequestBuilder<KmpHeavyWorker>()
         } else {
@@ -369,7 +372,7 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         return builder.build()
     }
 
-    private fun buildWorkData(workerClassName: String, inputJson: String?): Data {
+    private fun buildWorkData(taskId: String, workerClassName: String, inputJson: String?): Data {
         val builder = Data.Builder().putString("workerClassName", workerClassName)
         if (inputJson == null) return builder.build()
 
@@ -381,6 +384,9 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
             val tempFile = java.io.File(context.cacheDir, "kmp_input_${java.util.UUID.randomUUID()}.json")
             try {
                 tempFile.bufferedWriter().use { it.write(inputJson) }
+                // Register so cancel(taskId) can find and delete this file. v2.5 QA fix —
+                // previously the file leaked until the 24 h sweep ran.
+                OverflowFileRegistry.register(context, taskId, tempFile.absolutePath)
                 builder.putString(KEY_INPUT_JSON_FILE, tempFile.absolutePath).build()
             } catch (e: Exception) {
                 Logger.e(LogTags.SCHEDULER, "Failed to spill overflow JSON to cacheDir", e)
@@ -439,6 +445,11 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         // AlarmStore.remove() only removes the SharedPreferences metadata — the alarm
         // would still fire without this call.
         cancelAlarmManagerPendingIntent(id)
+        // Free the overflow `cacheDir/kmp_input_*.json` file (if any) that was associated
+        // with this task. Pre-fix the file lingered until the 24 h sweep ran;
+        // schedule-then-cancel-heavy workloads (e.g. user spamming draft saves) leaked
+        // megabytes into cacheDir. v2.5 QA fix.
+        OverflowFileRegistry.consumeAndDelete(context, id)
     }
 
     /**

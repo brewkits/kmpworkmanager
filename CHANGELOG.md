@@ -48,6 +48,29 @@ for upgrade notes from v2.4.x.
 - **Maven Central bundle** — `generateFullMavenZip` produces a signed bundle
   ready for manual upload via the Sonatype Central Portal UI.
 
+### Fixed (P0/P1, found in QA review fourth pass)
+- **iOS — `AppendOnlyQueue.compactQueue` OOM under large queues** (P0). Pre-fix
+  loaded all unprocessed records into a `mutableListOf<String>()` before writing
+  the compacted file. With `MAX_QUEUE_SIZE = 10 000` and typical 1–4 KB JSON
+  payloads, peak RAM could hit 10–40 MB — above the iOS background task budget
+  (Watchdog kills with `EXC_RESOURCE / RESOURCE_TYPE_MEMORY` at ~30 MB on older
+  devices), breaking the O(1) RAM contract documented for the queue. v2.5 ships
+  a `streamCompactionToFile` helper that reads → writes one record at a time;
+  peak RAM is bounded by the largest single record.
+- **iOS — `AppendOnlyQueue` compaction ran on `Dispatchers.Default`** (P1). The
+  CPU-bounded `Default` dispatcher was used to run blocking file I/O
+  (`NSFileHandle`, `NSFileManager.replaceItemAtURL`). On a saturated thread pool
+  this starved other coroutines using `Default`. v2.5 switches `compactionScope`
+  to `IosDispatchers.IO` (GCD global queue, unbounded worker spawn), matching
+  every other blocking-I/O path in the module.
+- **Android — `cancel(id)` orphaned the overflow `kmp_input_*.json` file** (P1).
+  Pre-fix the file lived in `cacheDir` until the 24 h `cleanupStaleAlarms`
+  sweep ran. Apps that schedule + cancel many large-input tasks (camera draft
+  save → cancel cycle) accumulated megabytes of orphaned files. v2.5 introduces
+  `OverflowFileRegistry`: a small `SharedPreferences`-backed `taskId → path`
+  map populated on schedule, consumed + file-deleted on cancel. Coverage:
+  `OverflowFileRegistryTest` (6 tests including a 100-cycle leak-check).
+
 ### Hardening (DX & docs, found in QA review third pass)
 - **Android — `KmpHeavyWorker.doWork` guards `setForeground()`** against
   `SecurityException` / `ForegroundServiceStartNotAllowedException` /
