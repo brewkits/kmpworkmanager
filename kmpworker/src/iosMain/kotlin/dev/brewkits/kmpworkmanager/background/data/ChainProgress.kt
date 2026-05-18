@@ -46,6 +46,12 @@ import kotlinx.serialization.Transient
  *   chain but never finished cleanly (process killed, OOM, native crash). Incremented on
  *   disk BEFORE any work begins so it survives process death. When this exceeds
  *   [MAX_CRASH_ATTEMPTS] the chain is quarantined to break the crash loop.
+ * @property stepRetryCounts Per-step attempt counter — incremented when a step's worker
+ *   returns `WorkerResult.Retry` or `WorkerResult.Failure(shouldRetry = true)`. When a
+ *   step's count exceeds the worker's `Retry.attemptCap`, the chain is abandoned.
+ *   Kept separate from [retryCount] (which counts chain-level reschedules) so a long
+ *   chain with a flaky step in the middle does not abandon as soon as the chain itself
+ *   has been rescheduled a few times.
  */
 @Serializable
 data class ChainProgress(
@@ -58,7 +64,8 @@ data class ChainProgress(
     val lastError: String? = null,
     val retryCount: Int = 0,
     val maxRetries: Int = 3,
-    val crashAttemptCount: Int = 0
+    val crashAttemptCount: Int = 0,
+    val stepRetryCounts: Map<Int, Int> = emptyMap()
 ) {
     companion object {
         /**
@@ -169,6 +176,19 @@ data class ChainProgress(
      */
     fun hasExceededRetries(): Boolean {
         return retryCount >= maxRetries
+    }
+
+    /** Number of times the given step has been attempted (returns at least 1 after the first attempt). */
+    fun stepAttempts(stepIndex: Int): Int = stepRetryCounts[stepIndex] ?: 0
+
+    /**
+     * Record one more attempt at [stepIndex]. Returns a new progress with the counter
+     * incremented. Use this when a step's worker returns `WorkerResult.Retry` — the step
+     * itself decides how many attempts before giving up via `Retry.attemptCap`.
+     */
+    fun withStepAttempt(stepIndex: Int): ChainProgress {
+        val current = stepRetryCounts[stepIndex] ?: 0
+        return copy(stepRetryCounts = stepRetryCounts + (stepIndex to (current + 1)))
     }
 
     /**

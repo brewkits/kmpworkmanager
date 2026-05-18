@@ -91,75 +91,104 @@ jobs:
           git push origin HEAD:main
           git push origin "${{ steps.version.outputs.tag }}"
 
-      # ── 7. Build + sign all publications → local staging ─────────────────────
-      - name: Build and sign (publish to local staging)
+      # ── 7. Build, sign and bundle all three modules ──────────────────────────
+      #
+      # The root `generateFullMavenZip` task is the single source of truth:
+      #   - depends on `publishAllPublicationsToMavenCentralLocalRepository`
+      #     for every module (kmpworker, kmpworker-annotations, kmpworker-ksp)
+      #   - generates MD5 / SHA1 / SHA256 / SHA512 checksums for every artifact
+      #     (the Sonatype Central Portal requires MD5 + SHA1; the longer hashes
+      #     are nice-to-have for downstream verification)
+      #   - produces `build/distributions/kmpworkmanager-maven-central-<v>.zip`
+      #
+      # Signing keys come from repo secrets:
+      #   SIGNING_KEY_BASE64  — armored PGP private key, base64-encoded
+      #   SIGNING_PASSWORD    — passphrase for that key
+      # The signing plugin in each module reads them via `-Psigning.key` /
+      # `-Psigning.password`. Without the secrets the `signing { isRequired = ... }`
+      # block skips signing — fine for dry-run, fatal for a real Central upload.
+      - name: Clean prior staging
+        # The staging dir is reused across local builds. If a previous run with
+        # a different version is still on disk the ZIP would contain BOTH
+        # versions. CI starts from a fresh checkout but the build dir can be
+        # restored from the Gradle cache — clean explicitly.
+        run: rm -rf build/maven-central-staging build/distributions
+
+      - name: Build, sign and bundle (root :generateFullMavenZip)
         env:
           SIGNING_KEY:      ${{ secrets.SIGNING_KEY_BASE64 }}
           SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+          VERSION_NAME:     ${{ steps.version.outputs.new }}
         run: |
-          ./gradlew :kmpworker:publishAllPublicationsToMavenCentralLocalRepository \
+          ./gradlew generateFullMavenZip \
+            -PVERSION_NAME="$VERSION_NAME" \
             -Psigning.key="$SIGNING_KEY" \
             -Psigning.password="$SIGNING_PASSWORD" \
-            --no-configuration-cache
+            --no-configuration-cache --stacktrace
 
-      # ── 8. Generate checksums (MD5 + SHA1) ───────────────────────────────────
-      - name: Generate checksums
-        run: ./gradlew :kmpworker:generateChecksums --no-configuration-cache
-
-      # ── 9. Create Maven bundle ZIP ───────────────────────────────────────────
-      - name: Create Maven bundle ZIP
+      # ── 8. Verify bundle structure and locate the ZIP ────────────────────────
+      - name: Verify bundle
         id: bundle
         run: |
+          set -euo pipefail
           VERSION="${{ steps.version.outputs.new }}"
-          BUNDLE_NAME="kmpworkmanager-${VERSION}-maven-bundle.zip"
-          STAGING_DIR="kmpworker/build/maven-central-staging"
+          STAGING_DIR="build/maven-central-staging"
+          BUNDLE_NAME="kmpworkmanager-maven-central-${VERSION}.zip"
+          BUNDLE_PATH="build/distributions/${BUNDLE_NAME}"
 
-          # Verify staging dir exists and contains expected structure
           if [ ! -d "${STAGING_DIR}/dev/brewkits" ]; then
-            echo "ERROR: staging dir missing: ${STAGING_DIR}/dev/brewkits"
+            echo "::error::Staging dir missing: ${STAGING_DIR}/dev/brewkits"
             ls -la "${STAGING_DIR}" || true
             exit 1
           fi
 
-          # Count artifacts and signatures
-          ARTIFACTS=$(find "${STAGING_DIR}/dev/brewkits" -type f \
-            \( -name "*.jar" -o -name "*.aar" -o -name "*.klib" \
-               -o -name "*.pom" -o -name "*.module" -o -name "*.json" \) \
-            ! -name "*.asc" | wc -l | tr -d ' ')
-          SIGNATURES=$(find "${STAGING_DIR}/dev/brewkits" -type f -name "*.asc" | wc -l | tr -d ' ')
-          CHECKSUMS=$(find "${STAGING_DIR}/dev/brewkits" -type f \
-            \( -name "*.md5" -o -name "*.sha1" \) | wc -l | tr -d ' ')
-
-          echo "Artifacts:  $ARTIFACTS"
-          echo "Signatures: $SIGNATURES"
-          echo "Checksums:  $CHECKSUMS"
-
-          if [ "$ARTIFACTS" -ne "$SIGNATURES" ]; then
-            echo "ERROR: artifact count ($ARTIFACTS) != signature count ($SIGNATURES)"
+          if [ ! -f "${BUNDLE_PATH}" ]; then
+            echo "::error::Bundle ZIP missing: ${BUNDLE_PATH}"
+            ls -la build/distributions/ || true
             exit 1
           fi
 
-          # Create ZIP
-          cd "${STAGING_DIR}"
-          zip -q -r "${BUNDLE_NAME}" dev/
-          cd "$GITHUB_WORKSPACE"
+          # Sanity: every artifact (jar/aar/klib/pom/module) must have a
+          # matching .asc signature and the basic MD5 + SHA1 checksums.
+          ARTIFACTS=$(find "${STAGING_DIR}/dev/brewkits" -type f \
+            \( -name "*.jar" -o -name "*.aar" -o -name "*.klib" \
+               -o -name "*.pom" -o -name "*.module" -o -name "*.json" \) \
+            ! -name "*.asc" ! -name "*.md5" ! -name "*.sha1" \
+            ! -name "*.sha256" ! -name "*.sha512" | wc -l | tr -d ' ')
+          SIGNATURES=$(find "${STAGING_DIR}/dev/brewkits" -type f -name "*.asc" | wc -l | tr -d ' ')
+          MD5S=$(find "${STAGING_DIR}/dev/brewkits" -type f -name "*.md5" | wc -l | tr -d ' ')
+          SHA1S=$(find "${STAGING_DIR}/dev/brewkits" -type f -name "*.sha1" | wc -l | tr -d ' ')
 
-          BUNDLE_PATH="$GITHUB_WORKSPACE/${BUNDLE_NAME}"
-          cp "${STAGING_DIR}/${BUNDLE_NAME}" "${BUNDLE_PATH}"
+          echo "Artifacts:  $ARTIFACTS"
+          echo "Signatures: $SIGNATURES (.asc)"
+          echo "MD5:        $MD5S"
+          echo "SHA1:       $SHA1S"
+
+          # `isRequired` in the signing plugin lets the build succeed without a
+          # PGP key (for dry-run / fork CI). For a real release the secrets MUST
+          # be present, so the signature count must equal the artifact count.
+          if [ -n "${{ secrets.SIGNING_KEY_BASE64 }}" ] && [ "$ARTIFACTS" -ne "$SIGNATURES" ]; then
+            echo "::error::artifact count ($ARTIFACTS) != signature count ($SIGNATURES) — signing did not cover every artifact"
+            exit 1
+          fi
+          if [ "$ARTIFACTS" -ne "$MD5S" ] || [ "$ARTIFACTS" -ne "$SHA1S" ]; then
+            echo "::error::checksums missing — every artifact must have .md5 and .sha1 (Sonatype Central requirement)"
+            exit 1
+          fi
 
           BUNDLE_SIZE=$(du -h "${BUNDLE_PATH}" | cut -f1)
           TOTAL_FILES=$(unzip -l "${BUNDLE_PATH}" | tail -1 | awk '{print $2}')
 
-          echo "bundle_name=${BUNDLE_NAME}"   >> "$GITHUB_OUTPUT"
-          echo "bundle_path=${BUNDLE_PATH}"   >> "$GITHUB_OUTPUT"
-          echo "bundle_size=${BUNDLE_SIZE}"   >> "$GITHUB_OUTPUT"
-          echo "total_files=${TOTAL_FILES}"   >> "$GITHUB_OUTPUT"
-          echo "artifacts=${ARTIFACTS}"       >> "$GITHUB_OUTPUT"
-          echo "signatures=${SIGNATURES}"     >> "$GITHUB_OUTPUT"
+          echo "bundle_name=${BUNDLE_NAME}" >> "$GITHUB_OUTPUT"
+          echo "bundle_path=${BUNDLE_PATH}" >> "$GITHUB_OUTPUT"
+          echo "bundle_size=${BUNDLE_SIZE}" >> "$GITHUB_OUTPUT"
+          echo "total_files=${TOTAL_FILES}" >> "$GITHUB_OUTPUT"
+          echo "artifacts=${ARTIFACTS}"     >> "$GITHUB_OUTPUT"
+          echo "signatures=${SIGNATURES}"   >> "$GITHUB_OUTPUT"
 
-          echo "Bundle created: ${BUNDLE_NAME} (${BUNDLE_SIZE}, ${TOTAL_FILES} files)"
+          echo "Bundle OK: ${BUNDLE_NAME} (${BUNDLE_SIZE}, ${TOTAL_FILES} files, ${ARTIFACTS} artifacts × ${SIGNATURES} sigs)"
 
-      # ── 10. Upload bundle as workflow artifact (always, including dry run) ────
+      # ── 9. Upload bundle as workflow artifact (always, including dry run) ─────
       - name: Upload bundle artifact
         uses: actions/upload-artifact@v4
         with:
@@ -167,7 +196,11 @@ jobs:
           path: ${{ steps.bundle.outputs.bundle_path }}
           retention-days: 30
 
-      # ── 11. Create GitHub Release with bundle attached (skip on dry run) ──────
+      # ── 10. Create GitHub Release with bundle attached (skip on dry run) ──────
+      #
+      # Maven Central upload is intentionally manual — release.yml only builds
+      # and signs the bundle. The maintainer uploads via the Central Portal UI
+      # so the release click stays a human decision.
       - name: Create GitHub Release
         if: ${{ inputs.dry_run == false }}
         uses: softprops/action-gh-release@v2
@@ -175,10 +208,10 @@ jobs:
           tag_name: ${{ steps.version.outputs.tag }}
           name: ${{ steps.version.outputs.tag }}
           body: |
-            ## Upload to Maven Central
+            ## Upload to Maven Central (manual)
 
             1. Download **`${{ steps.bundle.outputs.bundle_name }}`** from the assets below
-            2. Go to https://central.sonatype.com/ → **Publish** → **Upload Bundle**
+            2. Open https://central.sonatype.com/ → **Publish** → **Upload Bundle**
             3. Upload the ZIP — validation takes ~1-2 minutes
             4. Click **Publish** — available on Maven Central in ~15-30 minutes
 
@@ -188,7 +221,7 @@ jobs:
 
             ---
             Bundle: `${{ steps.bundle.outputs.bundle_name }}`
-            Size: ${{ steps.bundle.outputs.bundle_size }} · Files: ${{ steps.bundle.outputs.total_files }} · Signed: ${{ steps.bundle.outputs.signatures }} .asc
+            Size: ${{ steps.bundle.outputs.bundle_size }} · Files: ${{ steps.bundle.outputs.total_files }} · Artifacts: ${{ steps.bundle.outputs.artifacts }} · Signatures: ${{ steps.bundle.outputs.signatures }} .asc
           files: ${{ steps.bundle.outputs.bundle_path }}
           draft: false
           prerelease: false

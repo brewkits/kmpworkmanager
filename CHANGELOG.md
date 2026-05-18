@@ -5,6 +5,230 @@ All notable changes to KMP WorkManager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0] - 2026-05-16
+
+Production-hardening release driven by a camera-app architecture review.
+See [`docs/release-notes/v2.5.0-RELEASE-NOTES.md`](docs/release-notes/v2.5.0-RELEASE-NOTES.md)
+for the full breakdown and [`docs/MIGRATION_V2.5.0.md`](docs/MIGRATION_V2.5.0.md)
+for upgrade notes from v2.4.x.
+
+### Added
+- **`ParallelHttpDownloadWorker`** — splits one file into N HTTP `Range` chunks
+  (1..16, default 4) with per-chunk `.partN` resume. Sequential fallback when
+  the server lacks `Accept-Ranges: bytes`.
+- **`ParallelHttpUploadWorker`** — one POST per file under a `Semaphore`-bounded
+  concurrency cap (1..16, default 3) with per-file retry on 5xx / network
+  errors only (`maxRetries` 0..5, default 1; 4xx never retried).
+- **Checksum verification** on `HttpDownloadConfig` — `expectedChecksum` +
+  `ChecksumAlgorithm` (MD5 / SHA-1 / SHA-256 / SHA-512) via Okio's
+  `HashingSource`. Mismatch deletes the partial file and Fails.
+- **`DuplicatePolicy`** on `HttpDownloadConfig` — `OVERWRITE` (default,
+  preserves pre-v2.5 behaviour), `SKIP` (return Success without network),
+  `RENAME` (append `_1`, `_2`, … to the stem, bounded at 10 000 probes).
+- **`IosBackgroundDownloadWorker`** + `IosBackgroundUrlSessionManager` —
+  downloads survive full app termination via `URLSessionConfiguration.background`.
+- **`WorkerResult.Retry(reason, delayMs, attemptCap)`** — explicit retry signal.
+  Android maps to `Result.retry()` with attempt-cap ceiling via
+  `runAttemptCount`; iOS `ChainExecutor` honors `delayMs` (re-arms
+  `BGProcessingTaskRequest`) and `attemptCap` (abandons step on reach).
+- **`ChainProgress.stepRetryCounts`** — per-step attempt counter on iOS,
+  independent from chain-level `retryCount`.
+- **Configurable Android FGS type** — `KmpHeavyWorker.foregroundServiceType` is
+  overrideable. Companion aliases (`FGS_DATA_SYNC`, `FGS_MEDIA_PROCESSING` for
+  Android 15+, `FGS_CAMERA`, `FGS_LOCATION`, …).
+- **`BackgroundDownloadStateStore`** (internal) — atomic JSON-backed map of
+  in-flight `URLSession` downloads keyed by `(sessionIdentifier, taskIdentifier)`.
+- **File-size queue compaction trigger** — `AppendOnlyQueue` compacts when the
+  queue file exceeds 5 MB with ≥ 20 % processed.
+- **CI matrix** — Android API 28/30/33/35, iOS 16/17/18, Robolectric on Ubuntu,
+  KSP processor tests isolated.
+- **CodeQL** (`java-kotlin`) on every PR + weekly schedule.
+- **Dependabot grouping** — `kotlin-toolchain`, `ktor`, `coroutines`,
+  `androidx`, `compose`.
+- **Maven Central bundle** — `generateFullMavenZip` produces a signed bundle
+  ready for manual upload via the Sonatype Central Portal UI.
+
+### Fixed (P0/P1, found in QA review fourth pass)
+- **iOS — `AppendOnlyQueue.compactQueue` OOM under large queues** (P0). Pre-fix
+  loaded all unprocessed records into a `mutableListOf<String>()` before writing
+  the compacted file. With `MAX_QUEUE_SIZE = 10 000` and typical 1–4 KB JSON
+  payloads, peak RAM could hit 10–40 MB — above the iOS background task budget
+  (Watchdog kills with `EXC_RESOURCE / RESOURCE_TYPE_MEMORY` at ~30 MB on older
+  devices), breaking the O(1) RAM contract documented for the queue. v2.5 ships
+  a `streamCompactionToFile` helper that reads → writes one record at a time;
+  peak RAM is bounded by the largest single record.
+- **iOS — `AppendOnlyQueue` compaction ran on `Dispatchers.Default`** (P1). The
+  CPU-bounded `Default` dispatcher was used to run blocking file I/O
+  (`NSFileHandle`, `NSFileManager.replaceItemAtURL`). On a saturated thread pool
+  this starved other coroutines using `Default`. v2.5 switches `compactionScope`
+  to `IosDispatchers.IO` (GCD global queue, unbounded worker spawn), matching
+  every other blocking-I/O path in the module.
+- **Android — `cancel(id)` orphaned the overflow `kmp_input_*.json` file** (P1).
+  Pre-fix the file lived in `cacheDir` until the 24 h `cleanupStaleAlarms`
+  sweep ran. Apps that schedule + cancel many large-input tasks (camera draft
+  save → cancel cycle) accumulated megabytes of orphaned files. v2.5 introduces
+  `OverflowFileRegistry`: a small `SharedPreferences`-backed `taskId → path`
+  map populated on schedule, consumed + file-deleted on cancel. Coverage:
+  `OverflowFileRegistryTest` (6 tests including a 100-cycle leak-check).
+
+### Fixed (16 P0/P1/P2 bugs, found across 4 pre-publish audit passes)
+
+Late-cycle proactive review on the cancellation × lock-order × retry-contract ×
+data-integrity axes. Each fix is pinned by a `V250…Test.kt` regression test
+that was verified to fail under a temporary revert of its production change.
+Full table in [release notes](docs/release-notes/v2.5.0-RELEASE-NOTES.md) +
+migration guidance for breaking-by-contract changes in
+[`docs/MIGRATION_V2.5.0.md`](docs/MIGRATION_V2.5.0.md) §5–§12.
+
+**P0 — data loss / crash**
+- `BaseKmpWorker` deleted overflow input file on `CancellationException` →
+  WorkManager rerun lost user payload. `wasCancelled` flag was set but never
+  read by the delete guard.
+- iOS `DynamicTaskDispatcher` + `IosBackgroundTaskHandler.handleSingleTask`
+  silently dropped `WorkerResult.Retry` / `Failure(shouldRetry=true)` →
+  background work vanished on flaky-network failures. Both code paths now
+  re-enqueue/re-submit with bounded attempt counter (`kmpAttemptCount`,
+  default cap 5).
+- `IosFileStorage.replaceChainAtomic` bypassed `enqueueMutex` → concurrent
+  `enqueueChain` could race through the size check, exceeding
+  `MAX_QUEUE_SIZE`. Now acquires `enqueueMutex` inside `queueMutex` per the
+  documented lock order.
+- `AppendOnlyQueue.migrateFromTextToBinary` loaded the entire legacy file via
+  `NSString.stringWithContentsOfFile` + `split("\n")` → 3× RAM spike →
+  EXC_RESOURCE silent kill → user permanently stuck on pre-v2.5 version.
+  Streams line-by-line via `NSFileHandle` now.
+- Built-in workers (`HttpUploadWorker`, `HttpSyncWorker`,
+  `FileCompressionWorker`, `ParallelHttpUploadWorker`) caught generic
+  `Exception` and returned `Failure()` without `shouldRetry=true`. Combined
+  with the chain-abandonment-on-permanent-failure semantic, a single
+  transient network blip would abandon any chain. Now explicit
+  `shouldRetry=true`.
+
+**P1 — correctness / silent state corruption**
+- iOS `NSFileCoordinator` bypassed the lock on timeout → App↔Extension
+  interleaved writes corrupted `queue.jsonl` (CRC32 mismatch → silent record
+  loss). Now throws `FileCoordinationTimeoutException` to force a retry.
+- `ChainExecutor.executeChain` + `executeTask` inner `catch
+  (TimeoutCancellationException)` mis-attributed outer-scope cancellations
+  as chain/task-level timeouts AND swallowed them. Now disambiguate by
+  elapsed-vs-budget and rethrow if outer-caused.
+- `ChainExecutor` used wall-clock for elapsed-time math → NTP sync during
+  execution would corrupt the disambiguation and the adaptive-budget
+  feedback. Now uses `kotlin.time.TimeSource.Monotonic`; public timestamps
+  (telemetry, history) remain wall-clock.
+- `StorageMigration.migrate` catch-all swallowed `CancellationException`,
+  breaking structured concurrency on shutdown-during-init.
+
+**P2 — quota waste / API contract**
+- iOS `DynamicTaskDispatcher.requestShutdownSync` cancelled an unused
+  `SupervisorJob` — the cancel never reached the in-flight worker. Now
+  captures parent `Job` via `AtomicReference` on entry to `executePendingTasks`.
+- `ChainExecutor.executeStep` dropped `Failure.shouldRetry` flag → workers
+  returning `Failure(shouldRetry=false)` still consumed the chain-level
+  retry budget. Now abandons immediately on permanent failure. Surfaced a
+  latent `deleteChainProgress` buffer-eviction bug — also fixed.
+- iOS battery guard toggled `UIDevice.isBatteryMonitoringEnabled` non-
+  atomically + from non-main-thread, racing with the host app's battery UI.
+  Now read-only; opt-in via host's `UIDevice.current.isBatteryMonitoringEnabled
+  = true`. Same fix applied to `IosWorkerDiagnostics.getSystemHealth`.
+
+**BAD — code smell / future risk**
+- `BaseKmpWorker` classified NPE / IllegalArgumentException /
+  NumberFormatException as permanent → workers dropped on transient
+  null/empty server responses from third-party SDKs. Narrowed the
+  permanent list to truly-programming-error types only.
+- `IosFileStorage.close()` wrapped flushNow + cancel + join in a single
+  try/catch → if flushNow threw, cancel + join were skipped → coroutine
+  leak. Moved cancel + join to `finally`.
+
+### Hardening (DX & docs, found in QA review third pass)
+- **Android — `KmpHeavyWorker.doWork` guards `setForeground()`** against
+  `SecurityException` / `ForegroundServiceStartNotAllowedException` /
+  `ForegroundServiceTypeException`. Pre-fix, a manifest/runtime FGS-type mismatch
+  crashed the worker with an opaque WorkManager stack trace. Now logs an
+  actionable diagnostic pointing to `docs/ANDROID_FGS_GUIDE.md` and returns
+  `Result.failure()`.
+- **iOS — test-environment detection centralised** in `IosTestEnvironment` (was
+  duplicated across `IosFileCoordinator`, `IosFileStorage`, `NativeTaskScheduler`
+  with the fragile `processName.endsWith("test.kexe")` heuristic). New detector
+  layers `XCTestConfigurationFilePath` / `XCInjectBundleInto` env-var signals on
+  top of the suffix check; `KMPWORKMANAGER_TEST_MODE=1` remains the explicit
+  override. A future Kotlin/Native binary-naming change no longer silently
+  breaks test-mode short-circuits.
+- **iOS — Simulator fallback** in `NativeTaskScheduler` now logs a prominent
+  warning at every fallback invocation explaining that `delay()`-based simulation
+  freezes when the app is backgrounded and is **not** representative of
+  production `BGTaskScheduler` semantics. Closes the "false sense of security"
+  trap where developers test on simulator and ship to production without
+  validating wall-clock scheduling behaviour.
+- **iOS — `checkAndExecuteMissedExactAlarms` KDoc** now leads with an
+  all-caps warning that iOS exact alarms are **not guaranteed to execute** when
+  the user never opens the app. Spells out the do-NOT-use-for list (alarm
+  clocks, medication reminders, trading triggers, time-locked unlock).
+  Companion section added to `docs/IOS_BGTASK_LIMITS.md` §5.
+
+### Fixed (P0/P1, found in QA double-check pre-publish)
+- **iOS — `AppendOnlyQueue` CRC corruption wiped entire queue**. The validator
+  set a precise `corruptionOffset` but `dequeue`'s null-handling overwrote it
+  to `0UL`, forcing a full reset on the next dequeue. Pending tasks ahead of
+  the corrupt record were lost. v2.5 keeps the precise offset; truncate now
+  preserves all valid records before the corruption point.
+- **iOS — `BackgroundDownloadStateStore.getSync` cache race**. A concurrent
+  `put`/`remove` between the volatile-null-check and the write-back could be
+  silently clobbered by a stale disk snapshot — re-introducing the cold-launch
+  orphan bug v2.5 was supposed to fix. v2.5 uses compare-and-set publish
+  semantics.
+- **iOS — `ChainExecutor` clobbered host battery monitoring state**. The chain
+  executor unconditionally toggled `UIDevice.batteryMonitoringEnabled = true; …; = false`,
+  breaking any host app that had it set. v2.5 captures the prior state and
+  restores it.
+- **`ParallelHttpDownloadWorker` retry storm**. Merge-failure catch kept
+  `.partN` files; on retry the worker skipped downloads (parts match expected
+  sizes) and the merge failed again with the same error → infinite loop. v2.5
+  purges all parts on merge failure (retry re-downloads from scratch) and
+  caps the outer Retry at `attemptCap = 4`.
+
+### Fixed
+- **iOS — `IosBackgroundUrlSessionManager` cold-launch orphan** (P0). Before
+  v2.5.0 the manager kept `savePaths` / `taskNames` only in process memory.
+  iOS app-kill + cold-launch wiped them; the completion delegate had no
+  `savePath` and orphaned the downloaded file in `NSTemporaryDirectory`.
+  v2.5.0 persists state to disk via `BackgroundDownloadStateStore` before
+  `task.resume()`. Adversarial coverage in `BackgroundDownloadStateStoreTest`.
+- **iOS — `FileCompressionWorker` silent copy** (correctness). Pre-v2.5 the
+  worker silently `copyItemAtPath`'d the file (no ZIP codec on Kotlin/Native)
+  and reported Success. v2.5 fails fast by default; opt in via
+  `FileCompressionConfig.allowIosUncompressedFallback = true`.
+- **Android — `PendingIntent` request-code collisions**. Alarm codes used
+  `String.hashCode()` which collides on UUID-style IDs (`"Aa".hashCode() ==
+  "BB".hashCode() == 2112`). v2.5 uses `PendingIntentCodes.forTaskId()` (CRC32).
+  Adversarial proof in `PendingIntentCodesAdversarialTest`.
+- **Android — `BaseAlarmReceiver` lifecycle leak**.
+  `CoroutineScope(Dispatchers.IO).launch{}` in `onReceive` could outlive the
+  receiver's ~10 s budget. v2.5 uses `SupervisorJob` + `withTimeout(workTimeoutMs)`
+  (default 8 s) + `scope.cancel()` in `finally`. Coverage:
+  `BaseAlarmReceiverLifecycleTest`.
+- **SSRF blocklist** — RFC 6598 CGNAT `100.64.0.0/10` and `0.0.0.0/8` now blocked.
+
+### Changed
+- **`HttpDownloadWorker`** — 5xx responses now return
+  `WorkerResult.Retry(delayMs = 30_000)` (was `Failure(shouldRetry = true)`).
+  Resumable downloads via `<savePath>.partial` + HTTP `Range`.
+- **`KmpHeavyWorker`** is now `open` so subclasses can override
+  `foregroundServiceType`. Type API range extended from API 31+ to API 29+
+  (Q) — `ForegroundInfo`'s type-aware constructor has always existed on Q.
+
+### Docs
+- `docs/ANDROID_FGS_GUIDE.md` — manifest snippets per FGS type, Android 15
+  6-hour `dataSync` cap.
+- `docs/IOS_BGTASK_LIMITS.md` — opportunistic scheduling, time budget,
+  headless DI cold-start, ZIP codec gap.
+- `docs/IOS_BACKGROUND_URL_SESSION.md` — AppDelegate wiring + cold-launch
+  survival explainer.
+- `docs/APPLE_APP_STORE_REVIEW_GUIDELINES.md` — §2.5.4 compliance for dynamic
+  task dispatch.
+- `docs/MIGRATION_V2.5.0.md` — upgrade guide from v2.4.x.
+
 ## [2.4.3] - 2026-04-30
 
 ### Highlights

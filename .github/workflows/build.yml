@@ -4,50 +4,199 @@ on:
   push:
     branches: [ main, develop ]
   workflow_dispatch:
-
   pull_request:
     branches: [ main ]
 
+# Cancel superseded runs from the same branch — saves macOS minutes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  test:
+  # ───────────────────────────────────────────────────────────────────────────
+  # Common + KSP unit tests. Fast, runs on every commit.
+  # ───────────────────────────────────────────────────────────────────────────
+  common-tests:
+    name: Common + KSP unit tests
     runs-on: macos-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
-
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
-
-      - name: Build library
-        run: ./gradlew :kmpworker:build
-
-      - name: Run tests
-        run: ./gradlew :kmpworker:allTests
-
+      - uses: gradle/actions/setup-gradle@v4
+      - run: chmod +x gradlew
+      - name: kmpworker checks (excludes platform-specific tests)
+        run: >-
+          ./gradlew :kmpworker:check
+          -x :kmpworker:connectedAndroidTest
+          -x :kmpworker:iosX64Test
+          -x :kmpworker:iosArm64Test
+          -x :kmpworker:iosSimulatorArm64Test
+      - name: KSP processor tests
+        run: ./gradlew :kmpworker-ksp:test
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results
+          name: common-test-results
           path: |
             kmpworker/build/reports/tests/
             kmpworker/build/test-results/
+            kmpworker-ksp/build/reports/tests/
+            kmpworker-ksp/build/test-results/
           retention-days: 7
 
-      - name: Build demo app (Android)
-        run: ./gradlew :composeApp:assembleDebug
-
-      - name: Upload build artifacts
+  # ───────────────────────────────────────────────────────────────────────────
+  # iOS simulator tests across iOS runtime versions. Apple Silicon runners
+  # (macos-14) only run the arm64 simulator path. We pin the simulator device
+  # explicitly so a new Xcode release doesn't silently change the test target.
+  # ───────────────────────────────────────────────────────────────────────────
+  ios-tests:
+    name: iOS tests (${{ matrix.runtime }})
+    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runtime: "iOS 16"
+            device: "iPhone 14"
+            xcode: "15.2"
+          - runtime: "iOS 17"
+            device: "iPhone 15"
+            xcode: "15.4"
+          - runtime: "iOS 18"
+            device: "iPhone 15 Pro"
+            xcode: "16.0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - name: Select Xcode ${{ matrix.xcode }}
+        run: sudo xcode-select -s "/Applications/Xcode_${{ matrix.xcode }}.app"
+      - name: List simulator runtimes (diagnostic)
+        run: xcrun simctl list runtimes
+      - uses: gradle/actions/setup-gradle@v4
+      - run: chmod +x gradlew
+      - name: iosSimulatorArm64Test
+        env:
+          IOS_DEVICE: ${{ matrix.device }}
+        run: ./gradlew :kmpworker:iosSimulatorArm64Test
+      - name: Upload test results
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-artifacts
+          name: ios-test-results-${{ matrix.runtime }}
           path: |
-            kmpworker/build/libs/
-            kmpworker/build/outputs/aar/
+            kmpworker/build/reports/tests/iosSimulatorArm64Test/
+            kmpworker/build/test-results/iosSimulatorArm64Test/
+          retention-days: 7
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Android unit tests (Robolectric). Cheap — runs on every commit.
+  # ───────────────────────────────────────────────────────────────────────────
+  android-unit-tests:
+    name: Android unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - uses: gradle/actions/setup-gradle@v4
+      - run: chmod +x gradlew
+      - name: testDebugUnitTest
+        run: ./gradlew :kmpworker:testDebugUnitTest
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-unit-test-results
+          path: |
+            kmpworker/build/reports/tests/testDebugUnitTest/
+            kmpworker/build/test-results/testDebugUnitTest/
+          retention-days: 7
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Android instrumented tests across API levels.
+  #   28 — Android 9  (legacy floor; min library SDK)
+  #   30 — Android 11 (scoped storage, background restrictions)
+  #   33 — Android 13 (notification permission)
+  #   35 — Android 15 (FGS type enforcement, exact-alarm policy)
+  # macOS runners are used because they have nested-virt enabled for the
+  # x86_64 emulator. KVM enablement (Linux) is kept as a no-op safety net in
+  # case the matrix is moved later.
+  # ───────────────────────────────────────────────────────────────────────────
+  android-instrumented-tests:
+    name: Android instrumented (API ${{ matrix.api-level }})
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [ 28, 30, 33, 35 ]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - uses: gradle/actions/setup-gradle@v4
+      - run: chmod +x gradlew
+      - name: Enable KVM (Linux only — no-op on macOS)
+        if: runner.os == 'Linux'
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: connectedAndroidTest
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          target: default
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: ./gradlew :kmpworker:connectedDebugAndroidTest
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-instrumented-${{ matrix.api-level }}
+          path: |
+            kmpworker/build/reports/androidTests/
+            kmpworker/build/outputs/androidTest-results/
+          retention-days: 7
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Demo app builds. Sanity check that the Compose demo still assembles, and
+  # the iOS framework still links — catches K/N regressions the unit tests
+  # might miss.
+  # ───────────────────────────────────────────────────────────────────────────
+  demo-builds:
+    name: Demo app builds
+    runs-on: macos-latest
+    needs: [ common-tests ]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - uses: gradle/actions/setup-gradle@v4
+      - run: chmod +x gradlew
+      - name: Android demo APK
+        run: ./gradlew :composeApp:assembleDebug
+      - name: iOS framework link (release, simulator-arm64)
+        run: ./gradlew :kmpworker:linkReleaseFrameworkIosSimulatorArm64
+      - name: Upload demo artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: demo-artifacts
+          path: |
+            composeApp/build/outputs/apk/**/*.apk
+          retention-days: 14

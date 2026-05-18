@@ -226,4 +226,177 @@ class BuiltinWorkersTest {
             if (fileSystem.exists(testFile)) fileSystem.delete(testFile)
         }
     }
+
+    // ── P1.3 Resumable download tests ───────────────────────────────────────────────
+
+    @Test
+    fun testHttpDownload_resumeFromPartialFile_appliesRangeHeader_andAppends() = runTest {
+        val savePath = "test_resume_${kotlin.random.Random.nextInt()}.bin".toPath()
+        val partialPath = "${savePath}.partial".toPath()
+        val fileSystem = FileSystem.SYSTEM
+
+        // Pre-populate a partial with 5 bytes (simulating a previous interrupted attempt).
+        fileSystem.write(partialPath) { writeUtf8("HELLO") }
+
+        var observedRangeHeader: String? = null
+        val mockEngine = MockEngine { request ->
+            observedRangeHeader = request.headers[HttpHeaders.Range]
+            respond(
+                content = " WORLD",
+                status = HttpStatusCode.PartialContent,
+                headers = headersOf(HttpHeaders.ContentRange, "bytes 5-10/11")
+            )
+        }
+
+        val worker = HttpDownloadWorker(mockClient(mockEngine), fileSystem)
+        val config = HttpDownloadConfig(
+            url = "https://example.com/file.bin",
+            savePath = savePath.toString(),
+            resumable = true
+        )
+        val input = KmpWorkManagerRuntime.json.encodeToString(config)
+
+        try {
+            val result = worker.doWork(input, WorkerEnvironment(null) { false })
+
+            assertTrue(result is WorkerResult.Success, "expected Success, got $result")
+            assertEquals("bytes=5-", observedRangeHeader, "worker must request Range from existing offset")
+            assertTrue(fileSystem.exists(savePath), "final file must exist after finalize")
+            assertFalse(fileSystem.exists(partialPath), "partial file must be moved/deleted after finalize")
+
+            val contents = fileSystem.source(savePath).buffer().readUtf8()
+            assertEquals("HELLO WORLD", contents, "partial + 206 body must concatenate")
+        } finally {
+            if (fileSystem.exists(savePath)) fileSystem.delete(savePath)
+            if (fileSystem.exists(partialPath)) fileSystem.delete(partialPath)
+        }
+    }
+
+    @Test
+    fun testHttpDownload_serverIgnoresRange_returns200_overwritesPartial() = runTest {
+        val savePath = "test_resume_overwrite_${kotlin.random.Random.nextInt()}.bin".toPath()
+        val partialPath = "${savePath}.partial".toPath()
+        val fileSystem = FileSystem.SYSTEM
+
+        fileSystem.write(partialPath) { writeUtf8("STALE") }
+
+        val mockEngine = MockEngine { request ->
+            respond(content = "FRESH CONTENT", status = HttpStatusCode.OK)
+        }
+
+        val worker = HttpDownloadWorker(mockClient(mockEngine), fileSystem)
+        val config = HttpDownloadConfig(
+            url = "https://example.com/file.bin",
+            savePath = savePath.toString(),
+            resumable = true
+        )
+        val input = KmpWorkManagerRuntime.json.encodeToString(config)
+
+        try {
+            val result = worker.doWork(input, WorkerEnvironment(null) { false })
+
+            assertTrue(result is WorkerResult.Success)
+            val contents = fileSystem.source(savePath).buffer().readUtf8()
+            assertEquals("FRESH CONTENT", contents, "200 OK must overwrite stale partial, not append")
+        } finally {
+            if (fileSystem.exists(savePath)) fileSystem.delete(savePath)
+            if (fileSystem.exists(partialPath)) fileSystem.delete(partialPath)
+        }
+    }
+
+    @Test
+    fun testHttpDownload_416_treatsPartialAsCompleted() = runTest {
+        val savePath = "test_resume_416_${kotlin.random.Random.nextInt()}.bin".toPath()
+        val partialPath = "${savePath}.partial".toPath()
+        val fileSystem = FileSystem.SYSTEM
+
+        fileSystem.write(partialPath) { writeUtf8("COMPLETE") }
+
+        val mockEngine = MockEngine { _ ->
+            respond(content = "", status = HttpStatusCode.RequestedRangeNotSatisfiable)
+        }
+        val worker = HttpDownloadWorker(mockClient(mockEngine), fileSystem)
+        val config = HttpDownloadConfig(
+            url = "https://example.com/file.bin",
+            savePath = savePath.toString(),
+            resumable = true
+        )
+        val input = KmpWorkManagerRuntime.json.encodeToString(config)
+
+        try {
+            val result = worker.doWork(input, WorkerEnvironment(null) { false })
+
+            assertTrue(result is WorkerResult.Success, "416 with a non-empty partial must succeed")
+            val contents = fileSystem.source(savePath).buffer().readUtf8()
+            assertEquals("COMPLETE", contents)
+        } finally {
+            if (fileSystem.exists(savePath)) fileSystem.delete(savePath)
+            if (fileSystem.exists(partialPath)) fileSystem.delete(partialPath)
+        }
+    }
+
+    @Test
+    fun testHttpDownload_5xx_returnsRetry_preservesPartial() = runTest {
+        val savePath = "test_5xx_${kotlin.random.Random.nextInt()}.bin".toPath()
+        val partialPath = "${savePath}.partial".toPath()
+        val fileSystem = FileSystem.SYSTEM
+
+        fileSystem.write(partialPath) { writeUtf8("PARTIAL") }
+
+        val mockEngine = MockEngine { _ ->
+            respond(content = "boom", status = HttpStatusCode.BadGateway)
+        }
+        val worker = HttpDownloadWorker(mockClient(mockEngine), fileSystem)
+        val config = HttpDownloadConfig(
+            url = "https://example.com/file.bin",
+            savePath = savePath.toString(),
+            resumable = true
+        )
+        val input = KmpWorkManagerRuntime.json.encodeToString(config)
+
+        try {
+            val result = worker.doWork(input, WorkerEnvironment(null) { false })
+
+            assertTrue(result is WorkerResult.Retry, "5xx must yield Retry, not Failure")
+            assertTrue(fileSystem.exists(partialPath), "partial must be preserved across 5xx for next attempt")
+        } finally {
+            if (fileSystem.exists(savePath)) fileSystem.delete(savePath)
+            if (fileSystem.exists(partialPath)) fileSystem.delete(partialPath)
+        }
+    }
+
+    @Test
+    fun testHttpDownload_nonResumable_deletesPartialOnError() = runTest {
+        val savePath = "test_nonresumable_${kotlin.random.Random.nextInt()}.bin".toPath()
+        val partialPath = "${savePath}.partial".toPath()
+        val fileSystem = FileSystem.SYSTEM
+
+        // Stale partial from a previous resumable run.
+        fileSystem.write(partialPath) { writeUtf8("STALE") }
+
+        var observedRangeHeader: String? = null
+        val mockEngine = MockEngine { request ->
+            observedRangeHeader = request.headers[HttpHeaders.Range]
+            respond(content = "ok", status = HttpStatusCode.OK)
+        }
+        val worker = HttpDownloadWorker(mockClient(mockEngine), fileSystem)
+        val config = HttpDownloadConfig(
+            url = "https://example.com/file.bin",
+            savePath = savePath.toString(),
+            resumable = false
+        )
+        val input = KmpWorkManagerRuntime.json.encodeToString(config)
+
+        try {
+            val result = worker.doWork(input, WorkerEnvironment(null) { false })
+
+            assertTrue(result is WorkerResult.Success)
+            assertNull(observedRangeHeader, "non-resumable mode must NOT send a Range header")
+            val contents = fileSystem.source(savePath).buffer().readUtf8()
+            assertEquals("ok", contents)
+        } finally {
+            if (fileSystem.exists(savePath)) fileSystem.delete(savePath)
+            if (fileSystem.exists(partialPath)) fileSystem.delete(partialPath)
+        }
+    }
 }

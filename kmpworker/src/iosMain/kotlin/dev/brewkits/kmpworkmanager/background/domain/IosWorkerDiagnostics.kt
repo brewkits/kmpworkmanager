@@ -40,18 +40,22 @@ internal class IosWorkerDiagnostics(
     }
 
     override suspend fun getSystemHealth(): SystemHealthReport {
-        UIDevice.currentDevice.batteryMonitoringEnabled = true
-        // Always disable in finally — even if an exception is thrown mid-read,
-        // the hardware sensor must not stay active indefinitely.
+        // Battery state is opt-in via the host's UIDevice.isBatteryMonitoringEnabled —
+        // see BUG 16 fix in ChainExecutor for the rationale. The pre-fix `= true; read;
+        // = false` pattern raced with the host app's own monitoring state and violated
+        // UIDevice's main-thread access contract. If monitoring is disabled, we report
+        // batteryLevel = 0 (unknown) and isCharging = false; callers should treat 0%
+        // as "unavailable" rather than "critical".
         val batteryLevel: Float
         val isCharging: Boolean
-        try {
-            batteryLevel = UIDevice.currentDevice.batteryLevel // 0.0-1.0
+        if (UIDevice.currentDevice.batteryMonitoringEnabled) {
+            batteryLevel = UIDevice.currentDevice.batteryLevel  // 0.0–1.0, or -1 if unavailable
             val batteryState = UIDevice.currentDevice.batteryState
             isCharging = batteryState == UIDeviceBatteryState.UIDeviceBatteryStateCharging ||
                 batteryState == UIDeviceBatteryState.UIDeviceBatteryStateFull
-        } finally {
-            UIDevice.currentDevice.batteryMonitoringEnabled = false
+        } else {
+            batteryLevel = -1f
+            isCharging = false
         }
 
         // Low power mode detection via NSProcessInfo (available iOS 9+)

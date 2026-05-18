@@ -17,6 +17,14 @@ import platform.darwin.DISPATCH_TIME_NOW
 import platform.darwin.NSEC_PER_MSEC
 
 /**
+ * Thrown when [IosFileCoordinator.coordinate] / [IosFileCoordinator.coordinateSync] cannot
+ * acquire a file coordination lock within the configured timeout. Callers should map this to
+ * a retry — never swallow it and proceed without a lock, as that risks interleaved writes
+ * (CRC32 mismatch, offset drift) when App and App Extension contend for the same file.
+ */
+internal class FileCoordinationTimeoutException(message: String) : IllegalStateException(message)
+
+/**
  * Shared file coordination utility for iOS
  * Ensures inter-process safety between App and App Extensions.
  */
@@ -40,9 +48,13 @@ internal object IosFileCoordinator {
      * where all Default threads are waiting on NSFileCoordinator, freezing all coroutines in the app.
      *
      * **GCD timeout**: The coordinator call is dispatched onto a GCD global queue and joined with a
-     * `dispatch_semaphore_wait(timeout)`. If the semaphore times out, we bypass coordination and
-     * execute `block` directly. This risks a brief write conflict, but is safer than hanging
-     * indefinitely (which would trigger Watchdog).
+     * `dispatch_semaphore_wait(timeout)`. If the semaphore times out, we throw
+     * [FileCoordinationTimeoutException] so the caller can retry. We **never** bypass the lock,
+     * because the lock exists specifically to keep the App and App Extension from interleaving
+     * writes to the same binary file (queue.jsonl, event store) — bypassing corrupts the file
+     * (CRC32 mismatch, offset drift) and silently drops records. Callers are responsible for
+     * mapping the exception into a retry: [BaseKmpWorker] returns `Result.retry()` on
+     * IllegalStateException; [ChainExecutor] propagates to fail the chain step.
      *
      * Detects test environment to skip coordination during unit tests (fast path, no IO dispatch).
      */
@@ -53,19 +65,11 @@ internal object IosFileCoordinator {
         timeoutMs: Long = 30_000L,
         block: (NSURL) -> T
     ): T {
-        // Detect test environment:
-        // Priority 1 — explicit parameter from test setup
-        // Priority 2 — env var KMPWORKMANAGER_TEST_MODE=1 set by test runner
-        // Priority 3 — process name ends with "test.kexe" (Kotlin/Native test runner)
-        // NOTE: We intentionally do NOT use generic "Test" string matching to avoid
-        //       bypassing NSFileCoordinator in production apps whose name contains "Test".
-        val isTestEnvironment = isTestMode || when {
-            NSProcessInfo.processInfo.environment.containsKey("KMPWORKMANAGER_TEST_MODE") -> {
-                val value = NSProcessInfo.processInfo.environment["KMPWORKMANAGER_TEST_MODE"] as? String
-                value == "1" || value?.equals("true", ignoreCase = true) == true
-            }
-            else -> NSProcessInfo.processInfo.processName.endsWith("test.kexe")
-        }
+        // Centralised in [IosTestEnvironment] (v2.5.0 QA hardening) — single source of
+        // truth, with XCTest env-var signals in addition to the legacy `test.kexe` suffix.
+        // Caller can still force test mode via the `isTestMode` parameter.
+        val isTestEnvironment = isTestMode ||
+            dev.brewkits.kmpworkmanager.utils.IosTestEnvironment.isTestEnvironment
 
         if (isTestEnvironment) {
             Logger.v(LogTags.CHAIN, "Test mode detected - skipping NSFileCoordinator for ${url.lastPathComponent}")
@@ -93,15 +97,8 @@ internal object IosFileCoordinator {
         timeoutMs: Long = 30_000L,
         block: (NSURL) -> T
     ): T {
-        // Mirror the test-mode detection from coordinate() — both must behave identically.
-        val isTestEnvironment = when {
-            NSProcessInfo.processInfo.environment.containsKey("KMPWORKMANAGER_TEST_MODE") -> {
-                val value = NSProcessInfo.processInfo.environment["KMPWORKMANAGER_TEST_MODE"] as? String
-                value == "1" || value?.equals("true", ignoreCase = true) == true
-            }
-            else -> NSProcessInfo.processInfo.processName.endsWith("test.kexe")
-        }
-        if (isTestEnvironment) {
+        // Use shared detector — single source of truth across both entry points.
+        if (dev.brewkits.kmpworkmanager.utils.IosTestEnvironment.isTestEnvironment) {
             Logger.v(LogTags.CHAIN, "Test mode detected - skipping NSFileCoordinator (sync) for ${url.lastPathComponent}")
             return block(url)
         }
@@ -114,8 +111,12 @@ internal object IosFileCoordinator {
      * A fresh [NSFileCoordinator] is created per call so that a timeout-triggered [cancel]
      * only cancels this coordination and never affects concurrent coordinations sharing a
      * singleton coordinator.
+     *
+     * `internal` (not `private`) so the timeout-throws-instead-of-bypass branch can be
+     * pinned by [V250FileCoordinatorTimeoutTest] — calling `coordinate()` from a test
+     * always short-circuits via [IosTestEnvironment.isTestEnvironment].
      */
-    private fun <T> coordinateBlocking(
+    internal fun <T> coordinateBlocking(
         url: NSURL,
         write: Boolean,
         timeoutMs: Long,
@@ -180,17 +181,25 @@ internal object IosFileCoordinator {
         val timedOut = dispatch_semaphore_wait(semaphore, timeoutNs) != 0L
 
         if (timedOut) {
-            // Coordination lock was not acquired within timeoutMs. Bypass coordination and
-            // execute directly to avoid a permanent hang.
+            // Coordination lock was not acquired within timeoutMs. Cancel the pending
+            // coordination and throw — the lock exists to keep App and App Extension from
+            // interleaving binary writes (queue.jsonl uses framed records + CRC32; bypassing
+            // produces "valid file, garbage records"). Caller maps to retry.
             if (isCompleted.compareAndSet(expected = 0, newValue = 1)) {
                 Logger.w(
                     LogTags.CHAIN,
                     "⚠️ NSFileCoordinator timed out after ${timeoutMs}ms for ${url.lastPathComponent} " +
-                        "— bypassing coordination. Proceeding without lock."
+                        "— another process holds a conflicting lock. Throwing to force retry."
                 )
                 fileCoordinator.cancel()
-                return block(url)
+                throw FileCoordinationTimeoutException(
+                    "File coordination timed out after ${timeoutMs}ms for ${url.path} — " +
+                        "another process (App Extension, iCloud daemon, etc.) is holding a " +
+                        "conflicting lock. Retrying."
+                )
             }
+            // Otherwise the block won the race and ran just in time — fall through to
+            // return its result.
         }
 
         val duration = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime

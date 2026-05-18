@@ -97,13 +97,40 @@ public class IosFileStorage(
 
     private val fileManager = NSFileManager.defaultManager
 
-    private val isTestMode: Boolean = config.isTestMode ?: NSProcessInfo.processInfo.processName.endsWith("test.kexe")
+    private val isTestMode: Boolean =
+        config.isTestMode ?: dev.brewkits.kmpworkmanager.utils.IosTestEnvironment.isTestEnvironment
 
     // Tolerant Json for all persisted data: ignores unknown keys so that data written by a
     // newer schema version does not crash on rollback or when consumed by an older class.
     private val persistenceJson = Json { ignoreUnknownKeys = true }
 
     private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /**
+     * Test-only: exposes whether the background scope is still active. Used by
+     * close()-finally regression tests to verify the scope is cancelled even when
+     * `flushNow()` throws.
+     */
+    internal val isBackgroundScopeActive: Boolean
+        get() = backgroundScope.coroutineContext[Job.Key]?.isActive == true
+
+    /**
+     * Test-only: when set to true, the next [flushNow] call throws synchronously.
+     * Used by close()-finally regression tests to deterministically simulate the
+     * real failure modes (full disk, EACCES, NSFileCoordinator error) which are
+     * otherwise hard to trigger in the simulator-test sandbox. Production code
+     * never reads or writes this field.
+     */
+    internal var testForceFlushFailure: Boolean = false
+
+    /**
+     * Test-only: optional delay (ms) inserted inside [enqueueChainInternal] between
+     * the size-limit check and the actual queue write. Lets a regression test pin
+     * the check-then-act window so a concurrent enqueueChain / replaceChainAtomic
+     * pair can be forced to race deterministically. Default 0 → no delay.
+     * Production code never reads or writes this field.
+     */
+    internal var testEnqueueInternalDelayMs: Long = 0L
 
     private val queue: AppendOnlyQueue by lazy {
         val queueDirURL = baseDir.safeAppend("queue")
@@ -134,8 +161,11 @@ public class IosFileStorage(
     // This class uses three coroutine mutexes. To prevent deadlock, they must NEVER
     // be acquired in conflicting orders across code paths. The only permitted ordering is:
     //
-    //   queueMutex  →  enqueueMutex     (replaceChainAtomic holds queueMutex, calls
-    //                                    enqueueChainInternal which is lock-free)
+    //   queueMutex  →  enqueueMutex     (replaceChainAtomic holds queueMutex, then
+    //                                    acquires enqueueMutex around the
+    //                                    enqueueChainInternal call so the
+    //                                    check-then-act is atomic against
+    //                                    concurrent enqueueChain callers)
     //
     // progressMutex is COMPLETELY INDEPENDENT from queueMutex and enqueueMutex.
     // No code path may hold both progressMutex and queueMutex simultaneously.
@@ -355,6 +385,12 @@ public class IosFileStorage(
             throw IllegalStateException("Queue size limit exceeded")
         }
 
+        // Test-only hook: widens the check-then-act window so a regression test
+        // can deterministically race two enqueue paths. No-op in production.
+        if (testEnqueueInternalDelayMs > 0L) {
+            delay(testEnqueueInternalDelayMs)
+        }
+
         queue.enqueue(chainId)
 
         // Keep in-process counter roughly in sync for diagnostic logging.
@@ -483,12 +519,18 @@ public class IosFileStorage(
         if (chainIds.isEmpty()) return
 
         // Sort by max priority weight (highest first), stable (preserves FIFO for equal priorities)
-        val sorted = chainIds.sortedByDescending { chainId ->
-            loadChainDefinition(chainId)
+        // `loadChainDefinition` is suspend (the self-healing path needs to evict the
+        // progress buffer entry under progressMutex), so we precompute weights
+        // sequentially in a suspend-friendly loop rather than from inside a non-
+        // suspend `sortedByDescending` lambda.
+        val weights = mutableMapOf<String, Int>()
+        for (chainId in chainIds) {
+            weights[chainId] = loadChainDefinition(chainId)
                 ?.flatten()
                 ?.maxOfOrNull { it.priority.weight }
                 ?: TaskPriority.NORMAL.weight
         }
+        val sorted = chainIds.sortedByDescending { weights[it] ?: TaskPriority.NORMAL.weight }
 
         // Only replace if order actually changed
         if (sorted != chainIds) {
@@ -541,10 +583,20 @@ public class IosFileStorage(
             // Step 3: Save new definition
             saveChainDefinition(chainId, newSteps)
 
-            // Step 4: Enqueue (SYNCHRONOUS, not async - fixes race condition!)
-            // Use enqueueChainInternal() to avoid deadlock: we already hold queueMutex,
-            // and enqueueChain() acquires enqueueMutex (never queueMutex again → safe).
-            enqueueChainInternal(chainId)
+            // Step 4: Enqueue under enqueueMutex INSIDE queueMutex (the documented
+            // lock order: queueMutex first, enqueueMutex second — never the reverse).
+            //
+            // History: previously called `enqueueChainInternal(chainId)` directly,
+            // bypassing enqueueMutex entirely. That left a window where a concurrent
+            // [enqueueChain] caller (holding enqueueMutex but not queueMutex) and this
+            // REPLACE could both read size = MAX_QUEUE_SIZE - 1, both pass the limit
+            // check, and both enqueue — exceeding the queue cap by 1+ per concurrent
+            // caller. Cap drift causes downstream "Queue size limit exceeded" errors
+            // that surface far from this site. The fix: acquire enqueueMutex here so
+            // the check-then-act inside [enqueueChainInternal] is observed atomically.
+            enqueueMutex.withLock {
+                enqueueChainInternal(chainId)
+            }
 
             // Step 5: Log successful transaction
             val successTxn = txn.copy(succeeded = true)
@@ -639,12 +691,19 @@ public class IosFileStorage(
     }
 
     /**
-     * Load chain definition from file with self-healing for corrupt data
+     * Load chain definition from file with self-healing for corrupt data.
+     *
+     * `suspend` because the self-healing path calls [deleteChainProgress] which is
+     * now `suspend` (must acquire `progressMutex` to evict the buffer entry).
      */
-    fun loadChainDefinition(id: String): List<List<TaskRequest>>? {
+    suspend fun loadChainDefinition(id: String): List<List<TaskRequest>>? {
         val chainFile = chainsDirURL.safeAppend("$id.json")
 
-        return coordinated(chainFile, write = false) { safeUrl ->
+        // The `coordinated` callback is a non-suspend block, so the suspend-only
+        // `deleteChainProgress(id)` call has to happen AFTER coordination returns.
+        // We surface "needs self-heal" via a flag captured in the return tuple.
+        var needsSelfHealProgress = false
+        val result = coordinated(chainFile, write = false) { safeUrl ->
             val json = readStringFromFile(safeUrl) ?: return@coordinated null
 
             try {
@@ -652,15 +711,21 @@ public class IosFileStorage(
             } catch (e: Exception) {
                 Logger.e(LogTags.CHAIN, "🩹 Self-healing: Corrupt chain definition detected for $id. Deleting corrupt file...", e)
 
-                // Delete corrupt chain definition
+                // Delete corrupt chain definition (file deletion is non-suspend, safe here)
                 deleteFile(chainFile)
-                // Also delete associated progress file to maintain consistency
-                deleteChainProgress(id)
+                // Defer the suspend-only progress cleanup until after we exit coordination.
+                needsSelfHealProgress = true
 
                 Logger.w(LogTags.CHAIN, "Corrupt chain $id has been removed. It will need to be re-enqueued if still needed.")
                 null
             }
         }
+
+        if (needsSelfHealProgress) {
+            // Now that we're outside the coordination block, the suspend call is legal.
+            deleteChainProgress(id)
+        }
+        return result
     }
 
     /**
@@ -992,6 +1057,9 @@ public class IosFileStorage(
      * @throws Exception if flush fails (caller should handle)
      */
     suspend fun flushNow() {
+        if (testForceFlushFailure) {
+            throw IllegalStateException("test-induced flush failure (V250CloseFinallyTest)")
+        }
         // Cancel pending debounced flush
         flushJob?.cancelAndJoin()
 
@@ -1154,10 +1222,19 @@ public class IosFileStorage(
      *
      * @param chainId The chain ID
      */
-    fun deleteChainProgress(chainId: String) {
+    suspend fun deleteChainProgress(chainId: String) {
+        // Buffer-eviction MUST run before the disk delete. Otherwise the next debounced
+        // `flushProgressBuffer` (or `flushNow` from executeChain's finally block) writes
+        // the buffered ChainProgress back to disk, resurrecting state we just abandoned.
+        // Same root cause as the v2.5 BUG 13 finding: chain-abandon paths would call
+        // deleteChainProgress then immediately hit flushNow, restoring the deleted file
+        // and leaving the chain effectively un-abandoned across BGTask invocations.
+        progressMutex.withLock {
+            progressBuffer.remove(chainId)
+        }
         val progressFile = chainsDirURL.safeAppend("${chainId}_progress.json")
         deleteFile(progressFile)
-        Logger.d(LogTags.CHAIN, "Deleted chain progress $chainId")
+        Logger.d(LogTags.CHAIN, "Deleted chain progress $chainId (buffer + disk)")
     }
 
     // ==================== Metadata Operations ====================
@@ -1284,7 +1361,8 @@ public class IosFileStorage(
             // In test mode (CI simulator pre-first-unlock), NSFileProtectionCompleteUntilFirstUserAuthentication
             // blocks atomic writes (NSString.writeToFile atomically:YES needs a temp file in the same directory).
             // Skip the protection attribute entirely in test environments.
-            val isTestEnv = config.isTestMode ?: NSProcessInfo.processInfo.processName.endsWith("test.kexe")
+            val isTestEnv = config.isTestMode
+                ?: dev.brewkits.kmpworkmanager.utils.IosTestEnvironment.isTestEnvironment
             memScoped {
                 val errorPtr = alloc<ObjCObjectVar<NSError?>>()
                 val ok = if (isTestEnv) {
@@ -1484,21 +1562,30 @@ public class IosFileStorage(
      * or tests are cleaning up.
      */
     suspend fun close() {
+        // Two-phase shutdown:
+        //   Phase 1 (try):     flushNow — best-effort durable save of buffered progress
+        //                      BEFORE we kill the scope. If we cancelled first, the in-
+        //                      flight flushJob would die and buffered updates would be
+        //                      silently lost.
+        //   Phase 2 (finally): cancel + join — MUST run even if flush threw, otherwise
+        //                      the backgroundScope keeps running forever (coroutine leak).
+        //                      Common trigger: full disk / EACCES on flush → previous
+        //                      single-block try/catch swallowed the exception and skipped
+        //                      cancel+join, leaking workers across test teardowns and
+        //                      app shutdowns.
         try {
-            // Flush buffered progress BEFORE cancelling scope.
-            // Cancelling the scope first would kill the pending flushJob, silently
-            // discarding any buffered progress updates that hadn't reached disk yet.
             flushNow()
-            // Cancel all background jobs and WAIT for them to finish.
-            // cancel() alone only requests cancellation — background coroutines may still
-            // be executing. Without join() the test @AfterTest can delete the directory
-            // while a coroutine is still writing, causing "file doesn't exist" crashes.
-            val scopeJob = backgroundScope.coroutineContext[Job.Key]
-            backgroundScope.cancel()
-            scopeJob?.join()
-            Logger.i(LogTags.CHAIN, "IosFileStorage closed - background scope cancelled")
         } catch (e: Exception) {
-            Logger.e(LogTags.CHAIN, "Error during IosFileStorage close", e)
+            Logger.e(LogTags.CHAIN, "IosFileStorage.close: flushNow failed (proceeding with cancel)", e)
+        } finally {
+            try {
+                val scopeJob = backgroundScope.coroutineContext[Job.Key]
+                backgroundScope.cancel()
+                scopeJob?.join()
+                Logger.i(LogTags.CHAIN, "IosFileStorage closed - background scope cancelled")
+            } catch (e: Exception) {
+                Logger.e(LogTags.CHAIN, "IosFileStorage.close: cancel/join failed", e)
+            }
         }
     }
 }

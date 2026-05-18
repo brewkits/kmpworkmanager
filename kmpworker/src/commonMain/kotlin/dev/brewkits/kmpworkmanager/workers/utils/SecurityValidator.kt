@@ -19,6 +19,8 @@ object SecurityValidator {
      * SSRF Protection:
      * - Blocks localhost (localhost, 127.0.0.1, [::1])
      * - Blocks private networks (10.x.x.x, 172.16-31.x.x, 192.168.x.x, fc00::/7, fe80::/10)
+     * - Blocks CGNAT (100.64.0.0/10 — Tailscale, carrier-grade NAT)
+     * - Blocks `0.0.0.0/8` ("this network")
      * - Blocks cloud metadata endpoints (169.254.169.254, fd00:ec2::254)
      * - Blocks link-local addresses
      * - Only allows http:// and https:// schemes
@@ -222,11 +224,20 @@ object SecurityValidator {
     }
 
     /**
-     * Checks if hostname is a private IPv4 address.
-     * Private ranges: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+     * Checks if hostname is a private / non-routable IPv4 address.
+     *
+     * Blocked ranges:
+     * - `127.0.0.0/8` — loopback
+     * - `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16` — RFC 1918 private
+     * - `169.254.0.0/16` — link-local (AWS / GCP / Azure instance metadata sits here)
+     * - `100.64.0.0/10` — RFC 6598 CGNAT (carrier-grade NAT, used by ISPs and overlay networks
+     *   such as Tailscale). Without this block, a captive-portal or compromised home-router
+     *   environment can be reached from the device — relevant for camera apps roaming on
+     *   mobile carriers.
+     * - `0.0.0.0/8` — "this network" range; `0.0.0.0` itself routes to all local interfaces.
      *
      * @param hostname The hostname to check
-     * @return true if it's a private IPv4 address
+     * @return true if it's a private / non-routable IPv4 address
      */
     private fun isPrivateIPv4(hostname: String): Boolean {
         val parts = hostname.split(".")
@@ -247,6 +258,12 @@ object SecurityValidator {
                 octets[0] == 192 && octets[1] == 168 -> true
                 // Link-local 169.254.0.0/16
                 octets[0] == 169 && octets[1] == 254 -> true
+                // RFC 6598 CGNAT 100.64.0.0/10 — second octet is 64..127.
+                // Mask /10 means the upper 10 bits are fixed: 100.binary(01xxxxxx).x.x.
+                octets[0] == 100 && octets[1] in 64..127 -> true
+                // 0.0.0.0/8 — "this network". 0.0.0.0 alone is already in the explicit
+                // hostname blocklist; covering the rest of the /8 closes the malformed-IP gap.
+                octets[0] == 0 -> true
                 else -> false
             }
         } catch (e: Exception) {

@@ -49,7 +49,16 @@ import dev.brewkits.kmpworkmanager.utils.crc32
 @OptIn(ExperimentalForeignApi::class, kotlinx.cinterop.BetaInteropApi::class)
 internal class AppendOnlyQueue(
     private val baseDirectoryURL: NSURL,
-    private val compactionScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+    // QA-review fix (v2.5): use IosDispatchers.IO (GCD global queue) instead of
+    // Dispatchers.Default. Default has a thread pool capped at CPU-core count and is
+    // intended for CPU-bound work; compaction is blocking I/O (NSFileHandle reads/writes,
+    // NSFileManager.replaceItemAtURL). Running blocking I/O on Default starves the rest
+    // of the app's coroutines — including UI-related ones if the host shares the
+    // dispatcher. IosDispatchers.IO is backed by GCD's global queue which spawns
+    // unbounded worker threads, matching the JVM Dispatchers.IO model and matching
+    // every other blocking I/O path in this module (`IosFileCoordinator`,
+    // `IosEventStore`, etc.).
+    private val compactionScope: CoroutineScope = CoroutineScope(SupervisorJob() + IosDispatchers.IO),
     private val isTestMode: Boolean = false,
     private val minFreeDiskSpaceBytes: Long = 50_000_000L
 ) {
@@ -83,8 +92,25 @@ internal class AppendOnlyQueue(
     // Persistent index for O(1) startup
     private val queueIndex = QueueIndex(indexFileURL)
 
-    // Compaction threshold: trigger when 80%+ items are processed
+    // Ratio-based compaction trigger: fire when 80%+ items are processed AND there are
+    // at least 100 processed items to reclaim. Good for steady-state dequeue workloads.
     private val COMPACTION_THRESHOLD = 0.8
+
+    // File-size-based compaction trigger (v2.5 — QA review action item).
+    //
+    // The ratio-based trigger above breaks down in two scenarios:
+    //   1. Enqueue-heavy: 5 000 items enqueued, only 50 dequeued — ratio is 1 %, no compact,
+    //      file keeps growing. Reviewer flagged this as a real production risk (long-running
+    //      sync apps).
+    //   2. Bursty: 200 items dequeued (compaction fires, head reset to 0), then another
+    //      9 000 items enqueued without dequeue — file is 5+ MB even though head=0.
+    //
+    // The file-size trigger fires when the queue file exceeds 5 MB AND any item has been
+    // processed (so there's actually slack to reclaim). Compaction itself only removes
+    // processed items, so this is a no-op when head=0; the value is in lowering the ratio
+    // threshold so we don't have to wait for 80 % to clear before reclaiming space.
+    private val MAX_QUEUE_FILE_SIZE_BYTES: ULong = 5UL * 1024UL * 1024UL  // 5 MB
+    private val FILE_SIZE_COMPACTION_RATIO = 0.2  // 20 % processed is enough when file is large
 
     // Maximum queue size to prevent unbounded growth
     private val MAX_QUEUE_SIZE = 10_000
@@ -223,25 +249,34 @@ internal class AppendOnlyQueue(
                         // Launch compaction in background (non-blocking)
                         scheduleCompaction()
                     }
-                } else {
+                } else if (isQueueCorrupt) {
+                    // CRC validation failed inside readSingleRecordWithValidation. That
+                    // function has already set `corruptionOffset` to the precise byte where
+                    // the corrupt record starts — DO NOT overwrite it here, otherwise we
+                    // would force `truncateAtCorruptionPoint` to wipe the entire queue and
+                    // lose every pending task ahead of the corrupt one (regression from
+                    // v2.5.0 QA review).
+                    Logger.w(
+                        LogTags.QUEUE,
+                        "CRC corruption detected at index $headIndex (offset $corruptionOffset). " +
+                            "Will truncate at corruption point on next dequeue, preserving prior records."
+                    )
+                } else if (cacheValid && linePositionCache.containsKey(headIndex)) {
                     // Distinguish legitimate "queue empty" from "file externally truncated/replaced".
-                    // If the cache has an entry for this index but the read returned null, the
-                    // entire file was externally truncated or replaced. Setting corruptionOffset
-                    // to 0 forces truncateAtCorruptionPoint() to take the full-reset path
-                    // (offset <= headerSize), discarding any corrupt content and rebuilding the
-                    // file cleanly. A partial truncate would be wrong here because even bytes
-                    // before our cached offset may not be valid binary records.
-                    if (cacheValid && linePositionCache.containsKey(headIndex)) {
-                        Logger.w(
-                            LogTags.QUEUE,
-                            "Expected record at index $headIndex (cached offset ${linePositionCache[headIndex]}) " +
-                                "but got EOF — file appears to have been externally replaced, scheduling full reset"
-                        )
-                        isQueueCorrupt = true
-                        corruptionOffset = 0UL  // Force full reset via truncateAtCorruptionPoint
-                    } else {
-                        Logger.v(LogTags.QUEUE, "Queue is empty")
-                    }
+                    // Cache says this index existed; the read returned null without setting
+                    // `isQueueCorrupt` → the file shrank under us (external truncate, iCloud sync
+                    // swap, App Extension wrote a new file, etc.). Bytes before our cached offset
+                    // may also be invalid binary records, so a precise truncate is unsafe — only
+                    // a full reset is correct here.
+                    Logger.w(
+                        LogTags.QUEUE,
+                        "Expected record at index $headIndex (cached offset ${linePositionCache[headIndex]}) " +
+                            "but got EOF — file appears to have been externally replaced, scheduling full reset"
+                    )
+                    isQueueCorrupt = true
+                    corruptionOffset = 0UL  // Force full reset via truncateAtCorruptionPoint
+                } else {
+                    Logger.v(LogTags.QUEUE, "Queue is empty")
                 }
 
                 item
@@ -716,17 +751,61 @@ internal class AppendOnlyQueue(
     }
 
     /**
-     * Check if compaction is needed
-     * Compaction is beneficial when 80%+ of items are processed
+     * Check if compaction is needed.
+     *
+     * Two triggers, either one fires:
+     *  - **Ratio trigger** — 80 %+ items processed AND at least 100 processed (steady state).
+     *  - **File-size trigger** (v2.5) — queue file > 5 MB AND ≥ 20 % processed AND ≥ 50
+     *    processed items (large-file slack reclaim). Lower ratio threshold here because the
+     *    cost of waiting longer is paid in disk space and read-time I/O.
+     *
+     * Both triggers require `headIndex > 0` because compaction only reclaims processed
+     * items; firing it when nothing has been dequeued is a no-op that wastes CPU.
      */
     private fun shouldCompact(): Boolean {
         val headIndex = readHeadPointer()
         val totalLines = countTotalLines()
 
-        if (totalLines == 0) return false
+        if (totalLines == 0 || headIndex == 0) return false
 
         val processedRatio = headIndex.toDouble() / totalLines
-        return processedRatio >= COMPACTION_THRESHOLD && headIndex > 100  // Only compact if significant waste
+
+        // Ratio-based trigger.
+        if (processedRatio >= COMPACTION_THRESHOLD && headIndex > 100) {
+            return true
+        }
+
+        // File-size-based trigger.
+        val fileSize = currentQueueFileSize()
+        if (fileSize > MAX_QUEUE_FILE_SIZE_BYTES &&
+            processedRatio >= FILE_SIZE_COMPACTION_RATIO &&
+            headIndex > 50
+        ) {
+            Logger.i(
+                LogTags.QUEUE,
+                "Queue file size ${fileSize} bytes exceeds threshold ${MAX_QUEUE_FILE_SIZE_BYTES}; " +
+                    "scheduling early compaction (processed=${headIndex}/${totalLines})"
+            )
+            return true
+        }
+
+        return false
+    }
+
+    /**
+     * Best-effort file-size lookup. Returns 0 on any I/O failure — we don't want
+     * compaction decisions to throw and block dequeue.
+     */
+    private fun currentQueueFileSize(): ULong {
+        val path = queueFileURL.path ?: return 0UL
+        if (!fileManager.fileExistsAtPath(path)) return 0UL
+        return try {
+            val attrs = fileManager.attributesOfItemAtPath(path, null) ?: return 0UL
+            val size = attrs[platform.Foundation.NSFileSize] as? platform.Foundation.NSNumber
+            size?.unsignedLongLongValue ?: 0UL
+        } catch (e: Exception) {
+            0UL
+        }
     }
 
     /**
@@ -804,19 +883,30 @@ internal class AppendOnlyQueue(
                     return@coordinated
                 }
 
-                // Step 1: Read all unprocessed items
-                val unprocessedItems = mutableListOf<String>()
-                for (i in headIndex until totalLines) {
-                    val item = readLineAtIndex(safeQueueUrl, i)
-                    if (item != null) {
-                        unprocessedItems.add(item)
-                    }
-                }
-
                 Logger.d(LogTags.CHAIN, "Compacting: $unprocessedCount unprocessed items (${headIndex} processed)")
 
-                // Step 2: Write to temporary compacted file
-                writeItemsToFile(compactedQueueURL, unprocessedItems)
+                // Step 1+2 (streaming): copy unprocessed records directly from source to
+                // compacted file without ever holding more than one record in RAM.
+                //
+                // QA-review fix (v2.5): the previous implementation read ALL unprocessed
+                // items into a `mutableListOf<String>()` before writing them. With the
+                // documented MAX_QUEUE_SIZE = 10 000 and typical 1–4 KB JSON payloads,
+                // peak RAM would hit 10–40 MB. That is well above the iOS BGTask budget
+                // (Watchdog kills with EXC_RESOURCE / RESOURCE_TYPE_MEMORY at ~30 MB on
+                // older devices). The streaming version preserves the O(1) RAM contract
+                // that the rest of the queue uses.
+                val writtenCount = streamCompactionToFile(
+                    srcUrl = safeQueueUrl,
+                    dstUrl = compactedQueueURL,
+                    headIndex = headIndex,
+                )
+                if (writtenCount != unprocessedCount) {
+                    Logger.w(
+                        LogTags.QUEUE,
+                        "Streaming compaction wrote $writtenCount records, expected $unprocessedCount. " +
+                            "Continuing with whatever was salvaged."
+                    )
+                }
 
                 // Step 3: Invalidate cache BEFORE replacing the file.
                 // This prevents any concurrent reader (e.g. test-mode bypass) from using
@@ -877,6 +967,93 @@ internal class AppendOnlyQueue(
 
                 Logger.i(LogTags.CHAIN, "Compaction complete. Reduced from $totalLines to $unprocessedCount items.")
             }
+        }
+    }
+
+    /**
+     * Stream-copy unprocessed records from the source queue file to a destination file,
+     * without ever buffering more than one record in RAM at a time. Used by [compactQueue]
+     * to preserve the O(1) RAM contract (see QA-fix note in compactQueue).
+     *
+     * Returns the number of records actually written. May be less than expected if the
+     * source file is shorter than the head pointer suggests, or if a record fails CRC
+     * validation mid-stream — caller logs the discrepancy and continues with the salvage.
+     *
+     * @param srcUrl Source queue file (the live one being compacted).
+     * @param dstUrl Destination file (temp; will be atomically swapped in by caller).
+     * @param headIndex Number of already-processed records to skip from the start.
+     */
+    private fun streamCompactionToFile(srcUrl: NSURL, dstUrl: NSURL, headIndex: Int): Int {
+        val dstPath = dstUrl.path ?: throw IllegalStateException("Compaction dst path is null")
+
+        // Delete + recreate dst.
+        if (fileManager.fileExistsAtPath(dstPath)) {
+            fileManager.removeItemAtPath(dstPath, null)
+        }
+        fileManager.createFileAtPath(dstPath, null, null)
+
+        memScoped {
+            val errorPtr = alloc<ObjCObjectVar<NSError?>>()
+
+            val readHandle = NSFileHandle.fileHandleForReadingFromURL(srcUrl, errorPtr.ptr)
+                ?: throw IllegalStateException(
+                    "Streaming compaction: cannot open src for read: ${errorPtr.value?.localizedDescription}"
+                )
+            val writeHandle = NSFileHandle.fileHandleForWritingToURL(dstUrl, errorPtr.ptr)
+                ?: run {
+                    readHandle.closeFile()
+                    throw IllegalStateException(
+                        "Streaming compaction: cannot open dst for write: ${errorPtr.value?.localizedDescription}"
+                    )
+                }
+
+            var written = 0
+            try {
+                // Write header onto destination first (matches the format the consumer expects).
+                if (fileFormat == FORMAT_VERSION) {
+                    writeFileHeader(writeHandle)
+
+                    // Try the cached offset for headIndex — if present, this is O(1).
+                    val cachedStartOffset = if (cacheValid) linePositionCache[headIndex] else null
+                    if (cachedStartOffset != null) {
+                        readHandle.seekToFileOffset(cachedStartOffset)
+                    } else {
+                        // Cache miss — skip past `headIndex` records by sequential read+discard.
+                        // O(headIndex), but each skipped record is read into a short-lived String
+                        // that is released before the next iteration, so RAM stays O(1).
+                        readHandle.seekToFileOffset(8u)  // past 8-byte binary header
+                        repeat(headIndex) {
+                            val skipped = readSingleRecordWithValidation(readHandle)
+                            if (skipped == null) return@repeat  // file shorter than expected
+                        }
+                    }
+                } else {
+                    // Legacy text format — no header, no offset cache. Sequential skip.
+                    readHandle.seekToFileOffset(0u)
+                    repeat(headIndex) {
+                        val skipped = readSingleLine(readHandle)
+                        if (skipped == null) return@repeat
+                    }
+                }
+
+                // Stream the remaining records: read → write → drop. Peak RAM = one record.
+                while (true) {
+                    val item = when (fileFormat) {
+                        FORMAT_VERSION -> readSingleRecordWithValidation(readHandle)
+                        else -> readSingleLine(readHandle)
+                    } ?: break
+
+                    when (fileFormat) {
+                        FORMAT_VERSION -> appendToQueueFileBinary(writeHandle, item)
+                        else -> writeHandle.writeData("$item\n".toNSData())
+                    }
+                    written++
+                }
+            } finally {
+                readHandle.closeFile()
+                writeHandle.closeFile()
+            }
+            return written
         }
     }
 
@@ -1031,55 +1208,71 @@ internal class AppendOnlyQueue(
                 }
             }
 
-            // Step 2: Read only unprocessed items from legacy file (skip first existingHeadIndex lines)
-            val items = mutableListOf<String>()
+            // Step 2+3+4 (streaming): read legacy file line-by-line via NSFileHandle and
+            // write each unprocessed line directly into the new binary file. Never holds
+            // more than one line in RAM at a time.
+            //
+            // Why streaming is mandatory here: the pre-fix code called
+            // `NSString.stringWithContentsOfFile(legacyPath)` which loads the ENTIRE legacy
+            // file into a single NSString, then `content.split("\n")` produced a List of
+            // String — peak RAM = file size × ~3 (NSString + intermediate UTF-16 buffers +
+            // List<String>). For a 10–20 MB legacy queue this spikes to 60+ MB, which
+            // exceeds the iOS BGTask memory budget (~30 MB on older devices) and triggers
+            // an EXC_RESOURCE kill. The user's app then crashes EVERY background invocation
+            // until they manually clear app data — silently stuck on the pre-v2.5 version.
+            //
+            // [readSingleLine] is the same chunked reader used elsewhere in this class for
+            // legacy reads (4 KB chunks via [LEGACY_READ_CHUNK_SIZE]).
+            fileManager.createFileAtPath(queuePath, null, null)
+
+            var migratedCount = 0
             memScoped {
-                val errorPtr = alloc<ObjCObjectVar<NSError?>>()
-                val content = NSString.stringWithContentsOfFile(
-                    legacyPath,
-                    encoding = NSUTF8StringEncoding,
-                    error = errorPtr.ptr
+                val readErrorPtr = alloc<ObjCObjectVar<NSError?>>()
+                val readHandle = NSFileHandle.fileHandleForReadingFromURL(
+                    NSURL.fileURLWithPath(legacyPath),
+                    readErrorPtr.ptr
+                ) ?: throw IllegalStateException(
+                    "Failed to open legacy queue for reading: ${readErrorPtr.value?.localizedDescription}"
                 )
 
-                if (content != null) {
-                    content.split("\n").forEachIndexed { lineIndex, line ->
+                val writeErrorPtr = alloc<ObjCObjectVar<NSError?>>()
+                val writeHandle = NSFileHandle.fileHandleForWritingToURL(queueFileURL, writeErrorPtr.ptr)
+                    ?: run {
+                        readHandle.closeFile()
+                        throw IllegalStateException(
+                            "Failed to create binary queue file: ${writeErrorPtr.value?.localizedDescription}"
+                        )
+                    }
+
+                try {
+                    writeFileHeader(writeHandle)
+
+                    var lineIndex = 0
+                    while (true) {
+                        val line = readSingleLine(readHandle) ?: break
                         if (lineIndex >= existingHeadIndex) {
                             val trimmed = line.trim()
                             if (trimmed.isNotEmpty()) {
-                                items.add(trimmed)
+                                appendToQueueFileBinary(writeHandle, trimmed)
+                                migratedCount++
                             }
                         }
-                    }
-                }
-            }
-
-            Logger.i(LogTags.QUEUE, "Read ${items.size} unprocessed items from legacy queue (skipped $existingHeadIndex)")
-
-            // Step 3: Create new binary file with header
-            fileManager.createFileAtPath(queuePath, null, null)
-
-            memScoped {
-                val errorPtr = alloc<ObjCObjectVar<NSError?>>()
-                val fileHandle = NSFileHandle.fileHandleForWritingToURL(queueFileURL, errorPtr.ptr)
-
-                if (fileHandle == null) {
-                    throw IllegalStateException("Failed to create binary queue file: ${errorPtr.value?.localizedDescription}")
-                }
-
-                try {
-                    // Write magic number and version
-                    writeFileHeader(fileHandle)
-
-                    // Step 4: Write each item in binary format
-                    items.forEach { item ->
-                        appendToQueueFileBinary(fileHandle, item)
+                        lineIndex++
                     }
 
-                    Logger.i(LogTags.QUEUE, "Wrote ${items.size} items in binary format")
+                    Logger.i(
+                        LogTags.QUEUE,
+                        "Streaming-migrated $migratedCount items to binary format (legacy total: " +
+                            "$lineIndex lines, skipped $existingHeadIndex already-processed)"
+                    )
                 } finally {
-                    fileHandle.closeFile()
+                    writeHandle.closeFile()
+                    readHandle.closeFile()
                 }
             }
+            // For the post-step 7 log line below — preserves the existing message format
+            // (the original referenced `items.size`; we now have `migratedCount`).
+            val migratedItemsCount = migratedCount
 
             // Step 5: Reset head pointer to 0 (items list already excludes processed items)
             writeHeadPointer(0)
@@ -1095,7 +1288,7 @@ internal class AppendOnlyQueue(
             cacheValid = false
             linePositionCache.clear()
 
-            Logger.i(LogTags.QUEUE, "✅ Migration complete: ${items.size} items migrated to binary format")
+            Logger.i(LogTags.QUEUE, "✅ Migration complete: $migratedItemsCount items migrated to binary format")
 
         } catch (e: Exception) {
             Logger.e(LogTags.QUEUE, "Migration failed - attempting rollback", e)

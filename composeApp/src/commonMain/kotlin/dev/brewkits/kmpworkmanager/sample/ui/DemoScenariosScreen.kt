@@ -936,7 +936,10 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                             val config = FileCompressionConfig(
                                 inputPath = getDummyCompressionInputPath(context),
                                 outputPath = getDummyCompressionOutputPath(context),
-                                compressionLevel = "medium"
+                                compressionLevel = "medium",
+                                // v2.5: iOS now fails fast unless explicitly opted in.
+                                // Demo wants the chain to proceed even on iOS where ZIP isn't wired up.
+                                allowIosUncompressedFallback = true
                             )
                             scheduleTask("FileCompressionWorker scheduled. (Requires dummy folder)") {
                                 scheduler.enqueue(
@@ -944,6 +947,128 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                                     trigger = TaskTrigger.OneTime(initialDelayMs = 1.seconds.inWholeMilliseconds),
                                     workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.FILE_COMPRESSION_WORKER,
                                     inputJson = Json.encodeToString(FileCompressionConfig.serializer(), config)
+                                )
+                            }
+                        }
+                    }
+                )
+
+                // ── v2.5 additions ──────────────────────────────────────────────
+
+                DemoCard(
+                    title = "Download with SHA-256 verification",
+                    description = "Download httpbin's known-output endpoint and verify the SHA-256 digest. " +
+                        "Mismatched bytes delete the partial and Fail.",
+                    icon = Icons.Default.Download,
+                    enabled = !isAnyTaskRunning,
+                    onClick = {
+                        runTask("HTTP Download + SHA-256") {
+                            // httpbin /bytes/N returns deterministic content for a seed — but seeds
+                            // change across runs, so this is intentionally a known-wrong checksum
+                            // to demo the mismatch path. Replace with your real expected digest.
+                            val config = HttpDownloadConfig(
+                                url = "https://httpbin.org/bytes/4096",
+                                savePath = getDummyDownloadPath(context),
+                                expectedChecksum = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+                                checksumAlgorithm = dev.brewkits.kmpworkmanager.workers.config.ChecksumAlgorithm.SHA256,
+                                onDuplicate = dev.brewkits.kmpworkmanager.workers.config.DuplicatePolicy.OVERWRITE
+                            )
+                            scheduleTask("HttpDownloadWorker + checksum scheduled (mismatch expected → Failure)") {
+                                scheduler.enqueue(
+                                    id = "demo-builtin-download-sha256",
+                                    trigger = TaskTrigger.OneTime(initialDelayMs = 1.seconds.inWholeMilliseconds),
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.HTTP_DOWNLOAD_WORKER,
+                                    inputJson = Json.encodeToString(HttpDownloadConfig.serializer(), config),
+                                    constraints = Constraints(requiresNetwork = true)
+                                )
+                            }
+                        }
+                    }
+                )
+
+                DemoCard(
+                    title = "Download with DuplicatePolicy.SKIP",
+                    description = "If the destination file already exists, return Success without any HTTP call.",
+                    icon = Icons.Default.Download,
+                    enabled = !isAnyTaskRunning,
+                    onClick = {
+                        runTask("HTTP Download + SKIP duplicate") {
+                            val config = HttpDownloadConfig(
+                                url = "https://httpbin.org/bytes/2048",
+                                savePath = getDummyDownloadPath(context),
+                                onDuplicate = dev.brewkits.kmpworkmanager.workers.config.DuplicatePolicy.SKIP
+                            )
+                            scheduleTask("HttpDownloadWorker with DuplicatePolicy.SKIP scheduled") {
+                                scheduler.enqueue(
+                                    id = "demo-builtin-download-skip",
+                                    trigger = TaskTrigger.OneTime(initialDelayMs = 1.seconds.inWholeMilliseconds),
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.HTTP_DOWNLOAD_WORKER,
+                                    inputJson = Json.encodeToString(HttpDownloadConfig.serializer(), config),
+                                    constraints = Constraints(requiresNetwork = true)
+                                )
+                            }
+                        }
+                    }
+                )
+
+                DemoCard(
+                    title = "Parallel chunked download (4 chunks)",
+                    description = "Big-file demo — splits the response into 4 byte-range chunks " +
+                        "and merges them. Falls back to sequential if Accept-Ranges is missing.",
+                    icon = Icons.Default.Download,
+                    enabled = !isAnyTaskRunning,
+                    onClick = {
+                        runTask("Parallel HTTP Download") {
+                            val config = dev.brewkits.kmpworkmanager.workers.config.ParallelHttpDownloadConfig(
+                                url = "https://httpbin.org/bytes/65536", // 64 KB; real workload would be 50MB+
+                                savePath = getDummyDownloadPath(context),
+                                numChunks = 4
+                            )
+                            scheduleTask("ParallelHttpDownloadWorker scheduled (4 chunks)") {
+                                scheduler.enqueue(
+                                    id = "demo-builtin-parallel-download",
+                                    trigger = TaskTrigger.OneTime(initialDelayMs = 1.seconds.inWholeMilliseconds),
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.PARALLEL_HTTP_DOWNLOAD_WORKER,
+                                    inputJson = Json.encodeToString(
+                                        dev.brewkits.kmpworkmanager.workers.config.ParallelHttpDownloadConfig.serializer(),
+                                        config
+                                    ),
+                                    constraints = Constraints(requiresNetwork = true)
+                                )
+                            }
+                        }
+                    }
+                )
+
+                DemoCard(
+                    title = "Parallel multi-file upload (3 files, maxConcurrent=2)",
+                    description = "One POST per file; per-file retry on 5xx; aggregate result map " +
+                        "with per-file outcomes in WorkerResult.Success.data.",
+                    icon = Icons.Default.UploadFile,
+                    enabled = !isAnyTaskRunning,
+                    onClick = {
+                        runTask("Parallel HTTP Upload") {
+                            val basePath = getDummyUploadPath(context)
+                            val config = dev.brewkits.kmpworkmanager.workers.config.ParallelHttpUploadConfig(
+                                url = "https://httpbin.org/post",
+                                files = listOf(
+                                    dev.brewkits.kmpworkmanager.workers.config.ParallelUploadFile(filePath = basePath, fieldName = "file_a"),
+                                    dev.brewkits.kmpworkmanager.workers.config.ParallelUploadFile(filePath = basePath, fieldName = "file_b"),
+                                    dev.brewkits.kmpworkmanager.workers.config.ParallelUploadFile(filePath = basePath, fieldName = "file_c")
+                                ),
+                                maxConcurrent = 2,
+                                maxRetries = 1
+                            )
+                            scheduleTask("ParallelHttpUploadWorker scheduled (3 files, maxConcurrent=2)") {
+                                scheduler.enqueue(
+                                    id = "demo-builtin-parallel-upload",
+                                    trigger = TaskTrigger.OneTime(initialDelayMs = 1.seconds.inWholeMilliseconds),
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.PARALLEL_HTTP_UPLOAD_WORKER,
+                                    inputJson = Json.encodeToString(
+                                        dev.brewkits.kmpworkmanager.workers.config.ParallelHttpUploadConfig.serializer(),
+                                        config
+                                    ),
+                                    constraints = Constraints(requiresNetwork = true)
                                 )
                             }
                         }

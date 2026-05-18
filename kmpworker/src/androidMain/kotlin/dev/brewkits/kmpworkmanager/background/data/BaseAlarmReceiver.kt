@@ -3,9 +3,14 @@ package dev.brewkits.kmpworkmanager.background.data
 import android.content.Context
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.utils.LogTags
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 
 /**
  * Convenience base class that wraps [AlarmReceiver] with automatic lifecycle management.
@@ -14,6 +19,8 @@ import kotlinx.coroutines.launch
  * - Overflow file cleanup (`kmp_input_*.json`) after work completes
  * - `pendingResult.finish()` in the `finally` block
  * - Coroutine dispatch to [Dispatchers.IO]
+ * - **Bounded execution** via [workTimeoutMs] so a hung worker cannot leak past the
+ *   BroadcastReceiver budget and leave a dangling scope behind.
  *
  * You only need to override [doAlarmWork] with your business logic.
  *
@@ -43,6 +50,14 @@ import kotlinx.coroutines.launch
  */
 abstract class BaseAlarmReceiver : AlarmReceiver() {
 
+    /**
+     * Hard ceiling for [doAlarmWork]. Default `8_000` ms — slightly below the BroadcastReceiver
+     * budget (~10 s even with `goAsync()`) so we cancel cleanly before the OS does it for us.
+     * Override to tighten further; raising it past ~9 s is unsafe and can leak the
+     * receiver / corrupt PendingResult state.
+     */
+    protected open val workTimeoutMs: Long = DEFAULT_WORK_TIMEOUT_MS
+
     final override fun handleAlarm(
         context: Context,
         taskId: String,
@@ -51,22 +66,77 @@ abstract class BaseAlarmReceiver : AlarmReceiver() {
         pendingResult: PendingResult,
         overflowFilePath: String?
     ) {
-        CoroutineScope(Dispatchers.IO).launch {
+        runHandleAlarmScope(
+            context = context,
+            taskId = taskId,
+            workerClassName = workerClassName,
+            inputJson = inputJson,
+            overflowFilePath = overflowFilePath,
+            onFinish = {
+                // Always release the BroadcastReceiver. Catch defensively — `finish()` may
+                // throw IllegalStateException if the receiver already completed.
+                try {
+                    pendingResult.finish()
+                } catch (e: Exception) {
+                    Logger.w(LogTags.ALARM, "pendingResult.finish() failed for '$taskId'", e)
+                }
+            }
+        )
+    }
+
+    /**
+     * The actual launch/timeout/cleanup body, broken out so unit tests can exercise it
+     * without needing a real `BroadcastReceiver.PendingResult` (which is a protected
+     * inner class and cannot be mocked from outside the framework).
+     *
+     * Per-invocation `SupervisorJob` scope so we can cancel the coroutine deterministically
+     * in `finally`. The pre-v2.5 unstructured `CoroutineScope(Dispatchers.IO).launch`
+     * leaked work past the receiver lifetime — the OS could kill the receiver process
+     * while the coroutine kept running, leaving overflow files orphaned and the
+     * `PendingResult` in an undefined state.
+     */
+    internal fun runHandleAlarmScope(
+        context: Context,
+        taskId: String,
+        workerClassName: String,
+        inputJson: String?,
+        overflowFilePath: String?,
+        onFinish: () -> Unit
+    ) {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        scope.launch {
             try {
-                doAlarmWork(context, taskId, workerClassName, inputJson)
+                withTimeout(workTimeoutMs) {
+                    doAlarmWork(context, taskId, workerClassName, inputJson)
+                }
+            } catch (e: TimeoutCancellationException) {
+                Logger.w(
+                    LogTags.ALARM,
+                    "doAlarmWork for task '$taskId' exceeded ${workTimeoutMs}ms budget — cancelling " +
+                        "to honor the BroadcastReceiver lifetime. Work may be incomplete; the alarm " +
+                        "metadata is preserved so the next schedule can retry."
+                )
+            } catch (e: CancellationException) {
+                // Propagate; do not swallow structured cancellation.
+                throw e
             } catch (e: Exception) {
                 Logger.e(LogTags.ALARM, "BaseAlarmReceiver: doAlarmWork failed for task '$taskId'", e)
             } finally {
-                // Delete overflow file after work completes — success or failure.
-                // This is the "black box" cleanup that library consumers should not need to
-                // worry about when using BaseAlarmReceiver.
                 overflowFilePath?.let { path ->
-                    val deleted = java.io.File(path).delete()
+                    val deleted = try {
+                        java.io.File(path).delete()
+                    } catch (e: Exception) {
+                        Logger.w(LogTags.ALARM, "Failed to delete overflow file for '$taskId': $path", e)
+                        false
+                    }
                     if (deleted) {
                         Logger.d(LogTags.ALARM, "Deleted overflow file for task '$taskId': $path")
                     }
                 }
-                pendingResult.finish()
+                onFinish()
+                // Tear down the scope so any straggler children (e.g. if doAlarmWork spawned
+                // unstructured launches) are cancelled rather than left running detached.
+                scope.cancel("BaseAlarmReceiver: handleAlarm done for '$taskId'")
             }
         }
     }
@@ -74,9 +144,9 @@ abstract class BaseAlarmReceiver : AlarmReceiver() {
     /**
      * Implement your alarm handling logic here.
      *
-     * Called on [Dispatchers.IO]. The [pendingResult] lifecycle and overflow file cleanup
-     * are managed automatically by [BaseAlarmReceiver] — do NOT call `pendingResult.finish()`
-     * or `file.delete()` yourself.
+     * Called on [Dispatchers.IO] with a [workTimeoutMs] timeout. The [PendingResult] lifecycle
+     * and overflow file cleanup are managed automatically by [BaseAlarmReceiver] — do NOT call
+     * `pendingResult.finish()` or `file.delete()` yourself.
      *
      * @param context Application context
      * @param taskId Unique task identifier from the scheduled alarm
@@ -89,4 +159,9 @@ abstract class BaseAlarmReceiver : AlarmReceiver() {
         workerClassName: String,
         inputJson: String?
     )
+
+    companion object {
+        /** Default ceiling: 8 s. The OS will hard-kill the receiver at ~10 s. */
+        const val DEFAULT_WORK_TIMEOUT_MS: Long = 8_000L
+    }
 }

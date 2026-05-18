@@ -77,6 +77,16 @@ class SingleTaskExecutor(private val workerFactory: IosWorkerFactory) {
                     is WorkerResult.Failure -> {
                         Logger.w(LogTags.WORKER, "Task completed with failure: $workerClassName (${duration}ms)")
                     }
+                    is WorkerResult.Retry -> {
+                        // Single-task path has no re-enqueue surface — log loudly so the worker
+                        // author knows their Retry signal will be observed but not acted on. Use
+                        // the scheduler's enqueue API to re-arm if you want a real retry.
+                        Logger.w(
+                            LogTags.WORKER,
+                            "Task requested retry but SingleTaskExecutor has no re-enqueue path: " +
+                                "$workerClassName — ${result.reason} (${duration}ms)"
+                        )
+                    }
                 }
 
                 // Emit event with result data
@@ -122,6 +132,14 @@ class SingleTaskExecutor(private val workerFactory: IosWorkerFactory) {
                         taskName = workerClassName.substringAfterLast('.'),
                         success = false,
                         message = result.message,
+                        outputData = null
+                    )
+                }
+                is WorkerResult.Retry -> {
+                    TaskCompletionEvent(
+                        taskName = workerClassName.substringAfterLast('.'),
+                        success = false,
+                        message = "retry requested: ${result.reason}",
                         outputData = null
                     )
                 }

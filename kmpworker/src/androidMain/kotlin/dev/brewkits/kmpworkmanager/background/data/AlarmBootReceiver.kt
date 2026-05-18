@@ -128,9 +128,13 @@ abstract class AlarmBootReceiver : BroadcastReceiver() {
                     }
                 }
 
+                // CRC32-derived request code (matches NativeTaskScheduler) so that
+                // FLAG_UPDATE_CURRENT resolves to the same PendingIntent slot the original
+                // schedule used. Using String.hashCode() here would collide and either fail
+                // to update or silently double-arm alarms after reboot.
                 val pendingIntent = PendingIntent.getBroadcast(
                     context,
-                    metadata.id.hashCode(),
+                    PendingIntentCodes.forTaskId(metadata.id),
                     alarmIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )

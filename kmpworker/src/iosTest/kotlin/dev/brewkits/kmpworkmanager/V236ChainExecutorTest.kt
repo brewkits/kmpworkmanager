@@ -42,12 +42,19 @@ class V236ChainExecutorTest {
         }
     }
 
-    // Factory that always fails
+    // Factory that always fails with a TRANSIENT failure (shouldRetry = true).
+    // Why explicit `shouldRetry = true`: v2.5 (BUG 13) added permanent-failure semantics
+    // — `Failure(shouldRetry = false)` now triggers immediate chain abandonment. To
+    // exercise the retry-budget path this test cares about, the worker must signal a
+    // transient failure so the chain stays alive for retry.
     private val failingFactory = object : IosWorkerFactory {
         override fun createWorker(workerClassName: String): IosWorker? {
             return object : IosWorker {
                 override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
-                    return WorkerResult.Failure(message = "deliberate failure for CE-1 test")
+                    return WorkerResult.Failure(
+                        message = "deliberate failure for CE-1 test",
+                        shouldRetry = true
+                    )
                 }
             }
         }

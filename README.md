@@ -4,8 +4,8 @@
 
 # KMP WorkManager
 
-[![Maven Central](https://img.shields.io/maven-central/v/dev.brewkits/kmpworkmanager?color=7F52FF&label=Maven%20Central)](https://central.sonatype.com/artifact/dev.brewkits/kmpworkmanager)
-[![Kotlin](https://img.shields.io/badge/Kotlin-2.1.0-7F52FF?logo=kotlin&logoColor=white)](https://kotlinlang.org)
+[![Maven Central](https://img.shields.io/maven-central/v/dev.brewkits/kmpworkmanager?color=4F46E5&label=Maven%20Central)](https://central.sonatype.com/artifact/dev.brewkits/kmpworkmanager)
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.1.0-4F46E5?logo=kotlin&logoColor=white)](https://kotlinlang.org)
 [![CI](https://github.com/brewkits/kmpworkmanager/actions/workflows/build.yml/badge.svg)](https://github.com/brewkits/kmpworkmanager/actions/workflows/build.yml)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue)](LICENSE)
 
@@ -20,7 +20,7 @@
 ```kotlin
 // build.gradle.kts
 commonMain.dependencies {
-    implementation("dev.brewkits:kmpworkmanager:2.4.3")
+    implementation("dev.brewkits:kmpworkmanager:2.5.0")
 }
 ```
 
@@ -193,6 +193,38 @@ and no recovery mechanism for incomplete work. Getting it wrong means your tasks
 
 ---
 
+## What's new in v2.5.0
+
+v2.5.0 is a hardening release driven by a production architecture review for camera-app workloads. Highlights:
+
+- **Parallel HTTP download/upload workers** — `ParallelHttpDownloadWorker` splits one
+  file into N HTTP `Range` chunks (default 4, up to 16) with per-chunk `.partN` resume;
+  `ParallelHttpUploadWorker` runs one POST per file under a `maxConcurrent` semaphore.
+- **Checksum verification** for `HttpDownloadWorker` — `expectedChecksum` +
+  `ChecksumAlgorithm` (MD5 / SHA-1 / SHA-256 / SHA-512) via Okio's `HashingSource`.
+- **DuplicatePolicy** on `HttpDownloadConfig` — `OVERWRITE` (default, preserves
+  pre-v2.5 behaviour), `SKIP` (return Success without network), `RENAME` (append `_1`,
+  `_2`, … to the stem).
+- **iOS background URLSession download** — `IosBackgroundDownloadWorker` survives
+  full app termination; persisted state store ensures cold-launch completion events
+  are delivered to the right `savePath` (the P0 bug fixed in this release).
+- **iOS chain retry honoring** — `WorkerResult.Retry(delayMs, attemptCap)` is now
+  honored at the chain executor level on iOS via `ChainProgress.stepRetryCounts` +
+  `ChainExecutor.requestedNextBgTaskDelayMs`.
+- **Android FGS type configurable** — `KmpHeavyWorker.foregroundServiceType` is
+  overrideable. Companion-object aliases (`FGS_DATA_SYNC`, `FGS_MEDIA_PROCESSING`,
+  `FGS_CAMERA`, …) make camera-app workloads first-class.
+- **Adversarial test coverage** — collision proof for `PendingIntent` request codes
+  (CRC32 vs `String.hashCode`), `BroadcastReceiver` lifecycle (Robolectric), iOS
+  per-step retry counter, backward-compat with v2.4.3-shaped JSON files, cold-launch
+  survival for background URLSession state.
+- **Hard-limit docs** — [`docs/IOS_BGTASK_LIMITS.md`](docs/IOS_BGTASK_LIMITS.md),
+  [`docs/ANDROID_FGS_GUIDE.md`](docs/ANDROID_FGS_GUIDE.md),
+  [`docs/APPLE_APP_STORE_REVIEW_GUIDELINES.md`](docs/APPLE_APP_STORE_REVIEW_GUIDELINES.md).
+
+Full breakdown: [`CHANGELOG.md`](CHANGELOG.md). Upgrade notes for users on v2.4.x:
+[`docs/MIGRATION_V2.5.0.md`](docs/MIGRATION_V2.5.0.md).
+
 ## What's new in v2.4.3
 
 ### iOS Dynamic Task IDs (no more Info.plist for every task)
@@ -334,8 +366,8 @@ Add to `build.gradle.kts`:
 plugins { id("com.google.devtools.ksp") }
 
 dependencies {
-    ksp("dev.brewkits:kmpworker-ksp:2.4.3")
-    commonMain.implementation("dev.brewkits:kmpworker-annotations:2.4.3")
+    ksp("dev.brewkits:kmpworker-ksp:2.5.0")
+    commonMain.implementation("dev.brewkits:kmpworker-annotations:2.5.0")
 }
 ```
 
@@ -343,13 +375,23 @@ dependencies {
 
 ## Built-in workers
 
-| Worker | Purpose |
-|--------|---------|
-| `HttpRequestWorker` | HTTP request with configurable method, headers, body |
-| `HttpDownloadWorker` | Resumable file download to local storage |
-| `HttpUploadWorker` | Multipart file upload |
-| `HttpSyncWorker` | Fetch-and-persist data sync |
-| `FileCompressionWorker` | File compression (Android: built-in · iOS: requires ZIPFoundation) |
+| Worker | Status | Notes |
+|--------|--------|-------|
+| `HttpRequestWorker` | Stable | One-shot HTTP with configurable method, headers, body. SSRF-validated. |
+| `HttpDownloadWorker` | Stable (v2.5+) | Resumable download via HTTP `Range`. `<savePath>.partial` survives process kill; a process kill resumes from last byte. Supports SHA-256/SHA-1/SHA-512/MD5 checksum verification and `DuplicatePolicy` (overwrite / skip / rename). |
+| `ParallelHttpDownloadWorker` | New in v2.5 | Splits a single file into N (1..16, default 4) HTTP `Range` chunks downloaded concurrently with per-chunk `.partN` resume. Automatic sequential fallback when the server does not advertise `Accept-Ranges: bytes`. Same checksum verification surface as `HttpDownloadWorker`. |
+| `HttpUploadWorker` | ⚠️ Experimental | Streaming multipart upload. No resumable / chunked upload yet (see `ParallelHttpUploadWorker` for multi-file uploads). |
+| `ParallelHttpUploadWorker` | New in v2.5 | One POST per file with per-host `maxConcurrent` limit (1..16, default 3) and per-file retry on 5xx / network errors (`maxRetries` 0..5). Per-file outcomes exposed via `WorkerResult.Success.data.fileResults`. |
+| `IosBackgroundDownloadWorker` | iOS-only, experimental (v2.5+) | Hands the download to `URLSessionConfiguration.background` so the transfer survives **full app termination**. Host AppDelegate must wire `application(_:handleEventsForBackgroundURLSession:completionHandler:)` — see [docs/IOS_BACKGROUND_URL_SESSION.md](docs/IOS_BACKGROUND_URL_SESSION.md). |
+| `HttpSyncWorker` | Stable | Fetch-and-persist data sync. |
+| `FileCompressionWorker` | ✅ Android · 🚧 iOS | **iOS has no ZIP codec in Kotlin/Native.** The default behavior on iOS is to **fail fast** with an explicit error. Set `FileCompressionConfig.allowIosUncompressedFallback = true` to accept an uncompressed copy at the output path (useful for demo chains; the output is **not** a real ZIP). For real iOS compression, integrate [ZIPFoundation](https://github.com/weichsel/ZIPFoundation) via cinterop. |
+
+> **Camera / media-app advisory.** For burst upload (50 photos at once), use
+> `ParallelHttpUploadWorker` instead of one chain step per file. For RAW / video
+> downloads over cellular, prefer `IosBackgroundDownloadWorker` on iOS so the
+> transfer survives swipe-to-quit. `HttpUploadWorker` is the only stable worker
+> without resumable/chunked semantics — pin those uploads to Wi-Fi
+> (`Constraints(requiresUnmeteredNetwork = true)`) until v2.6.
 
 ---
 
@@ -361,7 +403,9 @@ dependencies {
 169.254.169.254   AWS/GCP/Azure IMDS
 fd00:ec2::254     AWS EC2 (IPv6)
 100.100.100.200   Alibaba Cloud metadata
-localhost, 0.0.0.0, [::1], 10.x, 172.16–31.x, 192.168.x
+localhost, 0.0.0.0/8, [::1], 10.x, 172.16–31.x, 192.168.x
+100.64.0.0/10     CGNAT (Tailscale, carrier-grade NAT)
+fc00::/7, fe80::/10
 ```
 
 RFC 3986 UserInfo bypass and multi-`@` authority attacks are both handled. DNS rebinding is a known limitation — use certificate pinning or an egress proxy for high-trust environments.
@@ -395,10 +439,14 @@ RFC 3986 UserInfo bypass and multi-`@` authority attacks are both handled. DNS r
 | [Built-in Workers](docs/BUILTIN_WORKERS_GUIDE.md) | Worker reference and input schema |
 | [Constraints & Triggers](docs/constraints-triggers.md) | All scheduling options |
 | [iOS Best Practices](docs/ios-best-practices.md) | BGTask gotchas and recommendations |
+| [iOS BGTask Hard Limits](docs/IOS_BGTASK_LIMITS.md) | Opportunistic scheduling, time budget, headless DI |
+| [App Store Review Compliance](docs/APPLE_APP_STORE_REVIEW_GUIDELINES.md) | §2.5.4 — what gets rejected and how to ship safely |
+| [Android FGS Type Guide](docs/ANDROID_FGS_GUIDE.md) | `mediaProcessing` / `camera` / `dataSync` setup |
+| [iOS Background URLSession](docs/IOS_BACKGROUND_URL_SESSION.md) | Surviving app termination during long downloads |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Common issues |
 | [CHANGELOG](CHANGELOG.md) | Release history |
 
-**Migration:** [v2.2.2 → v2.3.0](docs/MIGRATION_V2.3.0.md) · [v2.3.3 → v2.3.4](docs/MIGRATION_V2.3.3_TO_V2.3.4.md)
+**Migration:** [v2.2.2 → v2.3.0](docs/MIGRATION_V2.3.0.md) · [v2.3.3 → v2.3.4](docs/MIGRATION_V2.3.3_TO_V2.3.4.md) · [v2.4.x → v2.5.0](docs/MIGRATION_V2.5.0.md)
 
 ---
 

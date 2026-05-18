@@ -86,6 +86,29 @@ class SecurityValidatorTest {
     }
 
     @Test
+    fun testCgnatRange_shouldBeBlocked() {
+        // RFC 6598 CGNAT 100.64.0.0/10 — second octet is 64..127.
+        // Covers Tailscale (100.64.x.x) and ISP carrier-grade NAT.
+        assertFalse(SecurityValidator.validateURL("http://100.64.0.1/"))
+        assertFalse(SecurityValidator.validateURL("http://100.100.0.1/"))
+        assertFalse(SecurityValidator.validateURL("http://100.127.255.255/api"))
+        assertFalse(SecurityValidator.validateURL("https://100.64.1.2:8080/"))
+
+        // Boundary: 100.63.x.x and 100.128.x.x are public — must NOT be blocked.
+        assertTrue(SecurityValidator.validateURL("http://100.63.255.255/"))
+        assertTrue(SecurityValidator.validateURL("http://100.128.0.1/"))
+    }
+
+    @Test
+    fun testZeroDotNetwork_shouldBeBlocked() {
+        // 0.0.0.0/8 — 0.0.0.0 itself routes to all local interfaces; the rest
+        // of the /8 is reserved and not routable.
+        assertFalse(SecurityValidator.validateURL("http://0.0.0.0/"))
+        assertFalse(SecurityValidator.validateURL("http://0.1.2.3/"))
+        assertFalse(SecurityValidator.validateURL("http://0.255.255.255/"))
+    }
+
+    @Test
     fun testPrivateIPv6Ranges_shouldBeBlocked() {
         // ULA (Unique Local Address) - fc00::/7
         assertFalse(SecurityValidator.validateURL("http://[fc00::1]/"))
