@@ -47,9 +47,13 @@ class FileCompressionWorker : Worker {
             Logger.i("FileCompressionWorker", "Compressing ${config.inputPath} to ${config.outputPath}")
 
             platformCompress(config)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
+            // Compression failures here are typically I/O (disk full, permission)
+            // and transient — see HttpUploadWorker for the v2.5 chain-semantics rationale.
             Logger.e("FileCompressionWorker", "Failed to compress file", e)
-            WorkerResult.Failure("Compression failed: ${e.message}")
+            WorkerResult.Failure("Compression failed: ${e.message}", shouldRetry = true)
         }
     }
 }

@@ -257,16 +257,20 @@ abstract class BaseKmpWorker : CoroutineWorker {
             historyDuration = duration
 
             // Distinguish permanent failures (no retry) from transient failures (retry).
-            // Serialization/parsing errors and missing worker configs are programming errors that
-            // will NEVER succeed on retry — retrying wastes battery and WorkManager quota.
-            // Also catch NullPointerException, NumberFormatException, etc. from corrupted input.
-            val isPermanentFailure = e is kotlinx.serialization.SerializationException
-                || e is ClassNotFoundException
-                || e is IllegalArgumentException
-                || e is NullPointerException           // Corrupted/null input data
-                || e is NumberFormatException          // Malformed numeric input
-                || e is java.lang.reflect.InvocationTargetException  // Reflection failures
-                || e is InstantiationException         // Worker class can't be instantiated
+            // Conservative classification: only flag exception types that are ALWAYS
+            // programming/config errors at the worker boundary. The cost of incorrectly
+            // marking a transient failure as permanent is lost user data (the work never
+            // runs again); the cost of incorrectly marking a permanent failure as transient
+            // is wasted retry attempts (bounded by WorkRequest backoff + attemptCap).
+            // Data loss is the worse failure mode → err on retry.
+            //
+            // NPE / IllegalArgumentException / NumberFormatException are deliberately
+            // EXCLUDED — they are commonly thrown by third-party SDKs and JSON parsers
+            // on transient null/empty server responses and should be retried.
+            val isPermanentFailure = e is kotlinx.serialization.SerializationException  // Schema mismatch
+                || e is ClassNotFoundException                                          // Worker class gone
+                || e is java.lang.reflect.InvocationTargetException                     // Reflection wiring broken
+                || e is InstantiationException                                          // Worker can't be constructed
 
             Logger.e(LogTags.WORKER, "$workerLogTag ${if (isPermanentFailure) "permanent failure" else "crashed"}: $workerClassName", e)
 
@@ -310,10 +314,14 @@ abstract class BaseKmpWorker : CoroutineWorker {
                 // always false. Only the tags check is reliable.
                 val isPeriodic = tags.contains("type-periodic")
                 
-                // Always delete overflow file unless retrying or periodic.
-                // Cancelled tasks should not retain their overflow file until the 24h zombie
-                // cleanup — causes unnecessary disk usage when many tasks are cancelled.
-                if (!isRetrying && !isPeriodic) {
+                // Keep overflow file when:
+                //   - isRetrying: we explicitly returned Result.retry()
+                //   - isPeriodic: WorkManager will fire the next period
+                //   - wasCancelled: OS preempted us (Doze, stop, constraints) and WorkManager
+                //     will reschedule per the WorkRequest's backoff policy. Deleting here
+                //     causes resolveInputJson() to return null on the rerun → user payload lost.
+                // Zombie cleanup is the safety net for the rare case where reschedule never happens.
+                if (!isRetrying && !isPeriodic && !wasCancelled) {
                     try {
                         overflowInputFile?.delete()
                     } catch (e: Exception) {

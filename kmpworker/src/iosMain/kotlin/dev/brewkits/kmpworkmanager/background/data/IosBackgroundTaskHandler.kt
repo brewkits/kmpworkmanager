@@ -198,9 +198,10 @@ object IosBackgroundTaskHandler {
         job = scope.launch {
             try {
                 val result = executor.executeTask(meta.workerClassName, meta.inputJson)
-                val success = result is WorkerResult.Success
 
                 if (meta.isPeriodic) {
+                    // Periodic tasks self-re-schedule unconditionally — retry semantics
+                    // apply only to one-time tasks. The next period covers the retry.
                     reschedulePeriodicTask(
                         taskId = taskId,
                         workerClassName = meta.workerClassName,
@@ -208,9 +209,22 @@ object IosBackgroundTaskHandler {
                         rawMeta = meta.rawMeta,
                         scheduler = scheduler
                     )
+                } else {
+                    handleOneTimeTaskResult(
+                        taskId = taskId,
+                        meta = meta,
+                        result = result,
+                        scheduler = nativeScheduler
+                    )
                 }
 
-                Logger.i(LogTags.SCHEDULER, "Task '$taskId' finished (success=$success)")
+                // BGTask completion contract: iOS expects setTaskCompleted regardless of
+                // whether we re-enqueued for retry. The retry will fire as a NEW BGTask
+                // invocation on a fresh `task` handle. Mark success/failure based on the
+                // worker's result — `Retry` is treated as failure for THIS invocation so
+                // iOS doesn't burn extra quota on the same handle.
+                val success = result is WorkerResult.Success
+                Logger.i(LogTags.SCHEDULER, "Task '$taskId' finished (result=${result::class.simpleName})")
                 completeTask(success)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 Logger.w(LogTags.SCHEDULER, "Task '$taskId' cancelled due to expiration")
@@ -220,6 +234,122 @@ object IosBackgroundTaskHandler {
                 Logger.e(LogTags.SCHEDULER, "Task '$taskId' threw exception", e)
                 completeTask(false)
             }
+        }
+    }
+
+    // Metadata key used to count retry attempts across BGTask invocations for
+    // dedicated-identifier tasks. Mirrors [DynamicTaskDispatcher.META_ATTEMPT_COUNT].
+    internal const val META_ATTEMPT_COUNT = "kmpAttemptCount"
+
+    // Hard ceiling when the worker did not specify [WorkerResult.Retry.attemptCap].
+    // Mirrors WorkManager's default backoff retry budget and [DynamicTaskDispatcher.DEFAULT_ATTEMPT_CAP].
+    internal const val DEFAULT_ATTEMPT_CAP = 5
+
+    /**
+     * Handles the [WorkerResult] for a one-time task that ran with its own
+     * dedicated Info.plist BGTask identifier. Pre-fix, [handleSingleTask] only
+     * checked `result is WorkerResult.Success` — `Retry` and
+     * `Failure(shouldRetry = true)` were silently dropped, leaving iOS with no
+     * pending BGTaskRequest for that identifier and the work effectively lost.
+     *
+     * Contract (mirrors [DynamicTaskDispatcher.handleOneTimeResult] and Android's
+     * WorkManager defaults):
+     *
+     *  - `Success` → drop metadata, do not re-submit
+     *  - `Failure(shouldRetry = false)` → drop metadata (terminal failure)
+     *  - `Failure(shouldRetry = true)` → re-submit with incremented attempt counter
+     *  - `Retry(attemptCap = N)` → re-submit, abandon after `N` total attempts
+     *  - `Retry(attemptCap = null)` → re-submit, abandon after [DEFAULT_ATTEMPT_CAP]
+     *
+     * Re-submission uses `TaskTrigger.OneTime(delayMs)` with the worker's
+     * [WorkerResult.Retry.delayMs] hint (or 0 if absent). [ExistingPolicy.REPLACE]
+     * ensures we overwrite the just-completed schedule.
+     */
+    /**
+     * `internal` (not `private`) so [V250HandleSingleTaskRetryTest] can exercise the
+     * retry branches without constructing a real iOS `BGTask` object (which is
+     * framework-private and cannot be instantiated from tests).
+     */
+    internal suspend fun handleOneTimeTaskResult(
+        taskId: String,
+        meta: TaskMeta,
+        result: WorkerResult,
+        scheduler: NativeTaskScheduler
+    ) {
+        data class RetryDecision(
+            val shouldRetry: Boolean,
+            val attemptCap: Int?,
+            val delayMs: Long?,
+            val reason: String?
+        )
+        val decision = when (result) {
+            is WorkerResult.Success -> RetryDecision(false, null, null, null)
+            is WorkerResult.Failure -> RetryDecision(result.shouldRetry, null, null, result.message)
+            is WorkerResult.Retry -> RetryDecision(true, result.attemptCap, result.delayMs, result.reason)
+        }
+
+        if (!decision.shouldRetry) {
+            // Terminal — drop metadata so storage doesn't accumulate completed tasks.
+            scheduler.fileStorage.deleteTaskMetadata(taskId, periodic = false)
+            return
+        }
+
+        val rawMeta = meta.rawMeta ?: emptyMap()
+        val currentAttempt = rawMeta[META_ATTEMPT_COUNT]?.toIntOrNull() ?: 1  // 1 = original run
+        val effectiveCap = decision.attemptCap ?: DEFAULT_ATTEMPT_CAP
+        val nextAttempt = currentAttempt + 1
+
+        if (nextAttempt > effectiveCap) {
+            Logger.w(
+                LogTags.SCHEDULER,
+                "Task '$taskId' exhausted retry budget after $currentAttempt attempt(s) " +
+                    "(cap=$effectiveCap, reason=${decision.reason}). Abandoning."
+            )
+            scheduler.fileStorage.deleteTaskMetadata(taskId, periodic = false)
+            return
+        }
+
+        // Reconstruct constraints from saved metadata.
+        val requiresNetwork = rawMeta["requiresNetwork"] == "true"
+        val requiresCharging = rawMeta["requiresCharging"] == "true"
+        val isHeavyTask = rawMeta["isHeavyTask"] == "true"
+
+        try {
+            // Re-submit via scheduler.enqueue — this writes fresh metadata + submits the
+            // OS-level BGTaskRequest. The fresh metadata does NOT carry kmpAttemptCount,
+            // so we MUST save the counter again *after* enqueue to preserve it across
+            // the next BGTask invocation.
+            scheduler.enqueue(
+                id = taskId,
+                trigger = TaskTrigger.OneTime(decision.delayMs ?: 0L),
+                workerClassName = meta.workerClassName,
+                constraints = Constraints(
+                    requiresNetwork = requiresNetwork,
+                    requiresCharging = requiresCharging,
+                    isHeavyTask = isHeavyTask
+                ),
+                inputJson = meta.inputJson,
+                policy = ExistingPolicy.REPLACE
+            )
+
+            // Merge the attempt counter into the freshly-written metadata. Order is
+            // critical: if we saved BEFORE enqueue, scheduler.enqueue's REPLACE policy
+            // would clobber the counter; if we saved AFTER but enqueue threw, no harm
+            // done (the next attempt of this branch will start at counter+1 anyway).
+            val freshMeta = scheduler.fileStorage.loadTaskMetadata(taskId, periodic = false)
+                ?: emptyMap()
+            val mergedMeta = freshMeta.toMutableMap().apply {
+                put(META_ATTEMPT_COUNT, nextAttempt.toString())
+            }
+            scheduler.fileStorage.saveTaskMetadata(taskId, mergedMeta, periodic = false)
+
+            Logger.i(
+                LogTags.SCHEDULER,
+                "Task '$taskId' re-submitted for attempt $nextAttempt/$effectiveCap " +
+                    "(delayMs=${decision.delayMs ?: 0}, reason=${decision.reason})"
+            )
+        } catch (e: Exception) {
+            Logger.e(LogTags.SCHEDULER, "Task '$taskId' retry re-submit failed: ${e.message}", e)
         }
     }
 

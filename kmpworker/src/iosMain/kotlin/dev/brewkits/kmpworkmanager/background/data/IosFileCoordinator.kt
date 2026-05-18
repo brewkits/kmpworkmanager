@@ -17,6 +17,14 @@ import platform.darwin.DISPATCH_TIME_NOW
 import platform.darwin.NSEC_PER_MSEC
 
 /**
+ * Thrown when [IosFileCoordinator.coordinate] / [IosFileCoordinator.coordinateSync] cannot
+ * acquire a file coordination lock within the configured timeout. Callers should map this to
+ * a retry — never swallow it and proceed without a lock, as that risks interleaved writes
+ * (CRC32 mismatch, offset drift) when App and App Extension contend for the same file.
+ */
+internal class FileCoordinationTimeoutException(message: String) : IllegalStateException(message)
+
+/**
  * Shared file coordination utility for iOS
  * Ensures inter-process safety between App and App Extensions.
  */
@@ -40,9 +48,13 @@ internal object IosFileCoordinator {
      * where all Default threads are waiting on NSFileCoordinator, freezing all coroutines in the app.
      *
      * **GCD timeout**: The coordinator call is dispatched onto a GCD global queue and joined with a
-     * `dispatch_semaphore_wait(timeout)`. If the semaphore times out, we bypass coordination and
-     * execute `block` directly. This risks a brief write conflict, but is safer than hanging
-     * indefinitely (which would trigger Watchdog).
+     * `dispatch_semaphore_wait(timeout)`. If the semaphore times out, we throw
+     * [FileCoordinationTimeoutException] so the caller can retry. We **never** bypass the lock,
+     * because the lock exists specifically to keep the App and App Extension from interleaving
+     * writes to the same binary file (queue.jsonl, event store) — bypassing corrupts the file
+     * (CRC32 mismatch, offset drift) and silently drops records. Callers are responsible for
+     * mapping the exception into a retry: [BaseKmpWorker] returns `Result.retry()` on
+     * IllegalStateException; [ChainExecutor] propagates to fail the chain step.
      *
      * Detects test environment to skip coordination during unit tests (fast path, no IO dispatch).
      */
@@ -99,8 +111,12 @@ internal object IosFileCoordinator {
      * A fresh [NSFileCoordinator] is created per call so that a timeout-triggered [cancel]
      * only cancels this coordination and never affects concurrent coordinations sharing a
      * singleton coordinator.
+     *
+     * `internal` (not `private`) so the timeout-throws-instead-of-bypass branch can be
+     * pinned by [V250FileCoordinatorTimeoutTest] — calling `coordinate()` from a test
+     * always short-circuits via [IosTestEnvironment.isTestEnvironment].
      */
-    private fun <T> coordinateBlocking(
+    internal fun <T> coordinateBlocking(
         url: NSURL,
         write: Boolean,
         timeoutMs: Long,
@@ -165,17 +181,25 @@ internal object IosFileCoordinator {
         val timedOut = dispatch_semaphore_wait(semaphore, timeoutNs) != 0L
 
         if (timedOut) {
-            // Coordination lock was not acquired within timeoutMs. Bypass coordination and
-            // execute directly to avoid a permanent hang.
+            // Coordination lock was not acquired within timeoutMs. Cancel the pending
+            // coordination and throw — the lock exists to keep App and App Extension from
+            // interleaving binary writes (queue.jsonl uses framed records + CRC32; bypassing
+            // produces "valid file, garbage records"). Caller maps to retry.
             if (isCompleted.compareAndSet(expected = 0, newValue = 1)) {
                 Logger.w(
                     LogTags.CHAIN,
                     "⚠️ NSFileCoordinator timed out after ${timeoutMs}ms for ${url.lastPathComponent} " +
-                        "— bypassing coordination. Proceeding without lock."
+                        "— another process holds a conflicting lock. Throwing to force retry."
                 )
                 fileCoordinator.cancel()
-                return block(url)
+                throw FileCoordinationTimeoutException(
+                    "File coordination timed out after ${timeoutMs}ms for ${url.path} — " +
+                        "another process (App Extension, iCloud daemon, etc.) is holding a " +
+                        "conflicting lock. Retrying."
+                )
             }
+            // Otherwise the block won the race and ran just in time — fall through to
+            // return its result.
         }
 
         val duration = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime

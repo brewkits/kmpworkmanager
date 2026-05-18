@@ -164,10 +164,17 @@ class ParallelHttpUploadWorker(
             // Partial failure surfaces as Failure — the chain step did not fully succeed.
             // Per-file outcomes are encoded in the message; a caller that wants structured
             // data should listen to TaskCompletionEvent rather than parse the message.
+            //
+            // shouldRetry = true: per-file uploads ran out of bounded retries (handled in
+            // the loop above), but the chain-level retry budget should still apply — a
+            // partial-failure batch usually succeeds on the next BGTask invocation once
+            // the network recovers. Pre-v2.5 chain semantics ignored shouldRetry; v2.5
+            // treats shouldRetry=false as immediate-abandon, so this must be explicit.
             val firstError = results.firstOrNull { !it.success }?.error ?: "unknown"
             WorkerResult.Failure(
                 "Uploaded $successCount/$total files, $failedCount failed " +
-                    "(first error: $firstError)"
+                    "(first error: $firstError)",
+                shouldRetry = true
             )
         }
     }

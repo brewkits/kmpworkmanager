@@ -37,42 +37,45 @@ class HttpSyncWorker(
             }
 
             syncData(httpClient, config)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
+            // Network exceptions are transient — see HttpUploadWorker comment for full
+            // rationale (v2.5 chain semantics treat shouldRetry=false as immediate-abandon).
             Logger.e("HttpSyncWorker", "Sync failed", e)
-            WorkerResult.Failure("Sync failed: ${e.message}")
+            WorkerResult.Failure("Sync failed: ${e.message}", shouldRetry = true)
         }
     }
 
+    // Exceptions propagate to the caller's catch (in `doWork` above) — that's where
+    // they're tagged shouldRetry=true. The pre-fix wrapped this body in
+    // `try { ... } catch (Exception) { throw e }` which was a no-op smell.
     private suspend fun syncData(client: HttpClient, config: HttpSyncConfig): WorkerResult {
-        return try {
-            val response: HttpResponse = client.request(config.url) {
-                method = when (config.method.uppercase()) {
-                    "GET" -> HttpMethod.Get
-                    "POST" -> HttpMethod.Post
-                    "PUT" -> HttpMethod.Put
-                    "PATCH" -> HttpMethod.Patch
-                    else -> HttpMethod.Post
-                }
-                SecurityValidator.sanitizeHeaders(config.headers)?.forEach { (key, value) -> header(key, value) }
-                if (config.requestBody != null) {
-                    setBody(config.requestBody)
-                    contentType(ContentType.Application.Json)
-                }
+        val response: HttpResponse = client.request(config.url) {
+            method = when (config.method.uppercase()) {
+                "GET" -> HttpMethod.Get
+                "POST" -> HttpMethod.Post
+                "PUT" -> HttpMethod.Put
+                "PATCH" -> HttpMethod.Patch
+                else -> HttpMethod.Post
             }
+            SecurityValidator.sanitizeHeaders(config.headers)?.forEach { (key, value) -> header(key, value) }
+            if (config.requestBody != null) {
+                setBody(config.requestBody)
+                contentType(ContentType.Application.Json)
+            }
+        }
 
-            if (response.status.isSuccess()) {
-                WorkerResult.Success(
-                    message = "Sync complete",
-                    data = buildJsonObject {
-                        put("url", config.url)
-                        put("status", response.status.value)
-                    }
-                )
-            } else {
-                WorkerResult.Failure("HTTP ${response.status.value} error", shouldRetry = response.status.value >= 500)
-            }
-        } catch (e: Exception) {
-            throw e
+        return if (response.status.isSuccess()) {
+            WorkerResult.Success(
+                message = "Sync complete",
+                data = buildJsonObject {
+                    put("url", config.url)
+                    put("status", response.status.value)
+                }
+            )
+        } else {
+            WorkerResult.Failure("HTTP ${response.status.value} error", shouldRetry = response.status.value >= 500)
         }
     }
 }

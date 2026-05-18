@@ -159,7 +159,20 @@ internal class StorageMigration(
             )
             return result
 
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // CancellationException MUST propagate — swallowing breaks structured
+            // concurrency. The caller (NativeTaskScheduler init block) is responsible
+            // for completing `migrationComplete` in its own `finally`, so partial-state
+            // semantics are unchanged from the non-cancel paths: the migration flag is
+            // NOT set, so the next launch retries cleanly. Any chain definitions /
+            // metadata that were already written to the new file storage remain — they
+            // act as a checkpoint; re-migrating is idempotent (overwrites with same data).
+            Logger.w(LogTags.SCHEDULER, "Migration cancelled — partial state preserved as checkpoint", e)
+            throw e
         } catch (e: Exception) {
+            // Same idempotency argument as the CE branch: migration flag stays unset,
+            // partial state is a re-applicable checkpoint. The error is reported via
+            // MigrationResult so callers can surface it to telemetry.
             Logger.e(LogTags.SCHEDULER, "Migration failed", e)
             return MigrationResult(
                 success = false,

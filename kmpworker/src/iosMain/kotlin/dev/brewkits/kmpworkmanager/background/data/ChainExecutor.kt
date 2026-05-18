@@ -23,6 +23,7 @@ import platform.UIKit.UIDevice
 import platform.UIKit.UIDeviceBatteryState
 import platform.Foundation.NSProcessInfo
 import kotlin.concurrent.AtomicInt
+import kotlin.time.TimeSource
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -443,7 +444,14 @@ class ChainExecutor(
         // earliestBeginDate back. See [nextBgTaskDeferMs].
         nextBgTaskDeferMs = 0
 
+        // Wall-clock startTime: needed for the absolute-deadline math below
+        // (`deadlineEpochMs` is wall-clock, supplied by iOS).
         val startTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
+        // Monotonic mark: used for ALL elapsed-time comparisons inside the loop.
+        // Wall-clock would drift if NTP syncs mid-execution, making `elapsedTime`
+        // negative (no progress detected → infinite loop) or huge (early break →
+        // half-executed batch). Monotonic is unaffected by clock adjustments.
+        val startMonotonic = TimeSource.Monotonic.markNow()
 
         // If an absolute deadline is provided (e.g. BGTask expiration time), use it to
         // compute remaining time.  This naturally accounts for any cold-start overhead
@@ -490,7 +498,7 @@ class ChainExecutor(
                         break
                     }
 
-                    val elapsedTime = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime
+                    val elapsedTime = startMonotonic.elapsedNow().inWholeMilliseconds
                     val remainingTime = conservativeTimeout - elapsedTime
 
                     if (remainingTime < minTimePerChain) {
@@ -537,12 +545,15 @@ class ChainExecutor(
             throw e // Re-throw to propagate cancellation
         }
 
-        // Measure cleanup time for adaptive budget
-        val cleanupStartTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
+        // Measure cleanup time for adaptive budget — monotonic so NTP sync mid-cleanup
+        // can't poison the `lastCleanupDurationMs` value that drives next batch's budget.
+        val cleanupStartMonotonic = TimeSource.Monotonic.markNow()
 
-        // Calculate metrics
+        // Calculate metrics. `endTime` stays wall-clock (it's a public timestamp in
+        // ExecutionMetrics); `duration` is derived from the monotonic mark so it's
+        // immune to clock drift.
         val endTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
-        val duration = endTime - startTime
+        val duration = startMonotonic.elapsedNow().inWholeMilliseconds
         val timeUsagePercentage = ((duration * 100) / totalTimeoutMs).toInt()
         val queueSizeRemaining = getChainQueueSize()
 
@@ -567,9 +578,8 @@ class ChainExecutor(
             scheduleNextBGTask()
         }
 
-        // Record cleanup duration for next run
-        val cleanupEndTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
-        lastCleanupDurationMs = cleanupEndTime - cleanupStartTime
+        // Record cleanup duration for next run (monotonic — see cleanupStartMonotonic comment).
+        lastCleanupDurationMs = cleanupStartMonotonic.elapsedNow().inWholeMilliseconds
 
         Logger.i(LogTags.CHAIN, """
             ✅ Batch execution completed:
@@ -871,8 +881,15 @@ class ChainExecutor(
             }
 
             // 7. Execute steps sequentially with timeout protection
+            // Wall-clock start: persisted into history records and telemetry.
             val chainStartMs = (NSDate().timeIntervalSince1970 * 1000).toLong()
             historyStartMs = chainStartMs
+            // Monotonic mark: used by the inner-vs-outer TCE disambiguation below
+            // (BUG 10 fix). Wall-clock would drift if NTP syncs during execution,
+            // breaking the elapsed-vs-chainTimeout comparison and either re-introducing
+            // the outer-cancel misattribution or producing the opposite bug
+            // (real chain timeouts attributed to outer scopes).
+            val chainStartMonotonic = TimeSource.Monotonic.markNow()
             var chainSucceeded = false
             try {
                 chainSucceeded = withTimeout(chainTimeout) {
@@ -916,6 +933,21 @@ class ChainExecutor(
                                 )
                             }
 
+                            // Permanent failure enforcement (v2.5): a worker that returned
+                            // `WorkerResult.Failure(shouldRetry = false)` is contractually saying
+                            // "this failure is terminal — retrying will never succeed". Abandon
+                            // the chain immediately rather than burning the chain-level retry
+                            // budget on guaranteed re-failures (wastes WorkManager quota on
+                            // Android, BGTask quota on iOS).
+                            val permanentFailure = stepOutcome.isPermanentFailure
+                            if (permanentFailure) {
+                                Logger.e(
+                                    LogTags.CHAIN,
+                                    "Chain $chainId step ${index + 1}: permanent failure (Failure(shouldRetry=false)). " +
+                                        "Abandoning chain — retrying cannot succeed."
+                                )
+                            }
+
                             // Capture Retry.delayMs so the next BGTaskRequest is deferred. This is
                             // a hint, not a hard guarantee — iOS may dispatch the BGTask later than
                             // the requested earliest date, never earlier.
@@ -930,11 +962,14 @@ class ChainExecutor(
                                 }
                             }
 
-                            // Check if we should abandon this chain (either chain-level or per-step).
-                            if (progress.hasExceededRetries() || capReached) {
+                            // Check if we should abandon this chain (chain-level retries
+                            // exhausted, per-step attemptCap reached, OR permanent failure).
+                            val shouldAbandon = progress.hasExceededRetries() || capReached || permanentFailure
+                            if (shouldAbandon) {
                                 Logger.e(
                                     LogTags.CHAIN,
-                                    "Chain $chainId abandoning: hasExceededRetries=${progress.hasExceededRetries()}, capReached=$capReached"
+                                    "Chain $chainId abandoning: hasExceededRetries=${progress.hasExceededRetries()}, " +
+                                        "capReached=$capReached, permanentFailure=$permanentFailure"
                                 )
                                 fileStorage.deleteChainDefinition(chainId)
                                 fileStorage.deleteChainProgress(chainId)
@@ -947,10 +982,10 @@ class ChainExecutor(
                                     platform = "ios",
                                     error = stepError ?: "Unknown failure",
                                     retryCount = progress.retryCount,
-                                    willRetry = !progress.hasExceededRetries() && !capReached
+                                    willRetry = !shouldAbandon
                                 )
                             )
-                            historyStatus = if (progress.hasExceededRetries() || capReached) ExecutionStatus.ABANDONED else ExecutionStatus.FAILURE
+                            historyStatus = if (shouldAbandon) ExecutionStatus.ABANDONED else ExecutionStatus.FAILURE
                             historyFailedStep = index
                             historyError = stepError
                             historyRetryCount = progress.retryCount
@@ -972,9 +1007,45 @@ class ChainExecutor(
                     allStepsSucceeded
                 }
             } catch (e: TimeoutCancellationException) {
-                // Chain-level timeout: the aggregate wall-clock time of all steps exceeded
-                // chainTimeout. This is different from a single task timeout — progress WAS
-                // saved after each completed step, so we can resume.
+                // Disambiguate inner vs outer timeout. `withTimeout(chainTimeout)` cancels
+                // its children with a TimeoutCancellationException, but an OUTER
+                // `withTimeout(batchTimeout)` further up the stack does the same — and
+                // its exception propagates through this inner block on its way out.
+                // Without this check, a batch-level timeout fired 1 s into the chain
+                // would be mis-logged as "Chain timed out (chainTimeout ms)" and SWALLOWED
+                // by the `return false` below, defeating the outer timeout's purpose.
+                //
+                // Heuristic: if elapsed wall-clock < chainTimeout, the cancellation cannot
+                // have come from our own `withTimeout(chainTimeout)` block — therefore it
+                // came from an outer scope and must be rethrown so the outer scope
+                // observes its own cancellation.
+                val elapsedMs = chainStartMonotonic.elapsedNow().inWholeMilliseconds
+                if (elapsedMs < chainTimeout) {
+                    Logger.w(
+                        LogTags.CHAIN,
+                        "Chain $chainId saw TimeoutCancellationException after only ${elapsedMs}ms " +
+                            "(< chainTimeout ${chainTimeout}ms) — attributing to an OUTER timeout " +
+                            "(e.g. batch). Saving progress as a graceful interrupt and rethrowing."
+                    )
+                    withContext(NonCancellable) {
+                        fileStorage.saveChainProgress(progress)
+                    }
+                    // Re-queue for resumption — the chain itself didn't fail; it was
+                    // pre-empted by the batch wall clock.
+                    withContext(NonCancellable) {
+                        fileStorage.enqueueChain(chainId)
+                    }
+                    historyStatus = ExecutionStatus.FAILURE
+                    historyFailedStep = progress.getNextStepIndex() ?: (steps.size - 1)
+                    historyError = "Outer (batch) timeout pre-empted chain after ${elapsedMs}ms"
+                    historyRetryCount = progress.retryCount
+                    historyCompletedSteps = progress.completedSteps.size
+                    throw e
+                }
+
+                // Genuine chain-level timeout: the aggregate wall-clock time of all steps
+                // exceeded chainTimeout. Progress WAS saved after each completed step, so
+                // we can resume on the next BGTask invocation.
                 val failedStep = progress.getNextStepIndex() ?: (steps.size - 1)
                 withContext(NonCancellable) {
                     progress = progress.withTimeout(failedStep, "Chain timed out (${chainTimeout}ms)")
@@ -987,7 +1058,7 @@ class ChainExecutor(
                     "Chain $chainId timed out after ${chainTimeout}ms — re-queued for resumption " +
                     "(completed ${progress.completedSteps.size}/${steps.size} steps)"
                 )
-                
+
                 KmpWorkManagerRuntime.notifyChainFailed(
                     TelemetryHook.ChainFailedEvent(
                         chainId = chainId,
@@ -1042,7 +1113,7 @@ class ChainExecutor(
                     chainId = chainId,
                     totalSteps = steps.size,
                     platform = "ios",
-                    durationMs = (NSDate().timeIntervalSince1970 * 1000).toLong() - chainStartMs
+                    durationMs = chainStartMonotonic.elapsedNow().inWholeMilliseconds
                 )
             )
             historyStatus = ExecutionStatus.SUCCESS
@@ -1161,7 +1232,16 @@ class ChainExecutor(
                     }
                     when (result) {
                         is WorkerResult.Success -> TaskOutcome(success = true)
-                        is WorkerResult.Failure -> TaskOutcome(success = false, errorMessage = result.message)
+                        is WorkerResult.Failure -> TaskOutcome(
+                            success = false,
+                            errorMessage = result.message,
+                            // shouldRetry=false is a contract — the worker is signalling that
+                            // this failure is permanent (bad input, schema mismatch, etc.) and
+                            // retrying will never succeed. Forward this so the chain executor
+                            // abandons immediately rather than burning the chain-level retry
+                            // budget on guaranteed re-failures.
+                            isPermanentFailure = !result.shouldRetry
+                        )
                         is WorkerResult.Retry -> TaskOutcome(
                             success = false,
                             errorMessage = "retry requested: ${result.reason}",
@@ -1178,12 +1258,17 @@ class ChainExecutor(
             Logger.w(LogTags.CHAIN, "Step $stepIndex had ${results.count { !it.success }} failed task(s) out of ${tasks.size}")
         }
         val firstFailure = results.firstOrNull { !it.success }
+        // A step is permanently failed if ANY of its tasks returned
+        // `Failure(shouldRetry = false)`. A single permanent task failure is enough to
+        // abandon the chain — re-running won't fix a contract violation in one slot.
+        val hasPermanentFailure = results.any { !it.success && it.isPermanentFailure }
         return StepOutcome(
             success = allSucceeded,
             updatedProgress = currentProgress,
             errorMessage = firstFailure?.errorMessage,
             retryDelayMs = firstFailure?.retryDelayMs,
-            attemptCap = firstFailure?.attemptCap
+            attemptCap = firstFailure?.attemptCap,
+            isPermanentFailure = hasPermanentFailure
         )
     }
 
@@ -1196,7 +1281,12 @@ class ChainExecutor(
         val success: Boolean,
         val errorMessage: String? = null,
         val retryDelayMs: Long? = null,
-        val attemptCap: Int? = null
+        val attemptCap: Int? = null,
+        // Set when a worker returned `Failure(shouldRetry = false)`. Forwarded up to
+        // StepOutcome and consumed in executeChain to abandon the chain immediately,
+        // bypassing the chain-level retry counter (re-running can never succeed for a
+        // permanent failure — wasted quota).
+        val isPermanentFailure: Boolean = false
     )
 
     /**
@@ -1210,7 +1300,10 @@ class ChainExecutor(
         val updatedProgress: ChainProgress,
         val errorMessage: String? = null,
         val retryDelayMs: Long? = null,
-        val attemptCap: Int? = null
+        val attemptCap: Int? = null,
+        // True if any task in this step returned `Failure(shouldRetry = false)`.
+        // executeChain abandons the chain unconditionally on this signal.
+        val isPermanentFailure: Boolean = false
     )
 
     /**
@@ -1251,40 +1344,58 @@ class ChainExecutor(
 
         // Battery guard: defer task when battery is critically low and not charging.
         // Protects device battery from drain during background execution.
+        //
+        // **Opt-in via host app**: we read `device.batteryMonitoringEnabled` but do NOT
+        // toggle it. The pre-fix toggle path had two latent issues:
+        //   1. Race with the host's UI thread — `monitoringEnabled = true; read; = false`
+        //      is not atomic. If the host enabled monitoring between our `read` and our
+        //      `= false`, we'd disable the host's monitoring → broken battery widget.
+        //   2. `UIDevice` mutable properties should be accessed from the main thread per
+        //      Apple's threading contract. Calling from a BGTask coroutine is undefined.
+        //
+        // If the host wants the battery guard, it must enable monitoring once at app
+        // launch:
+        //     UIDevice.current.isBatteryMonitoringEnabled = true
+        // If monitoring is disabled (default), `batteryLevel` returns -1 and `batteryState`
+        // returns Unknown — we treat that as "battery info unavailable" and skip the guard
+        // (the worker runs). This is safer than wrongly deferring legitimate work because
+        // we couldn't read the battery state.
         val minBattery = KmpWorkManagerRuntime.minBatteryLevelPercent
         if (minBattery > 0) {
             val device = UIDevice.currentDevice()
-            // QA double-check fix: capture the host app's prior setting and only flip it
-            // if it was off. Some host apps enable batteryMonitoringEnabled for their own
-            // UI (e.g. settings screen showing battery state); unconditionally toggling
-            // it off after our read would silently break their feature.
-            val hostHadMonitoringEnabled = device.batteryMonitoringEnabled
-            if (!hostHadMonitoringEnabled) {
-                device.batteryMonitoringEnabled = true
-            }
-            val batteryFloat = device.batteryLevel
-            val batteryState = device.batteryState
-            // Restore only if we turned it on. If the host had it on already, leave it as is.
-            if (!hostHadMonitoringEnabled) {
-                device.batteryMonitoringEnabled = false
-            }
-            val isCharging = batteryState != UIDeviceBatteryState.UIDeviceBatteryStateUnplugged &&
-                batteryState != UIDeviceBatteryState.UIDeviceBatteryStateUnknown
-            val batteryPct = if (batteryFloat >= 0f) (batteryFloat * 100).toInt() else -1
-            if (batteryPct in 0 until minBattery && !isCharging) {
-                Logger.w(
+            if (!device.batteryMonitoringEnabled) {
+                Logger.v(
                     LogTags.CHAIN,
-                    "🔋 Task ${task.workerClassName} deferred — battery at ${batteryPct}% " +
-                        "(min: ${minBattery}%, not charging)"
+                    "Battery guard skipped — host has not enabled UIDevice.batteryMonitoringEnabled. " +
+                        "Enable it once at app launch to opt in to the guard."
                 )
-                return WorkerResult.Failure(
-                    message = "Battery too low (${batteryPct}% < ${minBattery}%)",
-                    shouldRetry = true
-                )
+            } else {
+                val batteryFloat = device.batteryLevel
+                val batteryState = device.batteryState
+                val isCharging = batteryState != UIDeviceBatteryState.UIDeviceBatteryStateUnplugged &&
+                    batteryState != UIDeviceBatteryState.UIDeviceBatteryStateUnknown
+                val batteryPct = if (batteryFloat >= 0f) (batteryFloat * 100).toInt() else -1
+                if (batteryPct in 0 until minBattery && !isCharging) {
+                    Logger.w(
+                        LogTags.CHAIN,
+                        "🔋 Task ${task.workerClassName} deferred — battery at ${batteryPct}% " +
+                            "(min: ${minBattery}%, not charging)"
+                    )
+                    return WorkerResult.Failure(
+                        message = "Battery too low (${batteryPct}% < ${minBattery}%)",
+                        shouldRetry = true
+                    )
+                }
             }
         }
 
+        // Wall-clock: persisted in telemetry events (startedAtMs).
         val startTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
+        // Monotonic: used for ALL `duration = ... - startTime` math in this scope,
+        // including the BUG 11 inner-vs-outer TCE disambiguation. NTP sync mid-task
+        // would otherwise corrupt `duration` and either re-introduce the spurious-
+        // task-timeout telemetry bug or invert the disambiguation.
+        val startMonotonic = TimeSource.Monotonic.markNow()
 
         KmpWorkManagerRuntime.notifyTaskStarted(
             TelemetryHook.TaskStartedEvent(
@@ -1318,7 +1429,7 @@ class ChainExecutor(
                     )
 
                     val result = worker.doWork(task.inputJson, env)
-                    val duration = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime
+                    val duration = startMonotonic.elapsedNow().inWholeMilliseconds
                     val percentage = (duration * 100 / taskTimeout).toInt()
 
                     if (duration > taskTimeout * 0.8) {
@@ -1423,7 +1534,27 @@ class ChainExecutor(
                     }
                 }
             } catch (e: TimeoutCancellationException) {
-                val duration = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime
+                val duration = startMonotonic.elapsedNow().inWholeMilliseconds
+                // Disambiguate inner vs outer timeout — same shape as the chain-level fix
+                // (see executeChain's catch block above). `withTimeout(taskTimeout)` cancels
+                // its children with TimeoutCancellationException, but an OUTER scope
+                // (executeChain's withTimeout(chainTimeout) or executeChainsInBatch's
+                // withTimeout(conservativeTimeout)) does the same — its TCE propagates DOWN
+                // through this inner block. Without this check, an outer cancellation fired
+                // 1 s into a task would be mis-logged as "Timeout after 1000ms (limit:
+                // ${taskTimeout}ms)" and the spurious Failure would be persisted into
+                // chain progress as a step error, eventually exhausting the per-step retry
+                // budget for tasks that never genuinely failed.
+                if (duration < taskTimeout) {
+                    Logger.w(
+                        LogTags.CHAIN,
+                        "Task ${task.workerClassName} saw TimeoutCancellationException after only " +
+                            "${duration}ms (< taskTimeout ${taskTimeout}ms) — attributing to an OUTER " +
+                            "timeout (chain/batch). Rethrowing so the outer scope observes its own cancellation."
+                    )
+                    throw e
+                }
+
                 Logger.e(LogTags.CHAIN, "⏱️ Task ${task.workerClassName} timed out after ${duration}ms (limit: ${taskTimeout}ms)")
                 TaskEventBus.emit(
                     TaskCompletionEvent(
@@ -1449,7 +1580,7 @@ class ChainExecutor(
                 // Must re-throw — swallowing breaks coroutine cancellation protocol.
                 throw e
             } catch (e: Exception) {
-                val duration = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime
+                val duration = startMonotonic.elapsedNow().inWholeMilliseconds
                 Logger.e(LogTags.CHAIN, "💥 Task ${task.workerClassName} threw exception after ${duration}ms", e)
                 TaskEventBus.emit(
                     TaskCompletionEvent(

@@ -42,9 +42,16 @@ class HttpUploadWorker(
             }
 
             uploadFile(httpClient, config, env)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
+            // Network / disk / SDK exceptions are transient by default — must NOT be
+            // confused with permanent contract failures. v2.5 chain semantics treat
+            // `Failure(shouldRetry=false)` as immediate-abandon; without explicit
+            // shouldRetry=true here, a transient HTTP timeout abandons the entire
+            // chain on the first attempt.
             Logger.e("HttpUploadWorker", "Upload failed", e)
-            WorkerResult.Failure("Upload failed: ${e.message}")
+            WorkerResult.Failure("Upload failed: ${e.message}", shouldRetry = true)
         }
     }
 

@@ -1208,55 +1208,71 @@ internal class AppendOnlyQueue(
                 }
             }
 
-            // Step 2: Read only unprocessed items from legacy file (skip first existingHeadIndex lines)
-            val items = mutableListOf<String>()
+            // Step 2+3+4 (streaming): read legacy file line-by-line via NSFileHandle and
+            // write each unprocessed line directly into the new binary file. Never holds
+            // more than one line in RAM at a time.
+            //
+            // Why streaming is mandatory here: the pre-fix code called
+            // `NSString.stringWithContentsOfFile(legacyPath)` which loads the ENTIRE legacy
+            // file into a single NSString, then `content.split("\n")` produced a List of
+            // String — peak RAM = file size × ~3 (NSString + intermediate UTF-16 buffers +
+            // List<String>). For a 10–20 MB legacy queue this spikes to 60+ MB, which
+            // exceeds the iOS BGTask memory budget (~30 MB on older devices) and triggers
+            // an EXC_RESOURCE kill. The user's app then crashes EVERY background invocation
+            // until they manually clear app data — silently stuck on the pre-v2.5 version.
+            //
+            // [readSingleLine] is the same chunked reader used elsewhere in this class for
+            // legacy reads (4 KB chunks via [LEGACY_READ_CHUNK_SIZE]).
+            fileManager.createFileAtPath(queuePath, null, null)
+
+            var migratedCount = 0
             memScoped {
-                val errorPtr = alloc<ObjCObjectVar<NSError?>>()
-                val content = NSString.stringWithContentsOfFile(
-                    legacyPath,
-                    encoding = NSUTF8StringEncoding,
-                    error = errorPtr.ptr
+                val readErrorPtr = alloc<ObjCObjectVar<NSError?>>()
+                val readHandle = NSFileHandle.fileHandleForReadingFromURL(
+                    NSURL.fileURLWithPath(legacyPath),
+                    readErrorPtr.ptr
+                ) ?: throw IllegalStateException(
+                    "Failed to open legacy queue for reading: ${readErrorPtr.value?.localizedDescription}"
                 )
 
-                if (content != null) {
-                    content.split("\n").forEachIndexed { lineIndex, line ->
+                val writeErrorPtr = alloc<ObjCObjectVar<NSError?>>()
+                val writeHandle = NSFileHandle.fileHandleForWritingToURL(queueFileURL, writeErrorPtr.ptr)
+                    ?: run {
+                        readHandle.closeFile()
+                        throw IllegalStateException(
+                            "Failed to create binary queue file: ${writeErrorPtr.value?.localizedDescription}"
+                        )
+                    }
+
+                try {
+                    writeFileHeader(writeHandle)
+
+                    var lineIndex = 0
+                    while (true) {
+                        val line = readSingleLine(readHandle) ?: break
                         if (lineIndex >= existingHeadIndex) {
                             val trimmed = line.trim()
                             if (trimmed.isNotEmpty()) {
-                                items.add(trimmed)
+                                appendToQueueFileBinary(writeHandle, trimmed)
+                                migratedCount++
                             }
                         }
-                    }
-                }
-            }
-
-            Logger.i(LogTags.QUEUE, "Read ${items.size} unprocessed items from legacy queue (skipped $existingHeadIndex)")
-
-            // Step 3: Create new binary file with header
-            fileManager.createFileAtPath(queuePath, null, null)
-
-            memScoped {
-                val errorPtr = alloc<ObjCObjectVar<NSError?>>()
-                val fileHandle = NSFileHandle.fileHandleForWritingToURL(queueFileURL, errorPtr.ptr)
-
-                if (fileHandle == null) {
-                    throw IllegalStateException("Failed to create binary queue file: ${errorPtr.value?.localizedDescription}")
-                }
-
-                try {
-                    // Write magic number and version
-                    writeFileHeader(fileHandle)
-
-                    // Step 4: Write each item in binary format
-                    items.forEach { item ->
-                        appendToQueueFileBinary(fileHandle, item)
+                        lineIndex++
                     }
 
-                    Logger.i(LogTags.QUEUE, "Wrote ${items.size} items in binary format")
+                    Logger.i(
+                        LogTags.QUEUE,
+                        "Streaming-migrated $migratedCount items to binary format (legacy total: " +
+                            "$lineIndex lines, skipped $existingHeadIndex already-processed)"
+                    )
                 } finally {
-                    fileHandle.closeFile()
+                    writeHandle.closeFile()
+                    readHandle.closeFile()
                 }
             }
+            // For the post-step 7 log line below — preserves the existing message format
+            // (the original referenced `items.size`; we now have `migratedCount`).
+            val migratedItemsCount = migratedCount
 
             // Step 5: Reset head pointer to 0 (items list already excludes processed items)
             writeHeadPointer(0)
@@ -1272,7 +1288,7 @@ internal class AppendOnlyQueue(
             cacheValid = false
             linePositionCache.clear()
 
-            Logger.i(LogTags.QUEUE, "✅ Migration complete: ${items.size} items migrated to binary format")
+            Logger.i(LogTags.QUEUE, "✅ Migration complete: $migratedItemsCount items migrated to binary format")
 
         } catch (e: Exception) {
             Logger.e(LogTags.QUEUE, "Migration failed - attempting rollback", e)

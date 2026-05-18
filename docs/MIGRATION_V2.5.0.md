@@ -125,6 +125,219 @@ the `delayMs` is now honored on iOS via `BGProcessingTaskRequest.earliestBeginDa
 If you observed `TaskCompletionEvent` and treated `Failure.shouldRetry == true`
 specifically, switch to checking `WorkerResult.Retry` instead.
 
+### 5. `BaseKmpWorker` exception-to-result classification narrowed (Android)
+
+**Before (v2.4.x):** the catch-all `Exception` handler in `BaseKmpWorker.doWorkInternal`
+treated **all** of these as *permanent* failures (no retry, returns `Result.failure()`):
+
+- `SerializationException`
+- `ClassNotFoundException`
+- `IllegalArgumentException`
+- `NullPointerException`
+- `NumberFormatException`
+- `InvocationTargetException`
+- `InstantiationException`
+
+**After (v2.5.0):** only true programming/config errors are permanent:
+
+- `SerializationException` (schema mismatch)
+- `ClassNotFoundException` (worker class removed from binary)
+- `InvocationTargetException` (reflection wiring broken)
+- `InstantiationException` (worker can't be constructed)
+
+`IllegalArgumentException`, `NullPointerException`, and `NumberFormatException`
+are now treated as **transient** — `Result.retry()` is returned, subject to the
+`WorkRequest` backoff policy.
+
+**Impact**: workers that threw `NPE`/`IAE`/`NFE` on transient state (third-party
+SDK init race, JSON parser hitting a temporarily empty field, etc.) now retry
+instead of failing permanently. This is the safe direction — data preservation
+beats wasted quota — but if your code *relied* on "throwing NPE = no retry":
+
+- Replace the throw with `return WorkerResult.Failure(shouldRetry = false)`.
+  Explicit is better than relying on exception classification.
+
+**Rationale**: incorrectly marking a transient failure as permanent loses user
+data; incorrectly marking a permanent failure as transient wastes bounded retry
+quota. Asymmetric cost → bias toward retry.
+
+### 6. iOS dedicated-identifier tasks now auto-retry on `Retry` / `Failure(shouldRetry=true)`
+
+**Before (v2.4.x):** `IosBackgroundTaskHandler.handleSingleTask` — the entry point
+for BGTasks scheduled with a dedicated Info.plist identifier (the common iOS
+path) — checked `result is WorkerResult.Success` and silently dropped anything
+else. Workers returning `Retry` or `Failure(shouldRetry = true)` had no pending
+BGTaskRequest left, so iOS never re-fired the work.
+
+**After (v2.5.0):** dedicated-identifier tasks follow the same retry contract as
+WorkManager on Android (mirrors §6 below for dynamic tasks):
+
+- `Success` → drop metadata, do not re-submit
+- `Failure(shouldRetry = false)` → drop metadata (terminal)
+- `Failure(shouldRetry = true)` → re-submit a new BGTaskRequest with incremented
+  attempt counter
+- `Retry(attemptCap = N)` → re-submit, abandon after N total attempts
+- `Retry(attemptCap = null)` → re-submit, abandon after 5 attempts (default cap)
+- `Retry(delayMs = X)` → re-submit with `earliestBeginDate = now + X`
+
+The attempt counter is persisted under the internal `kmpAttemptCount` key so a
+process kill between re-submit and the next run cannot reset it.
+
+**Impact**: same as §7 (dynamic tasks) below — your workers must be idempotent
+across up to 5 invocations by default. Return `Failure(shouldRetry = false)` for
+one-shot work, or `Retry(attemptCap = N)` to override the default cap.
+
+### 7. iOS dynamic tasks now auto-retry on `Retry` / `Failure(shouldRetry=true)`
+
+**Before (v2.4.x):** `DynamicTaskDispatcher` on iOS dequeued each one-time task
+and executed it. The result was logged but **the task was never re-enqueued**,
+regardless of what the worker returned. A worker returning
+`WorkerResult.Retry("network blip")` was silently dropped.
+
+**After (v2.5.0):** dynamic tasks follow the same retry contract as
+WorkManager on Android:
+
+- `Success` → drop metadata, do not re-enqueue
+- `Failure(shouldRetry = false)` → drop metadata (terminal failure)
+- `Failure(shouldRetry = true)` → re-enqueue with incremented attempt counter
+- `Retry(attemptCap = N)` → re-enqueue, abandon after `N` total attempts
+- `Retry(attemptCap = null)` → re-enqueue, abandon after `5` total attempts
+  (the default `DEFAULT_ATTEMPT_CAP`, mirrors WorkManager's default backoff
+  budget)
+
+The attempt counter is persisted in task metadata under the internal key
+`kmpAttemptCount` so a process kill between re-enqueue and the next run cannot
+reset it to 1.
+
+**Impact**:
+
+- iOS background work that previously vanished on transient errors now retries.
+  **Your workers must be idempotent** — the same task may run up to 5 times by
+  default before being abandoned.
+- If your worker must run *exactly once*, return `WorkerResult.Failure(shouldRetry = false)`
+  or `WorkerResult.Retry(attemptCap = 1)` (the latter is rejected at construction;
+  use `Failure` for "one-shot, no retry").
+- If you need a higher cap, return `WorkerResult.Retry(attemptCap = N)` from the
+  worker — `N` overrides the default of 5 for that specific failure.
+
+### 8. Chain tasks honor `Failure(shouldRetry = false)` as permanent-abandon (iOS)
+
+**Before (v2.4.x):** `ChainExecutor` mapped every `WorkerResult.Failure` to a
+generic step failure, ignoring the `shouldRetry` flag. A worker explicitly
+saying "this is permanent" still consumed the chain-level retry budget
+(`MAX_RETRIES = 3` by default), wasting BGTask quota on guaranteed re-failures
+and delaying the eventual abandonment by 3 BGTask invocations.
+
+**After (v2.5.0):** `Failure(shouldRetry = false)` triggers immediate chain
+abandonment — the chain definition + progress files are deleted on the first
+attempt. `Failure(shouldRetry = true)` and `Retry(...)` continue to consume the
+chain-level retry budget as before.
+
+**Impact**: behaviour change for workers that return `Failure("message")`
+without an explicit `shouldRetry`. Per the data class's default,
+`shouldRetry = false` — so any such worker now aborts the chain on the first
+attempt instead of getting 3 chances.
+
+- If your worker meant "this failure is permanent" (bad input, schema
+  mismatch): the new behaviour is what you wanted. No action.
+- If your worker meant "transient — please retry": change the return to
+  `WorkerResult.Failure(message, shouldRetry = true)` or
+  `WorkerResult.Retry(reason)`.
+
+Side effect of this fix: `IosFileStorage.deleteChainProgress` became `suspend`
+(now evicts the in-memory progress buffer in addition to deleting the file —
+fixes a separate latent bug where a buffered ChainProgress would be re-flushed
+to disk after abandonment, effectively un-abandoning the chain). Any caller
+that holds a reference to that function must now invoke it from a coroutine.
+
+### 9. iOS battery-guard is now opt-in via `UIDevice.isBatteryMonitoringEnabled`
+
+**Before (v2.4.x):** `ChainExecutor` toggled
+`UIDevice.current.isBatteryMonitoringEnabled` automatically to read battery
+state, then attempted to restore the host's prior value. This had two issues:
+(1) the toggle is non-atomic — a host UI thread enabling monitoring between
+our read-and-restore would have its setting silently overwritten; (2)
+`UIDevice` mutable properties have a Apple-documented main-thread requirement,
+violated by BGTask coroutines.
+
+**After (v2.5.0):** the battery guard reads `isBatteryMonitoringEnabled` but
+NEVER toggles it. If the host has not enabled monitoring at app launch, the
+guard is skipped and the worker runs normally. `KmpWorkManagerConfig.minBatteryLevelPercent`
+is therefore opt-in:
+
+```swift
+// In your app delegate (Swift):
+UIDevice.current.isBatteryMonitoringEnabled = true
+```
+
+```kotlin
+// In your KMP config (only takes effect if the Swift opt-in above is set):
+KmpWorkManager.initialize(
+    config = KmpWorkManagerConfig(minBatteryLevelPercent = 15)
+)
+```
+
+**Impact**: apps that did NOT enable battery monitoring lose the battery guard
+silently. The previous behaviour was already error-prone (auto-toggle race) so
+the safer default is to skip rather than corrupt the host's setting.
+
+### 10. iOS chain durations now use monotonic time
+
+**Before (v2.4.x):** `ChainExecutor` measured elapsed time via wall-clock
+(`NSDate.timeIntervalSince1970`). NTP sync mid-execution would corrupt
+budget/timeout comparisons — including the BUG 10 / BUG 11 outer-cancel
+disambiguation checks added in v2.5, leading to either re-introduced outer-
+cancel misattribution or its inverse (legitimate task timeouts mis-attributed
+to outer scopes).
+
+**After (v2.5.0):** all internal `duration = endMark - startMark` arithmetic
+uses `kotlin.time.TimeSource.Monotonic`. Wall-clock is still used for public
+timestamps (telemetry event `startedAtMs`, `ExecutionMetrics.startTime`/`endTime`,
+absolute BGTask deadlines from iOS) — those need to survive process boundaries
+and represent real time-of-day.
+
+**Impact**: telemetry consumers see no observable difference (the public
+timestamps remain wall-clock; only the `durationMs` field is now monotonic-
+derived). Internal correctness is improved: chain/task budgets and the
+inner/outer timeout disambiguation are immune to NTP jitter.
+
+### 11. Built-in workers now mark transient failures as retryable
+
+**Before (v2.4.x):** `HttpUploadWorker`, `HttpSyncWorker`, `FileCompressionWorker`,
+and `ParallelHttpUploadWorker` caught generic `Exception` and returned
+`Failure(message)` — using the data class's default `shouldRetry = false`.
+
+**After (v2.5.0):** these workers explicitly set `shouldRetry = true` on
+network/IO catch-alls. Combined with the §8 chain-semantics change, this
+prevents the contract regression where a single transient network blip
+abandons the entire chain.
+
+**Impact**: behaviour-equivalent for v2.4.x users (chain retry budget was
+already applied by the executor regardless of `shouldRetry`). For v2.5.0
+users who write their own workers wrapping network calls, the explicit
+`shouldRetry = true` is now required for transient failures — see §8.
+
+### 12. Legacy text-format queue migration streams the file
+
+**Before (v2.4.x):** `AppendOnlyQueue.migrateFromTextToBinary` loaded the
+entire legacy queue file via `NSString.stringWithContentsOfFile`, then
+`content.split("\n")` materialised every line into a `List<String>` before
+writing the new binary file. For users who had not opened the app in some
+time, the legacy file could grow to 10–20 MB; peak RAM during migration was
+~3× file size (NSString + UTF-16 buffers + List), exceeding the iOS BGTask
+~30 MB budget on older devices. The OS sent `EXC_RESOURCE` and silently
+killed the app every time it tried to migrate — users stuck permanently on
+the pre-v2.5 version with no error indication.
+
+**After (v2.5.0):** the migration streams the legacy file line-by-line via
+`NSFileHandle` (using the same 4 KB chunked reader already used elsewhere in
+the queue) and writes each unprocessed line directly into the new binary
+file. Peak RAM is one line (~few KB) regardless of file size.
+
+**Impact**: no user-visible behaviour change. Users who could not migrate
+under v2.4.x → v2.5.0 due to silent EXC_RESOURCE kills can now upgrade
+successfully.
+
 ---
 
 ## Additive changes (no migration needed)
