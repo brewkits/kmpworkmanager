@@ -71,6 +71,76 @@ for upgrade notes from v2.4.x.
   map populated on schedule, consumed + file-deleted on cancel. Coverage:
   `OverflowFileRegistryTest` (6 tests including a 100-cycle leak-check).
 
+### Fixed (16 P0/P1/P2 bugs, found across 4 pre-publish audit passes)
+
+Late-cycle proactive review on the cancellation × lock-order × retry-contract ×
+data-integrity axes. Each fix is pinned by a `V250…Test.kt` regression test
+that was verified to fail under a temporary revert of its production change.
+Full table in [release notes](docs/release-notes/v2.5.0-RELEASE-NOTES.md) +
+migration guidance for breaking-by-contract changes in
+[`docs/MIGRATION_V2.5.0.md`](docs/MIGRATION_V2.5.0.md) §5–§12.
+
+**P0 — data loss / crash**
+- `BaseKmpWorker` deleted overflow input file on `CancellationException` →
+  WorkManager rerun lost user payload. `wasCancelled` flag was set but never
+  read by the delete guard.
+- iOS `DynamicTaskDispatcher` + `IosBackgroundTaskHandler.handleSingleTask`
+  silently dropped `WorkerResult.Retry` / `Failure(shouldRetry=true)` →
+  background work vanished on flaky-network failures. Both code paths now
+  re-enqueue/re-submit with bounded attempt counter (`kmpAttemptCount`,
+  default cap 5).
+- `IosFileStorage.replaceChainAtomic` bypassed `enqueueMutex` → concurrent
+  `enqueueChain` could race through the size check, exceeding
+  `MAX_QUEUE_SIZE`. Now acquires `enqueueMutex` inside `queueMutex` per the
+  documented lock order.
+- `AppendOnlyQueue.migrateFromTextToBinary` loaded the entire legacy file via
+  `NSString.stringWithContentsOfFile` + `split("\n")` → 3× RAM spike →
+  EXC_RESOURCE silent kill → user permanently stuck on pre-v2.5 version.
+  Streams line-by-line via `NSFileHandle` now.
+- Built-in workers (`HttpUploadWorker`, `HttpSyncWorker`,
+  `FileCompressionWorker`, `ParallelHttpUploadWorker`) caught generic
+  `Exception` and returned `Failure()` without `shouldRetry=true`. Combined
+  with the chain-abandonment-on-permanent-failure semantic, a single
+  transient network blip would abandon any chain. Now explicit
+  `shouldRetry=true`.
+
+**P1 — correctness / silent state corruption**
+- iOS `NSFileCoordinator` bypassed the lock on timeout → App↔Extension
+  interleaved writes corrupted `queue.jsonl` (CRC32 mismatch → silent record
+  loss). Now throws `FileCoordinationTimeoutException` to force a retry.
+- `ChainExecutor.executeChain` + `executeTask` inner `catch
+  (TimeoutCancellationException)` mis-attributed outer-scope cancellations
+  as chain/task-level timeouts AND swallowed them. Now disambiguate by
+  elapsed-vs-budget and rethrow if outer-caused.
+- `ChainExecutor` used wall-clock for elapsed-time math → NTP sync during
+  execution would corrupt the disambiguation and the adaptive-budget
+  feedback. Now uses `kotlin.time.TimeSource.Monotonic`; public timestamps
+  (telemetry, history) remain wall-clock.
+- `StorageMigration.migrate` catch-all swallowed `CancellationException`,
+  breaking structured concurrency on shutdown-during-init.
+
+**P2 — quota waste / API contract**
+- iOS `DynamicTaskDispatcher.requestShutdownSync` cancelled an unused
+  `SupervisorJob` — the cancel never reached the in-flight worker. Now
+  captures parent `Job` via `AtomicReference` on entry to `executePendingTasks`.
+- `ChainExecutor.executeStep` dropped `Failure.shouldRetry` flag → workers
+  returning `Failure(shouldRetry=false)` still consumed the chain-level
+  retry budget. Now abandons immediately on permanent failure. Surfaced a
+  latent `deleteChainProgress` buffer-eviction bug — also fixed.
+- iOS battery guard toggled `UIDevice.isBatteryMonitoringEnabled` non-
+  atomically + from non-main-thread, racing with the host app's battery UI.
+  Now read-only; opt-in via host's `UIDevice.current.isBatteryMonitoringEnabled
+  = true`. Same fix applied to `IosWorkerDiagnostics.getSystemHealth`.
+
+**BAD — code smell / future risk**
+- `BaseKmpWorker` classified NPE / IllegalArgumentException /
+  NumberFormatException as permanent → workers dropped on transient
+  null/empty server responses from third-party SDKs. Narrowed the
+  permanent list to truly-programming-error types only.
+- `IosFileStorage.close()` wrapped flushNow + cancel + join in a single
+  try/catch → if flushNow threw, cancel + join were skipped → coroutine
+  leak. Moved cancel + join to `finally`.
+
 ### Hardening (DX & docs, found in QA review third pass)
 - **Android — `KmpHeavyWorker.doWork` guards `setForeground()`** against
   `SecurityException` / `ForegroundServiceStartNotAllowedException` /
