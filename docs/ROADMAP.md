@@ -173,6 +173,59 @@ source; all are fixed in v2.5.0 before publish:
 
 ---
 
+## v2.5.1 — polish patch (P2/P3 follow-up to the 16-bug audit)
+
+**Theme:** ship 2.5.0 as-is, then land these polish items as a patch once the
+mainline release has been dogfooded for ~1–2 weeks. Neither is a correctness
+blocker, but both are technically-improvable structural choices surfaced
+during the late-cycle audit reviews.
+
+### 1. Replace `elapsedMs < timeout` heuristic with `withTimeoutOrNull`
+
+- ⏳ **What**: the BUG 10 / BUG 11 fixes use `elapsedNow().inWholeMilliseconds
+  < chainTimeout` (resp. `taskTimeout`) inside `catch (TimeoutCancellationException)`
+  to disambiguate inner-vs-outer cancellation. The heuristic is correct under
+  normal load but can be defeated by CPU starvation / iOS process throttling
+  that pauses the thread between the outer-TCE arrival and the inner catch's
+  `.elapsedNow()` read — pushing `elapsed` past `chainTimeout` even when the
+  outer scope was the actual canceller.
+- ⏳ **Fix**: switch the inner block to `withTimeoutOrNull(chainTimeout)`:
+  `null` return = inner timer fired (handle as chain/task timeout); TCE
+  propagating out = outer scope fired (rethrow). No timing heuristic needed.
+- ⏳ **Why deferred**: the heuristic is correct in all observed test runs and
+  in normal production conditions. Iiterating the structural refactor inside
+  `ChainExecutor.executeChain` and `executeTask` carries non-trivial regression
+  risk (both blocks contain failure-handling logic that today lives inside
+  the catch). Better landed in isolation post-2.5.0 dogfood.
+- ⏳ **Coverage**: existing `V250NestedTimeoutMisattributionTest` and
+  `V250TaskTimeoutMisattributionTest` will continue to pass under the
+  refactor; add a CPU-starvation-simulating test to pin the new contract.
+
+### 2. File-backed `OverflowFileRegistry` for Android multi-process apps
+
+- ⏳ **What**: `OverflowFileRegistry` (Android) stores `taskId → overflow
+  path` mappings in a `SharedPreferences` (`MODE_PRIVATE`). On hosts with
+  separate processes (`:background`, `:push`, …), each process holds its own
+  in-RAM cache of the prefs file. A `register()` in process A and a
+  `consumeAndDelete()` in process B can race: B's cached view doesn't see A's
+  write → returns null → overflow file leaks in `cacheDir` until the 24h
+  janitor sweeps it.
+- ⏳ **Fix**: replace SharedPreferences with a file-backed registry under
+  `cacheDir/overflow_registry/<taskId>.path` — one file per entry, atomic
+  rename for writes, single `delete()` for consumption. Process-local cache
+  becomes a non-issue because every read goes to disk.
+- ⏳ **Why deferred**: only affects multi-process Android apps (a minority),
+  the 24h janitor is a working safety net (eventual consistency rather than
+  durable correctness), and no observable data loss — the task itself runs
+  fine on the first attempt; only a leaked file in cacheDir until the next
+  janitor pass. Real bug only matters if your app has separate `:background`
+  process AND uses oversized JSON inputs frequently AND cancels often.
+- ⏳ **Migration**: zero-config; the new registry reads the old SharedPreferences
+  entries once at first launch and migrates them to the file layout, then
+  clears the prefs.
+
+---
+
 ## v2.6 — DX & operability (P2 — "nice to have")
 
 **Theme:** make the library easy to operate. The functionality already works;
