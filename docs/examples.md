@@ -589,11 +589,9 @@ class MyWorker : Worker {
             // Your work here
             WorkerResult.Success()
         } catch (e: NetworkException) {
-            Logger.w("Network error, will retry")
-            WorkerResult.Failure("Network error: ${e.message}") // Retry with backoff
+            WorkerResult.Retry(reason = "Network error: ${e.message}")
         } catch (e: Exception) {
-            Logger.e("Fatal error", e)
-            WorkerResult.Success() // Don't retry fatal errors
+            WorkerResult.Failure("Fatal error: ${e.message}")
         }
     }
 }

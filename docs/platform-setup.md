@@ -179,64 +179,41 @@ Add to `proguard-rules.pro`:
 
 ### 6. Worker Implementation
 
-Add your worker logic to `KmpWorker.kt`:
+Implement workers using the `AndroidWorker` interface. Add `@Worker(name = ...)` so the KSP plugin generates `AndroidWorkerFactoryGenerated` automatically — no manual factory boilerplate needed.
 
 ```kotlin
-class KmpWorker(
-    context: Context,
-    params: WorkerParameters
-) : CoroutineWorker(context, params) {
+// androidMain
+import dev.brewkits.kmpworkmanager.annotations.Worker
+import dev.brewkits.kmpworkmanager.background.domain.AndroidWorker
+import dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
+import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 
-    override suspend fun doWork(): Result {
-        val workerClassName = inputData.getString("workerClassName") ?: return Result.failure()
-        val input = inputData.getString("input")
-
-        Logger.i(LogTags.WORKER, "Executing worker: $workerClassName")
-
-        return when (workerClassName) {
-            "SyncWorker" -> executeSyncWorker(input)
-            "UploadWorker" -> executeUploadWorker(input)
-            // Add your workers here
-            else -> {
-                Logger.e(LogTags.WORKER, "Unknown worker: $workerClassName")
-                Result.failure()
-            }
-        }
-    }
-
-    private suspend fun executeSyncWorker(input: String?): Result {
+@Worker(name = "SyncWorker")
+class SyncWorker : AndroidWorker {
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
         return try {
             // Your sync logic here
-            delay(2000)
-
-            TaskEventBus.emit(
-                TaskCompletionEvent("SyncWorker", true, "✅ Sync complete")
-            )
-
-            Result.success()
+            WorkerResult.Success("Sync complete")
         } catch (e: Exception) {
-            Logger.e(LogTags.WORKER, "Sync failed", e)
-            Result.retry()
+            WorkerResult.Retry(reason = "Sync failed: ${e.message}")
         }
     }
+}
 
-    private suspend fun executeUploadWorker(input: String?): Result {
+@Worker(name = "UploadWorker")
+class UploadWorker : AndroidWorker {
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
         return try {
             // Your upload logic here
-            delay(3000)
-
-            TaskEventBus.emit(
-                TaskCompletionEvent("UploadWorker", true, "✅ Upload complete")
-            )
-
-            Result.success()
+            WorkerResult.Success("Upload complete")
         } catch (e: Exception) {
-            Logger.e(LogTags.WORKER, "Upload failed", e)
-            Result.retry()
+            WorkerResult.Retry(reason = "Upload failed: ${e.message}")
         }
     }
 }
 ```
+
+The `name` value must match the `workerClassName` passed to `scheduler.enqueue(...)`. KSP generates `AndroidWorkerFactoryGenerated` containing all `@Worker`-annotated classes — pass it to `KmpWorkManager.initialize(workerFactory = AndroidWorkerFactoryGenerated())`.
 
 ---
 

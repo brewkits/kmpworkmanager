@@ -8,10 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.5.1] - 2026-05-20
 
 ### Fixed
-- **Docs**: Fixed incorrect API examples in README and Quickstart documentation that caused compilation errors (Issue #32).
-  - Corrected the usage of `@Worker` annotation and explicit `name` mapping for KSP generated factories.
-  - Updated Koin initialization snippets to remove deprecated methods.
-  - Fixed parameter names and interface usage (`Worker` vs `KmpWorker`) in `docs/examples.md`.
+- **Docs**: Fixed incorrect API examples across documentation that caused compilation errors (Issue #32).
+  - Corrected `@Worker(name = ...)` annotation usage (was incorrectly shown as `@KmpWorker`) in README and Quickstart.
+  - Updated Koin initialization snippets to remove deprecated `startKoin { kmpWorkerModule() }` pattern on Android.
+  - Replaced outdated `CoroutineWorker` worker implementation guide in `docs/platform-setup.md` (Section 6) with current `AndroidWorker + @Worker` pattern.
+  - Fixed misleading `WorkerResult.Failure(...) // Retry with backoff` in `docs/examples.md` — use `WorkerResult.Retry(...)` for retry intent.
+  - Corrected iOS Koin init call from non-existent `KoinIOSKt.doInitKoinIos()` to actual `KoinInitializerKt.doInitKoin(platformModule: IOSModuleKt.iosModule)`.
 
 ## [2.5.0] - 2026-05-16
 
