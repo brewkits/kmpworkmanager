@@ -65,10 +65,12 @@ class MyApp : Application() {
     override fun onCreate() {
         super.onCreate()
 
-        startKoin {
-            androidContext(this@MyApp)
-            modules(kmpWorkerModule())
-        }
+        // Initialize KmpWorkManager with your worker factory
+        // (Uses AndroidWorkerFactoryGenerated if you use kmpworker-ksp)
+        KmpWorkManager.initialize(
+            context = this,
+            workerFactory = AndroidWorkerFactoryGenerated()
+        )
     }
 }
 ```
@@ -128,8 +130,8 @@ import composeApp
 struct iOSApp: App {
 
     init() {
-        // Initialize Koin
-        KoinIOSKt.doInitKoinIos()
+        // Initialize Koin — iosModule includes kmpWorkerModule(workerFactory = IosWorkerFactoryGenerated())
+        KoinInitializerKt.doInitKoin(platformModule: IOSModuleKt.iosModule)
 
         // Register background tasks
         registerBackgroundTasks()
@@ -270,119 +272,67 @@ suspend fun uploadFile() {
 
 ## Create a Worker
 
-Now implement the actual work that will be executed in the background.
+Implement the actual work that will be executed in the background. KMP WorkManager encourages writing the core logic in your `commonMain` module and using platform-specific wrappers. 
 
-### Android Worker
+We highly recommend using `kmpworker-ksp` to auto-generate the worker factories.
 
-Add the worker logic to `KmpWorker.kt` (in `androidMain`):
+### 1. Shared Logic (commonMain)
 
 ```kotlin
-class KmpWorker(
-    context: Context,
-    params: WorkerParameters
-) : CoroutineWorker(context, params) {
+import dev.brewkits.kmpworkmanager.background.domain.Worker
+import dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
+import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 
-    override suspend fun doWork(): Result {
-        val workerClassName = inputData.getString("workerClassName")
-
-        return when (workerClassName) {
-            "SyncWorker" -> executeSyncWorker()
-            "UploadWorker" -> executeUploadWorker()
-            else -> Result.failure()
-        }
-    }
-
-    private suspend fun executeSyncWorker(): Result {
+class SyncWorker : Worker {
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
         return try {
             // Your sync logic here
             println("Syncing data from server...")
-            delay(2000)
+            
+            // Check for OS cancellation
+            if (env.isCancelled()) return WorkerResult.Failure("Cancelled")
 
-            // Emit event to notify UI
-            TaskEventBus.emit(
-                TaskCompletionEvent(
-                    taskName = "SyncWorker",
-                    success = true,
-                    message = "✅ Data synced successfully"
-                )
-            )
-
-            Result.success()
+            WorkerResult.Success("Data synced successfully")
         } catch (e: Exception) {
-            Logger.e(LogTags.WORKER, "Sync failed", e)
-            Result.retry()
-        }
-    }
-
-    private suspend fun executeUploadWorker(): Result {
-        return try {
-            // Your upload logic here
-            println("Uploading file...")
-            delay(3000)
-
-            TaskEventBus.emit(
-                TaskCompletionEvent(
-                    taskName = "UploadWorker",
-                    success = true,
-                    message = "✅ File uploaded"
-                )
-            )
-
-            Result.success()
-        } catch (e: Exception) {
-            Logger.e(LogTags.WORKER, "Upload failed", e)
-            Result.retry()
+            WorkerResult.Failure("Sync failed: ${e.message}")
         }
     }
 }
 ```
 
-### iOS Worker
-
-Create worker classes in `iosMain/background/workers/`:
+### 2. Android Wrapper (androidMain)
 
 ```kotlin
-class SyncWorker : IosWorker {
-    override suspend fun doWork(
-        input: String?,
-        env: WorkerEnvironment
-    ): WorkerResult {
-        return try {
-            // Your sync logic here (must complete within 25 seconds)
-            println("Syncing data from server...")
-            kotlinx.coroutines.delay(2000)
+import dev.brewkits.kmpworkmanager.annotations.Worker
+import dev.brewkits.kmpworkmanager.background.domain.AndroidWorker
+import dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
+import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 
-            // Emit event to notify UI
-            TaskEventBus.emit(
-                TaskCompletionEvent(
-                    taskName = "SyncWorker",
-                    success = true,
-                    message = "✅ Data synced successfully"
-                )
-            )
-
-            WorkerResult.Success("Synced")
-        } catch (e: Exception) {
-            Logger.e(LogTags.WORKER, "Sync failed", e)
-            WorkerResult.Failure("Failed")
-        }
-    }
+@Worker(name = "SyncWorker")
+class SyncWorkerAndroid : AndroidWorker {
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult =
+        SyncWorker().doWork(input, env)
 }
 ```
 
-Register the worker in `IosWorkerFactory.kt`:
+### 3. iOS Wrapper (iosMain)
 
 ```kotlin
-object IosWorkerFactory {
-    fun createWorker(className: String): IosWorker? {
-        return when (className) {
-            "SyncWorker" -> SyncWorker()
-            "UploadWorker" -> UploadWorker()
-            else -> null
-        }
-    }
+import dev.brewkits.kmpworkmanager.annotations.Worker
+import dev.brewkits.kmpworkmanager.background.data.IosWorker
+import dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
+import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
+
+@Worker(name = "SyncWorker", bgTaskId = "periodic-sync-task")
+class SyncWorkerIos : IosWorker {
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult =
+        SyncWorker().doWork(input, env)
 }
 ```
+
+*Note: The `name` value (`"SyncWorker"`) must match the `workerClassName` you pass to `scheduler.enqueue(...)`. Setting it explicitly also protects against silent breakage if ProGuard/R8 renames the wrapper class.*
+
+*By annotating these with `@Worker`, the KSP processor generates `AndroidWorkerFactoryGenerated` and `IosWorkerFactoryGenerated`, which you already passed to `KmpWorkManager.initialize()` on Android and to `kmpWorkerModule(workerFactory = …)` (inside `iosModule`, invoked via `KoinInitializerKt.doInitKoin(...)`) on iOS.*
 
 ---
 

@@ -5,6 +5,14 @@ All notable changes to KMP WorkManager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.1] - 2026-05-20
+
+### Fixed
+- **Docs**: Fixed incorrect API examples in README and Quickstart documentation that caused compilation errors (Issue #32).
+  - Corrected the usage of `@Worker` annotation and explicit `name` mapping for KSP generated factories.
+  - Updated Koin initialization snippets to remove deprecated methods.
+  - Fixed parameter names and interface usage (`Worker` vs `KmpWorker`) in `docs/examples.md`.
+
 ## [2.5.0] - 2026-05-16
 
 Production-hardening release driven by a camera-app architecture review.

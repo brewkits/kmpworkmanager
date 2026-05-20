@@ -583,8 +583,8 @@ Constraints(
 ### 4. Handle Failures Gracefully
 
 ```kotlin
-class MyWorker : KmpWorker {
-    override suspend fun doWork(inputJson: String?, env: WorkerEnvironment): WorkerResult {
+class MyWorker : Worker {
+    override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
         return try {
             // Your work here
             WorkerResult.Success()

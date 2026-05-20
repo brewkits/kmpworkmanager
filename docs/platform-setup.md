@@ -97,23 +97,12 @@ class KMPWorkManagerApp : Application() {
     override fun onCreate() {
         super.onCreate()
 
-        startKoin {
-            androidLogger(Level.DEBUG)
-            androidContext(this@KMPWorkManagerApp)
-            modules(kmpWorkerModule())
-        }
-
-        // Optional: Configure WorkManager
-        configureWorkManager()
-    }
-
-    private fun configureWorkManager() {
-        val config = Configuration.Builder()
-            .setMinimumLoggingLevel(Log.DEBUG)
-            .setWorkerFactory(DefaultWorkerFactory())
-            .build()
-
-        WorkManager.initialize(this, config)
+        // Initialize KmpWorkManager with your worker factory
+        // (Uses AndroidWorkerFactoryGenerated if you use kmpworker-ksp)
+        KmpWorkManager.initialize(
+            context = this,
+            workerFactory = AndroidWorkerFactoryGenerated()
+        )
     }
 }
 ```
@@ -404,12 +393,10 @@ Register factory in your iOS module:
 ```kotlin
 // iosMain/di/IOSModule.kt
 val iosModule = module {
-    // Register your worker factory
-    factory { MyWorkerFactory() }
+    // Include the library core module with your factory
+    includes(kmpWorkerModule(workerFactory = MyWorkerFactory()))
 
-    // Other iOS-specific dependencies
-    single<BackgroundTaskScheduler> { NativeTaskScheduler() }
-    // ...
+    // Your other iOS-specific dependencies...
 }
 ```
 

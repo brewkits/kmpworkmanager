@@ -31,7 +31,10 @@ commonMain.dependencies {
 class MyApplication : Application() {
     override fun onCreate() {
         super.onCreate()
-        KmpWorkManager.initialize(this)
+        KmpWorkManager.initialize(
+            context = this,
+            workerFactory = AppWorkerFactory() // Must implement AndroidWorkerFactory
+        )
     }
 }
 ```
@@ -41,19 +44,7 @@ class MyApplication : Application() {
 <details>
 <summary><b>iOS setup</b></summary>
 
-**1. Worker factory** (`iosMain`):
-
-```kotlin
-class AppWorkerFactory : IosWorkerFactory {
-    override fun createWorker(workerClassName: String): IosWorker? = when (workerClassName) {
-        "SyncWorker"   -> SyncWorkerIos()
-        "UploadWorker" -> UploadWorkerIos()
-        else           -> null
-    }
-}
-```
-
-**2. AppDelegate**:
+**1. AppDelegate**:
 
 ```swift
 @main
@@ -61,6 +52,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     override init() {
         super.init()
+        // IOSModuleKt.iosModule calls kmpWorkerModule(workerFactory = IosWorkerFactoryGenerated())
         KoinInitializerKt.doInitKoin(platformModule: IOSModuleKt.iosModule)
     }
 
@@ -82,12 +74,13 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 }
 ```
 
-**3. `Info.plist`**:
+**2. `Info.plist`**:
 
 ```xml
 <key>BGTaskSchedulerPermittedIdentifiers</key>
 <array>
     <string>kmp_chain_executor_task</string>
+    <!-- Add other worker bgTaskIds here -->
 </array>
 ```
 
@@ -120,33 +113,42 @@ scheduler.enqueue(
 
 ### Define a worker
 
+You can implement background logic in your `commonMain` code, but KMP WorkManager expects platform-specific factory registration. We recommend using `kmpworker-ksp` to auto-generate this boilerplate.
+
 ```kotlin
 // commonMain — shared logic
 class SyncWorker : Worker {
     override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
         val items = api.fetchPendingItems()
         database.upsert(items)
-        return WorkerResult.Success(
-            message = "Synced ${items.size} items",
-            data    = mapOf("count" to items.size)
-        )
+        return WorkerResult.Success("Synced ${items.size} items")
     }
 }
 ```
 
 ```kotlin
 // androidMain
+import dev.brewkits.kmpworkmanager.annotations.Worker
+
+@Worker(name = "SyncWorker")
 class SyncWorkerAndroid : AndroidWorker {
     override suspend fun doWork(input: String?, env: WorkerEnvironment) =
         SyncWorker().doWork(input, env)
 }
 
 // iosMain
+import dev.brewkits.kmpworkmanager.annotations.Worker
+
+@Worker(name = "SyncWorker", bgTaskId = "sync_task")
 class SyncWorkerIos : IosWorker {
     override suspend fun doWork(input: String?, env: WorkerEnvironment) =
         SyncWorker().doWork(input, env)
 }
 ```
+
+The `name` argument **must match** the `workerClassName` you pass to `scheduler.enqueue(...)` (`"SyncWorker"` above). Set it explicitly so ProGuard/R8 rename of the wrapper class doesn't break factory lookup.
+
+*Note: Use `AndroidWorkerFactoryGenerated()` and `IosWorkerFactoryGenerated()` in your DI/Initialization if you use KSP. Otherwise, manually implement `AndroidWorkerFactory` and `IosWorkerFactory`.*
 
 ### Chain tasks
 
