@@ -1,22 +1,32 @@
 <svg width="240" height="240" viewBox="0 0 240 240" fill="none" xmlns="http://www.w3.org/2000/svg">
   <defs>
+    <!-- 3-stop diagonal gradient: indigo-800 → violet-600 → pink-500 -->
     <linearGradient id="bgGrad" x1="28" y1="8" x2="212" y2="232" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#4F46E5" />
-      <stop offset="100%" stop-color="#9333EA" />
+      <stop offset="0%" stop-color="#3730A3" />
+      <stop offset="55%" stop-color="#7C3AED" />
+      <stop offset="100%" stop-color="#EC4899" />
     </linearGradient>
+    <!-- Radial inner glow centered on the W -->
+    <radialGradient id="innerGlow" cx="120" cy="120" r="110" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.18" />
+      <stop offset="70%" stop-color="#FFFFFF" stop-opacity="0.04" />
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0" />
+    </radialGradient>
   </defs>
+
   <!-- Outer hexagon background -->
   <path d="M120 8 L212 60 L212 180 L120 232 L28 180 L28 60 Z"
         fill="url(#bgGrad)" />
-  <!-- Inner hexagon subtle highlight -->
+
+  <!-- Inner hexagon subtle highlight ring -->
   <path d="M120 22 L202 68 L202 172 L120 218 L38 172 L38 68 Z"
-        fill="#FFFFFF" fill-opacity="0.1" />
+        fill="url(#innerGlow)" />
 
   <!-- Letter W — bold, clean, white -->
   <path d="M64 76 L94 164 L120 110 L146 164 L176 76 L152 76 L132 136 L120 90 L108 136 L88 76 Z"
         fill="white" />
 
-  <!-- Speed accent — small lightning bolt bottom-center of W -->
+  <!-- Speed accent — small lightning bolt bottom-center of W (soft amber) -->
   <path d="M115 140 L105 160 L113 160 L100 180 L125 152 L115 152 Z"
-        fill="#FBBF24" />
+        fill="#FDE68A" />
 </svg>
