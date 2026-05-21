@@ -15,13 +15,13 @@ This guide covers critical iOS-specific considerations and best practices when u
 
 ## Critical iOS Limitations
 
-### 0. Dynamic Task ID Limitation (Important)
+### 0. Dynamic Task ID Support
 
-iOS `BGTaskScheduler` requires all task identifiers to be statically declared in your `Info.plist` file (`BGTaskSchedulerPermittedIdentifiers`). 
-**You cannot schedule tasks with dynamically generated IDs (e.g., `upload-photo-123`, `upload-photo-456`) on iOS.** If you do, the OS will reject them. 
+Previously, iOS `BGTaskScheduler` required all task identifiers to be statically declared in your `Info.plist` file (`BGTaskSchedulerPermittedIdentifiers`).
+**However, starting in v2.4.1, KMP WorkManager natively supports dynamic task IDs (e.g., `upload-photo-123`).**
 
-Furthermore, attempting to use a single static ID and overriding it multiple times will cause iOS to overwrite pending tasks, leading to data loss.
-For a detailed explanation and the recommended "Dispatcher Pattern" workaround, please read the [iOS Dynamic Task Scheduling Guide](ios-dynamic-task-scheduling.md).
+You only need to declare the library's master dispatcher task (`kmp_master_dispatcher_task`) and chain executor (`kmp_chain_executor_task`) in your `Info.plist`, **and register a handler for each in your `AppDelegate`** (`handleMasterDispatcherTask` and `handleChainExecutorTask` respectively). The library then routes every dynamic task through the master dispatcher's internal queue and executes them when iOS fires the master dispatcher slot.
+For historical context on how this works under the hood, read the [iOS Dynamic Task Scheduling Guide](ios-dynamic-task-scheduling.md).
 
 ### 1. Opportunistic Execution
 

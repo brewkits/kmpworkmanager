@@ -290,7 +290,10 @@ scheduler.enqueue(
 
 ### 1. Info.plist Configuration
 
-Add background task identifiers and capabilities:
+Since v2.4.1, KMP WorkManager routes every task ID you pass to
+`scheduler.enqueue(...)` through one of two internal dispatcher tasks. You only
+need to declare those two IDs in `BGTaskSchedulerPermittedIdentifiers` — no
+per-task entries:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -300,11 +303,8 @@ Add background task identifiers and capabilities:
     <!-- Background Task Identifiers -->
     <key>BGTaskSchedulerPermittedIdentifiers</key>
     <array>
-        <string>periodic-sync-task</string>
-        <string>upload-task</string>
-        <string>heavy-processing-task</string>
-        <string>kmp_chain_executor_task</string>
         <string>kmp_master_dispatcher_task</string>
+        <string>kmp_chain_executor_task</string>
     </array>
 
     <!-- Background Modes -->
@@ -324,6 +324,12 @@ Add background task identifiers and capabilities:
 </dict>
 </plist>
 ```
+
+> **Optional — per-task identifiers.** If you'd like a specific task ID to be
+> scheduled directly by iOS (instead of being queued through the master
+> dispatcher), you may add that ID to the array above **and** register its own
+> handler with `handleSingleTask` (see §4 below). Most apps do not need this —
+> the master dispatcher is sufficient for arbitrary dynamic task IDs.
 
 ---
 
@@ -402,6 +408,11 @@ struct iOSApp: App {
 
 class AppDelegate: NSObject, UIApplicationDelegate {
 
+    // Your Swift bridge to the shared Koin graph. See `composeApp` demo's
+    // `KoinIOS.kt` for a reference implementation — this is NOT a library API,
+    // it's your own helper.
+    private var koinIos: KoinIOS!
+
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
@@ -410,6 +421,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // Initialize Koin with your platform module
         // This module should include your WorkerFactory
         KoinInitializerKt.doInitKoin(platformModule: IOSModuleKt.iosModule)
+        koinIos = KoinIOS()
 
         // Register background tasks
         registerBackgroundTasks()
@@ -422,35 +434,11 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
     private func registerBackgroundTasks() {
         let scheduler = koinIos.getScheduler()
-        let executor = koinIos.getSingleTaskExecutor()
         let chainExecutor = koinIos.getChainExecutor()
         let dispatcher = koinIos.getDynamicTaskDispatcher()
 
-        // Periodic sync task (BGAppRefreshTask)
-        BGTaskScheduler.shared.register(
-            forTaskWithIdentifier: "periodic-sync-task",
-            using: nil
-        ) { task in
-            IosBackgroundTaskHandler.shared.handleSingleTask(
-                task: task,
-                scheduler: scheduler,
-                executor: executor
-            )
-        }
-
-        // Heavy processing task (BGProcessingTask)
-        BGTaskScheduler.shared.register(
-            forTaskWithIdentifier: "heavy-processing-task",
-            using: nil
-        ) { task in
-            IosBackgroundTaskHandler.shared.handleSingleTask(
-                task: task,
-                scheduler: scheduler,
-                executor: executor
-            )
-        }
-
-        // Master dispatcher task (handles dynamic/unregistered tasks)
+        // 1. Master dispatcher — wakes up every dynamic task ID that is NOT
+        //    declared as its own BGTask identifier in Info.plist. Required.
         BGTaskScheduler.shared.register(
             forTaskWithIdentifier: "kmp_master_dispatcher_task",
             using: nil
@@ -462,7 +450,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             )
         }
 
-        // Chain executor task
+        // 2. Chain executor — batches task-chain execution. Required.
         BGTaskScheduler.shared.register(
             forTaskWithIdentifier: "kmp_chain_executor_task",
             using: nil
@@ -472,6 +460,23 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                 chainExecutor: chainExecutor
             )
         }
+
+        // 3. (Optional) Per-task identifiers. Only needed if you've also added
+        //    these specific IDs to `BGTaskSchedulerPermittedIdentifiers` to let
+        //    iOS schedule them directly instead of via the master dispatcher.
+        //    Skip this whole block unless you have a specific reason for it.
+        //
+        // let executor = koinIos.getSingleTaskExecutor()
+        // BGTaskScheduler.shared.register(
+        //     forTaskWithIdentifier: "periodic-sync-task",
+        //     using: nil
+        // ) { task in
+        //     IosBackgroundTaskHandler.shared.handleSingleTask(
+        //         task: task,
+        //         scheduler: scheduler,
+        //         executor: executor
+        //     )
+        // }
     }
 
     private func requestNotificationPermissions() {
@@ -652,11 +657,11 @@ adb shell dumpsys alarm | grep -A 20 "Next alarm clock"
 In Xcode, run the app and pause at a breakpoint, then in LLDB console:
 
 ```lldb
-# Force execute a BGAppRefreshTask
-e -l objc -- (void)[[BGTaskScheduler sharedScheduler] _simulateLaunchForTaskWithIdentifier:@"periodic-sync-task"]
+# Force execute a task via the Master Dispatcher
+e -l objc -- (void)[[BGTaskScheduler sharedScheduler] _simulateLaunchForTaskWithIdentifier:@"kmp_master_dispatcher_task"]
 
-# Force execute a BGProcessingTask
-e -l objc -- (void)[[BGTaskScheduler sharedScheduler] _simulateLaunchForTaskWithIdentifier:@"heavy-processing-task"]
+# Force execute the Chain Executor
+e -l objc -- (void)[[BGTaskScheduler sharedScheduler] _simulateLaunchForTaskWithIdentifier:@"kmp_chain_executor_task"]
 ```
 
 #### 2. Scheme Arguments
@@ -777,18 +782,15 @@ xcrun simctl spawn booted log stream --predicate 'subsystem == "com.apple.BGTask
 **Solutions**:
 
 1. **Verify Info.plist configuration**:
-   - Check `BGTaskSchedulerPermittedIdentifiers` array
-   - Ensure task IDs match exactly (case-sensitive)
+   - `BGTaskSchedulerPermittedIdentifiers` must contain both
+     `kmp_master_dispatcher_task` and `kmp_chain_executor_task`
+   - IDs are case-sensitive
 
-2. **Check AppDelegate registration**:
-   ```swift
-   BGTaskScheduler.shared.register(
-       forTaskWithIdentifier: "periodic-sync-task",
-       using: nil
-   ) { task in
-       // Handler must be registered BEFORE task is scheduled
-   }
-   ```
+2. **Check AppDelegate registration**: both dispatcher handlers must be
+   registered **before** the first BGTask request is submitted (i.e. during
+   `application(_:didFinishLaunchingWithOptions:)`). Missing either one is the
+   most common cause of "task never fires" — see the AppDelegate snippet in
+   §4 above.
 
 3. **App must be in background**:
    - Press Home button to background app
@@ -863,13 +865,21 @@ xcrun simctl spawn booted log stream --predicate 'subsystem == "com.apple.BGTask
 
 **Problem**: Task runs once but doesn't repeat
 
-**Solution**: The library's `IosBackgroundTaskHandler` automatically re-schedules periodic tasks upon successful completion. Ensure you are using this handler in your `AppDelegate`:
+**Solution**: The library's `IosBackgroundTaskHandler` automatically re-schedules
+periodic tasks upon successful completion.
+
+- If you use the default dispatcher setup (recommended): periodic dynamic tasks
+  are re-enqueued by `DynamicTaskDispatcher` after each successful run — nothing
+  more to do as long as `handleMasterDispatcherTask` is registered.
+- If you opted into a per-task identifier and registered `handleSingleTask`
+  yourself, the same re-scheduling logic runs inside that handler. Make sure
+  the call signature is correct:
 
 ```swift
 IosBackgroundTaskHandler.shared.handleSingleTask(
     task: task,
-    scheduler: koin.getScheduler(),
-    executor: koin.getExecutor()
+    scheduler: koinIos.getScheduler(),
+    executor: koinIos.getSingleTaskExecutor()
 )
 ```
 

@@ -50,19 +50,13 @@ For iOS apps using built-in workers, you need to configure background task ident
 
 ### 1. Update Info.plist
 
-Add built-in worker task IDs to `BGTaskSchedulerPermittedIdentifiers`:
+Because KMP WorkManager natively supports **Dynamic Task IDs**, you no longer need to add built-in worker IDs to `Info.plist`. Just ensure your master dispatcher and chain executor IDs are configured as outlined in the Quickstart guide:
 
 ```xml
 <key>BGTaskSchedulerPermittedIdentifiers</key>
 <array>
-    <!-- Your existing task IDs -->
-
-    <!-- Built-in worker task IDs -->
-    <string>demo-builtin-httprequest</string>
-    <string>demo-builtin-httpsync</string>
-    <string>demo-builtin-httpdownload</string>
-    <string>demo-builtin-httpupload</string>
-    <string>demo-builtin-filecompression</string>
+    <string>kmp_master_dispatcher_task</string>
+    <string>kmp_chain_executor_task</string>
 </array>
 ```
 
@@ -103,22 +97,12 @@ private class WorkerAdapter(private val worker: Worker) : IosWorker {
 }
 ```
 
-### 3. Update NativeTaskScheduler (if using custom implementation)
+### 3. (No Info.plist or scheduler changes required)
 
-Add built-in worker task IDs to the permitted list:
-
-```kotlin
-val PERMITTED_TASK_IDS = setOf(
-    // Your existing task IDs
-
-    // Built-in worker task IDs
-    "demo-builtin-httprequest",
-    "demo-builtin-httpsync",
-    "demo-builtin-httpdownload",
-    "demo-builtin-httpupload",
-    "demo-builtin-filecompression"
-)
-```
+Built-in workers are scheduled with the same `scheduler.enqueue(...)` API as your
+own workers. Whatever task ID you pass — including IDs you generate at runtime
+such as `"upload-photo-${userId}"` — is routed through the master dispatcher
+declared in section 1. **You do not need to maintain a per-worker allow-list.**
 
 ---
 

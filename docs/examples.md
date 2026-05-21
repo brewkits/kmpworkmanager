@@ -612,7 +612,7 @@ class MyWorker : Worker {
 
 - Minimum periodic interval: 15 minutes
 - Tasks may be batched by iOS (up to 3 per BGTask)
-- Configure task IDs in `Info.plist`
+- Configure dispatcher task IDs in `Info.plist` (dynamic task IDs are handled automatically)
 - Handle timeout protection (20s per task, 50s per chain)
 
 ---

@@ -158,7 +158,7 @@ scheduler.enqueue(
 **Common Causes:**
 1. **App Force-Quit:** iOS cancels all BGTasks when app is force-quit
 2. **Low Power Mode:** Severely delays or prevents background execution
-3. **Task Not Registered:** Missing `BGTaskSchedulerPermittedIdentifiers` in Info.plist
+3. **Task Not Registered:** Missing `kmp_master_dispatcher_task` or `kmp_chain_executor_task` in `BGTaskSchedulerPermittedIdentifiers` in Info.plist
 4. **Insufficient Time:** Task requires more time than iOS allows (30s refresh, 60s processing)
 
 **Solutions:**
@@ -167,7 +167,8 @@ scheduler.enqueue(
    ```xml
    <key>BGTaskSchedulerPermittedIdentifiers</key>
    <array>
-       <string>your-task-id</string>
+       <string>kmp_master_dispatcher_task</string>
+       <string>kmp_chain_executor_task</string>
    </array>
    ```
 

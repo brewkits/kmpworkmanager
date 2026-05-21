@@ -227,11 +227,11 @@ v2.5.0 is a hardening release driven by a production architecture review for cam
 Full breakdown: [`CHANGELOG.md`](CHANGELOG.md). Upgrade notes for users on v2.4.x:
 [`docs/MIGRATION_V2.5.0.md`](docs/MIGRATION_V2.5.0.md).
 
-## What's new in v2.4.3
+## What's new in the v2.4.x line
 
-### iOS Dynamic Task IDs (no more Info.plist for every task)
+### iOS Dynamic Task IDs (no more Info.plist for every task) — v2.4.1+
 
-Previously, every task ID had to be declared in `BGTaskSchedulerPermittedIdentifiers` before scheduling. v2.4.3 removes that constraint: only the single master dispatcher ID needs to be in `Info.plist`. All other task IDs are routed through an internal `AppendOnlyQueue` and executed when the OS fires the master dispatcher slot.
+Previously, every task ID had to be declared in `BGTaskSchedulerPermittedIdentifiers` before scheduling. **v2.4.1** removes that constraint: only the two library dispatcher IDs need to be in `Info.plist`. All other task IDs are routed through an internal `AppendOnlyQueue` and executed when the OS fires the master dispatcher slot.
 
 ```kotlin
 // This ID does NOT need to be in Info.plist
@@ -243,13 +243,20 @@ scheduler.enqueue(
 ```
 
 ```xml
-<!-- Info.plist — only one entry needed for all dynamic tasks -->
+<!-- Info.plist — only these two entries are needed -->
 <key>BGTaskSchedulerPermittedIdentifiers</key>
 <array>
     <string>kmp_master_dispatcher_task</string>
     <string>kmp_chain_executor_task</string>
 </array>
 ```
+
+> **Both dispatchers must also be registered in your `AppDelegate`** with
+> `IosBackgroundTaskHandler.shared.handleMasterDispatcherTask(...)` and
+> `handleChainExecutorTask(...)` respectively — see the
+> [Quickstart](docs/quickstart.md#ios-setup) for the full snippet. Declaring an
+> identifier in `BGTaskSchedulerPermittedIdentifiers` without registering its
+> handler causes `BGTaskScheduler` to raise `NSInternalInconsistencyException`.
 
 ### Periodic Task Improvements
 Added granular control over the first execution of periodic tasks. You can now defer the initial run or set a specific delay, ensuring your app doesn't choke on heavy sync tasks immediately upon startup.
@@ -274,25 +281,37 @@ let trigger = createTaskTriggerPeriodicSeconds(
 ```
 
 ### iOS Native Background Task Handler
-The host application no longer needs to copy and maintain 150+ lines of Swift boilerplate to handle iOS background tasks. The library now provides a native Kotlin API that handles the entire lifecycle:
+The host application no longer needs to copy and maintain 150+ lines of Swift boilerplate to handle iOS background tasks. The library exposes three native handlers via `IosBackgroundTaskHandler.shared`:
 
 ```swift
-// AppDelegate.swift — now just 3 lines to handle any task
-BGTaskScheduler.shared.register(forTaskWithIdentifier: taskId, using: nil) { task in
-    IosBackgroundTaskHandler.shared.handleSingleTask(
-        task: task,
-        scheduler: koin.getScheduler(),
-        executor: koin.getExecutor()
+// AppDelegate.swift — register the two dispatchers once in didFinishLaunching.
+let scheduler = koinIos.getScheduler()
+let dispatcher = koinIos.getDynamicTaskDispatcher()
+let chainExecutor = koinIos.getChainExecutor()
+
+BGTaskScheduler.shared.register(forTaskWithIdentifier: "kmp_master_dispatcher_task", using: nil) { task in
+    IosBackgroundTaskHandler.shared.handleMasterDispatcherTask(
+        task: task, dispatcher: dispatcher, scheduler: scheduler
+    )
+}
+BGTaskScheduler.shared.register(forTaskWithIdentifier: "kmp_chain_executor_task", using: nil) { task in
+    IosBackgroundTaskHandler.shared.handleChainExecutorTask(
+        task: task, chainExecutor: chainExecutor
     )
 }
 ```
 
-This handler automatically:
-- Sets up the `expirationHandler` for graceful shutdown.
-- Resolves worker metadata (`workerClassName`, `inputJson`) from file storage.
-- Executes the worker with timeout protection via `SingleTaskExecutor`.
-- **Auto-reschedules periodic tasks** and the chain executor if the queue is not empty.
-- Performs deadline checks for windowed tasks.
+These handlers automatically:
+- Set up the `expirationHandler` for graceful shutdown.
+- Resolve worker metadata (`workerClassName`, `inputJson`) from file storage.
+- Execute the worker with timeout protection via `SingleTaskExecutor`.
+- **Auto-reschedule periodic tasks** and the chain executor if the queue is not empty.
+- Perform deadline checks for windowed tasks.
+
+A third handler, `handleSingleTask(task:, scheduler:, executor:)`, is available
+if you opt into giving a specific task its own dedicated identifier in
+`BGTaskSchedulerPermittedIdentifiers` (rather than going through the master
+dispatcher). Most apps don't need it.
 
 ### Hardened iOS Persistence & Safety
 We've overhauled the iOS storage engine to ensure industrial-grade reliability:

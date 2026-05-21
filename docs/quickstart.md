@@ -100,14 +100,15 @@ androidMain.dependencies {
 
 ### Step 1: Configure Info.plist
 
-Add background task identifiers to your `Info.plist`:
+Since v2.4.1, KMP WorkManager supports **Dynamic Task IDs** on iOS — you no longer
+need to declare each individual task ID. Only the two library dispatcher IDs are
+required in `BGTaskSchedulerPermittedIdentifiers`:
 
 ```xml
 <key>BGTaskSchedulerPermittedIdentifiers</key>
 <array>
-    <string>periodic-sync-task</string>
-    <string>upload-task</string>
-    <string>heavy-processing-task</string>
+    <string>kmp_master_dispatcher_task</string>
+    <string>kmp_chain_executor_task</string>
 </array>
 
 <key>UIBackgroundModes</key>
@@ -118,19 +119,33 @@ Add background task identifiers to your `Info.plist`:
 </array>
 ```
 
+Any task ID you pass to `scheduler.enqueue(...)` (e.g. `user-123-sync`) is routed
+through the master dispatcher's internal queue and executed when iOS fires the
+master dispatcher slot. See [iOS Dynamic Task Scheduling](ios-dynamic-task-scheduling.md)
+for the full mechanism.
+
 ### Step 2: Initialize Koin in AppDelegate
 
-Create or update your `iOSApp.swift`:
+Create or update your `iOSApp.swift`. You must register **both** dispatcher
+identifiers with `BGTaskScheduler`. The library provides `handleMasterDispatcherTask`
+and `handleChainExecutorTask` so you don't write any boilerplate.
+
+> `KoinInitializerKt.doInitKoin(...)` and `KoinIOS()` below are **your own** Swift
+> bridges to the shared Koin graph (the demo app's [`KoinIOS.kt`](https://github.com/brewkits/kmpworkmanager/blob/main/composeApp/src/iosMain/kotlin/dev/brewkits/kmpworkmanager/sample/di/KoinIOS.kt)
+> is a working reference). They are **not** library APIs — wire them to match
+> your project's DI setup.
 
 ```swift
 import SwiftUI
+import BackgroundTasks
 import composeApp
 
 @main
 struct iOSApp: App {
 
     init() {
-        // Initialize Koin — iosModule includes kmpWorkerModule(workerFactory = IosWorkerFactoryGenerated())
+        // Initialize Koin — your iosModule must include
+        // kmpWorkerModule(workerFactory = IosWorkerFactoryGenerated())
         KoinInitializerKt.doInitKoin(platformModule: IOSModuleKt.iosModule)
 
         // Register background tasks
@@ -144,35 +159,25 @@ struct iOSApp: App {
     }
 
     private func registerBackgroundTasks() {
-        let scheduler = koinIos.getScheduler()
-        let executor = koinIos.getSingleTaskExecutor()
-        let chainExecutor = koinIos.getChainExecutor()
+        let koin = KoinIOS()
+        let scheduler = koin.getScheduler()
+        let dispatcher = koin.getDynamicTaskDispatcher()
+        let chainExecutor = koin.getChainExecutor()
 
-        // Register periodic sync task
+        // 1. Master dispatcher — handles every dynamic task ID
+        //    (everything not pre-registered as its own BGTask identifier).
         BGTaskScheduler.shared.register(
-            forTaskWithIdentifier: "periodic-sync-task",
+            forTaskWithIdentifier: "kmp_master_dispatcher_task",
             using: nil
         ) { task in
-            IosBackgroundTaskHandler.shared.handleSingleTask(
+            IosBackgroundTaskHandler.shared.handleMasterDispatcherTask(
                 task: task,
-                scheduler: scheduler,
-                executor: executor
+                dispatcher: dispatcher,
+                scheduler: scheduler
             )
         }
 
-        // Register heavy processing task
-        BGTaskScheduler.shared.register(
-            forTaskWithIdentifier: "heavy-processing-task",
-            using: nil
-        ) { task in
-            IosBackgroundTaskHandler.shared.handleSingleTask(
-                task: task,
-                scheduler: scheduler,
-                executor: executor
-            )
-        }
-
-        // Register chain executor
+        // 2. Chain executor — handles batched task chains.
         BGTaskScheduler.shared.register(
             forTaskWithIdentifier: "kmp_chain_executor_task",
             using: nil
@@ -185,6 +190,12 @@ struct iOSApp: App {
     }
 }
 ```
+
+> **Both handlers are required.** `kmp_master_dispatcher_task` is what wakes
+> up your dynamic tasks; without it registered, every task ID not declared
+> explicitly in `Info.plist` will never fire. `BGTaskScheduler` also throws
+> `NSInternalInconsistencyException` if an identifier appears in
+> `BGTaskSchedulerPermittedIdentifiers` but has no handler registered.
 
 ### Step 3: Handle App Lifecycle
 
@@ -359,11 +370,11 @@ That's it! You now have KMP WorkManager set up. Here's what you can do next:
 
 ### iOS: Background Tasks Not Executing
 
-1. **Check Info.plist**: Ensure task identifiers are registered
-2. **Check AppDelegate**: Verify `registerBackgroundTasks()` is called
-3. **App must be in background**: BGTasks only run when app is backgrounded
-4. **Test with simulator**: Use `e -l objc -- (void)[[BGTaskScheduler sharedScheduler] _simulateLaunchForTaskWithIdentifier:@"periodic-sync-task"]` in LLDB
-5. **Check worker registration**: Ensure worker is registered in `IosWorkerFactory`
+1. **Check Info.plist**: Ensure `kmp_master_dispatcher_task` and `kmp_chain_executor_task` are registered.
+2. **Check AppDelegate**: Verify `registerBackgroundTasks()` is called.
+3. **App must be in background**: BGTasks only run when app is backgrounded.
+4. **Test with simulator**: Use `e -l objc -- (void)[[BGTaskScheduler sharedScheduler] _simulateLaunchForTaskWithIdentifier:@"kmp_master_dispatcher_task"]` in LLDB.
+5. **Check worker registration**: Ensure worker is registered in `IosWorkerFactory`.
 
 ### Tasks Running But No Events
 
