@@ -31,6 +31,25 @@ tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
 }
 
+// Point git at the committed .githooks/ directory so the commit-msg guard
+// (rejects accidental Claude/Anthropic attribution) survives a fresh clone.
+// The hook file is versioned; this task re-points core.hooksPath after clone.
+val installGitHooks by tasks.registering(Exec::class) {
+    group = "git hooks"
+    description = "Set git core.hooksPath to the committed .githooks directory."
+    onlyIf { rootProject.file(".git").exists() }
+    commandLine("git", "config", "core.hooksPath", ".githooks")
+}
+
+// Wire hook installation into every module's build/check so the first
+// `./gradlew build` on a fresh clone activates the hooks automatically.
+subprojects {
+    afterEvaluate {
+        tasks.matching { it.name == "build" || it.name == "check" }
+            .configureEach { dependsOn(installGitHooks) }
+    }
+}
+
 // Wipes the Maven staging dir so a new bundle can never accidentally pick up
 // artifacts from a previous run (e.g. the older version's `.module` files when
 // you bump from 2.4.3 → 2.5.0 in the same workspace). Must run BEFORE the
