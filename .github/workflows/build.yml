@@ -32,7 +32,6 @@ jobs:
           ./gradlew :kmpworker:check
           -x :kmpworker:connectedAndroidTest
           -x :kmpworker:iosX64Test
-          -x :kmpworker:iosArm64Test
           -x :kmpworker:iosSimulatorArm64Test
       - name: KSP processor tests
         run: ./gradlew :kmpworker-ksp:test
