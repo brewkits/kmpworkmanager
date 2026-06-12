@@ -319,28 +319,24 @@ public class IosFileStorage(
 
     init {
         backgroundScope.launch {
-            // Initialize queue size counters from actual queue size on disk.
-            // This ensures the counter is accurate after app restart.
+            // NOTE: the queue-size counters are deliberately NOT eagerly initialized here.
             //
-            // CAS-from-UNINITIALIZED (not an unconditional write): this background job
-            // runs on Dispatchers.Default and races with enqueueTask/dequeueTask, which
-            // lazily initialize and then mutate the same counters under enqueueTasksMutex.
-            // An unconditional `counter.value = diskSize` here would clobber a value that
-            // a concurrent enqueue already set — e.g. enqueue sets the tasks counter to 1
-            // and writes the item to disk, then this job (having read disk as 0 a moment
-            // earlier) resets the counter to 0. getTasksQueueSize() would then report an
-            // empty queue, the dispatcher would skip the task, and its metadata would never
-            // be dropped. Only initialize when no enqueue/dequeue has touched the counter yet.
-            val actualQueueSize = queue.getSize()
-            if (queueSizeCounter.compareAndSet(UNINITIALIZED_COUNTER, actualQueueSize)) {
-                Logger.d(LogTags.SCHEDULER, "Initialized chain queue size counter: $actualQueueSize")
-            }
-
-            val actualTasksQueueSize = tasksQueue.getSize()
-            if (tasksQueueSizeCounter.compareAndSet(UNINITIALIZED_COUNTER, actualTasksQueueSize)) {
-                Logger.d(LogTags.SCHEDULER, "Initialized tasks queue size counter: $actualTasksQueueSize")
-            }
-
+            // This background job runs on Dispatchers.Default and would otherwise race with
+            // enqueueTask, which is non-atomic across its disk write and its counter update:
+            // enqueueTask appends to the queue file FIRST, then decides whether to seed the
+            // counter from disk (when UNINITIALIZED) or incrementAndGet() (when already set).
+            // If this job read the queue size in that window — after the append but before
+            // enqueueTask updated the counter — it would seed the counter to the new disk
+            // size (already counting the appended item); enqueueTask would then take the
+            // "else" branch and increment again, double-counting that item (counter = N+1
+            // for N items on disk). getTasksQueueSize() then over-reports by one, and the
+            // dispatcher / FIFO / retry-cap assertions fail intermittently (observed as a
+            // flaky 5-test cluster on loaded CI runners, never locally).
+            //
+            // Eager initialization is redundant anyway: enqueueTask and getTasksQueueSize
+            // both lazily seed the counter from disk on first use when it is UNINITIALIZED,
+            // and dequeueTask is a no-op on the counter while UNINITIALIZED. Removing the
+            // only concurrent writer makes the counter math deterministic.
             val hoursSinceLastMaintenance = getHoursSinceLastMaintenance()
 
             if (hoursSinceLastMaintenance >= 24) {
