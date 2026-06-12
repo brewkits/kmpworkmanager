@@ -321,13 +321,25 @@ public class IosFileStorage(
         backgroundScope.launch {
             // Initialize queue size counters from actual queue size on disk.
             // This ensures the counter is accurate after app restart.
+            //
+            // CAS-from-UNINITIALIZED (not an unconditional write): this background job
+            // runs on Dispatchers.Default and races with enqueueTask/dequeueTask, which
+            // lazily initialize and then mutate the same counters under enqueueTasksMutex.
+            // An unconditional `counter.value = diskSize` here would clobber a value that
+            // a concurrent enqueue already set — e.g. enqueue sets the tasks counter to 1
+            // and writes the item to disk, then this job (having read disk as 0 a moment
+            // earlier) resets the counter to 0. getTasksQueueSize() would then report an
+            // empty queue, the dispatcher would skip the task, and its metadata would never
+            // be dropped. Only initialize when no enqueue/dequeue has touched the counter yet.
             val actualQueueSize = queue.getSize()
-            queueSizeCounter.value = actualQueueSize
-            Logger.d(LogTags.SCHEDULER, "Initialized chain queue size counter: $actualQueueSize")
+            if (queueSizeCounter.compareAndSet(UNINITIALIZED_COUNTER, actualQueueSize)) {
+                Logger.d(LogTags.SCHEDULER, "Initialized chain queue size counter: $actualQueueSize")
+            }
 
             val actualTasksQueueSize = tasksQueue.getSize()
-            tasksQueueSizeCounter.value = actualTasksQueueSize
-            Logger.d(LogTags.SCHEDULER, "Initialized tasks queue size counter: $actualTasksQueueSize")
+            if (tasksQueueSizeCounter.compareAndSet(UNINITIALIZED_COUNTER, actualTasksQueueSize)) {
+                Logger.d(LogTags.SCHEDULER, "Initialized tasks queue size counter: $actualTasksQueueSize")
+            }
 
             val hoursSinceLastMaintenance = getHoursSinceLastMaintenance()
 
