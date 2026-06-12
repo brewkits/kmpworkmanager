@@ -1,0 +1,22 @@
+#!/bin/sh
+# Block any AI/Claude attribution from landing in a commit message.
+# Hard rule: commits are published under the human developer's identity.
+#
+# This hook is committed to the repo under .githooks/ and activated via
+# `git config core.hooksPath .githooks` (the Gradle `installGitHooks` task
+# does this automatically on build). It therefore survives a fresh clone:
+# the file is versioned, and the first `./gradlew` build re-points hooksPath.
+
+msg_file="$1"
+
+# Case-insensitive patterns that must never appear in a commit message.
+if grep -iqE 'claude|anthropic|co-authored-by:.*claude|generated with claude|🤖' "$msg_file"; then
+    echo "------------------------------------------------------------------" >&2
+    echo "COMMIT REJECTED: AI/Claude attribution detected in commit message." >&2
+    echo "Remove any 'Claude', 'Anthropic', 'Co-Authored-By: Claude'," >&2
+    echo "'Generated with Claude Code', or 🤖 lines, then commit again." >&2
+    echo "------------------------------------------------------------------" >&2
+    exit 1
+fi
+
+exit 0
