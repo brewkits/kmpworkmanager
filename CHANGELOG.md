@@ -5,6 +5,25 @@ All notable changes to KMP WorkManager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0] - 2026-06-12
+
+Ktor 3 support (Issue #33).
+
+### Changed (BREAKING)
+- **Upgraded Ktor `2.3.12` → `3.1.1`.** The HTTP built-in workers now require **Ktor 3**.
+  Ktor 2 and Ktor 3 publish under the same Maven coordinates (`io.ktor:ktor-client-*`)
+  and are binary-incompatible, so Gradle resolves a single version across the classpath.
+  Consumers still on Ktor 2 are effectively forced onto Ktor 3 when upgrading and should
+  instead **pin `2.5.1`** until they migrate. See
+  [`docs/MIGRATION_V3.0.0.md`](docs/MIGRATION_V3.0.0.md).
+
+### Fixed
+- **HTTP download EOF handling** — Ktor 3 moved its IO layer to `kotlinx-io`, where
+  `ByteReadChannel.readAvailable()` returns `-1` at end-of-stream (Ktor 2 returned `0`).
+  `HttpDownloadWorker` and `ParallelHttpDownloadWorker` (parallel-range + sequential
+  paths) now break on `-1`, preventing a potential spin / stale-buffer read at EOF.
+  Locked in by `Ktor3Test`.
+
 ## [2.5.1] - 2026-05-20
 
 ### Fixed

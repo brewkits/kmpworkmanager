@@ -22,7 +22,7 @@ import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.HttpHeaders
 import io.ktor.http.contentLength
 import io.ktor.http.isSuccess
-import io.ktor.utils.io.ByteReadChannel
+import io.ktor.utils.io.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -329,6 +329,7 @@ class ParallelHttpDownloadWorker(
                 var written = 0L
                 while (!channel.isClosedForRead) {
                     val n = channel.readAvailable(buf, 0, buf.size)
+                    if (n == -1) break
                     if (n > 0) {
                         buffered.write(buf, 0, n)
                         written += n
@@ -399,6 +400,7 @@ class ParallelHttpDownloadWorker(
                 while (!channel.isClosedForRead) {
                     if (env.isCancelled()) throw CancellationException("Sequential download cancelled", null)
                     val n = channel.readAvailable(buf, 0, buf.size)
+                    if (n == -1) break
                     if (n > 0) {
                         buffered.write(buf, 0, n)
                         downloaded += n

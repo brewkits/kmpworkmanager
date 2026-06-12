@@ -620,10 +620,10 @@ Don't use built-in workers for:
 Built-in workers use these libraries:
 
 ```kotlin
-// Ktor Client 2.3.12 - HTTP operations
-implementation("io.ktor:ktor-client-core:2.3.12")
-implementation("io.ktor:ktor-client-okhttp:2.3.12") // Android
-implementation("io.ktor:ktor-client-darwin:2.3.12") // iOS
+// Ktor Client 3.1.1 - HTTP operations
+implementation("io.ktor:ktor-client-core:3.1.1")
+implementation("io.ktor:ktor-client-okhttp:3.1.1") // Android
+implementation("io.ktor:ktor-client-darwin:3.1.1") // iOS
 
 // Okio 3.9.1 - File I/O
 implementation("com.squareup.okio:okio:3.9.1")

@@ -232,6 +232,7 @@ class HttpDownloadWorker(
                         if (env.isCancelled()) throw CancellationException("Download cancelled", null)
 
                         val bytesRead = channel.readAvailable(buffer)
+                        if (bytesRead == -1) break
                         if (bytesRead > 0) {
                             buffered.write(buffer, 0, bytesRead)
                             downloadedThisAttempt += bytesRead
