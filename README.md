@@ -20,9 +20,14 @@
 ```kotlin
 // build.gradle.kts
 commonMain.dependencies {
-    implementation("dev.brewkits:kmpworkmanager:2.5.0")
+    implementation("dev.brewkits:kmpworkmanager:3.0.0")
 }
 ```
+
+> **Ktor 3 required (since v3.0.0).** This release depends on **Ktor 3.1.x**. Because
+> Ktor 2 and Ktor 3 share the same Maven coordinates and are binary-incompatible, an app
+> still on Ktor 2 cannot mix them — Gradle will force a single version. If your project is
+> not yet on Ktor 3, **pin `dev.brewkits:kmpworkmanager:2.5.1`** until you migrate.
 
 <details>
 <summary><b>Android setup</b></summary>
@@ -194,6 +199,22 @@ and no recovery mechanism for incomplete work. Getting it wrong means your tasks
 | `ContentUri(uri)` | WorkManager ContentUriTrigger | — | Android only |
 
 ---
+
+## What's new in v3.0.0
+
+**Ktor 3 support** (Issue #33). The HTTP layer now targets **Ktor 3.1.x**.
+
+- **⚠️ Breaking — requires Ktor 3.** Ktor 2 and Ktor 3 share the same Maven coordinates
+  and are binary-incompatible, so a single app classpath can hold only one of them. Apps
+  still on Ktor 2 should **stay on `2.5.1`** until they migrate to Ktor 3.
+- **EOF handling fix** — Ktor 3 moved its IO layer to `kotlinx-io`, where
+  `ByteReadChannel.readAvailable()` returns `-1` at end-of-stream (Ktor 2 returned `0`).
+  The built-in `HttpDownloadWorker` / `ParallelHttpDownloadWorker` read loops now honor
+  this, preventing a potential spin / stale-buffer read at EOF.
+- No public API changes beyond the Ktor version itself — worker constructors, configs,
+  and `HttpClientProvider` are unchanged.
+
+Upgrade notes: [`docs/MIGRATION_V3.0.0.md`](docs/MIGRATION_V3.0.0.md).
 
 ## What's new in v2.5.0
 
@@ -387,8 +408,8 @@ Add to `build.gradle.kts`:
 plugins { id("com.google.devtools.ksp") }
 
 dependencies {
-    ksp("dev.brewkits:kmpworker-ksp:2.5.0")
-    commonMain.implementation("dev.brewkits:kmpworker-annotations:2.5.0")
+    ksp("dev.brewkits:kmpworker-ksp:3.0.0")
+    commonMain.implementation("dev.brewkits:kmpworker-annotations:3.0.0")
 }
 ```
 
@@ -467,7 +488,7 @@ RFC 3986 UserInfo bypass and multi-`@` authority attacks are both handled. DNS r
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Common issues |
 | [CHANGELOG](CHANGELOG.md) | Release history |
 
-**Migration:** [v2.2.2 → v2.3.0](docs/MIGRATION_V2.3.0.md) · [v2.3.3 → v2.3.4](docs/MIGRATION_V2.3.3_TO_V2.3.4.md) · [v2.4.x → v2.5.0](docs/MIGRATION_V2.5.0.md)
+**Migration:** [v2.2.2 → v2.3.0](docs/MIGRATION_V2.3.0.md) · [v2.3.3 → v2.3.4](docs/MIGRATION_V2.3.3_TO_V2.3.4.md) · [v2.4.x → v2.5.0](docs/MIGRATION_V2.5.0.md) · [v2.5.x → v3.0.0](docs/MIGRATION_V3.0.0.md)
 
 ---
 
