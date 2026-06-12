@@ -144,6 +144,44 @@ class V250DynamicRetryTest {
         }
     }
 
+    /**
+     * Regression for the iOS-18-flaky failure of [success_doesNotReEnqueue_dropsMetadata].
+     *
+     * Root cause: [IosFileStorage]'s init block launches a background job on
+     * Dispatchers.Default that initialized `tasksQueueSizeCounter` with an unconditional
+     * `counter.value = diskSize`. That write races with [IosFileStorage.enqueueTask],
+     * which sets the same counter under its mutex. When the background job won the race it
+     * reset the counter to 0 *after* enqueue set it to 1 — so getTasksQueueSize() reported
+     * an empty queue, the dispatcher skipped the task, and its metadata was never dropped.
+     * The assertNull above then failed, but only when the threads happened to interleave
+     * that way (observed on the iOS 18.2 CI runner, never locally).
+     *
+     * Each iteration constructs a fresh storage so a fresh init-job races a fresh enqueue,
+     * amplifying the window. On the unfixed code this fails within a handful of iterations;
+     * with the CAS-from-UNINITIALIZED fix it is deterministically green.
+     */
+    @Test
+    fun success_dropsMetadata_underConstructEnqueueRace() = runTest {
+        repeat(40) { i ->
+            val storage = makeStorage("race-$i")
+            try {
+                val factory = ScriptedFactory(listOf(WorkerResult.Success()))
+                val dispatcher = DynamicTaskDispatcher(SingleTaskExecutor(factory), storage)
+
+                enqueueOneTimeTask(storage, "task-$i", "OkWorker")
+                dispatcher.executePendingTasks(makeSchedulerStub())
+
+                assertEquals(0, storage.getTasksQueueSize(), "iteration $i: Success must not re-enqueue")
+                assertNull(
+                    storage.loadTaskMetadata("task-$i", periodic = false),
+                    "iteration $i: Success must drop metadata — counter-init race must not skip the task"
+                )
+            } finally {
+                storage.close()
+            }
+        }
+    }
+
     @Test
     fun failure_withoutRetry_doesNotReEnqueue_dropsMetadata() = runTest {
         val storage = makeStorage("failure-terminal")
