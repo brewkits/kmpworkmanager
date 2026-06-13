@@ -68,7 +68,7 @@ internal class IosWorkerDiagnostics(
         val freeSpace = fileStorage.getAvailableDiskSpace()
         val isStorageLow = freeSpace < 500_000_000L // <500MB
 
-        // Network check: conservatively returns true (NWPathMonitor requires Swift interop)
+        // Network check via NWPathMonitor (see IosNetworkReachability / issue #40).
         val networkAvailable = checkNetworkReachability()
 
         return SystemHealthReport(
@@ -128,11 +128,11 @@ internal class IosWorkerDiagnostics(
     }
 
     /**
-     * Network reachability check.
-     * Returns true conservatively — NWPathMonitor requires Swift interop to implement properly.
-     * For accurate network state, pass the result from Swift via your app's bridge layer.
+     * Network reachability via [IosNetworkReachability] (NWPathMonitor, Network.framework).
+     * Non-blocking snapshot read; returns `true` until the monitor delivers its first
+     * path update (conservative warm-up, matching the prior placeholder's optimism).
      */
-    private fun checkNetworkReachability(): Boolean = true
+    private fun checkNetworkReachability(): Boolean = IosNetworkReachability.isReachable()
 
     private fun nowMillis(): Long {
         return (NSDate().timeIntervalSince1970 * 1000).toLong()
