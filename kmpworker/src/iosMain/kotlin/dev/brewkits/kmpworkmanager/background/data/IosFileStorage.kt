@@ -318,6 +318,16 @@ public class IosFileStorage(
     }
 
     init {
+        // Skip the auto-launched maintenance job in test environments. It runs on
+        // backgroundScope (Dispatchers.Default) and, for a fresh temp dir, sees
+        // "maintenance never run" → executes performMaintenanceTasks() immediately,
+        // which logs and writes files. When the test that constructed this storage has
+        // already finished (and didn't await close(), or close() raced the launch), that
+        // output arrives after teardown — Kotlin/Native's test runner reports it as
+        // "Received output for test that is not running" and the whole job crashes
+        // (issue #42). Tests that need maintenance call performMaintenanceTasks() directly,
+        // so gating only the auto-launch costs no coverage. Production is unaffected.
+        if (!dev.brewkits.kmpworkmanager.utils.IosTestEnvironment.isTestEnvironment) {
         backgroundScope.launch {
             // NOTE: the queue-size counters are deliberately NOT eagerly initialized here.
             //
@@ -349,6 +359,7 @@ public class IosFileStorage(
                 delay(5000)
                 performMaintenanceTasks()
             }
+        }
         }
     }
 
