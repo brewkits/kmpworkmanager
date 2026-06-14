@@ -40,7 +40,7 @@ jobs:
         run: ./gradlew :kmpworker-ksp:test
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: common-test-results
           path: |
@@ -89,7 +89,7 @@ jobs:
         run: ./gradlew :kmpworker:iosSimulatorArm64Test :kmpworker-http:iosSimulatorArm64Test
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ios-test-results-${{ matrix.runtime }}
           path: |
@@ -117,7 +117,7 @@ jobs:
         run: ./gradlew :kmpworker:testDebugUnitTest :kmpworker-http:testDebugUnitTest
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: android-unit-test-results
           path: |
@@ -169,7 +169,7 @@ jobs:
           script: ./gradlew :kmpworker:connectedDebugAndroidTest
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: android-instrumented-${{ matrix.api-level }}
           path: |
@@ -200,7 +200,7 @@ jobs:
         run: ./gradlew :kmpworker:linkReleaseFrameworkIosSimulatorArm64
       - name: Upload demo artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: demo-artifacts
           path: |

@@ -190,7 +190,7 @@ jobs:
 
       # ── 9. Upload bundle as workflow artifact (always, including dry run) ─────
       - name: Upload bundle artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.bundle.outputs.bundle_name }}
           path: ${{ steps.bundle.outputs.bundle_path }}
