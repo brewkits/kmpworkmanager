@@ -78,6 +78,8 @@ kotlin {
             // Kotlinx Serialization for JSON processing
             implementation(libs.kotlinx.serialization.json)
             api(project(":kmpworker"))
+            // Ktor-based built-in HTTP workers (split out of core in v3.0.0)
+            api(project(":kmpworker-http"))
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

@@ -1,6 +1,6 @@
 package dev.brewkits.kmpworkmanager.workers.builtins
 
-import dev.brewkits.kmpworkmanager.KmpWorkManagerRuntime
+import dev.brewkits.kmpworkmanager.workers.utils.HttpWorkerJson
 import dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.background.domain.Worker
@@ -63,7 +63,7 @@ class HttpDownloadWorker(
         // are permanent — they must surface as `Failure`, never `Retry`, otherwise the
         // scheduler will burn battery looping on input that will never become valid.
         val config = try {
-            KmpWorkManagerRuntime.json.decodeFromString<HttpDownloadConfig>(input)
+            HttpWorkerJson.decodeFromString<HttpDownloadConfig>(input)
         } catch (e: kotlinx.serialization.SerializationException) {
             return WorkerResult.Failure("Invalid HttpDownloadConfig JSON: ${e.message}")
         } catch (e: IllegalArgumentException) {

@@ -1,6 +1,6 @@
 package dev.brewkits.kmpworkmanager.workers.builtins
 
-import dev.brewkits.kmpworkmanager.KmpWorkManagerRuntime
+import dev.brewkits.kmpworkmanager.workers.utils.HttpWorkerJson
 import dev.brewkits.kmpworkmanager.background.domain.Worker
 import dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
 import dev.brewkits.kmpworkmanager.background.domain.WorkerProgress
@@ -72,7 +72,7 @@ class ParallelHttpDownloadWorker(
 
         // Programming errors (bad JSON, bad URL) → Failure. Transient errors → Retry.
         val config = try {
-            KmpWorkManagerRuntime.json.decodeFromString<ParallelHttpDownloadConfig>(input)
+            HttpWorkerJson.decodeFromString<ParallelHttpDownloadConfig>(input)
         } catch (e: kotlinx.serialization.SerializationException) {
             return WorkerResult.Failure("Invalid ParallelHttpDownloadConfig JSON: ${e.message}")
         } catch (e: IllegalArgumentException) {

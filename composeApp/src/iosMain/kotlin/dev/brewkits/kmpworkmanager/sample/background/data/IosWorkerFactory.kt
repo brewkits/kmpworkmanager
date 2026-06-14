@@ -4,6 +4,7 @@ import dev.brewkits.kmpworkmanager.background.data.IosWorkerFactory
 import dev.brewkits.kmpworkmanager.background.domain.Worker
 import dev.brewkits.kmpworkmanager.sample.background.workers.*
 import dev.brewkits.kmpworkmanager.workers.BuiltinWorkerRegistry
+import dev.brewkits.kmpworkmanager.workers.HttpWorkerRegistry
 
 /**
  * A factory for creating IosWorker instances based on their class name.
@@ -24,8 +25,9 @@ class IosWorkerFactory : IosWorkerFactory {
             dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.ANALYTICS_WORKER -> AnalyticsWorker()
 
             else -> {
-                // Try builtin workers from BuiltinWorkerRegistry
-                val builtinWorker = BuiltinWorkerRegistry.createWorker(workerClassName)
+                // Try the Ktor HTTP workers (kmpworker-http) then the core built-ins.
+                val builtinWorker = HttpWorkerRegistry.createWorker(workerClassName)
+                    ?: BuiltinWorkerRegistry.createWorker(workerClassName)
                 if (builtinWorker != null) {
                     WorkerAdapter(builtinWorker)
                 } else {

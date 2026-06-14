@@ -1,6 +1,6 @@
 package dev.brewkits.kmpworkmanager.workers.builtins
 
-import dev.brewkits.kmpworkmanager.KmpWorkManagerRuntime
+import dev.brewkits.kmpworkmanager.workers.utils.HttpWorkerJson
 import dev.brewkits.kmpworkmanager.background.domain.Worker
 import dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
@@ -33,7 +33,7 @@ class HttpRequestWorker(
         }
 
         return try {
-            val config = KmpWorkManagerRuntime.json.decodeFromString<HttpRequestConfig>(input)
+            val config = HttpWorkerJson.decodeFromString<HttpRequestConfig>(input)
 
             // Validate URL before making request
             if (!SecurityValidator.validateURL(config.url)) {

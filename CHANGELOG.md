@@ -16,6 +16,17 @@ Ktor 3 support (Issue #33).
   Consumers still on Ktor 2 are effectively forced onto Ktor 3 when upgrading and should
   instead **pin `2.5.1`** until they migrate. See
   [`docs/MIGRATION_V3.0.0.md`](docs/MIGRATION_V3.0.0.md).
+- **HTTP workers extracted into a new `dev.brewkits:kmpworkmanager-http` artifact.** The
+  core `kmpworkmanager` module no longer depends on Ktor at all — the engine carries no
+  third-party HTTP dependency. The six Ktor-based workers (`HttpRequestWorker`,
+  `HttpSyncWorker`, `HttpDownloadWorker`, `HttpUploadWorker`, `ParallelHttpDownloadWorker`,
+  `ParallelHttpUploadWorker`) plus `HttpClientProvider` now ship in `kmpworkmanager-http`,
+  registered via the new `HttpWorkerRegistry`. `BuiltinWorkerRegistry` (core) now exposes
+  only the non-HTTP built-ins (`FileCompressionWorker`). **Consumers using built-in HTTP
+  workers must add `implementation("dev.brewkits:kmpworkmanager-http:3.0.0")` and register
+  `HttpWorkerRegistry`** (e.g. via `CompositeWorkerFactory`). Worker class names / config
+  packages are unchanged, so stored task IDs and JSON keep working. See
+  [`docs/MIGRATION_V3.0.0.md`](docs/MIGRATION_V3.0.0.md).
 
 ### Fixed
 - **HTTP download EOF handling** — Ktor 3 moved its IO layer to `kotlinx-io`, where

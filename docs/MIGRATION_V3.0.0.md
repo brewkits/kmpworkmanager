@@ -2,11 +2,11 @@
 
 This guide covers upgrading from any v2.5.x release to v3.0.0.
 
-> **TL;DR.** v3.0.0 upgrades the HTTP layer from **Ktor 2 to Ktor 3**. If your app
-> is already on Ktor 3, this is a drop-in bump. If your app is **still on Ktor 2**,
-> this is a **breaking change** — you must migrate to Ktor 3 as well, or stay on
-> `2.5.1`. The library's own public API (worker constructors, configs,
-> `HttpClientProvider`) is unchanged.
+> **TL;DR.** v3.0.0 (1) upgrades the HTTP layer from **Ktor 2 to Ktor 3**, and
+> (2) **moves the built-in HTTP workers into a new `kmpworkmanager-http` artifact** so the
+> core engine no longer depends on Ktor. If your app is already on Ktor 3 and uses the
+> HTTP workers, add the new artifact + register `HttpWorkerRegistry`. If your app is
+> **still on Ktor 2**, this is a breaking change — migrate to Ktor 3, or stay on `2.5.1`.
 
 ---
 
@@ -16,8 +16,37 @@ This guide covers upgrading from any v2.5.x release to v3.0.0.
 // build.gradle.kts
 commonMain.dependencies {
     implementation("dev.brewkits:kmpworkmanager:3.0.0")
+    // ONLY if you use the built-in HTTP workers (Http*/ParallelHttp*):
+    implementation("dev.brewkits:kmpworkmanager-http:3.0.0")
 }
 ```
+
+### HTTP workers moved to `kmpworkmanager-http`
+
+The core `kmpworkmanager` artifact no longer carries Ktor. The six Ktor-based workers
+(`HttpRequestWorker`, `HttpSyncWorker`, `HttpDownloadWorker`, `HttpUploadWorker`,
+`ParallelHttpDownloadWorker`, `ParallelHttpUploadWorker`) and `HttpClientProvider` now
+live in `kmpworkmanager-http`.
+
+- **If you don't use built-in HTTP workers:** do nothing — you just gained a slimmer,
+  Ktor-free core.
+- **If you do:** add the artifact above and register `HttpWorkerRegistry` alongside the
+  core `BuiltinWorkerRegistry`:
+
+  ```kotlin
+  import dev.brewkits.kmpworkmanager.workers.HttpWorkerRegistry      // kmpworkmanager-http
+  import dev.brewkits.kmpworkmanager.workers.BuiltinWorkerRegistry   // core (FileCompression)
+  import dev.brewkits.kmpworkmanager.workers.CompositeWorkerFactory  // core
+
+  val factory = CompositeWorkerFactory(
+      MyWorkerFactory(),       // your workers
+      HttpWorkerRegistry,      // Http*/ParallelHttp* workers
+      BuiltinWorkerRegistry,   // FileCompressionWorker
+  )
+  ```
+
+  Worker **class names and config packages are unchanged**, so existing `workerClassName`
+  task IDs and persisted JSON keep working — only the dependency + registry wiring changes.
 
 If you use the KSP-generated `WorkerFactory`:
 

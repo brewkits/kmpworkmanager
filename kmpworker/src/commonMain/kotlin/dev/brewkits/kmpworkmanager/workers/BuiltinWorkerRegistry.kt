@@ -2,18 +2,17 @@ package dev.brewkits.kmpworkmanager.workers
 
 import dev.brewkits.kmpworkmanager.background.domain.Worker
 import dev.brewkits.kmpworkmanager.background.domain.WorkerFactory
-import dev.brewkits.kmpworkmanager.workers.builtins.*
+import dev.brewkits.kmpworkmanager.workers.builtins.FileCompressionWorker
 
 /**
- * Registry for built-in workers provided by KMP WorkManager.
+ * Registry for the core (non-HTTP) built-in workers provided by KMP WorkManager.
  *
  * This factory can be used standalone or composed with your custom worker factory.
  *
- * **Built-in Workers:**
- * - `HttpRequestWorker`: Generic HTTP requests (GET, POST, PUT, DELETE, PATCH)
- * - `HttpSyncWorker`: JSON synchronization (POST/GET JSON data)
- * - `HttpDownloadWorker`: Download files from HTTP/HTTPS URLs
- * - `HttpUploadWorker`: Upload files using multipart/form-data
+ * The Ktor-based HTTP workers live in the separate `kmpworkmanager-http` artifact —
+ * see `HttpWorkerRegistry` there — so the core engine carries no Ktor dependency.
+ *
+ * **Built-in Workers (core):**
  * - `FileCompressionWorker`: Compress files/directories into ZIP archives
  *
  * **Usage (Standalone):**
@@ -68,10 +67,6 @@ object BuiltinWorkerRegistry : WorkerFactory {
         val simpleName = workerClassName.substringAfterLast('.')
 
         return when (simpleName) {
-            "HttpRequestWorker" -> HttpRequestWorker()
-            "HttpSyncWorker" -> HttpSyncWorker()
-            "HttpDownloadWorker" -> HttpDownloadWorker()
-            "HttpUploadWorker" -> HttpUploadWorker()
             "FileCompressionWorker" -> FileCompressionWorker()
             else -> null
         }
@@ -84,10 +79,6 @@ object BuiltinWorkerRegistry : WorkerFactory {
      */
     fun listWorkers(): List<String> {
         return listOf(
-            "dev.brewkits.kmpworkmanager.workers.builtins.HttpRequestWorker",
-            "dev.brewkits.kmpworkmanager.workers.builtins.HttpSyncWorker",
-            "dev.brewkits.kmpworkmanager.workers.builtins.HttpDownloadWorker",
-            "dev.brewkits.kmpworkmanager.workers.builtins.HttpUploadWorker",
             "dev.brewkits.kmpworkmanager.workers.builtins.FileCompressionWorker"
         )
     }

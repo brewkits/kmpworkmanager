@@ -1,6 +1,6 @@
 package dev.brewkits.kmpworkmanager.workers
 
-import dev.brewkits.kmpworkmanager.KmpWorkManagerRuntime
+import dev.brewkits.kmpworkmanager.workers.utils.HttpWorkerJson
 import dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.workers.builtins.HttpDownloadWorker
@@ -52,7 +52,7 @@ class HttpDownloadChecksumAndDuplicateTest {
             expectedChecksum = helloWorldSha256,
             checksumAlgorithm = ChecksumAlgorithm.SHA256
         )
-        val input = KmpWorkManagerRuntime.json.encodeToString(config)
+        val input = HttpWorkerJson.encodeToString(config)
 
         try {
             val result = worker.doWork(input, WorkerEnvironment(null) { false })
@@ -78,7 +78,7 @@ class HttpDownloadChecksumAndDuplicateTest {
             expectedChecksum = helloWorldSha256, // expects "hello world" digest
             checksumAlgorithm = ChecksumAlgorithm.SHA256
         )
-        val input = KmpWorkManagerRuntime.json.encodeToString(config)
+        val input = HttpWorkerJson.encodeToString(config)
 
         try {
             val result = worker.doWork(input, WorkerEnvironment(null) { false })
@@ -111,7 +111,7 @@ class HttpDownloadChecksumAndDuplicateTest {
             resumable = false,
             onDuplicate = DuplicatePolicy.SKIP
         )
-        val input = KmpWorkManagerRuntime.json.encodeToString(config)
+        val input = HttpWorkerJson.encodeToString(config)
 
         try {
             val result = worker.doWork(input, WorkerEnvironment(null) { false })
@@ -138,7 +138,7 @@ class HttpDownloadChecksumAndDuplicateTest {
             resumable = false,
             onDuplicate = DuplicatePolicy.RENAME
         )
-        val input = KmpWorkManagerRuntime.json.encodeToString(config)
+        val input = HttpWorkerJson.encodeToString(config)
 
         try {
             val result = worker.doWork(input, WorkerEnvironment(null) { false })
@@ -169,7 +169,7 @@ class HttpDownloadChecksumAndDuplicateTest {
             resumable = false
             // onDuplicate = OVERWRITE by default
         )
-        val input = KmpWorkManagerRuntime.json.encodeToString(config)
+        val input = HttpWorkerJson.encodeToString(config)
 
         try {
             val result = worker.doWork(input, WorkerEnvironment(null) { false })

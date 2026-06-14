@@ -1,6 +1,6 @@
 package dev.brewkits.kmpworkmanager.workers.builtins
 
-import dev.brewkits.kmpworkmanager.KmpWorkManagerRuntime
+import dev.brewkits.kmpworkmanager.workers.utils.HttpWorkerJson
 import dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.background.domain.Worker
@@ -30,7 +30,7 @@ class HttpSyncWorker(
         }
 
         return try {
-            val config = KmpWorkManagerRuntime.json.decodeFromString<HttpSyncConfig>(input)
+            val config = HttpWorkerJson.decodeFromString<HttpSyncConfig>(input)
 
             if (!SecurityValidator.validateURL(config.url)) {
                 return WorkerResult.Failure("Invalid sync URL")
