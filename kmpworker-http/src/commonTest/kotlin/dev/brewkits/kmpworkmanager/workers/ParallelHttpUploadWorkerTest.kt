@@ -1,6 +1,6 @@
 package dev.brewkits.kmpworkmanager.workers
 
-import dev.brewkits.kmpworkmanager.KmpWorkManagerRuntime
+import dev.brewkits.kmpworkmanager.workers.utils.HttpWorkerJson
 import dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.workers.builtins.ParallelHttpUploadWorker
@@ -85,7 +85,7 @@ class ParallelHttpUploadWorkerTest {
             maxConcurrent = 2,
             maxRetries = 0
         )
-        val input = KmpWorkManagerRuntime.json.encodeToString(config)
+        val input = HttpWorkerJson.encodeToString(config)
 
         try {
             val result = worker.doWork(input, WorkerEnvironment(null) { false })
@@ -128,7 +128,7 @@ class ParallelHttpUploadWorkerTest {
             maxConcurrent = 1,
             maxRetries = 0
         )
-        val input = KmpWorkManagerRuntime.json.encodeToString(config)
+        val input = HttpWorkerJson.encodeToString(config)
 
         try {
             val result = worker.doWork(input, WorkerEnvironment(null) { false })
@@ -162,7 +162,7 @@ class ParallelHttpUploadWorkerTest {
             maxConcurrent = 1,
             maxRetries = 2
         )
-        val input = KmpWorkManagerRuntime.json.encodeToString(config)
+        val input = HttpWorkerJson.encodeToString(config)
 
         try {
             val result = worker.doWork(input, WorkerEnvironment(null) { false })
@@ -184,7 +184,7 @@ class ParallelHttpUploadWorkerTest {
             maxConcurrent = 1,
             maxRetries = 3 // would be plenty, but 401 must NOT trigger any retry
         )
-        val input = KmpWorkManagerRuntime.json.encodeToString(config)
+        val input = HttpWorkerJson.encodeToString(config)
 
         try {
             val result = worker.doWork(input, WorkerEnvironment(null) { false })

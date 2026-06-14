@@ -26,6 +26,7 @@ import dev.brewkits.kmpworkmanager.sample.background.workers.NetworkRetryAndroid
 import dev.brewkits.kmpworkmanager.sample.background.workers.SyncAndroidWorker
 import dev.brewkits.kmpworkmanager.sample.background.workers.UploadAndroidWorker
 import dev.brewkits.kmpworkmanager.workers.BuiltinWorkerRegistry
+import dev.brewkits.kmpworkmanager.workers.HttpWorkerRegistry
 import org.koin.android.ext.koin.androidContext
 import org.koin.android.ext.koin.androidLogger
 import org.koin.dsl.module
@@ -45,8 +46,9 @@ private class WrapperWorker(private val delegate: Worker) : AndroidWorker {
  */
 class DemoWorkerFactory : AndroidWorkerFactory {
     override fun createWorker(workerClassName: String): AndroidWorker? {
-        // 1. Built-in library workers (HttpUploadWorker, HttpDownloadWorker, etc.)
-        val builtinWorker = BuiltinWorkerRegistry.createWorker(workerClassName)
+        // 1. Built-in library workers: Ktor HTTP workers (kmpworker-http) then core built-ins.
+        val builtinWorker = HttpWorkerRegistry.createWorker(workerClassName)
+            ?: BuiltinWorkerRegistry.createWorker(workerClassName)
         if (builtinWorker != null) return WrapperWorker(builtinWorker)
 
         // 2. Sample app workers — mapped by FQN (as defined in WorkerTypes)

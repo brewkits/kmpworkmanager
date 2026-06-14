@@ -1,6 +1,6 @@
 package dev.brewkits.kmpworkmanager.workers
 
-import dev.brewkits.kmpworkmanager.KmpWorkManagerRuntime
+import dev.brewkits.kmpworkmanager.workers.utils.HttpWorkerJson
 import dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.workers.builtins.HttpRequestWorker
@@ -44,7 +44,7 @@ class BuiltinWorkersTest {
             url = "https://api.example.com/file",
             savePath = testFile.toString()
         )
-        val input = KmpWorkManagerRuntime.json.encodeToString(config)
+        val input = HttpWorkerJson.encodeToString(config)
 
         try {
             val result = worker.doWork(input, WorkerEnvironment(null, { false }))
@@ -78,7 +78,7 @@ class BuiltinWorkersTest {
             filePath = testFile.toString(),
             fileFieldName = "file"
         )
-        val input = KmpWorkManagerRuntime.json.encodeToString(config)
+        val input = HttpWorkerJson.encodeToString(config)
 
         try {
             val result = worker.doWork(input, WorkerEnvironment(null, { false }))
@@ -105,7 +105,7 @@ class BuiltinWorkersTest {
             url = "https://api.example.com/test",
             method = "GET"
         )
-        val input = KmpWorkManagerRuntime.json.encodeToString(config)
+        val input = HttpWorkerJson.encodeToString(config)
 
         val result = worker.doWork(input, WorkerEnvironment(null, { false }))
 
@@ -127,7 +127,7 @@ class BuiltinWorkersTest {
             url = "https://api.example.com/invalid",
             method = "GET"
         )
-        val input = KmpWorkManagerRuntime.json.encodeToString(config)
+        val input = HttpWorkerJson.encodeToString(config)
 
         val result = worker.doWork(input, WorkerEnvironment(null, { false }))
 
@@ -151,7 +151,7 @@ class BuiltinWorkersTest {
             method = "POST",
             body = """{"data":"test"}"""
         )
-        val input = KmpWorkManagerRuntime.json.encodeToString(config)
+        val input = HttpWorkerJson.encodeToString(config)
 
         val result = worker.doWork(input, WorkerEnvironment(null, { false }))
 
@@ -169,7 +169,7 @@ class BuiltinWorkersTest {
             url = "http://169.254.169.254/latest/meta-data/",
             method = "GET"
         )
-        val input = KmpWorkManagerRuntime.json.encodeToString(config)
+        val input = HttpWorkerJson.encodeToString(config)
 
         val result = worker.doWork(input, WorkerEnvironment(null, { false }))
 
@@ -215,7 +215,7 @@ class BuiltinWorkersTest {
             filePath = testFile.toString(),
             fileFieldName = "file"
         )
-        val input = KmpWorkManagerRuntime.json.encodeToString(config)
+        val input = HttpWorkerJson.encodeToString(config)
 
         try {
             val result = worker.doWork(input, WorkerEnvironment(null, { false }))
@@ -254,7 +254,7 @@ class BuiltinWorkersTest {
             savePath = savePath.toString(),
             resumable = true
         )
-        val input = KmpWorkManagerRuntime.json.encodeToString(config)
+        val input = HttpWorkerJson.encodeToString(config)
 
         try {
             val result = worker.doWork(input, WorkerEnvironment(null) { false })
@@ -290,7 +290,7 @@ class BuiltinWorkersTest {
             savePath = savePath.toString(),
             resumable = true
         )
-        val input = KmpWorkManagerRuntime.json.encodeToString(config)
+        val input = HttpWorkerJson.encodeToString(config)
 
         try {
             val result = worker.doWork(input, WorkerEnvironment(null) { false })
@@ -321,7 +321,7 @@ class BuiltinWorkersTest {
             savePath = savePath.toString(),
             resumable = true
         )
-        val input = KmpWorkManagerRuntime.json.encodeToString(config)
+        val input = HttpWorkerJson.encodeToString(config)
 
         try {
             val result = worker.doWork(input, WorkerEnvironment(null) { false })
@@ -352,7 +352,7 @@ class BuiltinWorkersTest {
             savePath = savePath.toString(),
             resumable = true
         )
-        val input = KmpWorkManagerRuntime.json.encodeToString(config)
+        val input = HttpWorkerJson.encodeToString(config)
 
         try {
             val result = worker.doWork(input, WorkerEnvironment(null) { false })
@@ -385,7 +385,7 @@ class BuiltinWorkersTest {
             savePath = savePath.toString(),
             resumable = false
         )
-        val input = KmpWorkManagerRuntime.json.encodeToString(config)
+        val input = HttpWorkerJson.encodeToString(config)
 
         try {
             val result = worker.doWork(input, WorkerEnvironment(null) { false })

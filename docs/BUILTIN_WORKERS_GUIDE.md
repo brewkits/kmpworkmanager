@@ -617,20 +617,21 @@ Don't use built-in workers for:
 
 ## Dependencies
 
-Built-in workers use these libraries:
+Since **v3.0.0** the Ktor-based HTTP workers ship in a separate artifact so the core
+engine stays Ktor-free. Add it only if you use `Http*` / `ParallelHttp*` workers:
 
 ```kotlin
-// Ktor Client 3.1.1 - HTTP operations
-implementation("io.ktor:ktor-client-core:3.1.1")
-implementation("io.ktor:ktor-client-okhttp:3.1.1") // Android
-implementation("io.ktor:ktor-client-darwin:3.1.1") // iOS
-
-// Okio 3.9.1 - File I/O
-implementation("com.squareup.okio:okio:3.9.1")
-
-// Kotlinx Serialization - JSON handling
-implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+commonMain.dependencies {
+    implementation("dev.brewkits:kmpworkmanager:3.0.0")        // core engine (no Ktor)
+    implementation("dev.brewkits:kmpworkmanager-http:3.0.0")   // HTTP workers (Ktor 3)
+}
 ```
+
+`kmpworkmanager-http` pulls in Ktor 3.1.x (OkHttp engine on Android, Darwin on iOS),
+Okio, and kotlinx-serialization transitively. `FileCompressionWorker` lives in the core
+artifact and needs no extra dependency.
+
+Register the HTTP workers with `HttpWorkerRegistry` (see "Quick Start" above).
 
 ---
 

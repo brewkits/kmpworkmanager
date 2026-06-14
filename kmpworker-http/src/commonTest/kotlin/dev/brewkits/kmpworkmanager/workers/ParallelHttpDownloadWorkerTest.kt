@@ -1,6 +1,6 @@
 package dev.brewkits.kmpworkmanager.workers
 
-import dev.brewkits.kmpworkmanager.KmpWorkManagerRuntime
+import dev.brewkits.kmpworkmanager.workers.utils.HttpWorkerJson
 import dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.workers.builtins.ParallelHttpDownloadWorker
@@ -97,7 +97,7 @@ class ParallelHttpDownloadWorkerTest {
             savePath = savePath.toString(),
             numChunks = 4
         )
-        val input = KmpWorkManagerRuntime.json.encodeToString(config)
+        val input = HttpWorkerJson.encodeToString(config)
 
         try {
             val result = worker.doWork(input, WorkerEnvironment(null) { false })
@@ -149,7 +149,7 @@ class ParallelHttpDownloadWorkerTest {
             savePath = savePath.toString(),
             numChunks = 4
         )
-        val input = KmpWorkManagerRuntime.json.encodeToString(config)
+        val input = HttpWorkerJson.encodeToString(config)
 
         try {
             val result = worker.doWork(input, WorkerEnvironment(null) { false })
@@ -190,7 +190,7 @@ class ParallelHttpDownloadWorkerTest {
             savePath = savePath.toString(),
             numChunks = 4
         )
-        val input = KmpWorkManagerRuntime.json.encodeToString(config)
+        val input = HttpWorkerJson.encodeToString(config)
 
         try {
             val result = worker.doWork(input, WorkerEnvironment(null) { false })
@@ -241,7 +241,7 @@ class ParallelHttpDownloadWorkerTest {
             expectedChecksum = "deadbeef".repeat(8), // forces post-merge failure
             checksumAlgorithm = ChecksumAlgorithm.SHA256,
         )
-        val input = KmpWorkManagerRuntime.json.encodeToString(config)
+        val input = HttpWorkerJson.encodeToString(config)
 
         try {
             worker.doWork(input, WorkerEnvironment(null) { false })
@@ -288,7 +288,7 @@ class ParallelHttpDownloadWorkerTest {
             savePath = savePath.toString(),
             numChunks = 2,
         )
-        val input = KmpWorkManagerRuntime.json.encodeToString(config)
+        val input = HttpWorkerJson.encodeToString(config)
 
         try {
             val result = worker.doWork(input, WorkerEnvironment(null) { false })
@@ -324,7 +324,7 @@ class ParallelHttpDownloadWorkerTest {
             expectedChecksum = "deadbeef".repeat(8), // wrong digest
             checksumAlgorithm = ChecksumAlgorithm.SHA256
         )
-        val input = KmpWorkManagerRuntime.json.encodeToString(config)
+        val input = HttpWorkerJson.encodeToString(config)
 
         try {
             val result = worker.doWork(input, WorkerEnvironment(null) { false })

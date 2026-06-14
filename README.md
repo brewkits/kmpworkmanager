@@ -20,14 +20,18 @@
 ```kotlin
 // build.gradle.kts
 commonMain.dependencies {
-    implementation("dev.brewkits:kmpworkmanager:3.0.0")
+    implementation("dev.brewkits:kmpworkmanager:3.0.0")          // core engine (no Ktor)
+    // Optional — only if you use the built-in HTTP workers (Http*/ParallelHttp*).
+    implementation("dev.brewkits:kmpworkmanager-http:3.0.0")     // Ktor 3 HTTP workers
 }
 ```
 
-> **Ktor 3 required (since v3.0.0).** This release depends on **Ktor 3.1.x**. Because
-> Ktor 2 and Ktor 3 share the same Maven coordinates and are binary-incompatible, an app
-> still on Ktor 2 cannot mix them — Gradle will force a single version. If your project is
-> not yet on Ktor 3, **pin `dev.brewkits:kmpworkmanager:2.5.1`** until you migrate.
+> **Ktor 3 required only for `kmpworkmanager-http` (since v3.0.0).** The core artifact no
+> longer depends on Ktor at all. The HTTP workers live in `kmpworkmanager-http`, which needs
+> **Ktor 3.1.x**. Because Ktor 2 and Ktor 3 share the same Maven coordinates and are
+> binary-incompatible, an app still on Ktor 2 cannot mix them — if your project is not yet on
+> Ktor 3, **pin `dev.brewkits:kmpworkmanager:2.5.1`** until you migrate. See
+> [`docs/MIGRATION_V3.0.0.md`](docs/MIGRATION_V3.0.0.md).
 
 <details>
 <summary><b>Android setup</b></summary>
@@ -207,6 +211,10 @@ and no recovery mechanism for incomplete work. Getting it wrong means your tasks
 - **⚠️ Breaking — requires Ktor 3.** Ktor 2 and Ktor 3 share the same Maven coordinates
   and are binary-incompatible, so a single app classpath can hold only one of them. Apps
   still on Ktor 2 should **stay on `2.5.1`** until they migrate to Ktor 3.
+- **⚠️ Breaking — HTTP workers moved to `kmpworkmanager-http`.** The core artifact no
+  longer depends on Ktor. If you use the built-in `Http*` / `ParallelHttp*` workers, add
+  `implementation("dev.brewkits:kmpworkmanager-http:3.0.0")` and register
+  `HttpWorkerRegistry`. Worker names/config unchanged; see the migration guide.
 - **EOF handling fix** — Ktor 3 moved its IO layer to `kotlinx-io`, where
   `ByteReadChannel.readAvailable()` returns `-1` at end-of-stream (Ktor 2 returned `0`).
   The built-in `HttpDownloadWorker` / `ParallelHttpDownloadWorker` read loops now honor

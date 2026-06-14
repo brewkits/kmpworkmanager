@@ -1,6 +1,6 @@
 package dev.brewkits.kmpworkmanager.workers.builtins
 
-import dev.brewkits.kmpworkmanager.KmpWorkManagerRuntime
+import dev.brewkits.kmpworkmanager.workers.utils.HttpWorkerJson
 import dev.brewkits.kmpworkmanager.background.domain.*
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.utils.AppDispatchers
@@ -35,7 +35,7 @@ class HttpUploadWorker(
         if (input == null) return WorkerResult.Failure("Input is null")
 
         return try {
-            val config = KmpWorkManagerRuntime.json.decodeFromString<HttpUploadConfig>(input)
+            val config = HttpWorkerJson.decodeFromString<HttpUploadConfig>(input)
 
             if (!SecurityValidator.validateURL(config.url)) {
                 return WorkerResult.Failure("Invalid or unsafe URL")

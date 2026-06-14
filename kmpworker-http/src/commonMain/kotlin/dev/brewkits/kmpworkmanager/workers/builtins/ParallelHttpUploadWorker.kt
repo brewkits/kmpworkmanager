@@ -1,6 +1,6 @@
 package dev.brewkits.kmpworkmanager.workers.builtins
 
-import dev.brewkits.kmpworkmanager.KmpWorkManagerRuntime
+import dev.brewkits.kmpworkmanager.workers.utils.HttpWorkerJson
 import dev.brewkits.kmpworkmanager.background.domain.Worker
 import dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
 import dev.brewkits.kmpworkmanager.background.domain.WorkerProgress
@@ -69,7 +69,7 @@ class ParallelHttpUploadWorker(
         if (input == null) return WorkerResult.Failure("Input is null")
 
         val config = try {
-            KmpWorkManagerRuntime.json.decodeFromString<ParallelHttpUploadConfig>(input)
+            HttpWorkerJson.decodeFromString<ParallelHttpUploadConfig>(input)
         } catch (e: kotlinx.serialization.SerializationException) {
             return WorkerResult.Failure("Invalid ParallelHttpUploadConfig JSON: ${e.message}")
         } catch (e: IllegalArgumentException) {

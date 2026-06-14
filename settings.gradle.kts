@@ -33,6 +33,7 @@ dependencyResolutionManagement {
 }
 
 include(":kmpworker")
+include(":kmpworker-http")
 include(":kmpworker-annotations")
 include(":kmpworker-ksp")
 include(":composeApp")

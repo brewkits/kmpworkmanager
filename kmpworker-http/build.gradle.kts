@@ -17,11 +17,13 @@ kotlin {
         publishLibraryVariants("release")
     }
 
-    // Support Maven Central requirements
     withSourcesJar()
 
     jvmToolchain(17)
 
+    // iOS targets. NOTE: unlike :kmpworker this module does NOT declare a framework
+    // binary — built-in HTTP workers ship as a klib and are linked into the consumer's
+    // own framework (e.g. composeApp), so iOS apps never need to link two frameworks.
     listOf(
         iosX64(),
         iosArm64(),
@@ -29,10 +31,6 @@ kotlin {
     ).forEach { iosTarget ->
         iosTarget.binaries.all {
             freeCompilerArgs += listOf("-Xoverride-konan-properties=min_ios_version=15.0")
-        }
-        iosTarget.binaries.framework {
-            baseName = "KMPWorkManager"
-            isStatic = true
         }
     }
 
@@ -48,46 +46,41 @@ kotlin {
 
     sourceSets {
         androidMain.dependencies {
-            // AndroidX WorkManager for native background tasks
-            implementation(libs.androidx.work.runtime.ktx)
-            // Coroutines support for Guava ListenableFuture
-            implementation(libs.kotlinx.coroutines.guava)
-            // Koin for Android
-            implementation(libs.koin.android)
+            // Ktor Client - OkHttp engine for Android
+            implementation(libs.ktor.client.okhttp)
         }
 
         commonMain.dependencies {
-            // Koin for dependency injection
-            implementation(libs.koin.core)
-            // Kotlinx Datetime for handling dates and times
-            implementation(libs.kotlinx.datetime)
-            // Kotlinx Serialization for JSON processing
-            implementation(libs.kotlinx.serialization.json)
+            // Core engine + Worker contracts, configs, SecurityValidator (api: types are
+            // exposed on built-in worker constructors and return values).
+            api(project(":kmpworker"))
             // Kotlinx Coroutines
             implementation(libs.kotlinx.coroutines.core)
-            // Atomic operations (v2.3.7 fix)
+            // Kotlinx Serialization for JSON processing
+            implementation(libs.kotlinx.serialization.json)
+            // Atomic operations (parallel workers' progress/failure counters)
             implementation(libs.kotlinx.atomicfu)
-            // Okio for cross-platform file I/O (storage engine + FileCompressionWorker)
+            // Okio for cross-platform file I/O (upload/download streaming, checksums)
             implementation(libs.okio)
+            // Ktor Client for HTTP operations
+            implementation(libs.ktor.client.core)
+            implementation(libs.ktor.client.content.negotiation)
+            implementation(libs.ktor.serialization.kotlinx.json)
+            implementation(libs.ktor.client.encoding)
+            implementation(libs.ktor.client.logging)
+        }
+
+        iosMain.dependencies {
+            // Ktor Client - Darwin engine for iOS
+            implementation(libs.ktor.client.darwin)
         }
 
         commonTest.dependencies {
             implementation(libs.kotlin.test)
             implementation(libs.kotlinx.coroutines.test)
-            // Kotest for property-based testing (v2.3.2+)
+            implementation(libs.ktor.client.mock)
             implementation(libs.kotest.property)
             implementation(libs.kotest.framework.engine)
-        }
-
-        androidInstrumentedTest.dependencies {
-            implementation(libs.kotlin.test)
-            implementation(libs.kotlin.test.junit.common)
-            implementation(libs.androidx.test.core)
-            implementation(libs.androidx.test.runner)
-            implementation(libs.androidx.testExt.junit)
-            implementation(libs.androidx.work.runtime.ktx)
-            implementation(libs.androidx.work.testing)
-            implementation(libs.kotlinx.coroutines.test)
         }
 
         val androidUnitTest by getting {
@@ -96,21 +89,18 @@ kotlin {
                 implementation(libs.kotlinx.coroutines.test)
                 implementation(libs.androidx.test.core)
                 implementation(libs.robolectric)
-                implementation(libs.androidx.work.testing)
             }
         }
     }
 }
 
 android {
-    namespace = "dev.brewkits.kmpworkmanager"
+    namespace = "dev.brewkits.kmpworkmanager.http"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
 
     defaultConfig {
         minSdk = libs.versions.android.minSdk.get().toInt()
-
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        consumerProguardFiles("consumer-rules.pro")
     }
 
     compileOptions {
@@ -131,12 +121,12 @@ val mavenCentralJavadocJar by tasks.registering(Jar::class) {
 afterEvaluate {
     publishing {
         publications.withType<MavenPublication> {
-            artifactId = artifactId.replace("kmpworker", "kmpworkmanager")
+            artifactId = artifactId.replace("kmpworker-http", "kmpworkmanager-http")
             artifact(mavenCentralJavadocJar)
 
             pom {
-                name.set("KMP WorkManager")
-                description.set("Kotlin Multiplatform library for background task scheduling on Android and iOS.")
+                name.set("KMP WorkManager — HTTP Workers")
+                description.set("Ktor-based built-in HTTP workers for KMP WorkManager (download, upload, request, sync, parallel).")
                 url.set("https://github.com/brewkits/kmpworkmanager")
                 licenses {
                     license {
@@ -170,15 +160,10 @@ publishing {
     }
 }
 
-// Workaround for Gradle implicit dependency false-positive between sign and publish tasks
-// when using the signing plugin with KMP multi-target publications.
 tasks.withType<AbstractPublishToMaven>().configureEach {
     mustRunAfter(tasks.withType<Sign>())
 }
 
-// K/N test runner defaults to one worker per CPU core. Multiple workers emit test events
-// concurrently, triggering a ConcurrentModificationException in Gradle's non-thread-safe
-// TestOutputStore$Writer. SIMCTL_CHILD_ prefix passes the var into the simulator process.
 tasks.withType<org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeSimulatorTest>().configureEach {
     environment("SIMCTL_CHILD_KOTLIN_TEST_WORKERS", "1")
 }
