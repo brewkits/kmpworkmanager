@@ -5,7 +5,7 @@
 # KMP WorkManager
 
 [![Maven Central](https://img.shields.io/maven-central/v/dev.brewkits/kmpworkmanager?color=7C3AED&label=Maven%20Central)](https://central.sonatype.com/artifact/dev.brewkits/kmpworkmanager)
-[![Kotlin](https://img.shields.io/badge/Kotlin-2.1.0-7C3AED?logo=kotlin&logoColor=white)](https://kotlinlang.org)
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.1.21-7C3AED?logo=kotlin&logoColor=white)](https://kotlinlang.org)
 [![CI](https://github.com/brewkits/kmpworkmanager/actions/workflows/build.yml/badge.svg)](https://github.com/brewkits/kmpworkmanager/actions/workflows/build.yml)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue)](LICENSE)
 
