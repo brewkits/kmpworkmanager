@@ -34,10 +34,18 @@ updates:
           - "org.jetbrains.compose*"
           - "org.jetbrains.compose.*"
     ignore:
-      # Pin Kotlin to whatever the project sets in libs.versions.toml. Major
-      # Kotlin bumps require coordinated KGP / KSP / Compose updates and should
-      # be manual PRs, not Dependabot one-liners.
+      # Kotlin in a KMP project requires coordinated KGP / KSP / Compose-compiler
+      # bumps — even a MINOR Kotlin bump (e.g. 2.1 -> 2.4) can break the build.
+      # Keep these manual; ignore both major and minor (patch updates still flow).
       - dependency-name: "org.jetbrains.kotlin:*"
+        update-types: [ "version-update:semver-major", "version-update:semver-minor" ]
+      # KSP version is pinned to the Kotlin version (e.g. 2.1.21-2.0.1); a major
+      # KSP bump implies a Kotlin bump — handle alongside Kotlin, manually.
+      - dependency-name: "com.google.devtools.ksp:*"
+        update-types: [ "version-update:semver-major" ]
+      # Ktor majors are migrations, not one-liners (2 -> 3 was a whole release).
+      # Patch/minor still flow through the grouped PR for review.
+      - dependency-name: "io.ktor:*"
         update-types: [ "version-update:semver-major" ]
       # AGP majors break Gradle compatibility — handle manually.
       - dependency-name: "com.android.tools.build:gradle"
