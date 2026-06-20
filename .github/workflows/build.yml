@@ -139,7 +139,11 @@ jobs:
   # ───────────────────────────────────────────────────────────────────────────
   android-instrumented-tests:
     name: Android instrumented (API ${{ matrix.api-level }})
-    runs-on: macos-latest
+    # Ubuntu (x86_64) + KVM hardware acceleration. GitHub's macos-latest runners
+    # moved to Apple Silicon (aarch64), where an x86_64 AVD can't boot
+    # ("Avd's CPU Architecture 'x86_64' is not supported ... on aarch64 host").
+    # Linux x86_64 hosts run x86_64 system images natively and faster via KVM.
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
