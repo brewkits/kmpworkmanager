@@ -36,7 +36,7 @@ Could not find dev.brewkits:kmpworkmanager:2.3.2
 
 2. Check version number is correct:
    ```kotlin
-   implementation("dev.brewkits:kmpworkmanager:3.0.0") // Latest
+   implementation("dev.brewkits:kmpworkmanager:3.0.1") // Latest
    ```
 
 3. Clear Gradle cache:

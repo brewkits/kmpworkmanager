@@ -20,9 +20,9 @@
 ```kotlin
 // build.gradle.kts
 commonMain.dependencies {
-    implementation("dev.brewkits:kmpworkmanager:3.0.0")          // core engine (no Ktor)
+    implementation("dev.brewkits:kmpworkmanager:3.0.1")          // core engine (no Ktor)
     // Optional — only if you use the built-in HTTP workers (Http*/ParallelHttp*).
-    implementation("dev.brewkits:kmpworkmanager-http:3.0.0")     // Ktor 3 HTTP workers
+    implementation("dev.brewkits:kmpworkmanager-http:3.0.1")     // Ktor 3 HTTP workers
 }
 ```
 
@@ -428,8 +428,8 @@ Add to `build.gradle.kts`:
 plugins { id("com.google.devtools.ksp") }
 
 dependencies {
-    ksp("dev.brewkits:kmpworker-ksp:3.0.0")
-    commonMain.implementation("dev.brewkits:kmpworker-annotations:3.0.0")
+    ksp("dev.brewkits:kmpworker-ksp:3.0.1")
+    commonMain.implementation("dev.brewkits:kmpworker-annotations:3.0.1")
 }
 ```
 

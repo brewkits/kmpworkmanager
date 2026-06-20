@@ -120,6 +120,9 @@ android {
 
     testOptions {
         unitTests.isReturnDefaultValues = true
+        // Let Robolectric load merged Android resources (e.g. the worker notification
+        // strings used by KmpWorker.getForegroundInfo()) in JVM unit tests.
+        unitTests.isIncludeAndroidResources = true
     }
 }
 
