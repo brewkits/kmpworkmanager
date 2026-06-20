@@ -16,8 +16,10 @@ kotlin {
 
     targets.all {
         compilations.all {
-            compilerOptions.configure {
-                freeCompilerArgs.add("-Xexpect-actual-classes")
+            compileTaskProvider.configure {
+                compilerOptions {
+                    freeCompilerArgs.add("-Xexpect-actual-classes")
+                }
             }
         }
     }
@@ -85,11 +87,6 @@ kotlin {
             implementation(libs.kotlin.test)
         }
     }
-}
-
-composeCompiler {
-    // Enable strong skipping mode for runtime optimization
-    enableStrongSkippingMode.set(true)
 }
 
 android {
