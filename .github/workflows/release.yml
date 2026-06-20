@@ -79,6 +79,25 @@ jobs:
           echo "--- CHANGELOG preview (first 60 lines) ---"
           head -60 CHANGELOG.md
 
+      # ── 5b. Build the public release-notes body from this version's changelog ─
+      # The GitHub Release body must summarise what changed — NOT internal publish
+      # steps. We extract just the new version's section (git-cliff --latest) and
+      # append the install snippet.
+      - name: Build release notes
+        run: |
+          git-cliff --config cliff.toml --tag "${{ steps.version.outputs.tag }}" --latest --strip all > release_notes_body.md
+          {
+            echo ""
+            echo "## Install"
+            echo ""
+            echo '```kotlin'
+            echo 'implementation("dev.brewkits:kmpworkmanager:${{ steps.version.outputs.new }}")          // core engine (no Ktor)'
+            echo 'implementation("dev.brewkits:kmpworkmanager-http:${{ steps.version.outputs.new }}")     // optional — Ktor 3 HTTP workers'
+            echo '```'
+          } >> release_notes_body.md
+          echo "--- release notes body ---"
+          cat release_notes_body.md
+
       # ── 6. Commit + tag (skip on dry run) ────────────────────────────────────
       - name: Commit and tag
         if: ${{ inputs.dry_run == false }}
@@ -201,31 +220,33 @@ jobs:
           retention-days: 30
 
       # ── 10. Create GitHub Release with bundle attached (skip on dry run) ──────
-      #
-      # Maven Central upload is intentionally manual — release.yml only builds
-      # and signs the bundle. The maintainer uploads via the Central Portal UI
-      # so the release click stays a human decision.
+      # The public release body is this version's changelog (built in step 5b),
+      # NOT the internal Maven Central upload steps — those go to the run summary
+      # below, visible only to maintainers in the Actions UI.
       - name: Create GitHub Release
         if: ${{ inputs.dry_run == false }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: ${{ steps.version.outputs.tag }}
-          body: |
-            ## Upload to Maven Central (manual)
-
-            1. Download **`${{ steps.bundle.outputs.bundle_name }}`** from the assets below
-            2. Open https://central.sonatype.com/ → **Publish** → **Upload Bundle**
-            3. Upload the ZIP — validation takes ~1-2 minutes
-            4. Click **Publish** — available on Maven Central in ~15-30 minutes
-
-            ```kotlin
-            implementation("dev.brewkits:kmpworkmanager:${{ steps.version.outputs.new }}")
-            ```
-
-            ---
-            Bundle: `${{ steps.bundle.outputs.bundle_name }}`
-            Size: ${{ steps.bundle.outputs.bundle_size }} · Files: ${{ steps.bundle.outputs.total_files }} · Artifacts: ${{ steps.bundle.outputs.artifacts }} · Signatures: ${{ steps.bundle.outputs.signatures }} .asc
+          body_path: release_notes_body.md
           files: ${{ steps.bundle.outputs.bundle_path }}
           draft: false
           prerelease: false
+
+      # ── 11. Maven Central upload steps → run summary (maintainer-only) ────────
+      # Maven Central upload is intentionally manual — release.yml only builds and
+      # signs the bundle. These instructions are private (Actions run summary), so
+      # they never leak into the public release notes.
+      - name: Maven Central upload instructions (run summary)
+        if: ${{ inputs.dry_run == false }}
+        run: |
+          {
+            echo "## 📦 Maven Central upload (manual)"
+            echo ""
+            echo "1. Download **${{ steps.bundle.outputs.bundle_name }}** from the [release assets](${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ steps.version.outputs.tag }})"
+            echo "2. https://central.sonatype.com/ → **Publish** → **Upload Bundle** → upload the ZIP"
+            echo "3. Validation ~1-2 min → click **Publish** → live on Maven Central in ~15-30 min"
+            echo ""
+            echo "Bundle: \`${{ steps.bundle.outputs.bundle_name }}\` · ${{ steps.bundle.outputs.bundle_size }} · ${{ steps.bundle.outputs.artifacts }} artifacts × ${{ steps.bundle.outputs.signatures }} sigs"
+          } >> "$GITHUB_STEP_SUMMARY"
