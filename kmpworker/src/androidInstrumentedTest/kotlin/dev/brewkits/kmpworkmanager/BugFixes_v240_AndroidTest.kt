@@ -11,6 +11,7 @@ import androidx.work.WorkManager
 import dev.brewkits.kmpworkmanager.background.data.AlarmReceiver
 import dev.brewkits.kmpworkmanager.background.data.AlarmStore
 import dev.brewkits.kmpworkmanager.background.data.NativeTaskScheduler
+import dev.brewkits.kmpworkmanager.background.data.PendingIntentCodes
 import dev.brewkits.kmpworkmanager.background.domain.Constraints
 import dev.brewkits.kmpworkmanager.background.domain.ExistingPolicy
 import dev.brewkits.kmpworkmanager.background.domain.ScheduleResult
@@ -97,13 +98,17 @@ class BugFixes_v240_AndroidTest {
         val taskId = "crit1-pending-intent-test"
         val receiverClass = StubAlarmReceiver::class.java
 
-        // 1. Create a PendingIntent (simulate what scheduleExactAlarm does)
+        // 1. Create a PendingIntent (simulate what scheduleExactAlarm does).
+        // The request code MUST match production's scheme (PendingIntentCodes.forTaskId,
+        // a CRC32 of the id) — using taskId.hashCode() here would create a PendingIntent
+        // under a different request code than cancel() looks up, so cancel would no-op.
+        val requestCode = PendingIntentCodes.forTaskId(taskId)
         val intent = Intent(context, receiverClass).apply {
             putExtra(AlarmReceiver.EXTRA_TASK_ID, taskId)
             putExtra(AlarmReceiver.EXTRA_WORKER_CLASS, "TestWorker")
         }
         val pi = PendingIntent.getBroadcast(
-            context, taskId.hashCode(), intent,
+            context, requestCode, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         alarmManager.setExactAndAllowWhileIdle(
@@ -114,7 +119,7 @@ class BugFixes_v240_AndroidTest {
 
         // Verify PendingIntent was created
         val existsBefore = PendingIntent.getBroadcast(
-            context, taskId.hashCode(), intent,
+            context, requestCode, intent,
             PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
         )
         assertTrue("PendingIntent must exist before cancel", existsBefore != null)
@@ -127,7 +132,7 @@ class BugFixes_v240_AndroidTest {
 
         // 3. Assert PendingIntent was cancelled (FLAG_NO_CREATE returns null if not found)
         val existsAfter = PendingIntent.getBroadcast(
-            context, taskId.hashCode(), intent,
+            context, requestCode, intent,
             PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
         )
         assertNull("PendingIntent must be null after cancel() — CRIT-1 fix", existsAfter)
@@ -280,6 +285,10 @@ class BugFixes_v240_AndroidTest {
         freshFile.createNewFile()
 
         try {
+            // cleanupZombieInputFiles no-ops after the first call per process (guarded by a
+            // static AtomicBoolean). Runtime init / earlier tests may already have consumed it,
+            // so reset before invoking or the sweep silently does nothing.
+            NativeTaskScheduler.resetCleanupStartedForTesting()
             NativeTaskScheduler.cleanupZombieInputFiles(context)
             Thread.sleep(500L) // Give coroutine time to run
 
@@ -299,6 +308,7 @@ class BugFixes_v240_AndroidTest {
         unrelatedOldFile.setLastModified(System.currentTimeMillis() - 48 * 60 * 60 * 1000L)
 
         try {
+            NativeTaskScheduler.resetCleanupStartedForTesting()
             NativeTaskScheduler.cleanupZombieInputFiles(context)
             Thread.sleep(500L)
             assertTrue("Unrelated files must not be deleted by zombie cleanup",
