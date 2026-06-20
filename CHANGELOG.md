@@ -5,1783 +5,252 @@ All notable changes to KMP WorkManager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.0.0] - 2026-06-12
-
-Ktor 3 support (Issue #33).
-
-### Changed (BREAKING)
-- **Upgraded Ktor `2.3.12` → `3.1.1`.** The HTTP built-in workers now require **Ktor 3**.
-  Ktor 2 and Ktor 3 publish under the same Maven coordinates (`io.ktor:ktor-client-*`)
-  and are binary-incompatible, so Gradle resolves a single version across the classpath.
-  Consumers still on Ktor 2 are effectively forced onto Ktor 3 when upgrading and should
-  instead **pin `2.5.1`** until they migrate. See
-  [`docs/MIGRATION_V3.0.0.md`](docs/MIGRATION_V3.0.0.md).
-- **HTTP workers extracted into a new `dev.brewkits:kmpworkmanager-http` artifact.** The
-  core `kmpworkmanager` module no longer depends on Ktor at all — the engine carries no
-  third-party HTTP dependency. The six Ktor-based workers (`HttpRequestWorker`,
-  `HttpSyncWorker`, `HttpDownloadWorker`, `HttpUploadWorker`, `ParallelHttpDownloadWorker`,
-  `ParallelHttpUploadWorker`) plus `HttpClientProvider` now ship in `kmpworkmanager-http`,
-  registered via the new `HttpWorkerRegistry`. `BuiltinWorkerRegistry` (core) now exposes
-  only the non-HTTP built-ins (`FileCompressionWorker`). **Consumers using built-in HTTP
-  workers must add `implementation("dev.brewkits:kmpworkmanager-http:3.0.0")` and register
-  `HttpWorkerRegistry`** (e.g. via `CompositeWorkerFactory`). Worker class names / config
-  packages are unchanged, so stored task IDs and JSON keep working. See
-  [`docs/MIGRATION_V3.0.0.md`](docs/MIGRATION_V3.0.0.md).
+## [3.0.1] - 2026-06-20
 
 ### Fixed
-- **HTTP download EOF handling** — Ktor 3 moved its IO layer to `kotlinx-io`, where
-  `ByteReadChannel.readAvailable()` returns `-1` at end-of-stream (Ktor 2 returned `0`).
-  `HttpDownloadWorker` and `ParallelHttpDownloadWorker` (parallel-range + sequential
-  paths) now break on `-1`, preventing a potential spin / stale-buffer read at EOF.
-  Locked in by `Ktor3Test`.
+
+- Document KmpWorker expedited crash fix on API <31 (v3.0.1) (#60) ([`94bd6fc`](https://github.com/brewkits/kmpworkmanager/commit/94bd6fc77508bf7001166a42bb4e1f498a2f98aa))
+- Checksum verify should allow extra checksums (#61) ([`809e5c7`](https://github.com/brewkits/kmpworkmanager/commit/809e5c728e6cea2587bc5202838bd38ce6799ea9))
+
+### Tests
+
+- CI-level getForegroundInfo guard + bump install docs to 3.0.1 (#62) ([`a3bfe09`](https://github.com/brewkits/kmpworkmanager/commit/a3bfe09f0c3e867a58941b907044391a75eb23c2))
+
+## [3.0.0] - 2026-06-14
+
+### Added
+
+- Ktor 3 support — release 3.0.0 (closes #33) (#34) ([`74a4009`](https://github.com/brewkits/kmpworkmanager/commit/74a40096f57940e41761041430ae1c0cf86a54f6))
+- Real network reachability via NWPathMonitor (closes #40) (#41) ([`cb19179`](https://github.com/brewkits/kmpworkmanager/commit/cb191796efe3cdae70c35c47021ee1bdb2bce017))
+
+### Changed
+
+- Extract Ktor HTTP workers into kmpworkmanager-http (v3.0.0) (#44) ([`d80fa33`](https://github.com/brewkits/kmpworkmanager/commit/d80fa3384904f05cc3779015522ff1ba78022a8e))
+
+### Documentation
+
+- Fix iOS dispatcher setup — master + chain executor handlers (refs #32) ([`3a549fd`](https://github.com/brewkits/kmpworkmanager/commit/3a549fde68a30488c64c32b455d60ccd371fb1fa))
+- Refresh logo palette to indigo→violet→pink + soft amber bolt ([`bffb1bb`](https://github.com/brewkits/kmpworkmanager/commit/bffb1bbb5a084d35d30f270c9217ccfca767f48d))
+
+### Fixed
+
+- Repair Common+KSP job and iOS 18 Xcode pin (#36) ([`f6e337d`](https://github.com/brewkits/kmpworkmanager/commit/f6e337da452c214818a0c903032230c09bafc281))
+- Stop init job clobbering queue-size counter (data race) (#37) ([`afd5873`](https://github.com/brewkits/kmpworkmanager/commit/afd5873bc6855ca4ddfdd8c11a3162953a87f70c))
+- Remove eager queue-counter init that double-counted (flaky tests) (#38) ([`2e067f0`](https://github.com/brewkits/kmpworkmanager/commit/2e067f0e8c3702b3e1c299496c5a601fa5598345))
+- Don't auto-launch maintenance job in test env (flaky crash) (#43) ([`3b07c85`](https://github.com/brewkits/kmpworkmanager/commit/3b07c856341f222841c8010526a94448f789b117))
 
 ## [2.5.1] - 2026-05-20
 
-### Fixed
-- **Docs**: Fixed incorrect API examples across documentation that caused compilation errors (Issue #32).
-  - Corrected `@Worker(name = ...)` annotation usage (was incorrectly shown as `@KmpWorker`) in README and Quickstart.
-  - Updated Koin initialization snippets to remove deprecated `startKoin { kmpWorkerModule() }` pattern on Android.
-  - Replaced outdated `CoroutineWorker` worker implementation guide in `docs/platform-setup.md` (Section 6) with current `AndroidWorker + @Worker` pattern.
-  - Fixed misleading `WorkerResult.Failure(...) // Retry with backoff` in `docs/examples.md` — use `WorkerResult.Retry(...)` for retry intent.
-  - Corrected iOS Koin init call from non-existent `KoinIOSKt.doInitKoinIos()` to actual `KoinInitializerKt.doInitKoin(platformModule: IOSModuleKt.iosModule)`.
+### Documentation
 
-## [2.5.0] - 2026-05-16
+- Fix Worker API examples and KSP annotation usage (fixes #32) ([`83bb97c`](https://github.com/brewkits/kmpworkmanager/commit/83bb97ce7d9772da084f762931e1026e4172feef))
+- Fix remaining API inconsistencies in platform-setup and examples ([`7ba3c45`](https://github.com/brewkits/kmpworkmanager/commit/7ba3c45bdafcff9b1c3f47c54cc536f6affb8af5))
 
-Production-hardening release driven by a camera-app architecture review.
-See [`docs/release-notes/v2.5.0-RELEASE-NOTES.md`](docs/release-notes/v2.5.0-RELEASE-NOTES.md)
-for the full breakdown and [`docs/MIGRATION_V2.5.0.md`](docs/MIGRATION_V2.5.0.md)
-for upgrade notes from v2.4.x.
-
-### Added
-- **`ParallelHttpDownloadWorker`** — splits one file into N HTTP `Range` chunks
-  (1..16, default 4) with per-chunk `.partN` resume. Sequential fallback when
-  the server lacks `Accept-Ranges: bytes`.
-- **`ParallelHttpUploadWorker`** — one POST per file under a `Semaphore`-bounded
-  concurrency cap (1..16, default 3) with per-file retry on 5xx / network
-  errors only (`maxRetries` 0..5, default 1; 4xx never retried).
-- **Checksum verification** on `HttpDownloadConfig` — `expectedChecksum` +
-  `ChecksumAlgorithm` (MD5 / SHA-1 / SHA-256 / SHA-512) via Okio's
-  `HashingSource`. Mismatch deletes the partial file and Fails.
-- **`DuplicatePolicy`** on `HttpDownloadConfig` — `OVERWRITE` (default,
-  preserves pre-v2.5 behaviour), `SKIP` (return Success without network),
-  `RENAME` (append `_1`, `_2`, … to the stem, bounded at 10 000 probes).
-- **`IosBackgroundDownloadWorker`** + `IosBackgroundUrlSessionManager` —
-  downloads survive full app termination via `URLSessionConfiguration.background`.
-- **`WorkerResult.Retry(reason, delayMs, attemptCap)`** — explicit retry signal.
-  Android maps to `Result.retry()` with attempt-cap ceiling via
-  `runAttemptCount`; iOS `ChainExecutor` honors `delayMs` (re-arms
-  `BGProcessingTaskRequest`) and `attemptCap` (abandons step on reach).
-- **`ChainProgress.stepRetryCounts`** — per-step attempt counter on iOS,
-  independent from chain-level `retryCount`.
-- **Configurable Android FGS type** — `KmpHeavyWorker.foregroundServiceType` is
-  overrideable. Companion aliases (`FGS_DATA_SYNC`, `FGS_MEDIA_PROCESSING` for
-  Android 15+, `FGS_CAMERA`, `FGS_LOCATION`, …).
-- **`BackgroundDownloadStateStore`** (internal) — atomic JSON-backed map of
-  in-flight `URLSession` downloads keyed by `(sessionIdentifier, taskIdentifier)`.
-- **File-size queue compaction trigger** — `AppendOnlyQueue` compacts when the
-  queue file exceeds 5 MB with ≥ 20 % processed.
-- **CI matrix** — Android API 28/30/33/35, iOS 16/17/18, Robolectric on Ubuntu,
-  KSP processor tests isolated.
-- **CodeQL** (`java-kotlin`) on every PR + weekly schedule.
-- **Dependabot grouping** — `kotlin-toolchain`, `ktor`, `coroutines`,
-  `androidx`, `compose`.
-- **Maven Central bundle** — `generateFullMavenZip` produces a signed bundle
-  ready for manual upload via the Sonatype Central Portal UI.
-
-### Fixed (P0/P1, found in QA review fourth pass)
-- **iOS — `AppendOnlyQueue.compactQueue` OOM under large queues** (P0). Pre-fix
-  loaded all unprocessed records into a `mutableListOf<String>()` before writing
-  the compacted file. With `MAX_QUEUE_SIZE = 10 000` and typical 1–4 KB JSON
-  payloads, peak RAM could hit 10–40 MB — above the iOS background task budget
-  (Watchdog kills with `EXC_RESOURCE / RESOURCE_TYPE_MEMORY` at ~30 MB on older
-  devices), breaking the O(1) RAM contract documented for the queue. v2.5 ships
-  a `streamCompactionToFile` helper that reads → writes one record at a time;
-  peak RAM is bounded by the largest single record.
-- **iOS — `AppendOnlyQueue` compaction ran on `Dispatchers.Default`** (P1). The
-  CPU-bounded `Default` dispatcher was used to run blocking file I/O
-  (`NSFileHandle`, `NSFileManager.replaceItemAtURL`). On a saturated thread pool
-  this starved other coroutines using `Default`. v2.5 switches `compactionScope`
-  to `IosDispatchers.IO` (GCD global queue, unbounded worker spawn), matching
-  every other blocking-I/O path in the module.
-- **Android — `cancel(id)` orphaned the overflow `kmp_input_*.json` file** (P1).
-  Pre-fix the file lived in `cacheDir` until the 24 h `cleanupStaleAlarms`
-  sweep ran. Apps that schedule + cancel many large-input tasks (camera draft
-  save → cancel cycle) accumulated megabytes of orphaned files. v2.5 introduces
-  `OverflowFileRegistry`: a small `SharedPreferences`-backed `taskId → path`
-  map populated on schedule, consumed + file-deleted on cancel. Coverage:
-  `OverflowFileRegistryTest` (6 tests including a 100-cycle leak-check).
-
-### Fixed (16 P0/P1/P2 bugs, found across 4 pre-publish audit passes)
-
-Late-cycle proactive review on the cancellation × lock-order × retry-contract ×
-data-integrity axes. Each fix is pinned by a `V250…Test.kt` regression test
-that was verified to fail under a temporary revert of its production change.
-Full table in [release notes](docs/release-notes/v2.5.0-RELEASE-NOTES.md) +
-migration guidance for breaking-by-contract changes in
-[`docs/MIGRATION_V2.5.0.md`](docs/MIGRATION_V2.5.0.md) §5–§12.
-
-**P0 — data loss / crash**
-- `BaseKmpWorker` deleted overflow input file on `CancellationException` →
-  WorkManager rerun lost user payload. `wasCancelled` flag was set but never
-  read by the delete guard.
-- iOS `DynamicTaskDispatcher` + `IosBackgroundTaskHandler.handleSingleTask`
-  silently dropped `WorkerResult.Retry` / `Failure(shouldRetry=true)` →
-  background work vanished on flaky-network failures. Both code paths now
-  re-enqueue/re-submit with bounded attempt counter (`kmpAttemptCount`,
-  default cap 5).
-- `IosFileStorage.replaceChainAtomic` bypassed `enqueueMutex` → concurrent
-  `enqueueChain` could race through the size check, exceeding
-  `MAX_QUEUE_SIZE`. Now acquires `enqueueMutex` inside `queueMutex` per the
-  documented lock order.
-- `AppendOnlyQueue.migrateFromTextToBinary` loaded the entire legacy file via
-  `NSString.stringWithContentsOfFile` + `split("\n")` → 3× RAM spike →
-  EXC_RESOURCE silent kill → user permanently stuck on pre-v2.5 version.
-  Streams line-by-line via `NSFileHandle` now.
-- Built-in workers (`HttpUploadWorker`, `HttpSyncWorker`,
-  `FileCompressionWorker`, `ParallelHttpUploadWorker`) caught generic
-  `Exception` and returned `Failure()` without `shouldRetry=true`. Combined
-  with the chain-abandonment-on-permanent-failure semantic, a single
-  transient network blip would abandon any chain. Now explicit
-  `shouldRetry=true`.
-
-**P1 — correctness / silent state corruption**
-- iOS `NSFileCoordinator` bypassed the lock on timeout → App↔Extension
-  interleaved writes corrupted `queue.jsonl` (CRC32 mismatch → silent record
-  loss). Now throws `FileCoordinationTimeoutException` to force a retry.
-- `ChainExecutor.executeChain` + `executeTask` inner `catch
-  (TimeoutCancellationException)` mis-attributed outer-scope cancellations
-  as chain/task-level timeouts AND swallowed them. Now disambiguate by
-  elapsed-vs-budget and rethrow if outer-caused.
-- `ChainExecutor` used wall-clock for elapsed-time math → NTP sync during
-  execution would corrupt the disambiguation and the adaptive-budget
-  feedback. Now uses `kotlin.time.TimeSource.Monotonic`; public timestamps
-  (telemetry, history) remain wall-clock.
-- `StorageMigration.migrate` catch-all swallowed `CancellationException`,
-  breaking structured concurrency on shutdown-during-init.
-
-**P2 — quota waste / API contract**
-- iOS `DynamicTaskDispatcher.requestShutdownSync` cancelled an unused
-  `SupervisorJob` — the cancel never reached the in-flight worker. Now
-  captures parent `Job` via `AtomicReference` on entry to `executePendingTasks`.
-- `ChainExecutor.executeStep` dropped `Failure.shouldRetry` flag → workers
-  returning `Failure(shouldRetry=false)` still consumed the chain-level
-  retry budget. Now abandons immediately on permanent failure. Surfaced a
-  latent `deleteChainProgress` buffer-eviction bug — also fixed.
-- iOS battery guard toggled `UIDevice.isBatteryMonitoringEnabled` non-
-  atomically + from non-main-thread, racing with the host app's battery UI.
-  Now read-only; opt-in via host's `UIDevice.current.isBatteryMonitoringEnabled
-  = true`. Same fix applied to `IosWorkerDiagnostics.getSystemHealth`.
-
-**BAD — code smell / future risk**
-- `BaseKmpWorker` classified NPE / IllegalArgumentException /
-  NumberFormatException as permanent → workers dropped on transient
-  null/empty server responses from third-party SDKs. Narrowed the
-  permanent list to truly-programming-error types only.
-- `IosFileStorage.close()` wrapped flushNow + cancel + join in a single
-  try/catch → if flushNow threw, cancel + join were skipped → coroutine
-  leak. Moved cancel + join to `finally`.
-
-### Hardening (DX & docs, found in QA review third pass)
-- **Android — `KmpHeavyWorker.doWork` guards `setForeground()`** against
-  `SecurityException` / `ForegroundServiceStartNotAllowedException` /
-  `ForegroundServiceTypeException`. Pre-fix, a manifest/runtime FGS-type mismatch
-  crashed the worker with an opaque WorkManager stack trace. Now logs an
-  actionable diagnostic pointing to `docs/ANDROID_FGS_GUIDE.md` and returns
-  `Result.failure()`.
-- **iOS — test-environment detection centralised** in `IosTestEnvironment` (was
-  duplicated across `IosFileCoordinator`, `IosFileStorage`, `NativeTaskScheduler`
-  with the fragile `processName.endsWith("test.kexe")` heuristic). New detector
-  layers `XCTestConfigurationFilePath` / `XCInjectBundleInto` env-var signals on
-  top of the suffix check; `KMPWORKMANAGER_TEST_MODE=1` remains the explicit
-  override. A future Kotlin/Native binary-naming change no longer silently
-  breaks test-mode short-circuits.
-- **iOS — Simulator fallback** in `NativeTaskScheduler` now logs a prominent
-  warning at every fallback invocation explaining that `delay()`-based simulation
-  freezes when the app is backgrounded and is **not** representative of
-  production `BGTaskScheduler` semantics. Closes the "false sense of security"
-  trap where developers test on simulator and ship to production without
-  validating wall-clock scheduling behaviour.
-- **iOS — `checkAndExecuteMissedExactAlarms` KDoc** now leads with an
-  all-caps warning that iOS exact alarms are **not guaranteed to execute** when
-  the user never opens the app. Spells out the do-NOT-use-for list (alarm
-  clocks, medication reminders, trading triggers, time-locked unlock).
-  Companion section added to `docs/IOS_BGTASK_LIMITS.md` §5.
-
-### Fixed (P0/P1, found in QA double-check pre-publish)
-- **iOS — `AppendOnlyQueue` CRC corruption wiped entire queue**. The validator
-  set a precise `corruptionOffset` but `dequeue`'s null-handling overwrote it
-  to `0UL`, forcing a full reset on the next dequeue. Pending tasks ahead of
-  the corrupt record were lost. v2.5 keeps the precise offset; truncate now
-  preserves all valid records before the corruption point.
-- **iOS — `BackgroundDownloadStateStore.getSync` cache race**. A concurrent
-  `put`/`remove` between the volatile-null-check and the write-back could be
-  silently clobbered by a stale disk snapshot — re-introducing the cold-launch
-  orphan bug v2.5 was supposed to fix. v2.5 uses compare-and-set publish
-  semantics.
-- **iOS — `ChainExecutor` clobbered host battery monitoring state**. The chain
-  executor unconditionally toggled `UIDevice.batteryMonitoringEnabled = true; …; = false`,
-  breaking any host app that had it set. v2.5 captures the prior state and
-  restores it.
-- **`ParallelHttpDownloadWorker` retry storm**. Merge-failure catch kept
-  `.partN` files; on retry the worker skipped downloads (parts match expected
-  sizes) and the merge failed again with the same error → infinite loop. v2.5
-  purges all parts on merge failure (retry re-downloads from scratch) and
-  caps the outer Retry at `attemptCap = 4`.
+## [2.5.0] - 2026-05-18
 
 ### Fixed
-- **iOS — `IosBackgroundUrlSessionManager` cold-launch orphan** (P0). Before
-  v2.5.0 the manager kept `savePaths` / `taskNames` only in process memory.
-  iOS app-kill + cold-launch wiped them; the completion delegate had no
-  `savePath` and orphaned the downloaded file in `NSTemporaryDirectory`.
-  v2.5.0 persists state to disk via `BackgroundDownloadStateStore` before
-  `task.resume()`. Adversarial coverage in `BackgroundDownloadStateStoreTest`.
-- **iOS — `FileCompressionWorker` silent copy** (correctness). Pre-v2.5 the
-  worker silently `copyItemAtPath`'d the file (no ZIP codec on Kotlin/Native)
-  and reported Success. v2.5 fails fast by default; opt in via
-  `FileCompressionConfig.allowIosUncompressedFallback = true`.
-- **Android — `PendingIntent` request-code collisions**. Alarm codes used
-  `String.hashCode()` which collides on UUID-style IDs (`"Aa".hashCode() ==
-  "BB".hashCode() == 2112`). v2.5 uses `PendingIntentCodes.forTaskId()` (CRC32).
-  Adversarial proof in `PendingIntentCodesAdversarialTest`.
-- **Android — `BaseAlarmReceiver` lifecycle leak**.
-  `CoroutineScope(Dispatchers.IO).launch{}` in `onReceive` could outlive the
-  receiver's ~10 s budget. v2.5 uses `SupervisorJob` + `withTimeout(workTimeoutMs)`
-  (default 8 s) + `scope.cancel()` in `finally`. Coverage:
-  `BaseAlarmReceiverLifecycleTest`.
-- **SSRF blocklist** — RFC 6598 CGNAT `100.64.0.0/10` and `0.0.0.0/8` now blocked.
 
-### Changed
-- **`HttpDownloadWorker`** — 5xx responses now return
-  `WorkerResult.Retry(delayMs = 30_000)` (was `Failure(shouldRetry = true)`).
-  Resumable downloads via `<savePath>.partial` + HTTP `Range`.
-- **`KmpHeavyWorker`** is now `open` so subclasses can override
-  `foregroundServiceType`. Type API range extended from API 31+ to API 29+
-  (Q) — `ForegroundInfo`'s type-aware constructor has always existed on Q.
+- Throw on directory creation failure and skip flaky CI stress test ([`6105189`](https://github.com/brewkits/kmpworkmanager/commit/61051896ff6dc831750c5824b0cda2940a5c3cc2))
+- Skip file protection on queue directories in test mode ([`5284c97`](https://github.com/brewkits/kmpworkmanager/commit/5284c9739ea3ebbd71c66b03c7fc2ab388a20694))
+- Correct artifactId replacement and checksum generation timing ([`abb8486`](https://github.com/brewkits/kmpworkmanager/commit/abb848634e0b8fc96dc3c011666fd8f9fc0f5a98))
+- Use non-atomic write in test mode to avoid CI failures ([`8f8ee52`](https://github.com/brewkits/kmpworkmanager/commit/8f8ee528df282d6ce82d451d999e53db6f8a14e9))
+- 16 P0/P1/P2 bugs from 4 audit passes (v2.5.0 production hardening) ([`c3c6054`](https://github.com/brewkits/kmpworkmanager/commit/c3c6054bc0c91b39305fe91919788b31cd5d343b))
 
-### Docs
-- `docs/ANDROID_FGS_GUIDE.md` — manifest snippets per FGS type, Android 15
-  6-hour `dataSync` cap.
-- `docs/IOS_BGTASK_LIMITS.md` — opportunistic scheduling, time budget,
-  headless DI cold-start, ZIP codec gap.
-- `docs/IOS_BACKGROUND_URL_SESSION.md` — AppDelegate wiring + cold-launch
-  survival explainer.
-- `docs/APPLE_APP_STORE_REVIEW_GUIDELINES.md` — §2.5.4 compliance for dynamic
-  task dispatch.
-- `docs/MIGRATION_V2.5.0.md` — upgrade guide from v2.4.x.
+## [2.4.3] - 2026-05-01
 
-## [2.4.3] - 2026-04-30
+### Documentation
 
-### Highlights
-- Detailed release notes: [`docs/release-notes/v2.4.3-RELEASE-NOTES.md`](docs/release-notes/v2.4.3-RELEASE-NOTES.md)
+- Update v2.4.3 release notes with actual bug fixes and infrastructure changes ([`72e21da`](https://github.com/brewkits/kmpworkmanager/commit/72e21dacd16429e0864d34637e688d3dcf760c34))
 
 ### Fixed
-- Internal improvements and documentation updates.
+
+- Prevent hardcoded isTestMode and apply missing CI/CD maven config ([`999dd8a`](https://github.com/brewkits/kmpworkmanager/commit/999dd8a13a9707d0f0a53f0aabaf29ce880d418a))
+- Apply 12 security and stability fixes, upgrade to Kotlin 2.1.21 ([`8323fbb`](https://github.com/brewkits/kmpworkmanager/commit/8323fbbe427dd1e8dc117d9159610d97797512e9))
+- Eliminate shared-field race in concurrent test execution ([`b8f3cd3`](https://github.com/brewkits/kmpworkmanager/commit/b8f3cd3954e5a2deb38e806281ba3cc3e26216c6))
+- Serialize K/N test workers to prevent Gradle XML writer race ([`341db77`](https://github.com/brewkits/kmpworkmanager/commit/341db77493ea12f9dfe41a98e15307a08b4574a9))
+- Prevent coroutine leak in NativeTaskScheduler causing CI crashes on iOS ([`1f20e3c`](https://github.com/brewkits/kmpworkmanager/commit/1f20e3c9e33a43131e28c18014f4118062cb0318))
+
+### Tests
+
+- Add comprehensive test cases for v2.4.3 improvements ([`99cf5d7`](https://github.com/brewkits/kmpworkmanager/commit/99cf5d7840a88c068854498f5990afdf69271ff8))
 
 ## [2.4.2] - 2026-04-28
 
 ### Fixed
-- **iOS: Periodic Task Loop (Simulator)**: Fixed an infinite loop in the iOS Simulator fallback where periodic tasks would reschedule and execute immediately without delay. Resolved by switching to `ExistingPolicy.KEEP` and `runImmediately = false` during internal reschedules.
-- **iOS**: Fixed critical race condition in `IosFileCoordinator` where background blocks could execute late after a timeout, causing potential crashes or duplicate executions.
-- **iOS**: Fixed regression in periodic task scheduling where drift correction was missing due to inconsistent interval calculation.
-- **iOS**: Resolved migration deadlock where `enqueue()` could wait indefinitely for a stalled background task.
-- **iOS**: Fixed `NoSuchElementException` in `ExecutionHistoryStore` when requesting 0 records.
-- **Common**: Fixed logic bug in stress tests where "concurrent" operations were actually running sequentially.
-- **Android: Periodic task immediate execution**: Fixed a regression where `runImmediately = true` still resulted in a delay of at least half the interval. This was caused by the default `flexMs` value introduced in v2.4.1.
-- **iOS: Periodic task immediate execution (REPLACE policy)**: Fixed a bug where using `ExistingPolicy.REPLACE` with a periodic task incorrectly applied drift-correction delay instead of executing immediately.
-- **iOS: Periodic task migration (Version Upgrade)**: Fixed a regression where upgrading from v2.4.0 (or below) to v2.4.1 caused all existing periodic tasks to wait for one full interval before their first run due to missing "anchor" metadata.
 
-## [2.4.1] - 2026-04-23
+- Resolve duplicate AlarmReceiver class and improve iOS stress test robustness ([`eb286da`](https://github.com/brewkits/kmpworkmanager/commit/eb286da5d97bb2fce88530af568387e61e06a79c))
+- Resolve D8 duplicate class error and stabilize iOS stress test ([`9d76599`](https://github.com/brewkits/kmpworkmanager/commit/9d765991dfe730021be112003d1fd1f7d1b4c95e))
+- Finalize DemoAlarmReceiver package and ignore flaky iOS stress test ([`f76910a`](https://github.com/brewkits/kmpworkmanager/commit/f76910af61038f0c31dfea512b9bb6ee78f56ac5))
+- Restore periodic task immediate execution and bump to v2.4.2 ([`ec68958`](https://github.com/brewkits/kmpworkmanager/commit/ec68958d50da777fc6c10adaed213df5648ee8a8))
+- Resolve periodic task regression and related memory leaks ([`cdf5505`](https://github.com/brewkits/kmpworkmanager/commit/cdf5505a0454bf86c2b6fcde4786e40d2a7c5c23))
+
+### Tests
+
+- Fix flaky tests and CI hangs by isolating storage paths ([`9a1f04a`](https://github.com/brewkits/kmpworkmanager/commit/9a1f04a05669143f5d4f106898502af05f71a5c1))
+
+## [2.4.1] - 2026-04-24
 
 ### Added
 
-- **iOS Internal Dispatcher Queue**: Tasks whose IDs are not pre-registered in `Info.plist` are now automatically routed through a single static `kmp_master_dispatcher_task` using an internal `AppendOnlyQueue`. This removes the hard requirement for every task ID to appear in `Info.plist` — only the master dispatcher ID needs to be declared. Dynamic task IDs (e.g. feature-flag-gated tasks, per-user task IDs) are now fully supported on iOS without plist changes.
-  - `DynamicTaskDispatcher` drains the queue under the master dispatcher BGTask with a proactive 3-minute budget guard. Periodic dynamic tasks re-enqueue themselves after execution.
-  - `submitTaskRequest()` checks `BGTaskScheduler.getPendingTaskRequestsWithCompletionHandler` before submitting the master dispatcher — only reschedules if the proposed date is earlier than any already-pending request, preventing accidental delay of queued tasks.
-- **`runImmediately` flag on `TaskTrigger.Periodic`**: Controls whether a periodic task runs immediately on first schedule.
-  - `runImmediately = false` (with `initialDelayMs = 0`) defers the first run by one full interval — eliminates the previous workaround of setting `initialDelayMs = intervalMs`.
-  - Setting both `runImmediately = false` and `initialDelayMs > 0` throws `IllegalArgumentException` at construction time (they are mutually exclusive).
-  - Applied on both Android (`PeriodicWorkRequest.setInitialDelay()`) and iOS (`earliestBeginDate`).
-- **`initialDelayMs` on `TaskTrigger.Periodic`**: Explicit first-run delay independent of `runImmediately`.
-- **Swift interop helpers**: `createTaskTriggerPeriodicSeconds()` and `createTaskTriggerOneTimeSeconds()` in `TaskTriggerHelper.kt` accept `Double` (seconds) instead of `Long` (milliseconds), making the API feel native to Swift callers.
-- **Drift-corrected periodic rescheduling (iOS)**: `anchoredStartMs` is saved on the first schedule and preserved across re-schedules. Subsequent fires use `ceil(elapsed / interval) * interval + anchor` to prevent drift accumulation. Delay is clamped between 60 s (OS stability) and `intervalMs` (protects against backward system-clock jumps).
-- **Migration deadlock guard**: `enqueue()` and `enqueueChain()` on iOS now wrap `migrationComplete.await()` in `withTimeout(5_000L)`. A hung migration returns `REJECTED_OS_POLICY` instead of blocking the BGTask budget indefinitely.
-- **Low Power Mode rejection (iOS)**: `submitTaskRequest()` now checks `NSProcessInfo.processInfo.isLowPowerModeEnabled` and returns `REJECTED_OS_POLICY` immediately, surfacing the silent OS discard as an explicit, loggable result.
-- **Android flex window clamping**: `effectiveFlexMs` is now `(trigger.flexMs ?: intervalMs/2).coerceAtLeast(5 min).coerceAtMost(intervalMs)`. Prevents the `IllegalArgumentException` WorkManager throws when `flexMs < 5 min`, and the semantic error when `flexMs > intervalMs`.
-- **`listTaskIds()` streaming refactor (iOS)**: Return type changed from `List<String>` to `Sequence<String>`, backed directly by the `NSDirectoryEnumerator`. Memory footprint for the catch-up scan is now O(1) instead of O(N) — relevant on devices with large numbers of task metadata files.
+- Implement internal dispatcher queue for iOS dynamic tasks ([`ca9db14`](https://github.com/brewkits/kmpworkmanager/commit/ca9db1467fa1123507b4d14520b7eb4b3640b83b))
+- Release v2.4.1 with iOS dynamic tasks and periodic task improvements ([`4c06482`](https://github.com/brewkits/kmpworkmanager/commit/4c0648295237b6a9f0c2af6779984526f28095f3))
 
-### Fixed
+### Documentation
 
-- **Infinite-loop bug in `DynamicTaskDispatcher`**: Periodic dynamic tasks would re-enqueue themselves during `executePendingTasks()`, causing the batch loop to pick them up again in the same BGTask invocation. Fixed by snapshotting the queue size before the loop starts (`val tasksToProcess = fileStorage.getTasksQueueSize()`).
-- **SIGKILL risk in `DynamicTaskDispatcher`**: Tasks near the end of the BGTask budget window would still start execution and be killed mid-run (degrading iOS background credit). Fixed with a proactive budget guard: if `budgetLeft < singleTaskTimeout + 5 s`, the loop breaks and the master dispatcher is rescheduled for the remaining tasks.
+- Add guide and workaround for iOS dynamic task scheduling limitations ([`571d8b7`](https://github.com/brewkits/kmpworkmanager/commit/571d8b7dc8f6aa9f5e5337b406ed3beaaa6b2ea3))
+
+### merge
+
+- Release v2.4.1 - iOS dynamic tasks and periodic task improvements ([`53c69c6`](https://github.com/brewkits/kmpworkmanager/commit/53c69c6bfd7d27b98ff8d42305833837955da860))
 
 ## [2.4.0] - 2026-04-16
 
 ### Added
-- **iOS Native Background Handler**: Created `IosBackgroundTaskHandler` in `iosMain` module, providing a native Kotlin API for iOS background task execution. Handles metadata resolution, execution, and auto-rescheduling for periodic tasks.
-- **iOS Simulator Fallback**: Implemented automatic fallback in `NativeTaskScheduler` for iOS Simulators. Tasks now execute immediately in-process on simulators where `BGTaskScheduler` is unavailable, simplifying UI development and manual testing.
-- **Android Exact Alarm Fallback**: Added `DefaultAlarmReceiver` and automatic manifest registration. `TaskTrigger.Exact` now works out-of-the-box without requiring custom receiver implementation in the host app.
-- **Unified Background Engine**: Refactored the library and sample app to use a single consolidated background engine, resolving Swift namespace collisions and simplifying dependency injection.
-- **Enhanced Test Suite**: Added a comprehensive `ScenarioMarathonTest`, `SecurityTestSuite`, and performance benchmarks covering both platforms.
 
-### Fixed
-- **Android: Expedited Task Compatibility**: Fixed `IllegalArgumentException` when scheduling expedited tasks with incompatible constraints (e.g., `requiresCharging`). The library now gracefully falls back to standard execution.
-- **Android: Periodic Task Payload Limit**: Implemented enforcement for the 8KB payload limit on periodic tasks. Since WorkManager doesn't support disk-spill for periodic tasks, large payloads are now rejected with `REJECTED_OS_POLICY` instead of causing silent data truncation.
-- **iOS: Time-Slicing Logic**: Improved adaptive budget calculation in `ChainExecutor` to allow execution even when the remaining BGTask window is smaller than the standard task timeout.
-- **iOS: File Protection**: Directories created by `IosFileStorage` now use `NSFileProtectionCompleteUntilFirstUserAuthentication` by default, ensuring BGTasks can access data after the first unlock even while the screen is locked.
-
-## [2.3.9] - 2026-04-11
+- Implement native Kotlin background task handler and bump version to 2.4.0 ([`c49a392`](https://github.com/brewkits/kmpworkmanager/commit/c49a392828feac54dd8407aa257e9a706b176e64))
 
 ### Fixed
 
-**Android: Missing foreground service permissions cause SecurityException at runtime (HIGH)**
-- Root cause: The library's `AndroidManifest.xml` did not declare `FOREGROUND_SERVICE` or `FOREGROUND_SERVICE_DATA_SYNC`. `KmpHeavyWorker.setForeground()` throws `SecurityException` on Android 9+ without `FOREGROUND_SERVICE`, and on Android 14+ without `FOREGROUND_SERVICE_DATA_SYNC` when using `FOREGROUND_SERVICE_TYPE_DATA_SYNC`.
-- Fixed by adding both `<uses-permission>` declarations to the library manifest. Android Gradle plugin merges these automatically into the consumer app's `AndroidManifest.xml`.
-
-**KSP: Workers with an intermediate base class silently excluded from generated factory (HIGH)**
-- Root cause: `WorkerProcessor` used `classDecl.superTypes` to check for `AndroidWorker`/`IosWorker` — inspecting only the *direct* parent. A class extending a custom base (e.g. `class MyWorker : BaseAppWorker()` where `BaseAppWorker : AndroidWorker`) was silently skipped. At runtime these tasks failed with "worker not found".
-- Fixed: `extendsWorkerType()` now traverses the full inheritance hierarchy with a cycle guard.
-
-**Android: Deprecated 2-arg constructor throws cryptic NPE instead of actionable error (LOW)**
-- Root cause: `BaseKmpWorker(Context, WorkerParameters)` and `KmpHeavyWorker(Context, WorkerParameters)` called `KmpWorkManagerKoin.getKoin().get()` without a try-catch. An uninitialised Koin threw `IllegalStateException` with a generic message, with no hint for the developer.
-- Fixed: the call is now wrapped in a try-catch that rethrows with a clear message pointing to `KmpWorkManager.initialize()` and `KmpWorkerFactory`.
-
-### Added
-
-**KSP: `@Worker(aliases = [...])` for safe class renames**
-- Workers can now declare one or more alias names that also resolve to the same factory lambda. Safe rename path: add the old simple name to `aliases`, remove it once all devices have drained their queues.
-- Example: `@Worker(name = "SyncWorkerV2", aliases = ["SyncWorker"])`.
-
-**KSP: ProGuard / rename warning when `name` is absent**
-- `WorkerProcessor` now emits a `logger.warn(...)` at build time when `@Worker` has no explicit `name` argument. The generated key defaults to the simple class name, which breaks persisted tasks on rename or ProGuard obfuscation.
-- Fix: add `@Worker(name = "StableIdentifier")`.
-
-### Changed
-
-**iOS: IosFileStorage — removed deprecated `DELETED_MARKER_MAX_AGE_MS` constant**
-- `IosFileStorage.Companion.DELETED_MARKER_MAX_AGE_MS` was marked `@Deprecated` since v2.3.4. It is now removed. Use `IosFileStorageConfig.deletedMarkerMaxAgeMs` instead.
+- Add foregroundServiceType to satisfy Android Lint and Android 14+ requirements ([`c8a1398`](https://github.com/brewkits/kmpworkmanager/commit/c8a13981e2da2ce8e3ebfcce7bca5939d4af06e7))
+- Make BufferedIOTest more deterministic on CI using runTest and virtual time ([`420749d`](https://github.com/brewkits/kmpworkmanager/commit/420749dd4731ee262847054051f20314311914a7))
+- Make BufferedIOTest and BugFixes_v239_IosTest deterministic on CI ([`a2fb7c3`](https://github.com/brewkits/kmpworkmanager/commit/a2fb7c3e99b03c53d84dc3ed82f2f01e17b343d5))
+- Ensure all modules use root staging directory and include javadoc JARs in Maven Central ZIP ([`cb8020f`](https://github.com/brewkits/kmpworkmanager/commit/cb8020fc65ef504f60cfb6ea4478f39074670ea3))
+- Fix Gradle sign/publish task ordering and javadoc jar registration ([`48c8d09`](https://github.com/brewkits/kmpworkmanager/commit/48c8d09485476aaf96abf01cff7ab01683c9eee7))
+- Resolve Swift type ambiguity by unifying background engine and removing duplicates in sample app ([`2a4c560`](https://github.com/brewkits/kmpworkmanager/commit/2a4c56099549b4a1ddfadb9f1130c964012a33e3))
 
 ### Tests
 
-- **New** `KmpWorkerForegroundInfoCompatTest.testHeavyTask_onApi31Plus_schedulesWithoutSecurityException` — verifies `KmpHeavyWorker` schedules without `SecurityException` on any API level.
-- **New** `WorkerProcessorTest.testCodeGeneration_IndirectAndroidInheritance_GeneratesFactory` and `testCodeGeneration_IndirectIosInheritance_GeneratesFactory` — regression tests for the deep-inheritance KSP fix.
-- **New** `WorkerProcessorTest.testCodeGeneration_WrongBaseClass_EmitsWarning_SkipsWorker` — verifies workers not extending `AndroidWorker`/`IosWorker` are excluded with a warning.
-- **New** `WorkerProcessorTest.testCodeGeneration_AliasesGenerateAdditionalEntries` — verifies alias entries are generated in the factory map.
+- Add comprehensive security, performance, and stress tests for v2.4.0 release ([`f0a99c0`](https://github.com/brewkits/kmpworkmanager/commit/f0a99c0c7c68a75caf5fbc796e545dedeb148cb0))
+- Fix CI stability by removing redundant tests and properly synchronizing coroutines ([`c427847`](https://github.com/brewkits/kmpworkmanager/commit/c4278473eebb19cf0761ef0db003dd6761e96b2f))
 
 ## [2.3.8] - 2026-04-08
 
-### Fixed
-
-**Android: cancel() does not cancel the AlarmManager PendingIntent (CRITICAL)**
-- Root cause: `cancel(id)` called `AlarmStore.remove(context, id)` to delete SharedPreferences metadata, but never called `AlarmManager.cancel()`. The scheduled alarm would still fire at the original time even after cancellation.
-- Fixed by adding `cancelAlarmManagerPendingIntent(id)` to `NativeTaskScheduler.cancel()`. The method uses `PendingIntent.FLAG_NO_CREATE` to look up the existing `PendingIntent` without creating a new one, then calls `AlarmManager.cancel()` and `PendingIntent.cancel()`. Safe to call when no alarm was ever scheduled.
-
-**Android: Exact alarm permission check bypassed with hardcoded isTest=true (CRITICAL)**
-- Root cause: `scheduleExactAlarm` contained a hardcoded `isTest = true` override that skipped the `AlarmManager.canScheduleExactAlarms()` permission check on API 31+. Production builds running on devices without `SCHEDULE_EXACT_ALARM` permission would silently bypass the OS gate.
-- Fixed by removing the hardcoded flag. On API 31+ without permission the method now returns `ScheduleResult.REJECTED_OS_POLICY`.
-
-**iOS: IosFileStorage runs maintenance on every app launch (HIGH)**
-- Root cause: The `init` block's `else` branch (maintenance ran recently) had a 5-second delay then unconditionally called `performMaintenanceTasks()` — running on every launch regardless of the last run timestamp. On frequent cold-starts this caused repeated I/O.
-- Fixed to check `getHoursSinceLastMaintenance() >= 24` and skip maintenance entirely when it ran within the last 24 hours. Maintenance only runs when it is genuinely overdue.
-
-**iOS: AppendOnlyQueue corruption fields read outside mutex without @Volatile (HIGH)**
-- Root cause: `isQueueCorrupt` and `corruptionOffset` were plain `var` fields read in a "fast check without lock" path in `dequeue()`. Without `@Volatile`, Kotlin/Native's memory model permitted the CPU to cache stale values, making the corruption check unreliable under concurrent access.
-- Fixed by annotating both fields with `@kotlin.concurrent.Volatile`.
-
-**HttpDownloadWorker: response size limit defined but never enforced (HIGH)**
-- Root cause: `SecurityValidator.MAX_RESPONSE_BODY_SIZE` (50 MB) existed but was never checked during streaming. A server returning an unbounded response would exhaust device disk space before any check triggered.
-- Fixed in `HttpDownloadWorker.downloadFile()`: after each `readAvailable`, the running `downloadedBytes` total is compared to `MAX_RESPONSE_BODY_SIZE`. Exceeding the limit throws `IOException` with a human-readable size message, which aborts the download and deletes the temp file.
-
-**Android: Non-retriable exceptions incorrectly trigger WorkManager retry (MEDIUM)**
-- Root cause: All unhandled exceptions in `BaseKmpWorker.doWorkInternal()` returned `Result.retry()`. Permanent failures such as `SerializationException` (malformed config), `ClassNotFoundException` (missing worker class), `IllegalArgumentException`, `NullPointerException`, `NumberFormatException`, `InvocationTargetException`, and `InstantiationException` would retry indefinitely, wasting battery and WorkManager quota.
-- Fixed by classifying these exception types as permanent failures and returning `Result.failure()` instead of `Result.retry()`. The execution history status is set to `ABANDONED` for permanent failures.
-
-**Android: isPeriodic detection relies on UUID work ID string (MEDIUM)**
-- Root cause: The condition `id.toString().contains("periodic")` in the `finally` block of `BaseKmpWorker.doWorkInternal()` was always false because WorkManager assigns UUID-format IDs (e.g. `3f2504e0-4f89-11d3-...`) that never contain the word "periodic".
-- Fixed to use `tags.contains("type-periodic")`. The `type-periodic` tag is added by `schedulePeriodicWork` in `NativeTaskScheduler`, making this check reliable across all periodic work.
-
-**Android: Overflow input file not deleted when task is cancelled (MEDIUM)**
-- Root cause: The `finally` block in `BaseKmpWorker.doWorkInternal()` only deleted the overflow file when the task succeeded or failed permanently. Cancelled tasks (CancellationException re-thrown) left `kmp_input_*.json` files in `cacheDir` until the 24-hour zombie cleanup.
-- Fixed by using `wasCancelled` tracking: the overflow file is deleted unless `isRetrying` or `isPeriodic` (periodic tasks reuse the same input across runs).
-
-**iOS: Test mode detection does not cover XCTest and Xcode Cloud runners (MEDIUM)**
-- Root cause: `IosFileStorage` lazy queue init previously called `endsWith("test.kexe")` to detect the Kotlin/Native test runner. XCTest, Xcode Cloud, and other simulator runners use process names like `xctest` or `unittest`, which did not match.
-- Fixed to check `processName.contains("test.kexe", ignoreCase = true) || processName.contains("xctest", ignoreCase = true) || processName.contains("unittest", ignoreCase = true)`.
-
-**iOS: DiskSpaceCache two @Volatile fields allow torn reads (MEDIUM)**
-- Root cause: `checkDiskSpace` used two separate `@Volatile var` fields (`cachedFreeBytes`, `cacheExpiryMs`). A reader could observe a freshly-written `freeBytes` value paired with a stale `expiryMs`, causing an unnecessary extra syscall or a brief window where the cache appeared valid with outdated data.
-- Fixed by combining both fields into a single `@Volatile` `DiskSpaceCache` data class. Readers always see a consistent `(freeBytes, expiryMs)` pair from a single atomic reference write.
-
-**iOS: IosFileStorage cleanupOrphanedChains runs in shared backgroundScope (MEDIUM)**
-- Root cause: `cleanupOrphanedChains()` was launched as a bare `backgroundScope.launch` job, sharing the same supervisor scope as enqueue/dequeue operations. A maintenance failure could cancel the entire `backgroundScope`, silently disabling all subsequent storage operations.
-- Fixed: `cleanupOrphanedChains()` is a `suspend` function called directly from `performMaintenanceTasks()` which is wrapped in a `try/catch`. Exceptions are caught and logged without cancelling `backgroundScope`.
-
-**Android: cleanupZombieInputFiles creates a new thread per call (LOW)**
-- Root cause: The cleanup for `kmp_input_*.json` files created a raw `Thread {}` on each invocation instead of reusing the system thread pool.
-- Fixed to use `CoroutineScope(Dispatchers.IO).launch {}`, which dispatches to the shared I/O thread pool.
-
-**SecurityValidator: MAX_QUEUE_SIZE constants inconsistent across layers (LOW)**
-- Root cause: `SecurityValidator.MAX_REQUEST_BODY_SIZE` and `MAX_RESPONSE_BODY_SIZE` were defined but their relative sizes were not validated. The response limit was smaller than the request limit in an earlier draft, which is logically incorrect (a download can return more data than an upload sends).
-- Fixed: `MAX_RESPONSE_BODY_SIZE` (50 MB) is confirmed greater than `MAX_REQUEST_BODY_SIZE` (10 MB) in the production constant definitions.
-
-### Security
-
-**SecurityValidator: validateFilePath double-slash bypass allows sensitive root access (HIGH)**
-- Root cause: `validateFilePath("//etc/passwd")` evaluated `"//etc/passwd".startsWith("/etc")` as `false` because the leading double-slash prevented the prefix match. The path check was bypassed, allowing access to `/etc`, `/proc`, `/sys`, `/dev`, and `/private/etc`.
-- Fixed by adding `.replace(Regex("/+"), "/")` to the normalisation pipeline in `validateFilePath`, collapsing `//` and `///` sequences to a single `/` before the sensitive-root prefix check. Triple slashes and other multiples are also collapsed.
-
-**SecurityValidator: decimal, hex, and octal IP representations bypass SSRF filter (LOW)**
-- Root cause: `isMalformedIPBypass` in `SecurityValidator` did not cover all alternative IP representations. A purely numeric decimal integer like `2130706433` (= `127.0.0.1`) passed the hostname validation, and hex forms like `0x7f.0.0.1` and octal forms like `0177.0.0.1` were not handled.
-- Fixed: `isMalformedIPBypass` now blocks all-digit strings (decimal integer IPs), hex strings containing `0x`, and dotted-octal notations where any segment starts with `0` and has more than one digit.
-
-**SecurityValidator: multi-`@` UserInfo SSRF bypass not handled (LOW)**
-- Root cause: `extractHostname` handled single `@` (UserInfo strip) but a URL like `https://user@10.0.0.1@api.example.com/` with multiple `@` signs was not validated against all candidate host segments.
-- Fixed: when `atCount > 1`, every segment after an `@` is extracted and checked against `isBlockedHostname`. If any segment is blocked the URL is rejected regardless of which client resolves it.
-
-### Tests
-
-**iOS: Fixed test infrastructure — V236ChainExecutorTest and QA_PersistenceResilienceTest**
-- `V236ChainExecutorTest` and `QA_PersistenceResilienceTest` were failing with `TimeoutCancellationException` (virtual time, 4m 15s)
-- Root cause: `ChainExecutor.executeChainsInBatch` uses `withTimeout(255_000)` internally — when called inside `runTest`, `withTimeout` fires against the virtual clock, triggering immediately
-- Fixed by wrapping all `executeChainsInBatch` calls with `withContext(Dispatchers.Default)` to switch off the virtual-time scheduler
-- Fixed `ce1-fail-chain` cross-run retryCount accumulation: `ChainProgress.maxRetries=3` caused `hasExceededRetries()` to fire on the 4th run, deleting the chain definition unexpectedly — resolved by adding explicit `deleteChainDefinition` + `deleteChainProgress` in `@BeforeTest`
-- Removed `invalidateCache()` / `invalidateQueueCache()` test scaffolding from production code (`AppendOnlyQueue`, `IosFileStorage`) — `getQueueSize()` already reads from disk on every call; these methods were incorrect and unnecessary
-- Result: 562 tests, 0 failures (previously 5 failures)
-
-## [2.3.7] - 2026-03-24
-
-### Fixed
-
-**iOS: FileCompressionWorker silently returns Success with uncompressed copy (HIGH)**
-- `compressUsingFoundation` fell back to `NSFileManager.copyItemAtPath` when ZIPFoundation not present
-- Consumer received `WorkerResult.Success(compressionRatio=0%)` — indistinguishable from real compression
-- Fixed to return `WorkerResult.Failure` with explicit message and setup instructions
-
-**iOS: IosWorkerDiagnostics always reports 1 GB available disk space (MEDIUM)**
-- `getAvailableDiskSpace()` returned hardcoded `1_000_000_000L` — any disk-space-aware logic was broken
-- Fixed using `NSFileManager.defaultManager.attributesOfFileSystemForPath("/")` with `NSFileSystemFreeSize`
-- Falls back to `0` (conservative, signals low storage) on error
-
-**iOS: IosWorkerDiagnostics always reports Low Power Mode = false (MEDIUM)**
-- `isLowPowerMode` was hardcoded `false` — Low Power Mode affects BGTask scheduling frequency
-- Fixed using `NSProcessInfo.processInfo.lowPowerModeEnabled` (available since iOS 9)
-
-**iOS: IosFileCoordinator bypasses NSFileCoordinator in apps with "Test" in process name (MEDIUM)**
-- `processName.contains("Test")` matched production apps named e.g. "MyTestApp"
-- These apps silently used `DirectCoordinationStrategy` instead of `NSFileCoordinationStrategy`
-- Fixed to only match `processName.endsWith("test.kexe")` (Kotlin/Native test runner binary)
-
-**Android: AndroidWorkerDiagnostics.getTaskStatus only matches UUID-format IDs (LOW)**
-- `UUID.fromString(id)` threw for chain IDs and named tasks — always returned `null`
-- Fixed by adding fallback to `workManager.getWorkInfosForUniqueWork(id)` when UUID parse fails
-
-### Security
-
-**Input JSON size not validated before passing to WorkManager (MEDIUM)**
-- Serialized input could exceed Android WorkManager's 10 KB `Data` limit, causing silent failures
-- Added 10 KB byte-length check in `BackgroundTaskSchedulerExt.enqueue()` — throws `IllegalArgumentException` with descriptive message
-
-**SSRF: Alibaba Cloud ECS metadata endpoint not blocked (LOW)**
-- `SecurityValidator` blocked AWS/GCP/Azure metadata but missed Alibaba Cloud (`100.100.100.200`)
-- Added to blocked hostname list alongside `169.254.169.254` and `fd00:ec2::254`
-
-### Changed
-
-**Deprecated triggers raised to `DeprecationLevel.ERROR`**
-- `TaskTrigger.StorageLow`, `BatteryLow`, `BatteryOkay`, `DeviceIdle` now cause compile error
-- Migration: use `Constraints(systemConstraints = setOf(...))` as documented in KDoc `replaceWith`
-
-**`TaskChain.enqueueBlocking()` raised to `DeprecationLevel.ERROR`**
-- Calling from Android main thread causes ANR; calling from a coroutine causes deadlock
-- Migration: use `suspend fun enqueue()` inside a coroutine scope
-
-### Tests
-
-- Added `V236BugFixesTest` (commonTest) — 20 regression tests for all 7 v2.3.6 fixes
-- Added `V236ChainExecutorTest` (iosTest) — 7 iOS-specific ChainExecutor regression tests (CE-1/CE-2/CE-3)
-
-## [2.3.6] - 2026-03-07
-
-### Fixed
-
-**iOS: ChainExecutor withTimeout return value discarded (CRITICAL)**
-- `withTimeout { return@withTimeout false }` result was discarded — chain always treated as succeeded
-- Fixed by capturing return value in `var chainSucceeded = false` and using `break` instead of `return@withTimeout`
-- Cleanup (delete chain definition + progress) now only runs on actual success
-
-**iOS: CancellationException swallowed in executeTask (HIGH)**
-- `catch (e: Exception)` inside `executeTask` caught `CancellationException` (subclass of Exception)
-- Caused cooperative cancellation to silently fail — timeouts and scope cancellation could not propagate
-- Fixed by adding `catch (e: CancellationException) { throw e }` before the general Exception handler
-
-**iOS: executeChainsInBatch loop break not working (HIGH)**
-- `repeat(maxChains) { return@repeat }` is `continue`, not `break` — loop never stopped early
-- Fixed by replacing `repeat` with `for (iteration in 0 until maxChains) { break }`
-
-**Android: Exact trigger uses epoch timestamp as delay (HIGH)**
-- `trigger.atEpochMillis` (~1.7 trillion ms) was passed directly as delay — scheduled far in the future
-- Fixed to compute `(trigger.atEpochMillis - System.currentTimeMillis()).coerceAtLeast(0)` for both fallback paths
-
-**iOS: enqueueChain hardcodes requiresNetworkConnectivity = true (MEDIUM)**
-- Chain executor task doesn't need network; individual chain steps manage their own requirements
-- Fixed to `requiresNetworkConnectivity = false`
-
-**Android: Periodic work ignores flexMs (MEDIUM)**
-- Single-parameter `PeriodicWorkRequestBuilder(intervalMs, MILLISECONDS)` ignores `flexMs`
-- Fixed by conditionally using the two-parameter overload when `flexMs` is non-null
-
-**Android: DEVICE_IDLE constraint detection inverted (MEDIUM)**
-- `any { it != DEVICE_IDLE }` incorrectly flagged non-DEVICE_IDLE constraints as incompatible with exact alarms
-- Fixed to `any { it == DEVICE_IDLE || it == REQUIRE_BATTERY_NOT_LOW }`
-
-**Android: Second buildWorkManagerConstraints overload missing systemConstraints (MEDIUM)**
-- Duplicate `buildWorkManagerConstraints` overload (used for ContentUri triggers) was missing the entire `systemConstraints` processing block
-- Fixed by merging into a single unified function with optional `extraConfig` lambda
-
-**iOS: IosFileStorage.close() does not await background scope cancellation (MEDIUM)**
-- `backgroundScope.cancel()` requests cancellation but returns immediately — background coroutines keep running
-- In tests, `@AfterTest` removed the directory while background coroutines still wrote to it, causing `head_pointer.txt doesn't exist` crashes on real devices
-- Fixed by adding `scopeJob?.join()` after `cancel()` to await full completion
-
-**iOS: IosEventStore file creation silently ignores write errors (LOW)**
-- `NSString.writeToURL(error = null)` on initial file creation silently swallowed disk-full/permission errors
-- Fixed with `memScoped { val errorPtr = alloc<ObjCObjectVar<NSError?>>() ... }` and proper error logging
-
-## [2.3.5] - 2026-03-06
-
-### Fixed
-
-**Android: AndroidWorkerDiagnostics wrong WorkManager tag**
-- `getWorkInfosByTag()` was querying `"kmp-worker"` instead of `"KMP_TASK"`
-- All tasks are tagged `TAG_KMP_TASK = "KMP_TASK"` by `NativeTaskScheduler`
-- Previously caused diagnostics API to always return empty task lists on Android
-
-**iOS: IosEventStore silent write failure**
-- `NSString.writeToURL(error = null)` silently swallowed disk-full and permission errors
-- Now captures `NSError` and propagates as `IllegalStateException`
-- Also fixed `IosEventStore` using raw `NSFileCoordinator` directly — now delegates to
-  `IosFileCoordinator.coordinate()` which handles test environment detection correctly
-
-**EventStore: clearOldEvents parameter semantics (KDoc)**
-- Parameter `olderThanMs` was incorrectly documented as "Timestamp in milliseconds"
-- Corrected to "Maximum age in milliseconds" — it is a duration delta, not an absolute timestamp
-
-**SharedFlow: TaskEventBus / TaskProgressBus event drops**
-- `tryEmit()` silently drops events when the buffer is full (capacity 64 / 32)
-- Replaced with `emit()` which suspends the caller until buffer space is available — no silent drops
-
-**Logger: JVM unit test stability**
-- `Logger` was calling the platform logger (`android.util.Log`) in JVM unit tests
-- Fixed by using a test-safe custom logger; tests no longer require Android SDK mocks
-
-### Changed
-
-- All internal code comments cleaned up — removed informal fix markers, corrected version references
-- Version bumped from 2.3.3 to 2.3.5
-
-### Tests
-
-- `V235BugFixesTest.kt` (10 tests) — regression coverage for all v2.3.5 fixes
-- `IosEventStoreTest.kt` (15 tests) — iOS-specific EventStore coverage
-- Total: 534 iOS simulator tests, 296 Android unit tests — all passing
-
-## [2.3.3] - 2026-02-17
-
-### Fixed
-
-**Critical: WorkManager 2.10.0+ Compatibility (KmpWorker)**
-- Added `getForegroundInfo()` override to `KmpWorker`
-- WorkManager 2.10.0+ calls `getForegroundInfoAsync()` in the execution path for all expedited
-  tasks, even when not running as a foreground service. Without this override, the default
-  `CoroutineWorker` implementation threw `IllegalStateException: Not implemented (CoroutineWorker.kt:92)`
-- Provides a minimal silent fallback notification (only shown if WorkManager promotes the task
-  to a foreground service, e.g. on low-memory devices). Uses `PRIORITY_MIN`, `setSilent(true)`,
-  `setOngoing(false)` to minimize user impact
-- Notification channel: `kmp_worker_tasks` — separate from `KmpHeavyWorker`'s `kmp_heavy_worker_channel`
-
-**Critical: Task Chain Heavy Worker Routing (NativeTaskScheduler)**
-- Fixed bug in `createWorkRequest()` where `isHeavyTask = true` in a `TaskChain` was silently ignored
-- Both `if` branches incorrectly used `KmpWorker` — heavy tasks in chains never ran as foreground services
-- Fix: `isHeavyTask = true` now correctly routes chain tasks to `KmpHeavyWorker`
-
-**Build: OSSRH Publish URL Typo**
-- Fixed URL typo: `https.s01.oss.sonatype.org` → `https://s01.oss.sonatype.org`
-
 ### Added
 
-**Notification Localization via Android String Resources**
-- All notification strings moved to `res/values/strings.xml` — host apps can override per locale
-- Overridable keys: `kmp_worker_notification_channel_name`, `kmp_worker_notification_title`,
-  `kmp_heavy_worker_notification_channel_name`, `kmp_heavy_worker_notification_default_title`,
-  `kmp_heavy_worker_notification_default_text`
-- Create `res/values-xx/strings.xml` in your app with the same keys to support any language
-- `KmpHeavyWorker`: `inputJson` override (via `NOTIFICATION_TITLE_KEY` / `NOTIFICATION_TEXT_KEY`)
-  takes priority over string resources for per-task custom notifications
-
-**Tests**
-- `V233BugFixesTest.kt` (13 tests) — documents and validates all v2.3.3 fixes
-- `KmpWorkerForegroundInfoCompatTest.kt` (6 Android instrumented tests) — validates compatibility
-  with WorkManager 2.10.0+, string resources, and chain routing on device
-
-**Demo**
-- Added "v2.3.3 Bug Fixes" section in `DemoScenariosScreen` with 3 interactive demos:
-  - Fix #1: WorkManager 2.10.0+ expedited task compat
-  - Fix #2: Heavy task routing in chain
-  - i18n: Notification string resource localization guide
+- Comprehensive test suite and documentation improvements ([`b4435fa`](https://github.com/brewkits/kmpworkmanager/commit/b4435fa71bbac3fc1d38baa445d2a5f32eaa4711))
+- Release v3.0.0 - Major performance and API improvements ([`677bd39`](https://github.com/brewkits/kmpworkmanager/commit/677bd399c77bc38e33a27b1ef111fe93a91d7464))
+- Release v4.0.0 - Worker factory pattern and extensibility improvements ([`8afd8e5`](https://github.com/brewkits/kmpworkmanager/commit/8afd8e5d93a0025124a6f579785c0dc2133504dd))
+- Add Event Persistence System design and interface ([`c867d10`](https://github.com/brewkits/kmpworkmanager/commit/c867d10069dc75668ab1d2425e2e066da7ce7a9c))
+- Implement Event Persistence System with file-based storage ([`1b2fc7b`](https://github.com/brewkits/kmpworkmanager/commit/1b2fc7b0af3c58ddfbd6924308cd41aa1a2b3c82))
+- Integrate Event Persistence with TaskEventBus and Koin ([`a42bcb7`](https://github.com/brewkits/kmpworkmanager/commit/a42bcb737124fa204053a9cef69343bbe98846c8))
+- Implement iOS chain state restoration with progress tracking ([`51032b2`](https://github.com/brewkits/kmpworkmanager/commit/51032b2c89bfb0aabf4e954889fa279603cf2d4c))
+- Add Windowed trigger support and worker progress tracking ([`b7b0efe`](https://github.com/brewkits/kmpworkmanager/commit/b7b0efe2dcccb4d0b0e40be46f68dd4e2a5ded0a))
+- Add Maven Central publishing automation ([`bcfc4e4`](https://github.com/brewkits/kmpworkmanager/commit/bcfc4e4c0a53cc182c7915a4038bd421f993868d))
+- Add iOS support for built-in workers ([`6111ee8`](https://github.com/brewkits/kmpworkmanager/commit/6111ee8e4ec2ff47337bd0386b79d174160835a7))
+- Add WorkerResult API for data return from workers ([`9a19303`](https://github.com/brewkits/kmpworkmanager/commit/9a19303f93d3fcf75e987cd19f7f46f1a3d269a0))
+- Complete built-in workers migration to WorkerResult ([`32018bc`](https://github.com/brewkits/kmpworkmanager/commit/32018bca0b5aa0d416ab62c060797e3ce3acdd80))
+- TelemetryHook, TaskPriority, Battery Guard ([`1b365ea`](https://github.com/brewkits/kmpworkmanager/commit/1b365ea9f1888973e5213cb5a949de4b12211618))
+- ExecutionHistory + KSP BGTask ID validation ([`ae540eb`](https://github.com/brewkits/kmpworkmanager/commit/ae540eb1b457b4226ce8906956d26c57df4ded6d))
 
 ### Changed
 
-- Version bumped from 2.3.2 to 2.3.3
-- Test strings updated: Vietnamese Unicode test data replaced with Japanese Unicode for neutrality
-
-## [2.3.2] - 2026-02-16
-
-### ✨ Added
-
-**Property-Based Testing with Kotest**
-- Added 10 property-based tests generating 1000+ test case variations
-- Comprehensive edge case coverage for SecurityValidator
-- Validates SSRF protection, URL parsing, path traversal detection
-- File: `SecurityValidatorPropertyTest.kt`
-- Dependencies: `kotest-property:5.8.0`, `kotest-framework-engine:5.8.0`
-
-**Chinese ROM Compatibility Tests**
-- Added 8 comprehensive tests for Chinese Android ROMs
-- Tested: Xiaomi MIUI, Huawei EMUI, Oppo ColorOS, Vivo FuntouchOS
-- Detects battery optimization, autostart permissions, ROM-specific restrictions
-- Documents real-world success rates (45-90% depending on user settings)
-- File: `ChineseROMCompatibilityTest.kt`
-
-**Mutation Testing Framework**
-- Added mutation testing documentation and setup guide
-- Pitest configuration for Android/JVM code mutation coverage
-- Manual mutation testing procedures for iOS/common code
-- Critical mutation tests for SecurityValidator, ChainExecutor, AppendOnlyQueue
-- Target mutation coverage: 75-90% by module criticality
-- Documentation: `docs/MUTATION-TESTING.md`
-
-### 📊 Test Statistics
-
-- Total tests: 254 (+35 from v2.3.1)
-  - Unit tests: 111 (+10)
-  - Android tests: 35 (+8)
-  - Property-based tests: 10 (new)
-  - Generated test cases: 1000+ (new)
-- Coverage: 87% (+2% from v2.3.1)
-- Chinese ROM compatibility: 100% coverage (new)
-
-### 📖 Documentation
-
-- `docs/MUTATION-TESTING.md` - Comprehensive mutation testing guide
-- `docs/release-notes/v2.3.2-RELEASE-NOTES.md` - Detailed release notes
-
-### 🔄 Changed
-
-- Version bumped from 2.3.1 to 2.3.2
-- README.md updated to reference v2.3.2
-- build.gradle.kts version updated to 2.3.2
-
-### 🐛 Fixed
-
-- None (this release focuses on test quality and device compatibility)
-
-### 📱 Compatibility
-
-- ✅ 100% backward compatible with v2.3.1
-- No API changes
-- No breaking changes
-- All existing code works without modification
-
-### ⚠️ Known Issues
-
-**Chinese ROMs:**
-- Default task success rate: 45-60% (MIUI, ColorOS, EMUI, FuntouchOS)
-- Workaround: Users must manually disable battery optimization (success rate improves to 85-90%)
-- Documented in `ChineseROMCompatibilityTest.kt` with device-specific instructions
-
-## [2.3.1] - 2026-02-10
-
-### 🔴 Critical Fixes
-
-**Fix #1: Android Exact Alarm Delay Calculation**
-- Fixed incorrect delay calculation causing alarms to schedule in far future
-- Changed from absolute timestamp to relative delay: `(atEpochMillis - currentTimeMillis).coerceAtLeast(0)`
-- File: `NativeTaskScheduler.kt` (Android)
-- Tests: `AndroidExactAlarmTest.kt` (10 tests)
-
-**Fix #2: iOS Chain Continuation Callback**
-- Fixed long iOS chains failing after 30 seconds
-- Added `onContinuationNeeded` callback parameter to properly schedule BGTask continuation
-- File: `ChainExecutor.kt`
-- Tests: `ChainContinuationTest.kt` (12 tests)
-
-**Fix #3: Koin Scope Isolation**
-- Fixed conflicts with host app Koin
-- Changed from global Koin (`by inject()`) to isolated Koin (`KmpWorkManagerKoin.getKoin().get()`)
-- Files: `KmpWorker.kt`, `KmpHeavyWorker.kt`
-- Tests: `KmpWorkerKoinScopeTest.kt` (10 tests)
-
-**Fix #4: KmpHeavyWorker Usage**
-- Fixed heavy tasks not using foreground service on Android 12+
-- Now correctly routes to `KmpHeavyWorker` when `isHeavyTask=true`
-- File: `NativeTaskScheduler.kt` (Android)
-- Tests: `KmpHeavyWorkerUsageTest.kt` (13 tests)
-
-### 🛡️ Security Fixes
-
-**Fix #5: File Size Validation (100MB Limit)**
-- Added file size validation to prevent OOM crashes
-- 100MB upload limit with clear error messages
-- File: `HttpUploadWorker.kt`
-
-**Fix #6: URL Validation (SSRF Prevention)**
-- Implemented comprehensive SSRF protection in `SecurityValidator.kt`
-- Hostname extraction and validation logic
-- Blocks localhost (localhost, 127.0.0.1, ::1, 0.0.0.0)
-- Blocks private IPv4 (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
-- Blocks link-local addresses (169.254.0.0/16, including AWS metadata)
-- Blocks private IPv6 (fc00::/7, fe80::/10, fd00:ec2::254)
-- Blocks local domains (*.localhost, *.local)
-- Test coverage: 20+ test cases in `SecurityValidatorTest.kt`
-- Applied to: `HttpUploadWorker.kt`, `HttpDownloadWorker.kt`, `HttpRequestWorker.kt`, `HttpSyncWorker.kt`
-
-**Fix #7: HTTP Client Resource Leak**
-- Fixed HTTP client not being closed, causing resource exhaustion
-- Proper cleanup in finally block with `shouldCloseClient` tracking
-- Files: All HTTP workers
-
-### 💎 Stability Fixes
-
-**Fix #8: iOS Flush Race Condition**
-- Fixed race condition in concurrent `flushNow()` calls causing data corruption
-- Replaced boolean flag with `CompletableDeferred` for proper synchronization
-- File: `IosFileStorage.kt`
-- Tests: `IosRaceConditionTest.kt`
-
-**Fix #9: ChainExecutor Close Deadlock**
-- Fixed app freeze during shutdown when closing ChainExecutor
-- Made `close()` non-blocking, added `closeAsync()` for proper cleanup
-- File: `ChainExecutor.kt`
-- Tests: `IosRaceConditionTest.kt`
-
-**Fix #10: Queue Memory Optimization**
-- Fixed OOM with large queues (10K+ tasks)
-- Changed from loading full file to reading in 8KB chunks (O(n) → O(1) memory)
-- File: `AppendOnlyQueue.kt`
-- Tests: `QueueOptimizationTest.kt`
-
-**Fix #11: SingleTaskExecutor Scope Leak**
-- Fixed coroutine scope leak from creating new scope for each event
-- Now uses managed `coroutineScope.launch()` instead of `CoroutineScope()`
-- File: `SingleTaskExecutor.kt`
-- Tests: `IosScopeAndMigrationTest.kt`
-
-**Fix #12: iOS Migration Await**
-- Fixed race condition where `enqueue()` ran before migration completed
-- Added `CompletableDeferred` to properly await migration
-- File: `NativeTaskScheduler.kt` (iOS)
-- Tests: `IosScopeAndMigrationTest.kt`
-
-**Fix #13: Queue Compaction Atomicity**
-- Fixed queue corruption during compaction
-- Changed from `moveItemAtURL` to `replaceItemAtURL` for atomic operation
-- File: `AppendOnlyQueue.kt`
-- Tests: `QueueOptimizationTest.kt`
-
-**Fix #14: Dead Code Removal**
-- Removed unused `TAG` constants replaced with `LogTags` enum
-
-### 🧪 Testing
-
-**Comprehensive Test Suite**
-- Added 108+ tests (4,174 lines of test code)
-- 100% coverage of all bug fixes
-- 8 new test files:
-  - `AndroidExactAlarmTest.kt` (10 tests)
-  - `ChainContinuationTest.kt` (12 tests)
-  - `KmpWorkerKoinScopeTest.kt` (10 tests)
-  - `KmpHeavyWorkerUsageTest.kt` (13 tests)
-  - `IosRaceConditionTest.kt` (13 tests)
-  - `QueueOptimizationTest.kt` (14 tests)
-  - `IosScopeAndMigrationTest.kt` (12 tests)
-  - `V230BugFixesDocumentationTest.kt` (9 tests)
-
-### 📚 Documentation
-
-- Added comprehensive release notes (`v2.3.1-RELEASE-NOTES.md`)
-- Added professional review document (`v2.3.1-COMPREHENSIVE-REVIEW.md`)
-- All fixes documented with before/after examples
-- Migration guide (no breaking changes)
-
-### ⚠️ Breaking Changes
-
-**NONE** - This release is 100% backward compatible.
-
----
-
-## [2.3.0] - 2026-02-07
-
-### 🎉 Major Features
-
-**WorkerResult API - Structured Data Return**
-- New `WorkerResult` sealed class for type-safe worker responses
-- `WorkerResult.Success(message: String?, data: Map<String, Any?>?)` - Success with optional structured data
-- `WorkerResult.Failure(message: String)` - Failure with error message
-- Workers can now return structured data that flows through task chains
-- 100% backward compatible - existing Boolean returns still work
-- Files changed: `Worker.kt`, `WorkerResult.kt`, all built-in workers
-
-**Built-in Workers Data Return Support**
-- All 5 built-in workers now return WorkerResult with structured data:
-  - `HttpRequestWorker` - Returns status code, method, URL, response length
-  - `HttpSyncWorker` - Returns sync status, method, response data
-  - `HttpDownloadWorker` - Returns file path, file size, download URL
-  - `HttpUploadWorker` - Returns upload status, file size, response data
-  - `FileCompressionWorker` - Returns compression ratio, sizes, paths
-- Data can be logged, monitored, or passed between chain steps
-- Files changed: `HttpRequestWorker.kt`, `HttpSyncWorker.kt`, `HttpDownloadWorker.kt`, `HttpUploadWorker.kt`, `FileCompressionWorker.kt`
-
-**Chain ID & ExistingPolicy Support**
-- New `withId(id: String, policy: ExistingPolicy)` method for TaskChain
-- Explicit chain IDs prevent duplicate execution on re-composition (critical for Compose UI)
-- `ExistingPolicy.KEEP` - Skip if chain with same ID already exists
-- `ExistingPolicy.REPLACE` - Cancel existing and start new chain
-- Prevents infinite chain loops in UI-triggered scenarios
-- Works on both iOS and Android
-- Files changed: `TaskChain.kt`, `BackgroundTaskScheduler.kt`, `NativeTaskScheduler.kt` (iOS & Android)
-
-### ✨ Enhancements
-
-**Demo App UX Improvements**
-- Task execution locking: Only one demo task can run at a time
-- Visual status indicator with CircularProgressIndicator showing running task
-- All buttons disabled when a task is running (prevents log confusion)
-- Stop button to cancel running task state
-- Auto-dismiss toasts after 2 seconds (SnackbarDuration.Short)
-- Automatic file creation for demo chains (no more "file not found" errors)
-- TaskEventBus integration for automatic state cleanup
-- Files changed: `DemoScenariosScreen.kt`
-
-**Built-in Chain Demo Reliability**
-- Changed download URLs from speed.hetzner.de to httpbin.org (fixes iOS simulator TLS errors)
-- All built-in chain demos now use explicit IDs with KEEP policy
-- Demo chains automatically create required files before execution
-- Files changed: `DemoScenariosScreen.kt`
-
-**Error Handling & Logging**
-- Fixed log message bug: Chains now correctly report "aborted due to step failure" instead of "completed successfully" when failing
-- DatabaseWorker random failure disabled by default (can be re-enabled for testing)
-- Conditional logging based on actual chain execution result
-- Files changed: `ChainExecutor.kt`, `DatabaseWorker.kt`
-
-### 🐛 Bug Fixes
-
-**iOS Simulator TLS Certificate Issues**
-- Replaced speed.hetzner.de URLs with httpbin.org in all demos
-- httpbin.org has valid, trusted certificates that work on iOS simulator
-- All HttpDownloadWorker demos now succeed on iOS simulator
-- Files changed: `DemoScenariosScreen.kt`
-
-**Chain Loop Prevention**
-- Built-in chain demos were looping infinitely due to missing explicit IDs
-- Fixed by adding `withId()` to all 4 built-in chain demos
-- Chains no longer re-execute on Compose re-composition
-- Files changed: `DemoScenariosScreen.kt`
-
-**Demo File Setup Issues**
-- Fixed "File does not exist" errors in parallel-http-sync-compress chain
-- Fixed "File does not exist" errors in request-sync-upload-pipeline chain
-- Chains now create required files before execution using `createDummyFiles()`
-- Files changed: `DemoScenariosScreen.kt`
-
-**Log Message Consistency**
-- Fixed ChainExecutor to properly track and log chain success vs failure
-- Chains now correctly log "aborted due to step failure" when a step fails
-- Previously logged "completed all steps successfully" even on failure
-- Files changed: `ChainExecutor.kt`
-
-### 📖 Documentation
-
-**New Documentation Files**
-- `V2.3.0_RELEASE_NOTES.md` - Comprehensive release notes with examples
-- `MIGRATION_V2.3.0.md` - Step-by-step migration guide from v2.2.x
-- `V2.3.0_TEST_REPORT.md` - Complete test results (100% pass rate)
-- `DEMO_TESTING_NOTES.md` - Testing guidelines and troubleshooting
-- `V2.3.0_DOCUMENTATION_UPDATES.md` - Documentation changes summary
-
-**Updated Documentation**
-- `README.md` - Updated to v2.3.0, added WorkerResult examples
-- `api-reference.md` - Added WorkerResult API documentation
-- `BUILTIN_WORKERS_GUIDE.md` - Updated with data return examples
-
-### 🎯 Test Coverage
-
-**iOS Simulator Testing (100% Pass Rate)**
-- Single task execution: ✅ PASS
-- Sequential chains: ✅ PASS (3-step, 5-step)
-- Parallel task execution: ✅ PASS (3 tasks starting within 70μs)
-- Built-in worker chains: ✅ PASS (2/2 chains completed)
-- WorkerResult data return: ✅ PASS (all workers)
-- Chain IDs & ExistingPolicy: ✅ PASS
-- Error handling: ✅ PASS (chains abort correctly on failure)
-- Performance: ✅ EXCELLENT (5-step chain in 11.5s on simulator)
-
-### 🔄 Breaking Changes
-
-**None - 100% Backward Compatible**
-- Existing workers returning Boolean continue to work
-- WorkerResult is optional - workers can return either Boolean or WorkerResult
-- Automatic conversion: `true` → `WorkerResult.Success()`, `false` → `WorkerResult.Failure()`
-- No migration required for existing code
-- Chain API extensions are additive only
-
-### 📝 Files Changed
-
-**Core Library**
-- Modified: `Worker.kt`, `WorkerResult.kt`, `ChainExecutor.kt`, `DatabaseWorker.kt`
-- Modified (Built-in Workers): `HttpRequestWorker.kt`, `HttpSyncWorker.kt`, `HttpDownloadWorker.kt`, `HttpUploadWorker.kt`, `FileCompressionWorker.kt`
-- Modified (Sample App): `TaskChain.kt`, `BackgroundTaskScheduler.kt`, `NativeTaskScheduler.kt` (iOS & Android), `FakeBackgroundTaskScheduler.kt`, `DemoScenariosScreen.kt`
-- New: 5 documentation files in `docs/`
-
-### 🚀 Upgrade Path
-
-```kotlin
-// v2.2.x - Boolean return
-class MyWorker : CommonWorker {
-    override suspend fun doWork(input: String?): Boolean {
-        return true
-    }
-}
-
-// v2.3.0 - WorkerResult with data (recommended)
-class MyWorker : CommonWorker {
-    override suspend fun doWork(input: String?): WorkerResult {
-        return WorkerResult.Success(
-            message = "Synced 150 items",
-            data = mapOf("itemCount" to 150, "timestamp" to System.currentTimeMillis())
-        )
-    }
-}
-
-// Chain IDs (prevents duplicate execution)
-scheduler.beginWith(task1)
-    .then(task2)
-    .withId("my-unique-chain-id", policy = ExistingPolicy.KEEP)
-    .enqueue()
-```
-
-### 🎊 Production Readiness
-
-**Status:** ✅ **APPROVED FOR PRODUCTION**
-
-All critical features working at 100%:
-- ✅ WorkerResult API fully functional
-- ✅ Built-in workers return structured data
-- ✅ Chain IDs prevent duplicate execution
-- ✅ Comprehensive error handling
-- ✅ Backward compatibility maintained
-- ✅ Zero breaking changes
-- ✅ Complete documentation
-- ✅ iOS & Android tested
-
----
-
-## [2.2.1] - 2026-02-01
-
-### 🔴 Critical Fixes
-
-**Parallel Chain Retry Idempotency (iOS)**
-- Per-task completion tracking within parallel steps prevents redundant re-execution on retry
-- New field `completedTasksInSteps: Map<Int, List<Int>>` in `ChainProgress` records which tasks within each parallel step succeeded
-- On retry after partial failure only tasks that actually failed are re-executed; already-succeeded tasks are skipped
-- Each task completion persisted atomically via a local `Mutex` inside `executeStep`, ensuring crash-safe progress
-- Backward compatible: legacy persisted `ChainProgress` JSON without `completedTasksInSteps` deserializes to an empty map
-- Files changed: `ChainProgress.kt`, `ChainExecutor.kt`
-- Tests added: 15 new test cases in `ChainProgressTest.kt` (per-task tracking, serialization round-trip, legacy compat, parallel retry scenario) — total now 38 tests, all passing
-
-**Deserialization Resilience for Persisted Data (iOS)**
-- All JSON deserialization in `IosFileStorage` now uses `Json { ignoreUnknownKeys = true }`
-- Prevents crash on schema evolution (new fields added in future releases) or app rollback (old app reading new data)
-- Applies to chain definitions, chain progress, and task metadata
-- Files changed: `IosFileStorage.kt`
-
-### ⚡ Performance Optimizations
-
-**Buffered Legacy Queue Reads (iOS)**
-- Replaced byte-by-byte `readDataOfLength(1)` loop in `readSingleLine()` with 4 KB chunk reads
-- Reduces system calls from N (one per byte) to N/4096 for legacy text-format queue files during migration
-- Files changed: `AppendOnlyQueue.kt`
-
-### 🐛 Bug Fixes
-
-**Queue Corruption Recovery Preserves Valid Data (iOS)**
-- Corruption handler now truncates the queue file at the first corrupt record instead of wiping the entire file
-- All valid records before the corruption point are preserved; only the corrupt record and everything after it are discarded
-- Falls back to full reset only when corruption is detected in the file header itself
-- Files changed: `AppendOnlyQueue.kt`
-
-**Expired-Deadline Crash Prevention (iOS)**
-- `executeChainsInBatch()` now returns early when the computed conservative timeout is ≤ 0 ms (deadline already passed)
-- Prevents `withTimeout(0)` which would throw `TimeoutCancellationException` immediately
-- New `deadlineEpochMs` parameter allows callers (e.g., BGTask `expirationHandler`) to pass the absolute system deadline for accurate time-slicing
-- Files changed: `ChainExecutor.kt`
-
-**Correct Chain Timeout for BGProcessingTask (iOS)**
-- `executeChain()` now uses the instance-level `chainTimeout` field (50 s for APP_REFRESH, 300 s for PROCESSING) instead of the hard-coded companion constant `CHAIN_TIMEOUT_MS` (always 50 s)
-- Chains running inside a BGProcessingTask now correctly receive the full 5-minute budget
-- Files changed: `ChainExecutor.kt`
-
-### 📖 Documentation
-
-- Clarified FAIL OPEN comment in `KmpHeavyWorker.validateForegroundServiceType()`: the catch-all is intentional for Chinese ROM compatibility; `setForeground()` in `doWork()` remains the authoritative enforcement
-- Documented the concurrency safety assumption in `executeStep`: each async block only checks its own `taskIndex` in `completedTasksInSteps`, so the unguarded read of `currentProgress` is safe without holding `progressMutex`
-- Files changed: `KmpHeavyWorker.kt`, `ChainExecutor.kt`
-
-### 🎯 Test Coverage
-
-- **ChainProgressTest**: 38 tests (23 existing + 15 new), all passing on iosSimulatorArm64
-- New test categories:
-  - `completedTasksInSteps` basics — 5 tests for `isTaskInStepCompleted`
-  - `withCompletedTaskInStep` — 5 tests (add, append, sort, idempotent, multi-step independence)
-  - `withCompletedStep` cleanup — 2 tests (clears per-task data for completed step, leaves other steps untouched)
-  - Parallel retry scenario — 1 end-to-end test verifying only failed tasks re-execute
-  - Serialization round-trip — 1 test verifying `completedTasksInSteps` survives encode/decode
-  - Legacy JSON backward compat — 1 test verifying deserialization of old JSON without the new field
-
-### 📝 Files Changed
-- Modified: `ChainProgress.kt`, `ChainExecutor.kt`, `AppendOnlyQueue.kt`, `IosFileStorage.kt`, `KmpHeavyWorker.kt`
-- Modified (tests): `ChainProgressTest.kt`
-
----
-
-## [2.2.0] - 2026-01-29
-
-### ⚡ Production-Ready Optimizations
-
-**Optimized Maintenance Task Scheduling (iOS)**
-- Enhanced IosFileStorage to run maintenance immediately if >24h since last run
-- Previous behavior: Always delay 5s after app launch
-- New behavior: Check timestamp and run immediately if overdue (>24 hours)
-- Reduces risk of missed maintenance in short-lived app sessions
-- Added `getHoursSinceLastMaintenance()` and `recordMaintenanceCompletion()`
-- Maintenance timestamp persisted to `last_maintenance.txt`
-- Files changed: `IosFileStorage.kt`
-
-**Enhanced CRC32 Documentation & Performance Analysis**
-- Added comprehensive performance documentation:
-  - ~10-20ms for 10MB data (current max constraint)
-  - Zero external dependencies (pure Kotlin implementation)
-  - Documented future optimization path (platform.zlib.crc32 for iOS)
-  - Trade-off analysis: Native vs Pure Kotlin
-- Performance is acceptable for current use case (<10MB per record)
-- Files changed: `CRC32.kt`
-
-**VERBOSE Log Level for High-Frequency Operations**
-- Added `Logger.v()` (VERBOSE) level to reduce log spam under heavy load
-- Moved enqueue/dequeue logs from DEBUG to VERBOSE level
-- Prevents console spam during high-throughput queue operations
-- Maps to `Log.v()` on Android, `NSLog()` on iOS
-- Backward compatible - existing DEBUG/INFO/WARN/ERROR logs unchanged
-- Files changed: `Logger.kt`, `LoggerPlatform.android.kt`, `AppendOnlyQueue.kt`, `IosFileStorage.kt`
-
-### ✅ Comprehensive Testing Suite
-
-**Integration Tests for Critical Workflows**
-- Added 13 integration tests covering end-to-end scenarios:
-  - `testMigrationFromTextToBinary` - Verifies binary format migration with magic header validation
-  - `testMigrationWithEmptyQueue` - Empty queue edge case handling
-  - `testMigrationWithLargeQueue` - 1000 items migration performance (<5s)
-  - `testForceQuitRecovery` - App restart persistence verification
-  - `testExistingPolicyKeep` - KEEP policy prevents duplicates
-  - `testExistingPolicyReplace` - REPLACE policy updates definitions
-  - `testDiskFullHandling` - Clear error on insufficient disk space
-  - `testQueueCorruptionRecovery` - Graceful corruption handling
-  - `testBinaryFormatIntegrity` - CRC32 validation across data types
-  - `testBinaryFormatCRCDetection` - Corrupted data detection
-  - `testCompactionTriggeredAt80Percent` - Automatic space reclamation
-- Files added: `IntegrationTests.kt`
-
-**Stress Tests for Performance and Concurrency**
-- Added 11 stress tests for scalability validation:
-  - `testHighConcurrency` - 1000 concurrent enqueues with no data loss
-  - `testConcurrentEnqueueDequeue` - Simultaneous operations safety
-  - `testLargeQueuePerformance` - 10,000 items (<10s enqueue/dequeue)
-  - `testLargeChainDefinitions` - Large chain data handling
-  - `testChainExecutorTimeout` - Timeout simulation and recovery
-  - `testMemoryUsage` - Memory leak detection across 10 cycles
-  - `testFileHandleCleanup` - Resource leak detection
-  - `testRapidEnqueueDequeue` - Alternating operations stress test
-  - `testMaxQueueSize` - Size limit enforcement (1000 items)
-- Files added: `StressTests.kt`
-
-### 📖 Documentation Enhancements
-
-**Comprehensive Testing Guide**
-- Created TESTING.md with complete testing documentation:
-  - Running tests (iOS, Android, Common)
-  - Test categories (Unit, Integration, Stress)
-  - Writing tests best practices
-  - Example test patterns (Migration, Concurrency, Error Handling, Performance, State Persistence)
-  - Debugging failed tests
-  - CI/CD integration examples
-  - Coverage goals (>80% unit, all critical workflows)
-- Files added: `TESTING.md`
-
-**Updated Documentation**
-- Enhanced CHANGELOG.md with migration guides
-- Updated README.md with v2.2.0+ features
-- Android foreground service configuration examples
-- Binary format migration notes
-
-### 🎯 Test Coverage
-
-**Total Test Count**: 60+ tests across all categories
-- Unit tests: CRC32, Queue Corruption, ExistingPolicy
-- Integration tests: 13 complete workflow scenarios
-- Stress tests: 11 performance and concurrency scenarios
-- All tests passing on iOS and Android
-
-### 📝 Files Changed
-- Added: `TESTING.md`, `IntegrationTests.kt`, `StressTests.kt`
-- Updated: `CHANGELOG.md`, `README.md`
-
----
-
-## [2.1.4] - 2026-01-29
-
-### ⚡ Performance Optimizations
-
-**Time-Slicing Strategy for iOS Credit Score**
-- Implemented conservative timeout strategy for BGTask execution:
-  - Uses 85% of available time, 15% buffer for cleanup
-  - Early stop when remaining time insufficient
-  - Automatic continuation scheduling for large queues
-  - Prevents iOS credit score degradation from system kills
-- Added `ExecutionMetrics` data class with detailed telemetry:
-  - Task type, duration, chains processed
-  - Time usage percentage
-  - System kill detection
-  - Success/failure counts
-- Metrics emitted via TaskEventBus for monitoring
-- Files changed: `ChainExecutor.kt`
-
-**ChainExecutor Cleanup Enforcement**
-- Implemented `Closeable` interface for resource management:
-  - Compile-time safety with `.use {}` pattern
-  - Automatic job cancellation on close
-  - Mutex-protected close state
-  - `checkNotClosed()` guards on all public methods
-- Prevents memory leaks from unclosed executors
-- Clear error messages for use-after-close
-- Files changed: `ChainExecutor.kt`, `NativeTaskScheduler.kt`
-
-### 🎯 Benefits
-- Preserves iOS credit score by stopping early
-- Automatic continuation for large batches
-- Enforced cleanup prevents memory leaks
-- Better observability with execution metrics
-
-### 📝 Files Changed
-- Modified: `ChainExecutor.kt`, `NativeTaskScheduler.kt`
-- Added: Time-slicing logic, ExecutionMetrics, Closeable implementation
-
----
-
-## [2.1.3] - 2026-01-29
-
-### 🔒 Data Integrity & Format Migration
-
-**Binary Queue Format with CRC32 Validation**
-- Implemented length-prefixed binary format with CRC32 checksums:
-  - Magic number: `KMPQ` (0x4B4D5051) for format detection
-  - Format version: 1 (0x00000001)
-  - Record structure: `[length][data][crc32][\n]`
-  - CRC32 uses IEEE 802.3 polynomial (0xEDB88320)
-- Added automatic migration from text JSONL to binary format:
-  - Safe migration with rollback on failure
-  - Preserves all queue items
-  - Renames legacy file to `.legacy`
-  - Migration performance: <5s for 1000 items
-- Data integrity validation on every read:
-  - CRC mismatch returns null (corruption detected)
-  - Prevents silent data corruption
-  - Works with Unicode, Emoji, large data
-- Files added: `CRC32.kt`, `CRC32Test.kt` (15 test cases)
-- Files changed: `AppendOnlyQueue.kt`
-
-**Migration Safety**
-- Legacy format detection via magic header check
-- Rollback mechanism if migration fails
-- Backward compatibility during transition
-- No data loss during migration
-
-### ⏱️ Dynamic Timeouts by Task Type
-
-**BGTask Type-Specific Timeouts**
-- Added `BGTaskType` enum for timeout configuration:
-  - `APP_REFRESH`: 20s task timeout, 50s chain timeout
-  - `PROCESSING`: 120s task timeout, 300s chain timeout
-- Leverages full BGProcessingTask time (5-10 minutes)
-- Prevents premature timeout on long-running chains
-- Better resource utilization
-- Files added: `BGTaskType.kt`
-- Files changed: `ChainExecutor.kt`, `NativeTaskScheduler.kt`
-
-### 💾 Disk Space Management
-
-**Proactive Disk Space Checks**
-- Added pre-flight disk space validation:
-  - Checks before saving chain definitions
-  - Checks before enqueueing items
-  - Requires 100MB buffer + actual size
-- Clear error messages instead of cryptic I/O failures:
-  - `InsufficientDiskSpaceException` with detailed info
-  - Shows required vs available space in MB
-- Prevents corruption from partial writes
-- Prevents system-wide issues from disk exhaustion
-- Files changed: `IosFileStorage.kt`, `AppendOnlyQueue.kt`
-
-### 🎯 Benefits
-- CRC32 validation prevents silent corruption
-- Migration preserves all existing data
-- Dynamic timeouts maximize BGTask usage
-- Disk checks prevent cryptic failures
-
-### 📝 Files Changed
-- Added: `CRC32.kt`, `CRC32Test.kt`, `BGTaskType.kt`
-- Modified: `AppendOnlyQueue.kt`, `IosFileStorage.kt`, `ChainExecutor.kt`, `NativeTaskScheduler.kt`
-
-### ⚠️ Migration Notes
-
-**Automatic Binary Format Migration**
-When upgrading from v2.1.x to v2.2.0+:
-- First launch will automatically migrate queue.jsonl to binary format
-- Migration is safe and preserves all data
-- Legacy file renamed to queue.jsonl.legacy
-- No manual intervention required
-- If migration fails, rollback restores original file
-
-**Performance Impact**
-- Binary format is slightly larger than text (CRC32 overhead)
-- Read/write performance similar to text format
-- CRC validation adds <1ms per item
-- Migration is one-time cost (<5s for 1000 items)
-
----
-
-## [2.1.2] - 2026-01-29
-
-### 🔴 Critical Fixes
-
-**Queue Corruption Self-Healing (SEVERITY 1)**
-- Implemented automatic recovery from corrupted queue files:
-  - Added `isQueueCorrupt` flag with `corruptionMutex`
-  - Updated `readSingleLine()` to catch corruption and set flag
-  - Removed character validation - trusts JSON parser (prevents Unicode/Emoji false positives)
-  - Added `resetQueueInternal()` for safe queue reset
-  - Updated `dequeue()` with double-mutex pattern to prevent race conditions:
-    - Mutex order: `corruptionMutex` → `queueMutex` (prevents deadlock)
-    - Double-check pattern inside lock (prevents TOCTOU)
-- Added `resetQueue()` public API for manual reset
-- Added `CorruptQueueException` for clear error signaling
-- Files changed: `AppendOnlyQueue.kt`
-- Tests added: `QueueCorruptionTest.kt` (truncated files, Unicode, race conditions)
-
-**iOS Chain ExistingPolicy Support**
-- Implemented KEEP and REPLACE policies for chain enqueuing:
-  - **KEEP**: Skips enqueue if chain ID already exists
-  - **REPLACE**: Deletes old chain, marks as deleted, enqueues new definition
-- Added deleted chain marker system:
-  - Markers prevent duplicate execution during REPLACE
-  - 7-day TTL to prevent disk space leaks
-  - Automatic cleanup via maintenance tasks
-- Added maintenance task scheduling:
-  - Runs 5s after IosFileStorage init (prevents blocking app launch)
-  - Cleans up stale deleted markers (>7 days old)
-  - File enumeration only once per app launch
-- Updated chain execution to check deleted markers:
-  - Skips chains marked as deleted
-  - Clears marker after skip
-- Files changed: `IosFileStorage.kt`, `ChainExecutor.kt`, `NativeTaskScheduler.kt`, `BackgroundTaskScheduler.kt`, `TaskChain.kt`
-- Files added: `ExistingPolicyTest.kt`
-
-**Android Foreground Service Type Validation (Android 14+)**
-- Added validation for FOREGROUND_SERVICE_TYPE with FAIL OPEN strategy:
-  - Validates service type matches AndroidManifest.xml declaration
-  - Validates required permissions granted
-  - **FAIL OPEN**: Catches ALL exceptions for Chinese ROM compatibility
-  - Fallback to DATA_SYNC if validation fails
-  - Broad exception handling for manufacturer-modified Android
-- Added `validateForegroundServiceType()` with:
-  - `@RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)`
-  - Specific SecurityException re-throwing
-  - Generic exception catching with logging
-- Updated `createForegroundInfo()` to use validation
-- Updated `doWork()` with detailed error messages
-- Files changed: `KmpHeavyWorker.kt`
-- Files added: `AndroidValidationTest.kt`
-
-### 🐛 Bug Fixes
-
-**Race Condition Prevention**
-- Fixed potential race where `resetQueue()` could delete files while `enqueue()` writes
-- Double-mutex pattern ensures atomic corruption check and reset
-- Mutex ordering prevents deadlocks
-
-**Unicode/Emoji Support**
-- Removed character validation that caused false positives
-- Now supports Vietnamese, Chinese, Emoji in queue items
-- Trusts JSON parser for validation
-
-**Chinese ROM Compatibility**
-- FAIL OPEN strategy handles unexpected exceptions from Xiaomi, Oppo, Vivo ROMs
-- Prevents crashes on manufacturer-modified Android
-- Detailed logging for ROM-specific issues
-
-### 📝 API Changes
-
-**TaskChain.withId()**
-```kotlin
-// Set chain ID with policy
-val chain = TaskChain.create(scheduler)
-    .thenParallel(listOf(task1, task2))
-    .withId("my-chain", ExistingPolicy.KEEP)
-    .enqueue()
-```
-
-**BackgroundTaskScheduler.enqueueChain()**
-```kotlin
-// Old signature (still works)
-fun enqueueChain(chain: TaskChain, id: String? = null)
-
-// New signature (with policy)
-fun enqueueChain(
-    chain: TaskChain,
-    id: String? = null,
-    policy: ExistingPolicy = ExistingPolicy.REPLACE
-)
-```
-
-### ⚠️ Migration Notes
-
-**No Breaking Changes**
-- All changes are backward compatible
-- Default policy: `ExistingPolicy.REPLACE` (matches previous behavior)
-- Existing code continues to work unchanged
-
-**Recommended Actions**
-1. Review chain enqueue calls and add explicit policies where needed
-2. For Android 14+ apps: Verify AndroidManifest.xml foreground service types match usage
-3. Add comprehensive manifest documentation for service types and permissions
-
-**Android 14+ Manifest Requirements**
-```xml
-<!-- Example: Location-based foreground service -->
-<uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
-<service
-    android:name="androidx.work.impl.foreground.SystemForegroundService"
-    android:foregroundServiceType="location|dataSync"
-    tools:node="merge" />
-```
-
-### 🔬 Testing
-- Added QueueCorruptionTest.kt (corruption recovery, Unicode, race conditions)
-- Added ExistingPolicyTest.kt (KEEP/REPLACE policies, cleanup)
-- Added AndroidValidationTest.kt (service type validation, Chinese ROM exceptions)
-
-### 📝 Files Changed
-- Modified: `AppendOnlyQueue.kt`, `IosFileStorage.kt`, `ChainExecutor.kt`, `NativeTaskScheduler.kt`, `KmpHeavyWorker.kt`, `BackgroundTaskScheduler.kt`, `TaskChain.kt`
-- Added: `QueueCorruptionTest.kt`, `ExistingPolicyTest.kt`, `AndroidValidationTest.kt`
-
----
-
-## [2.1.1] - 2026-01-21
-
-### 🔴 Critical Android Fix (BLOCKER)
-
-**Configurable Foreground Service Type for Android 14+ (API 34)**
-- Fixed hardcoded FOREGROUND_SERVICE_TYPE_DATA_SYNC in KmpHeavyWorker
-- **Issue**: Apps using location/media/camera would crash with SecurityException on Android 14+
-- **Previous behavior**: Always used DATA_SYNC type, incompatible with location/media apps
-- **New behavior**: Service type now configurable via inputData
-- **Impact**: Library now works for ALL use cases (location tracking, media playback, camera, etc.)
-- **Migration**: Backward compatible - defaults to DATA_SYNC if not specified
-
-**Example - Location Tracking:**
-```kotlin
-val inputData = buildJsonObject {
-    put(KmpHeavyWorker.FOREGROUND_SERVICE_TYPE_KEY,
-        ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
-}.toString()
-
-scheduler.enqueue(
-    id = "location-tracking",
-    trigger = TaskTrigger.OneTime(),
-    workerClassName = "LocationWorker",
-    constraints = Constraints(isHeavyTask = true),
-    inputJson = inputData
-)
-```
-
-**AndroidManifest.xml (Location):**
-```xml
-<uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
-<service
-    android:name="androidx.work.impl.foreground.SystemForegroundService"
-    android:foregroundServiceType="location|dataSync"
-    tools:node="merge" />
-```
-
-Available types:
-- FOREGROUND_SERVICE_TYPE_DATA_SYNC (default)
-- FOREGROUND_SERVICE_TYPE_LOCATION
-- FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
-- FOREGROUND_SERVICE_TYPE_CAMERA
-- FOREGROUND_SERVICE_TYPE_MICROPHONE
-- FOREGROUND_SERVICE_TYPE_HEALTH
-- And more...
-
-Files changed: `KmpHeavyWorker.kt`
-
----
-
-### 🩹 Critical iOS Stability Fixes
-
-**Eliminated Main Thread Blocking Risk (CRITICAL)**
-- Converted `IosFileStorage.getQueueSize()` from blocking to suspend function
-- **Issue**: Used `runBlocking` which could block iOS Main Thread if called from UI code
-- **Risk**: iOS Watchdog Kill (0x8badf00d) when background thread holds mutex during file I/O
-- **Fix**: Now properly `suspend fun` - forces async usage from Swift via `await`
-- **Impact**: Prevents ANR/Watchdog kills, eliminates UI jank
-- Files changed:
-  - `IosFileStorage.kt:150` - Removed `runBlocking`, now `suspend fun`
-  - `ChainExecutor.kt:118` - Updated to `suspend fun getChainQueueSize()`
-  - `iOSApp.swift:307, 325` - Swift callers now use `await`
-
-**Self-Healing for Corrupt JSON Files (CRITICAL)**
-- Added automatic cleanup of corrupt files to prevent crash loops
-- **Issue**: Partial writes during crashes could create corrupt JSON files
-- **Previous behavior**: Return `null` on parse error, file remains corrupt
-- **New behavior**: Delete corrupt file + log error, preventing infinite crash loops
-- **Impact**: App recovers from corrupt data instead of crashing repeatedly
-- Files changed:
-  - `IosFileStorage.kt:195-204` - `loadChainDefinition()` self-healing
-  - `IosFileStorage.kt:260-267` - `loadChainProgress()` self-healing
-  - `IosFileStorage.kt:321-329` - `loadTaskMetadata()` self-healing
-
-**Fixed Timeout Documentation Mismatch (MEDIUM)**
-- Corrected timeout values in documentation to match implementation
-- **Issue**: Comments said 25s/55s but implementation used 20s/50s
-- **Fix**: Updated `IosWorker.kt` documentation to reflect actual values
-- Files changed: `IosWorker.kt:26-33`
-
-### 📝 Documentation Updates
-- Added comprehensive comments explaining self-healing mechanism
-- Updated Swift async/await usage examples for `getChainQueueSize()`
-- Clarified iOS BGTask timeout behavior vs hardcoded timeouts
-
-## [2.1.0] - 2026-01-20
-
-### 🔧 Critical Fixes & Improvements
-
-**Coroutine Lifecycle Management (HIGH PRIORITY)**
-- Fixed `GlobalScope` usage in `AppendOnlyQueue` compaction
-- **Issue**: GlobalScope not tied to lifecycle, difficult to test and cancel
-- **Fix**: Injected `CoroutineScope` parameter with default `SupervisorJob + Dispatchers.Default`
-- **Impact**: Better lifecycle management, testability, and resource cleanup
-- Changed in: `AppendOnlyQueue.kt:46-48` (constructor), `AppendOnlyQueue.kt:388` (compaction)
-
-**Race Condition Fix in ChainExecutor (MEDIUM PRIORITY)**
-- Fixed inconsistent mutex protection for `isShuttingDown` flag
-- **Issue**: Read at line 153 was not protected by `shutdownMutex`, potential race condition
-- **Fix**: All reads/writes now consistently use `shutdownMutex.withLock`
-- **Impact**: Thread-safe shutdown state access, eliminates potential crashes
-- Changed in: `ChainExecutor.kt:153-156`
-
-**iOS Exact Alarm Transparency (HIGH PRIORITY)**
-- Added `ExactAlarmIOSBehavior` enum for explicit iOS exact alarm handling
-- **Problem**: iOS cannot execute background code at exact times (unlike Android)
-- **Previous behavior**: Silently showed notification without documentation
-- **New behavior**: Three explicit options with fail-fast capability
-  - `SHOW_NOTIFICATION` (default): Display notification at exact time
-  - `ATTEMPT_BACKGROUND_RUN`: Best-effort background task (timing NOT guaranteed)
-  - `THROW_ERROR`: Fail fast for development/testing
-
-### ✨ New Features
-
-**ExactAlarmIOSBehavior Configuration**
-```kotlin
-// Option 1: Notification-based (recommended for user-facing events)
-scheduler.enqueue(
-    id = "morning-alarm",
-    trigger = TaskTrigger.Exact(morningTime),
-    workerClassName = "AlarmWorker",
-    constraints = Constraints(
-        exactAlarmIOSBehavior = ExactAlarmIOSBehavior.SHOW_NOTIFICATION // Default
-    )
-)
-
-// Option 2: Fail fast (development safety)
-scheduler.enqueue(
-    id = "critical-task",
-    trigger = TaskTrigger.Exact(criticalTime),
-    workerClassName = "CriticalWorker",
-    constraints = Constraints(
-        exactAlarmIOSBehavior = ExactAlarmIOSBehavior.THROW_ERROR
-    )
-)
-// Throws: "iOS does not support exact alarms for code execution"
-
-// Option 3: Best effort (non-critical sync)
-scheduler.enqueue(
-    id = "nightly-sync",
-    trigger = TaskTrigger.Exact(midnightTime),
-    workerClassName = "SyncWorker",
-    constraints = Constraints(
-        exactAlarmIOSBehavior = ExactAlarmIOSBehavior.ATTEMPT_BACKGROUND_RUN
-    )
-)
-// iOS will TRY to run around midnight, but timing is NOT guaranteed
-```
-
-### 🔄 API Changes
-
-**New Enum: ExactAlarmIOSBehavior** (iOS only)
-- Added to `Constraints` data class
-- Default: `SHOW_NOTIFICATION` (backward compatible)
-- No breaking changes for existing code
-
-**Updated Methods**:
-- `NativeTaskScheduler.scheduleExactAlarm()` - Now handles all three behaviors
-- `NativeTaskScheduler.scheduleExactNotification()` - Made private
-- Added `NativeTaskScheduler.scheduleExactBackgroundTask()` - For best-effort runs
-
-### 📖 Documentation Improvements
-
-**Enhanced Documentation for iOS Limitations**
-- Updated `TaskTrigger.Exact` documentation with clear iOS behavior description
-- Added comprehensive examples for each `ExactAlarmIOSBehavior` option
-- Documented platform differences (Android always executes code, iOS has restrictions)
-- Added migration guide for apps using exact alarms
-
-**Code Comments**
-- All changes marked with "v2.1.1+" for traceability
-- Added rationale comments for design decisions
-- Improved inline documentation for thread safety patterns
-
-### 🎯 Migration Guide
-
-**No Breaking Changes**
-This is a backward-compatible release. Existing code will continue to work with default behavior.
-
-**Recommended Action for iOS Exact Alarms**:
-```kotlin
-// Review your exact alarm usage and explicitly configure behavior:
-
-// If showing notification is acceptable (most cases)
-constraints = Constraints(
-    exactAlarmIOSBehavior = ExactAlarmIOSBehavior.SHOW_NOTIFICATION
-)
-
-// If you need to catch iOS limitation during development
-constraints = Constraints(
-    exactAlarmIOSBehavior = ExactAlarmIOSBehavior.THROW_ERROR
-)
-```
-
-### 🔬 Testing
-
-**Test Impact**:
-- All existing tests pass without modification (backward compatible)
-- Default behavior (`SHOW_NOTIFICATION`) matches previous implementation
-- No test updates required unless explicitly testing new behaviors
-
-### 🙏 Acknowledgments
-
-This release addresses critical technical debt and improves transparency about platform limitations. Special thanks to the community for highlighting these issues through code reviews.
-
-## [2.0.2] - 2026-01-20
-
-### 🚀 Major Performance Improvements
-
-**iOS Queue Operations - 13-40x Faster**
-- Implemented O(1) append-only queue with head pointer tracking
-- **Enqueue performance**: 40x faster (1000ms → 24ms for 100 chains)
-- **Dequeue performance**: 13x faster (5000ms → 382ms for 100 chains)
-- **Mixed operations**: 17x faster (30s+ → 1.7s for 700 operations)
-- Line position cache for efficient random access
-- Automatic compaction at 80% threshold to manage disk space
-
-**iOS Graceful Shutdown for BGTask Expiration**
-- Added graceful shutdown support for iOS BGProcessingTask time limits
-- 5-second grace period for progress save before termination
-- Automatic chain re-queuing on cancellation
-- Thread-safe shutdown state management with Mutex
-- Batch execution with shutdown flag checks
-- Integration with iOS BGTask `expirationHandler`
-
-### 🐛 Bug Fixes
-
-**iOS Storage Migration**
-- Fixed ClassCastException in `StorageMigration.kt` when migrating periodic tasks
-- Issue: `NSUserDefaults.dictionaryRepresentation().keys` returns NSSet, not List
-- Fix: Removed incorrect type casts at lines 79 and 173
-- Impact: Unblocked migration for users with existing periodic tasks
-
-**Demo App Integration**
-- Added `requestShutdown()` and `resetShutdownState()` to demo app ChainExecutor
-- Fixed Swift error handling in `iOSApp.swift` BGTask expiration handler
-- Added proper `do-catch` block with `try await` for Kotlin suspend functions
-
-### ✅ Test Coverage
-
-- Added 22 comprehensive tests for AppendOnlyQueue
-- Added 5 graceful shutdown scenario tests
-- Added 5 performance benchmark tests
-- **Total test count**: 236 tests (all passing)
-
-### 📖 Documentation
-
-- Added v2.1.0 implementation progress report
-- Added comprehensive code review document
-- Added test coverage analysis with production readiness assessment
-- Documented all bug fixes with root cause analysis
-
-### 🔧 Technical Details
-
-**New Classes**:
-- `AppendOnlyQueue.kt` - O(1) queue implementation with compaction
-- `GracefulShutdownTest.kt` - Shutdown scenario testing
-- `QueuePerformanceBenchmark.kt` - Performance verification
-
-**Modified Classes**:
-- `IosFileStorage.kt` - Integrated AppendOnlyQueue
-- `ChainExecutor.kt` - Added graceful shutdown support
-- `StorageMigration.kt` - Fixed NSSet casting bug
-
-**Performance Metrics**:
-- Queue operations now O(1) instead of O(N)
-- Compaction reduces file size by up to 90%
-- Background compaction doesn't block main operations
-
-## [2.0.1] - 2026-01-19
-
-### 🐛 Critical Bug Fixes
-
-**iOS Concurrency & Stability**
-- Fixed thread-safety issue in `ChainExecutor.activeChains` (replaced NSMutableSet with Mutex-protected Kotlin set)
-- Fixed ANR risk in `NativeTaskScheduler.enqueueChain` (moved file I/O from MainScope to backgroundScope)
-- Fixed stale metadata handling in `ExistingPolicy.KEEP` (now queries actual BGTaskScheduler pending tasks)
-- Fixed NPE in `IosFileStorage.coordinated()` by implementing conditional coordination (production uses NSFileCoordinator for inter-process safety; tests skip coordination to avoid callback execution issues)
-
-**Android Reliability**
-- Fixed `AlarmReceiver` process kill risk by adding `goAsync()` support with `PendingResult` parameter
-- Added configurable notification text for `KmpHeavyWorker` (supports localization via `NOTIFICATION_TITLE_KEY` and `NOTIFICATION_TEXT_KEY`)
-
-**Sample App**
-- Fixed memory leak in `DebugViewModel` (added proper CoroutineScope cleanup with `DisposableEffect`)
-
-### ⚠️ Breaking Changes
-
-**AlarmReceiver Signature Update**
-```kotlin
-// Before (v2.0.0)
-abstract fun handleAlarm(
-    context: Context,
-    taskId: String,
-    workerClassName: String,
-    inputJson: String?
-)
-
-// After (v2.0.1+)
-abstract fun handleAlarm(
-    context: Context,
-    taskId: String,
-    workerClassName: String,
-    inputJson: String?,
-    pendingResult: PendingResult  // Must call finish() when done
-)
-```
-
-**Migration**: Apps extending `AlarmReceiver` must update the method signature and call `pendingResult.finish()` when work completes.
-
-### 📝 Documentation
-- Added comprehensive inline documentation for all fixes
-- All code changes marked with "v2.0.1+" comments for traceability
-
-## [2.0.0] - 2026-01-15
-
-### BREAKING CHANGES
-
-**Group ID Migration: `io.brewkits` → `dev.brewkits`**
-
-This version introduces a breaking change to align with domain ownership for Maven Central.
-
-**What Changed:**
-- Maven artifact: `io.brewkits:kmpworkmanager` → `dev.brewkits:kmpworkmanager`
-- Package namespace: `io.brewkits.kmpworkmanager.*` → `dev.brewkits.kmpworkmanager.*`
-- All source files (117 files) updated with new package structure
-
-**Migration Required:**
-```kotlin
-// Old (v1.x)
-implementation("io.brewkits:kmpworkmanager:1.1.0")
-import io.brewkits.kmpworkmanager.*
-
-// New (v2.0+)
-implementation("dev.brewkits:kmpworkmanager:2.0.0")
-import dev.brewkits.kmpworkmanager.*
-```
-
-**Why?**
-- Aligns with owned domain `brewkits.dev`
-- Proper Maven Central ownership verification
-- Long-term namespace stability
-
-See [DEPRECATED_README.md](DEPRECATED_README.md) for detailed migration guide.
-
-## [1.1.0] - 2026-01-14
-
-### Added
-- Real-time worker progress tracking with `WorkerProgress` and `TaskProgressBus`
-- iOS chain state restoration - resume from last completed step after interruptions
-- Windowed task trigger support (execute within time window)
-- Comprehensive iOS test suite (38+ tests for ChainProgress, ChainExecutor, IosFileStorage)
-
-### Improved
-- iOS retry logic with max retry limits (prevents infinite loops)
-- Enhanced iOS batch processing for efficient BGTask usage
-- Production-grade error handling and logging improvements
+- Change package name from com.example.kmpworkmanagerv2 to io.kmp.taskmanager.sample ([`99cf9a4`](https://github.com/brewkits/kmpworkmanager/commit/99cf9a4c75b4aa5d15d3ac275a3b53ac510b636f))
+- **BREAKING** Rename kmptaskmanager to kmpworker ([`3dbdc42`](https://github.com/brewkits/kmpworkmanager/commit/3dbdc424f3721081f1701fd33155a0b672fb8c0e))
+- **BREAKING** Rename taskmanager to worker throughout codebase ([`21647ec`](https://github.com/brewkits/kmpworkmanager/commit/21647ecb3e771afa9ec14316963b1c7b1812cf00))
+- Rename project from 'KMP Worker' to 'KMP WorkManager' and remove V2 suffix ([`57fdecc`](https://github.com/brewkits/kmpworkmanager/commit/57fdecca20b8776d42882d5cb3de551413817c94))
+- **BREAKING** Change group ID from io.brewkits to dev.brewkits ([`2b3dd75`](https://github.com/brewkits/kmpworkmanager/commit/2b3dd756cb5294d85e46154d4dc427a70261cd4a))
+- Update sample app to v2.3.0 WorkerResult API ([`9ba5d3c`](https://github.com/brewkits/kmpworkmanager/commit/9ba5d3c9bda9ea0607f6c8118cb39777b3764b73))
 
 ### Documentation
-- iOS best practices guide
-- iOS migration guide
-- Updated API examples with v1.1.0 features
 
-## [1.0.0] - 2026-01-13
+- Optimize README structure (543→420 lines) ([`e71850e`](https://github.com/brewkits/kmpworkmanager/commit/e71850ef1cbc7ff1b1a7d2aafbf0b059acdf780a))
+- Refine README formatting and emoji usage ([`05a1776`](https://github.com/brewkits/kmpworkmanager/commit/05a177680debddaba398d93bdceb5ecd294190c8))
+- Rewrite README to be more professional ([`ff0f5c2`](https://github.com/brewkits/kmpworkmanager/commit/ff0f5c2359febd582ebb7874f1aa1574a65e3349))
+- Update old package name references ([`927c2e7`](https://github.com/brewkits/kmpworkmanager/commit/927c2e727add98aa53d83fd0c7cfa6fe838a0268))
+- Update branding to Brewkits organization ([`15ddfa8`](https://github.com/brewkits/kmpworkmanager/commit/15ddfa83574ed10fc674e693a1ef5d850d84fdbd))
+- Add comprehensive test plan for future improvements ([`a4f285c`](https://github.com/brewkits/kmpworkmanager/commit/a4f285ccf4b82e87576de382bbfcdfc6a1d13629))
+- Complete final audit - Update all remaining "KMP Worker" references to "KMP WorkManager" ([`5635fcc`](https://github.com/brewkits/kmpworkmanager/commit/5635fcc5c95af7f80cd96694d341e153214d72a4))
+- Add comprehensive research analysis and roadmap for v1.1.0 ([`fc4d2ab`](https://github.com/brewkits/kmpworkmanager/commit/fc4d2abccd1c2e69294a979beef357265274f83f))
+- Add comprehensive iOS limitations documentation and Android-only API annotations ([`f60ab92`](https://github.com/brewkits/kmpworkmanager/commit/f60ab92d5a098768acbe6302d5c9ec01565dd099))
+- Rebrand as 'KMP Worker - Enterprise-grade Background Manager' ([`12e9689`](https://github.com/brewkits/kmpworkmanager/commit/12e96897805efe0906c8ac38b0c7054dd4b527fc))
+- Update DEMO_GUIDE with enterprise features and v1.1.0 capabilities ([`b485709`](https://github.com/brewkits/kmpworkmanager/commit/b485709d30343a06f193626f56fbabfa44ab2c9f))
+- Add comprehensive publish summary and next steps ([`141344a`](https://github.com/brewkits/kmpworkmanager/commit/141344a71036fd1e9bd009f62bcb52914579ac46))
+- Add comprehensive ROADMAP and DEPRECATED README ([`b26b99c`](https://github.com/brewkits/kmpworkmanager/commit/b26b99c8f407e513766379417a061bb74fc6d265))
+- Update roadmap versions and improve gitignore ([`330eb0b`](https://github.com/brewkits/kmpworkmanager/commit/330eb0b1e06715335c5387270b3bbfba3fe32f39))
+- Clarify task replacement behavior in demo UI ([`4c54152`](https://github.com/brewkits/kmpworkmanager/commit/4c5415222ec323855ebedf517db3b6f59d4e8d12))
+- Clean up internal documentation files ([`6a1156c`](https://github.com/brewkits/kmpworkmanager/commit/6a1156c6b7d98791b3b6dd928a7044d8b85225cb))
+- Update README with v2.1.2 release and correct roadmap versions ([`fe994f5`](https://github.com/brewkits/kmpworkmanager/commit/fe994f5e36ea8df86ff7d025e35dee03297be0c7))
+- Add content-uri-task to Info.plist and document iOS Simulator limitations ([`900aea3`](https://github.com/brewkits/kmpworkmanager/commit/900aea3b91e9a47c74b8ff585678b79fb3c4f55e))
+- Add comprehensive GPG signing setup guide for Maven Central ([`632d078`](https://github.com/brewkits/kmpworkmanager/commit/632d078bd5cee7631bdd02f446a5a524aa652a42))
+- Update README to v2.1.2 and add dev.to article ([`1a1581e`](https://github.com/brewkits/kmpworkmanager/commit/1a1581ee66450922470e039a5b737103b2d0a0f4))
+- Add hero cover image to README ([`5be7495`](https://github.com/brewkits/kmpworkmanager/commit/5be7495b804faae315cd5ed54d937979b2ca71ee))
+- Bust GitHub image cache for banner ([`c3406d7`](https://github.com/brewkits/kmpworkmanager/commit/c3406d7feaac6c089f0b166bdd27f90eef479f6d))
+- Add comprehensive KSP & Annotation guide ([`d8a640d`](https://github.com/brewkits/kmpworkmanager/commit/d8a640da482011bebef2abffd549458030020dbd))
+- Convert KSP guide to English ([`1d464a4`](https://github.com/brewkits/kmpworkmanager/commit/1d464a4474d6596936c3f0cb5f9001d154e3bb32))
+- Update README with realistic content and add release documentation ([`d467294`](https://github.com/brewkits/kmpworkmanager/commit/d4672943a95ac1ecd74372025ecaa0fe5a67659e))
+- Update documents ([`6ed31c1`](https://github.com/brewkits/kmpworkmanager/commit/6ed31c1250c6da6f03830f72a6bac7ac8947271b))
+- Modernize README with professional formatting and improved structure ([`c53f20d`](https://github.com/brewkits/kmpworkmanager/commit/c53f20d04a6b73acd0c5e5ed3d482563ea1432b4))
+- Fix iOS initialization documentation inconsistencies (#15) ([`867a12e`](https://github.com/brewkits/kmpworkmanager/commit/867a12e64ec13201cf061b55e222b969d6e42da6))
+- Rewrite README for developer audience ([`564c63c`](https://github.com/brewkits/kmpworkmanager/commit/564c63cf258c240dc3da99db452cdd3760591d6e))
 
-### Added
-- Worker factory pattern for better extensibility
-- Automatic iOS task ID validation from Info.plist
-- Type-safe serialization extensions with reified inline functions
-- File-based storage on iOS for better performance
-- Smart exact alarm fallback on Android
-- Heavy task support with foreground services
-- Unified API for Android and iOS
-- Comprehensive test suite with 41+ test cases
-- Support for task chains with parallel and sequential execution
-- Multiple trigger types (OneTime, Periodic, Exact, NetworkChange)
-- Rich constraint system (network, battery, charging, storage)
-- Background task scheduling using WorkManager (Android) and BGTaskScheduler (iOS)
+### Fix
 
-### Changed
-- Rebranded from `kmpworker` to `kmpworkmanager`
-- Migrated package from `io.kmp.worker` to `dev.brewkits.kmpworkmanager`
-- Project organization moved to brewkits/kmpworkmanager
+- Address compiler warnings and deprecations in ComposeApp ([`fa96e21`](https://github.com/brewkits/kmpworkmanager/commit/fa96e21602dd90de67d12b50c5053488e46bb19b))
+- Resolve DEBUG macro conflict and update Swift calls to async/await ([`d9020f7`](https://github.com/brewkits/kmpworkmanager/commit/d9020f7f77bc4e3070733d352e22438ae634d6c9))
+- Resolve TaskEventBusTest, update docs, correct worker return types, and document KSP/iOS demo build issues ([`a611fd7`](https://github.com/brewkits/kmpworkmanager/commit/a611fd7b4fbf5723317c010518a45c724fa2d7fe))
 
-### Documentation
-- Complete API reference documentation
-- Platform setup guides for Android and iOS
-- Quick start guide
-- Task chains documentation
-- Architecture overview
-- Examples and use cases
+### Fixed
+
+- Keep original contact email vietnguyentuan@gmail.com ([`6e169c2`](https://github.com/brewkits/kmpworkmanager/commit/6e169c29831faf997e1528d6960a3b33ab056491))
+- Increase EventBus replay buffer from 0 to 5 events ([`81b95ac`](https://github.com/brewkits/kmpworkmanager/commit/81b95acbd0046e20c018c8dd19c60a9919dc2d40))
+- Add exact-reminder to iOS Info.plist BGTaskSchedulerPermittedIdentifiers ([`d5c2428`](https://github.com/brewkits/kmpworkmanager/commit/d5c242865aaa5bef4e2ad417bfb39ed9770353df))
+- Replace dynamic task ID with fixed ID for iOS compatibility ([`1f15e3f`](https://github.com/brewkits/kmpworkmanager/commit/1f15e3f0896f9e30582c364539fbbf4fdff37b77))
+- Critical fixes for v2.1.0 production release ([`40ee80b`](https://github.com/brewkits/kmpworkmanager/commit/40ee80b42aa61cab84f5c463f924f28974ea6eaf))
+- Critical iOS stability fixes for v2.1.2 ([`209205c`](https://github.com/brewkits/kmpworkmanager/commit/209205c55cb24b076e163c937727a1e0d1e6ef27))
+- Add configurable foreground service type for Android 14+ ([`647be81`](https://github.com/brewkits/kmpworkmanager/commit/647be8193eb35e7e1b5d56fe97b79e1dc1e4564e))
+- Update iOS app to use async/await API and correct KotlinInt properties ([`2d6567b`](https://github.com/brewkits/kmpworkmanager/commit/2d6567b98ee59d9355a490f568e96fb6b0366560))
+- Use NSNumber conversion for KotlinInt in Swift ([`b469800`](https://github.com/brewkits/kmpworkmanager/commit/b469800727b597c1572e0ac70f0f1330ecfedf8f))
+- Fix run GitHub action ([`e741bde`](https://github.com/brewkits/kmpworkmanager/commit/e741bdebb29ffcbc12fa852e2068ab567c22aa91))
+- Fix bug for Github action ([`d4fb221`](https://github.com/brewkits/kmpworkmanager/commit/d4fb221d7a84b0523fae94c5ffa4acfba78001de))
+- IOS simulator detection and chain executor improvements (#10) ([`8351c54`](https://github.com/brewkits/kmpworkmanager/commit/8351c54607787eefcff246d4943a9f0cd9143b95))
+- IOS compilation issues for v2.2.2 Maven release ([`4e546cd`](https://github.com/brewkits/kmpworkmanager/commit/4e546cd607de77b9d451fb1b1b4a496f203dfb41))
+- Resolve compilation errors ([`4bb4b51`](https://github.com/brewkits/kmpworkmanager/commit/4bb4b51b738b030dcb18930381e5c0eb36865408))
+- Complete remaining implementation issues ([`317519d`](https://github.com/brewkits/kmpworkmanager/commit/317519d2cce94c2f4e8b93baa529f6540cf8b958))
+- Update iOS demo app to use WorkerResult API ([`666201b`](https://github.com/brewkits/kmpworkmanager/commit/666201b8f770d87e8357a4ea06f55e72b3e36fdc))
+- Update iOS app to use simplified WorkerResult type checking ([`231ff3e`](https://github.com/brewkits/kmpworkmanager/commit/231ff3ef0389f538b2629be5c2598d1027584afa))
+- V2.3.3 — WorkManager 2.10.0+ compat, chain heavy routing, notification i18n (#14) ([`50fb143`](https://github.com/brewkits/kmpworkmanager/commit/50fb14351e61a636b13e4e635328e22ad666a5a9))
+- V2.3.5 — bug fixes, test coverage, code cleanup ([`ea7010b`](https://github.com/brewkits/kmpworkmanager/commit/ea7010baed320bdfc7c14ccf21712d7d91ce9b51))
+- V2.3.5 — bug fixes, test coverage, code cleanup ([`dc50d78`](https://github.com/brewkits/kmpworkmanager/commit/dc50d78c47d358dcdd287a482e1867c6c8ec80f5))
+- V2.3.6 — 10 critical bug fixes across iOS and Android ([`ca43ecb`](https://github.com/brewkits/kmpworkmanager/commit/ca43ecb8ddafe83752b4c76950540123f14055ec))
+- Address audit findings on iOS chain executor and storage (fix/audit-bugs) ([`0e7a6d0`](https://github.com/brewkits/kmpworkmanager/commit/0e7a6d018f1f849665b76622d92a36e58edb23f2))
+- Comprehensive audit fixes — silent failures, diagnostics, security, API safety ([`3009e82`](https://github.com/brewkits/kmpworkmanager/commit/3009e823f02129d788362f50cad8ca1876f95685))
+- V2.3.7 — close Android/iOS feature parity gaps ([`90859d5`](https://github.com/brewkits/kmpworkmanager/commit/90859d545d23fe332af83832748e9c36888b8533))
+- V2.3.7 — stability hardening and crash prevention ([`6e2d8eb`](https://github.com/brewkits/kmpworkmanager/commit/6e2d8eb5ee2463119b52450f3779c6c1810901cf))
+- V2.3.7 — code audit fixes across Android, iOS, and common ([`ab41dd0`](https://github.com/brewkits/kmpworkmanager/commit/ab41dd0ab01d8cc58cb3cd61626470999925a46b))
+- V2.3.7 — address 4 architectural issues from code review ([`58f0b7e`](https://github.com/brewkits/kmpworkmanager/commit/58f0b7e7174df33b4d2d69e1b101ceefe14cc91b))
+- V2.3.7 — clean up deprecated API, non-nullable factory, flush docs ([`f455d11`](https://github.com/brewkits/kmpworkmanager/commit/f455d118d539c8e901ce3a66ce8e1807e62ac67d))
+- V2.3.7 — full audit fixes, streaming upload, QA test suite ([`d4811ee`](https://github.com/brewkits/kmpworkmanager/commit/d4811eeb58b41a0daf63817b821eb2415f441096))
+- Wire built-in workers for upload/download demo on Android ([`ffcbd37`](https://github.com/brewkits/kmpworkmanager/commit/ffcbd37922a542257f17b9d982313af5467ceed3))
+- Register all sample workers in DemoWorkerFactory ([`6e203bc`](https://github.com/brewkits/kmpworkmanager/commit/6e203bc1044c7a6dacc9b2183b9c41cfe2de8510))
+- BuiltinWorkerRegistry returns null for unknown workers ([`e87fd22`](https://github.com/brewkits/kmpworkmanager/commit/e87fd222c435c0edccc54c30e441f665cd50b06e))
+- SSRF UserInfo bypass, clearThrottle leak, dead dataClass field ([`08af382`](https://github.com/brewkits/kmpworkmanager/commit/08af38269104ffaf74977e67ec17c365bc85260f))
+- Resolve VERSION_NAME NPE on CI ([`9b88d72`](https://github.com/brewkits/kmpworkmanager/commit/9b88d7223d1f74408ea2a8f86f99c2cfd5decd54))
+- Inject all required gradle.properties for CI build ([`7ce0400`](https://github.com/brewkits/kmpworkmanager/commit/7ce04006f6136d7ab239263acd81d02d7ba6ff6a))
+- Make testBufferConsistency deterministic on CI ([`86a7cd9`](https://github.com/brewkits/kmpworkmanager/commit/86a7cd9fd18cd59ee58851c7e14ae683e0f2e528))
+- Add missing AndroidManifest.xml to kmpworker library ([`cbf457d`](https://github.com/brewkits/kmpworkmanager/commit/cbf457d8ea249c535ff16453c0bea1a936acfeed))
+- V2.3.8 edge-case hardening — queue safety, stale locks, security ([`60d9f24`](https://github.com/brewkits/kmpworkmanager/commit/60d9f24058f5aaae8c4961973fabea3887993b56))
+- Resolve iOS simulator demo chain freezing and zip compression fallback ([`1d8135b`](https://github.com/brewkits/kmpworkmanager/commit/1d8135b3aa0cb12e5007c34b7b6caa6627804931))
+
+### Tests
+
+- Add comprehensive iOS unit tests for stability ([`b1fff38`](https://github.com/brewkits/kmpworkmanager/commit/b1fff3808b01333ef4eb2386dc7e87abe8dfe743))
+- Add comprehensive WorkerResult tests and built-in worker chain demos ([`5d9eb95`](https://github.com/brewkits/kmpworkmanager/commit/5d9eb955365ef18afb5552c8a96711e4d2a5acdb))
+
+### add
+
+- For build ios xframe ([`f27e055`](https://github.com/brewkits/kmpworkmanager/commit/f27e055c94338ac338ee27748f9039e1a5d12174))
+
+### chore
+
+- **BREAKING** Migrate to brewkits/kmp_worker organization ([`e9014a4`](https://github.com/brewkits/kmpworkmanager/commit/e9014a4934055d24be85e5bb76d7cd5e4fedd909))
+
+### ref
+
+- Update lib version ([`7c88b6a`](https://github.com/brewkits/kmpworkmanager/commit/7c88b6ac69436c041cd0e3bc2538273aa9ca5b58))
+- V2.1.0 Phase 1 Day 1 Completion ([`e950328`](https://github.com/brewkits/kmpworkmanager/commit/e950328f25a02feabb6b9af563b6304015ec3ee3))
+
+### release
+
+- **BREAKING** Version 2.0.0 - Package namespace migration ([`54d3b67`](https://github.com/brewkits/kmpworkmanager/commit/54d3b67b373f7c204c8de2f21891fa3d69a246c6))
+
+
