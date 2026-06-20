@@ -14,7 +14,7 @@ composeMultiplatform = "1.8.2"
 junit = "4.13.2"
 kotlin = "2.1.21"
 
-koin = "4.0.0"
+koin = "4.2.1"
 kotest = "5.8.0"
 kotlinCompileTesting = "0.6.0"
 kotlinCompileTestingKsp = "0.6.0"
