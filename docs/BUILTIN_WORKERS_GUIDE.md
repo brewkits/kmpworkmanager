@@ -622,8 +622,8 @@ engine stays Ktor-free. Add it only if you use `Http*` / `ParallelHttp*` workers
 
 ```kotlin
 commonMain.dependencies {
-    implementation("dev.brewkits:kmpworkmanager:3.0.0")        // core engine (no Ktor)
-    implementation("dev.brewkits:kmpworkmanager-http:3.0.0")   // HTTP workers (Ktor 3)
+    implementation("dev.brewkits:kmpworkmanager:3.0.1")        // core engine (no Ktor)
+    implementation("dev.brewkits:kmpworkmanager-http:3.0.1")   // HTTP workers (Ktor 3)
 }
 ```
 
