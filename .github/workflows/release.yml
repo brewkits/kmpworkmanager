@@ -171,8 +171,12 @@ jobs:
             echo "::error::artifact count ($ARTIFACTS) != signature count ($SIGNATURES) — signing did not cover every artifact"
             exit 1
           fi
-          if [ "$ARTIFACTS" -ne "$MD5S" ] || [ "$ARTIFACTS" -ne "$SHA1S" ]; then
-            echo "::error::checksums missing — every artifact must have .md5 and .sha1 (Sonatype Central requirement)"
+          # Every artifact must carry .md5 + .sha1, but the bundle also checksums
+          # non-"artifact" files (maven-metadata.xml, etc.), so the checksum count is
+          # legitimately HIGHER than the artifact count. Fail only when checksums are
+          # MISSING (fewer than artifacts), not when there are extras.
+          if [ "$MD5S" -lt "$ARTIFACTS" ] || [ "$SHA1S" -lt "$ARTIFACTS" ]; then
+            echo "::error::checksums missing — every artifact must have .md5 and .sha1 (Sonatype Central requirement). artifacts=$ARTIFACTS md5=$MD5S sha1=$SHA1S"
             exit 1
           fi
 
