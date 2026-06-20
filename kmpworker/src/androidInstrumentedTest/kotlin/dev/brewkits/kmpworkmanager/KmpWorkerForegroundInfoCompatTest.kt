@@ -69,11 +69,15 @@ class KmpWorkerForegroundInfoCompatTest {
     fun testExpeditedOneTimeTaskDoesNotCrash() = runBlocking {
         val scheduler = KmpWorkManager.getInstance().backgroundTaskScheduler
 
-        // OneTime (non-heavy) tasks use KmpWorker with setExpedited()
-        // This is the exact path that triggered the crash on WorkManager 2.10.0+
+        // OneTime (non-heavy) with NO initial delay → the scheduler marks it setExpedited().
+        // initialDelayMs MUST be 0 here: a non-zero delay disables expedited (see
+        // NativeTaskScheduler.buildOneTimeWorkRequest), which is exactly why the earlier
+        // version of this test (delay = 1000) passed even while the crash was present.
+        // On API < 31 an expedited request runs as a foreground service, so WorkManager
+        // calls getForegroundInfo() — the path that threw "Not implemented" before the fix.
         val result = scheduler.enqueue(
             id = "compat-expedited-test",
-            trigger = TaskTrigger.OneTime(initialDelayMs = 1000),
+            trigger = TaskTrigger.OneTime(initialDelayMs = 0),
             workerClassName = "SimpleWorker",
             constraints = Constraints(isHeavyTask = false),
             inputJson = null,
@@ -82,12 +86,12 @@ class KmpWorkerForegroundInfoCompatTest {
 
         assertEquals(ScheduleResult.ACCEPTED, result, "Expedited task should be scheduled without crash")
 
-        val workInfo = workManager.getWorkInfosForUniqueWork("compat-expedited-test").get()
-        assertNotNull(workInfo)
-        assertTrue(workInfo.isNotEmpty(), "WorkInfo must exist")
-        assertTrue(
-            workInfo.first().state in setOf(WorkInfo.State.ENQUEUED, WorkInfo.State.RUNNING),
-            "Task must be ENQUEUED or RUNNING, not crashed. State: ${workInfo.first().state}"
+        // Let the worker actually run. Without KmpWorker.getForegroundInfo() it crashes with
+        // IllegalStateException on API < 31 and lands in FAILED; with the fix it SUCCEEDS.
+        val terminal = awaitTerminalState("compat-expedited-test")
+        assertEquals(
+            WorkInfo.State.SUCCEEDED, terminal,
+            "Expedited KmpWorker must run to SUCCEEDED, not crash with 'Not implemented' on API ${android.os.Build.VERSION.SDK_INT}"
         )
     }
 
@@ -235,6 +239,19 @@ class KmpWorkerForegroundInfoCompatTest {
     // ─────────────────────────────────────────────────────────────────────────
     // Test Helpers
     // ─────────────────────────────────────────────────────────────────────────
+
+    /** Polls the unique work until it reaches a finished state (or times out). */
+    private fun awaitTerminalState(uniqueName: String, timeoutMs: Long = 15_000L): WorkInfo.State? {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        var last: WorkInfo.State? = null
+        while (System.currentTimeMillis() < deadline) {
+            val infos = workManager.getWorkInfosForUniqueWork(uniqueName).get()
+            last = infos.firstOrNull()?.state
+            if (last != null && last.isFinished) return last
+            Thread.sleep(250L)
+        }
+        return last
+    }
 
     private class TestWorkerFactory : AndroidWorkerFactory {
         override fun createWorker(workerClassName: String): AndroidWorker? {
