@@ -204,6 +204,18 @@ and no recovery mechanism for incomplete work. Getting it wrong means your tasks
 
 ---
 
+## What's new in v3.0.1
+
+**Crash fix for expedited tasks on Android 8–11 (API 26–30).** A regression introduced in
+`v2.3.8` dropped `KmpWorker`'s `getForegroundInfo()` override. Immediate, non-heavy tasks are
+scheduled as expedited work, which runs as a foreground service on API < 31 — so WorkManager
+called `getForegroundInfo()` and the default implementation threw
+`IllegalStateException("Not implemented")`, crashing the task at runtime.
+
+- **Who's affected:** apps on `v2.3.8`–`v3.0.0` running on **API 26–30** that schedule
+  immediate background tasks. **Upgrade to `3.0.1`.** (API 31+ was never affected.)
+- No public API changes.
+
 ## What's new in v3.0.0
 
 **Ktor 3 support** (Issue #33). The HTTP layer now targets **Ktor 3.1.x**.
