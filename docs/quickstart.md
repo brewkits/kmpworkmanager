@@ -21,10 +21,10 @@ Add KMP WorkManager to your `build.gradle.kts` (module level):
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("dev.brewkits:kmpworkmanager:3.0.1")
+            implementation("dev.brewkits:kmpworkmanager:3.1.0")
             // Optional — only if you use the built-in HTTP workers (Http*/ParallelHttp*).
             // Requires Ktor 3; see docs/MIGRATION_V3.0.0.md.
-            implementation("dev.brewkits:kmpworkmanager-http:3.0.1")
+            implementation("dev.brewkits:kmpworkmanager-http:3.1.0")
         }
     }
 }
