@@ -185,11 +185,27 @@ abstract class BaseKmpWorker : CoroutineWorker {
                             retryCount = runAttemptCount
                         )
                     )
-                    historyStatus = if (result.shouldRetry) ExecutionStatus.FAILURE else ExecutionStatus.ABANDONED
-                    if (result.shouldRetry) {
+                    // Honor an explicit retry ceiling stamped into inputData by the caller/plugin.
+                    // Semantics: maxRetries=N → at most N+1 total runs (1 initial + N retries).
+                    // runAttemptCount is 0-based, so retries are exhausted once runAttemptCount >= N.
+                    // Absent key → -1 → uncapped (back-compat with existing WorkRequests).
+                    // Mirrors iOS DynamicTaskDispatcher.handleOneTimeResult (effectiveCap = 1 +
+                    // maxRetries) and the attemptCap ceiling used by the WorkerResult.Retry branch below.
+                    val maxRetries = inputData.getInt(NativeTaskScheduler.KEY_MAX_RETRIES, -1)
+                    val retriesExhausted = maxRetries in 0..runAttemptCount
+                    val willRetry = result.shouldRetry && !retriesExhausted
+                    historyStatus = if (willRetry) ExecutionStatus.FAILURE else ExecutionStatus.ABANDONED
+                    if (willRetry) {
                         isRetrying = true
                         return Result.retry()
                     } else {
+                        if (result.shouldRetry && retriesExhausted) {
+                            Logger.w(
+                                LogTags.WORKER,
+                                "$workerLogTag retry cap reached for $workerClassName " +
+                                    "(maxRetries=$maxRetries, runAttemptCount=$runAttemptCount). Marking as permanent failure."
+                            )
+                        }
                         return Result.failure()
                     }
                 }
@@ -203,7 +219,13 @@ abstract class BaseKmpWorker : CoroutineWorker {
 
                     // Honor attemptCap as a hard ceiling. runAttemptCount is 0-based, so
                     // attemptCap=3 means we accept runs 0, 1, 2 — retry only if (runAttemptCount + 1) < cap.
-                    val cap = result.attemptCap
+                    // Precedence mirrors iOS handleOneTimeResult: the per-result attemptCap wins;
+                    // otherwise fall back to Constraints.maxRetries (N retries → cap of N+1 total
+                    // runs) stamped into inputData; otherwise uncapped (WorkManager quota governs).
+                    val cap = result.attemptCap ?: run {
+                        val maxRetries = inputData.getInt(NativeTaskScheduler.KEY_MAX_RETRIES, -1)
+                        if (maxRetries >= 0) maxRetries + 1 else null
+                    }
                     if (cap != null && runAttemptCount + 1 >= cap) {
                         Logger.w(
                             LogTags.WORKER,

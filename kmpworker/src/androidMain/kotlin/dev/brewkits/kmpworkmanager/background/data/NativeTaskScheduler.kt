@@ -39,6 +39,9 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
     companion object {
         const val TAG_KMP_TASK = "kmp-worker-task"
         const val KEY_INPUT_JSON_FILE = "inputJsonFile"
+        // Retry ceiling stamped from Constraints.maxRetries and read back by BaseKmpWorker.
+        // Absent → treated as -1 (uncapped). WorkManager has no native max-retry API.
+        const val KEY_MAX_RETRIES = "maxRetries"
         internal const val OVERFLOW_THRESHOLD_BYTES = 8192 // 8 KB
         private const val ZOMBIE_FILE_MAX_AGE_MS = 24 * 60 * 60 * 1000L // 24 hours
         private val cleanupStarted = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -341,7 +344,7 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         initialDelayMs: Long,
         wmConstraints: androidx.work.Constraints
     ): OneTimeWorkRequest {
-        val workData = buildWorkData(id, workerClassName, inputJson)
+        val workData = buildWorkData(id, workerClassName, inputJson, constraints.maxRetries)
         val builder = if (constraints.isHeavyTask) {
             OneTimeWorkRequestBuilder<KmpHeavyWorker>()
         } else {
@@ -372,8 +375,10 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         return builder.build()
     }
 
-    private fun buildWorkData(taskId: String, workerClassName: String, inputJson: String?): Data {
+    private fun buildWorkData(taskId: String, workerClassName: String, inputJson: String?, maxRetries: Int): Data {
         val builder = Data.Builder().putString("workerClassName", workerClassName)
+        // Stamp the retry ceiling before any early return so null-input tasks are capped too.
+        if (maxRetries >= 0) builder.putInt(KEY_MAX_RETRIES, maxRetries)
         if (inputJson == null) return builder.build()
 
         val bytes = inputJson.encodeToByteArray()
@@ -396,6 +401,11 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
     }
 
     private fun buildPeriodicWorkData(workerClassName: String, inputJson: String?): Data {
+        // maxRetries is intentionally NOT stamped for periodic work. A periodic task runs
+        // indefinitely by design, so "N+1 total runs" is meaningless; and WorkManager's
+        // runAttemptCount for periodic work is version-dependent (may accumulate across periods),
+        // which would silently disable retries forever once the cap is hit. maxRetries applies to
+        // one-time and chained tasks only — see Constraints.maxRetries.
         val builder = Data.Builder().putString("workerClassName", workerClassName)
         if (inputJson == null) return builder.build()
 

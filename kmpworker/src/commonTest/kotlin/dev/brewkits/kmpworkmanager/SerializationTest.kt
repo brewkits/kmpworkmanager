@@ -90,4 +90,34 @@ class SerializationTest {
 
         assertEquals(original.workerClassName, deserialized.workerClassName)
     }
+
+    @Test
+    fun Constraints_maxRetries_should_round_trip() {
+        // maxRetries is persisted inside chain definitions on iOS, so it must survive
+        // serialization exactly.
+        val original = Constraints(maxRetries = 7)
+
+        val serialized = json.encodeToString(original)
+        val deserialized = json.decodeFromString<Constraints>(serialized)
+
+        assertEquals(7, deserialized.maxRetries)
+    }
+
+    @Test
+    fun Constraints_default_maxRetries_is_uncapped() {
+        assertEquals(-1, Constraints().maxRetries)
+    }
+
+    @Test
+    fun Constraints_from_pre_3_1_json_without_maxRetries_decodes_to_default() {
+        // A chain definition persisted before maxRetries existed has no such key. It must
+        // decode to the -1 default (uncapped / platform default), never fail.
+        val legacyJson = """{"requiresNetwork":true,"isHeavyTask":true}"""
+
+        val decoded = json.decodeFromString<Constraints>(legacyJson)
+
+        assertEquals(-1, decoded.maxRetries, "Missing maxRetries key must default to -1 for back-compat.")
+        assertEquals(true, decoded.requiresNetwork)
+        assertEquals(true, decoded.isHeavyTask)
+    }
 }

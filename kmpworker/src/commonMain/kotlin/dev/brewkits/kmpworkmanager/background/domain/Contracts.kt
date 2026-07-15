@@ -93,6 +93,23 @@ enum class SystemConstraint {
 
 /**
  * Defines the constraints under which a background task can run.
+ *
+ * @property maxRetries Hard ceiling on retry attempts for a failing task. `maxRetries = N`
+ *   allows at most `N + 1` total runs (1 initial + N retries); the scheduler stops
+ *   rescheduling once the run-attempt count reaches `N`. Caps both the legacy
+ *   `WorkerResult.Failure(shouldRetry = true)` path and a `WorkerResult.Retry` that carries no
+ *   explicit `attemptCap` (a per-result `attemptCap` always takes precedence).
+ *   - **Applies to one-time and chained tasks only.** Periodic tasks ignore it: a periodic
+ *     task runs indefinitely by design, so a total-run ceiling is meaningless.
+ *   - `-1` (default) → **use the platform default**, NOT a shared value. This preserves each
+ *     platform's pre-3.0.2 unset behavior: Android is uncapped (WorkManager quota/backoff
+ *     governs the upper bound); iOS falls back to its own defaults (5 attempts for single
+ *     tasks, a budget of 3 whole-chain retries).
+ *   - Explicit `>= 0` → honored on both platforms.
+ *   - Android: stamped into the WorkRequest input and enforced in `BaseKmpWorker`, since
+ *     WorkManager has no native max-retry API.
+ *   - iOS: for chains, resolved into the chain-level retry budget (`ChainProgress.maxRetries`);
+ *     for single tasks, persisted into task metadata and enforced by the dynamic dispatcher.
  */
 @Serializable
 data class Constraints(
@@ -104,6 +121,7 @@ data class Constraints(
     val isHeavyTask: Boolean = false,
     val backoffPolicy: BackoffPolicy = BackoffPolicy.EXPONENTIAL,
     val backoffDelayMs: Long = 30_000,
+    val maxRetries: Int = -1,
     val systemConstraints: Set<SystemConstraint> = emptySet(),
     val exactAlarmIOSBehavior: ExactAlarmIOSBehavior = ExactAlarmIOSBehavior.SHOW_NOTIFICATION,
     val extras: Map<String, String> = emptyMap()

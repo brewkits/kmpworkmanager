@@ -430,10 +430,17 @@ public class NativeTaskScheduler(
             return ScheduleResult.ACCEPTED
         }
 
-        val taskMetadata = mapOf(
-            "workerClassName" to workerClassName,
-            "inputJson" to (inputJson ?: "")
-        )
+        val taskMetadata = buildMap {
+            put("workerClassName", workerClassName)
+            put("inputJson", inputJson ?: "")
+            // Persist an explicit retry ceiling so the single-task retry loop
+            // (DynamicTaskDispatcher.handleOneTimeResult) can honor Constraints.maxRetries.
+            // Stored only when set (>= 0); absence means "use the platform default", matching
+            // Android. Keyed by the same constant the dispatcher reads back.
+            if (constraints.maxRetries >= 0) {
+                put(DynamicTaskDispatcher.META_MAX_RETRIES, "${constraints.maxRetries}")
+            }
+        }
         fileStorage.saveTaskMetadata(id, taskMetadata, periodic = false)
 
         val request = createBackgroundTaskRequest(id, constraints)
