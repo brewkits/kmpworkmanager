@@ -717,6 +717,7 @@ data class Constraints(
     // Retry Policy
     val backoffPolicy: BackoffPolicy = BackoffPolicy.EXPONENTIAL,
     val backoffDelayMs: Long = 10_000,
+    val maxRetries: Int = -1, // N → N+1 total runs; -1 = platform default. One-time & chains only.
 
     // Existing Work Policy
     val existingWorkPolicy: ExistingWorkPolicy = ExistingWorkPolicy.KEEP,
@@ -866,6 +867,20 @@ backoffDelayMs: Long = 10_000
 ```
 
 Initial backoff delay in milliseconds (default: 10 seconds).
+
+**Platforms:** Android, iOS
+
+---
+
+```kotlin
+maxRetries: Int = -1
+```
+
+Hard ceiling on retry attempts. `maxRetries = N` allows at most **N + 1** total runs
+(1 initial + N retries). Caps both `Failure(shouldRetry = true)` and a `Retry` with no explicit
+`attemptCap` (a per-result `attemptCap` takes precedence). **One-time and chained tasks only** —
+periodic tasks ignore it. Default `-1` = platform default (Android uncapped; iOS 5 attempts for
+single tasks, 3 whole-chain retries).
 
 **Platforms:** Android, iOS
 

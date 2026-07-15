@@ -489,9 +489,17 @@ class ChainExecutor(
         var chainsFailed = 0
         var wasKilledBySystem = false
 
+        // Snapshot the queue depth so a chain re-enqueued for retry during THIS batch (see the
+        // retryable-failure path in executeChain) is NOT re-executed until the next BGTask
+        // invocation. Without this bound a transiently-failing chain would be retried back-to-back
+        // within one BGTask — no backoff, burning its whole retry budget in milliseconds. Mirrors
+        // the snapshot the single-task DynamicTaskDispatcher uses for the same reason.
+        val initialQueueSize = getChainQueueSize()
+        val chainsToProcess = minOf(maxChains, initialQueueSize)
+
         try {
             withTimeout(conservativeTimeout) {
-                for (iteration in 0 until maxChains) {
+                for (iteration in 0 until chainsToProcess) {
                     // Check shutdown flag — AtomicInt read is always immediate, no suspension needed.
                     if (isShuttingDown.value != 0) {
                         Logger.w(LogTags.CHAIN, "Stopping batch execution - shutdown requested")
@@ -811,9 +819,29 @@ class ChainExecutor(
                 )
             }
 
+            // Resolve the chain-level retry budget from the tasks' Constraints.maxRetries.
+            // Constraints.maxRetries is per-task, but ChainProgress.maxRetries is one budget
+            // for the whole chain, so we take the largest EXPLICIT value (>= 0) any node asked
+            // for — a chain must not abandon before its most retry-tolerant step is satisfied.
+            // If no node set it (all default -1), keep ChainProgress's platform default so iOS
+            // behaviour is unchanged for callers that never touch maxRetries.
+            //
+            // Contract mapping: Constraints.maxRetries = N means "N+1 total attempts" (1 initial
+            // + N retries), matching Android. ChainProgress abandons when retryCount >= maxRetries
+            // and retryCount starts at 0 and increments per failed attempt, so `maxRetries = M`
+            // permits exactly M attempts. Therefore M = N + 1.
+            val explicitMaxRetries = steps.flatten()
+                .mapNotNull { it.constraints?.maxRetries }
+                .filter { it >= 0 }
+                .maxOrNull()
+            val chainAttemptBudget = explicitMaxRetries
+                ?.let { it + 1 }
+                ?: ChainProgress.DEFAULT_MAX_RETRIES
+
             var progress = rawProgress ?: ChainProgress(
                 chainId = chainId,
-                totalSteps = steps.size
+                totalSteps = steps.size,
+                maxRetries = chainAttemptBudget
             )
 
             // 5a. Poison-pill guard: increment crash attempt counter and persist BEFORE any work.
@@ -973,6 +1001,21 @@ class ChainExecutor(
                                 )
                                 fileStorage.deleteChainDefinition(chainId)
                                 fileStorage.deleteChainProgress(chainId)
+                            } else {
+                                // Retry budget remains — re-enqueue so the chain actually runs again
+                                // on a later BGTask (the batch-tail scheduleNextBGTask picks up the
+                                // non-empty queue). Without this the chain was dequeued and never
+                                // put back: its retryCount could never climb, so Constraints.maxRetries
+                                // was a no-op and the definition+progress leaked on disk. The batch's
+                                // initialQueueSize snapshot prevents an immediate same-batch re-run.
+                                withContext(NonCancellable) {
+                                    fileStorage.enqueueChain(chainId)
+                                }
+                                Logger.i(
+                                    LogTags.CHAIN,
+                                    "Chain $chainId re-enqueued for retry " +
+                                        "(retryCount=${progress.retryCount}/${progress.maxRetries})"
+                                )
                             }
 
                             KmpWorkManagerRuntime.notifyChainFailed(

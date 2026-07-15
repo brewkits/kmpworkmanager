@@ -41,7 +41,9 @@ import kotlinx.serialization.Transient
  * @property lastFailedStep Index of the step that last failed, if any
  * @property lastError Error message from the last failed task, if any
  * @property retryCount Number of times this chain has been retried due to task failures
- * @property maxRetries Maximum retry attempts before abandoning (default: 3)
+ * @property maxRetries Whole-chain attempt budget before abandoning. Derived from the chain
+ *   tasks' [Constraints.maxRetries] (`N` → `N + 1` attempts); defaults to [DEFAULT_MAX_RETRIES]
+ *   when no task sets it explicitly.
  * @property crashAttemptCount Number of BGTask invocations that started executing this
  *   chain but never finished cleanly (process killed, OOM, native crash). Incremented on
  *   disk BEFORE any work begins so it survives process death. When this exceeds
@@ -63,7 +65,7 @@ data class ChainProgress(
     val lastFailedStep: Int? = null,
     val lastError: String? = null,
     val retryCount: Int = 0,
-    val maxRetries: Int = 3,
+    val maxRetries: Int = DEFAULT_MAX_RETRIES,
     val crashAttemptCount: Int = 0,
     val stepRetryCounts: Map<Int, Int> = emptyMap()
 ) {
@@ -77,6 +79,15 @@ data class ChainProgress(
          *  v1 — initial release
          */
         const val CURRENT_SCHEMA_VERSION = 1
+
+        /**
+         * Default chain-level retry budget when no task in the chain sets an explicit
+         * [Constraints.maxRetries]. iOS keeps this at 3 (matching the Dart default) so a
+         * transient step failure gets a few whole-chain reschedules before the chain is
+         * abandoned. This is deliberately distinct from Android's uncapped (`-1`) unset
+         * default — see [Constraints.maxRetries].
+         */
+        const val DEFAULT_MAX_RETRIES = 3
 
         /**
          * Maximum number of BGTask invocations that can start a chain without it ever

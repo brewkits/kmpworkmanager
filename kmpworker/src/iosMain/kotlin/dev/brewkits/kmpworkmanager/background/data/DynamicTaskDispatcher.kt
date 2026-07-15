@@ -59,9 +59,15 @@ public class DynamicTaskDispatcher(
         // that a poison-pill task can't loop forever burning quota.
         internal const val META_ATTEMPT_COUNT = "kmpAttemptCount"
 
-        // Hard ceiling when the worker did not specify [WorkerResult.Retry.attemptCap].
-        // Mirrors WorkManager's default backoff retry budget so behaviour matches the
-        // Android side. Same magnitude as ChainProgress.MAX_RETRIES.
+        // Metadata key carrying the caller's Constraints.maxRetries (only stamped when set,
+        // i.e. >= 0). Bounds a `Failure(shouldRetry = true)` retry loop that carries no
+        // per-result attemptCap. Absent → fall back to [DEFAULT_ATTEMPT_CAP].
+        internal const val META_MAX_RETRIES = "maxRetries"
+
+        // Hard ceiling when the worker did not specify [WorkerResult.Retry.attemptCap] and
+        // the caller set no Constraints.maxRetries. Mirrors WorkManager's default backoff
+        // retry budget so behaviour matches the Android side. Same magnitude as
+        // ChainProgress.DEFAULT_MAX_RETRIES.
         internal const val DEFAULT_ATTEMPT_CAP = 5
     }
 
@@ -224,7 +230,15 @@ public class DynamicTaskDispatcher(
 
         val rawMeta = meta.rawMeta ?: emptyMap()
         val currentAttempt = rawMeta[META_ATTEMPT_COUNT]?.toIntOrNull() ?: 1  // 1 = original run
-        val effectiveCap = attemptCap ?: DEFAULT_ATTEMPT_CAP
+        // Precedence for the total-attempt ceiling (all in "attempts including the original"):
+        //  1. WorkerResult.Retry.attemptCap — most specific, the worker's own per-result cap.
+        //  2. Constraints.maxRetries (stamped into metadata, only when >= 0) → N + 1 attempts,
+        //     matching Android's "N retries = N+1 runs" contract.
+        //  3. DEFAULT_ATTEMPT_CAP — nothing specified.
+        val metaMaxRetries = rawMeta[META_MAX_RETRIES]?.toIntOrNull()?.takeIf { it >= 0 }
+        val effectiveCap = attemptCap
+            ?: metaMaxRetries?.let { it + 1 }
+            ?: DEFAULT_ATTEMPT_CAP
         val nextAttempt = currentAttempt + 1
 
         if (nextAttempt > effectiveCap) {
