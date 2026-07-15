@@ -5,6 +5,17 @@ All notable changes to KMP WorkManager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0] - 2026-07-15
+
+### Added
+
+- Honor maxRetries retry ceiling on Android + iOS ([`65e9e6c`](https://github.com/brewkits/kmpworkmanager/commit/65e9e6c0aa1b219d5310c366dd80bf1ad269c9ce))
+
+### Fixed
+
+- Resolve CodeQL alerts (allowBackup, deprecated network API, ignored file status) ([`f0e5b1e`](https://github.com/brewkits/kmpworkmanager/commit/f0e5b1ea34d130449c1c89bdd626019b5771694c))
+- GitHub Release body = changelog, not Maven Central steps (#63) ([`e4c301d`](https://github.com/brewkits/kmpworkmanager/commit/e4c301d7d703b8b3d16e36e912048c4272936423))
+
 ## [3.0.1] - 2026-06-20
 
 ### Fixed
