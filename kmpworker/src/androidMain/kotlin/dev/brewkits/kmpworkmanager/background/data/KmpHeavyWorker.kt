@@ -113,13 +113,8 @@ open class KmpHeavyWorker(
     override val workerLogTag: String get() = "KmpHeavyWorker"
 
     override suspend fun doWork(): Result {
-        // QA double-check fix: setForeground() can throw on Android 14+ when the FGS type
-        // declared by [foregroundServiceType] doesn't match the host app's manifest. The
-        // raw exception (ForegroundServiceStartNotAllowedException on API 31+, SecurityException
-        // on permission gaps, plain IllegalStateException on misconfig) used to escape the
-        // worker and crash the WorkManager job runner with an opaque stack trace. We catch
-        // it here and translate into a Result.failure() carrying an actionable diagnostic
-        // pointing to docs/ANDROID_FGS_GUIDE.md.
+        // Handle Android 14+ FGS exceptions gracefully to prevent WorkManager crashes.
+        // Translates raw exceptions into Result.failure() with diagnostic logs.
         try {
             setForeground(createForegroundInfo())
         } catch (e: SecurityException) {
