@@ -20,9 +20,9 @@
 ```kotlin
 // build.gradle.kts
 commonMain.dependencies {
-    implementation("dev.brewkits:kmpworkmanager:3.1.0")          // core engine (no Ktor)
+    implementation("dev.brewkits:kmpworkmanager:3.2.0")          // core engine (no Ktor)
     // Optional — only if you use the built-in HTTP workers (Http*/ParallelHttp*).
-    implementation("dev.brewkits:kmpworkmanager-http:3.1.0")     // Ktor 3 HTTP workers
+    implementation("dev.brewkits:kmpworkmanager-http:3.2.0")     // Ktor 3 HTTP workers
 }
 ```
 
@@ -204,27 +204,16 @@ and no recovery mechanism for incomplete work. Getting it wrong means your tasks
 
 ---
 
-## What's new in v3.1.0
+## What's new in v3.2.0
 
-**`Constraints.maxRetries` — a real, cross-platform retry ceiling.** `maxRetries = N` caps a
-failing task at **N + 1** total runs (1 initial + N retries), then marks it a permanent failure.
-It bounds both `WorkerResult.Failure(shouldRetry = true)` and a `WorkerResult.Retry` without an
-explicit `attemptCap` (a per-result `attemptCap` still wins).
+**Opt-In Permissions Architecture (Android).** To comply with strict Play Store guidelines and prevent unwarranted app rejections, KMP WorkManager no longer automatically merges `FOREGROUND_SERVICE` and `FOREGROUND_SERVICE_DATA_SYNC` permissions into your app's manifest. If your app only uses standard background tasks, this update ensures you won't be blocked during app review.
 
-- **Android:** WorkManager has no native max-retry API, so `shouldRetry = true` previously
-  retried until the OS quota ran out. `maxRetries` is now enforced inside the worker.
-- **iOS:** honored by both the single-task dispatcher and the chain executor. As part of this,
-  a chain that fails with retries remaining is now correctly **re-enqueued** — previously such a
-  chain was dropped from the queue and never retried.
-- **Applies to one-time and chained tasks only** — periodic tasks ignore it. Default `-1` keeps
-  each platform's prior behavior (Android uncapped; iOS 5 attempts for single tasks, 3
-  whole-chain retries).
-- Additive API — no breaking changes. See the [constraints guide](docs/constraints-triggers.md#maxretries).
+> **Breaking Change for Heavy Worker Users:** If you use `KmpHeavyWorker`, you **must** now manually declare the required FGS permissions in your `AndroidManifest.xml`. See the [v3.2.0 Migration Guide](docs/MIGRATION_V3.2.0.md).
 
 ## Previous releases
 
 See the [changelog](CHANGELOG.md) for the full history, and the per-version upgrade guides:
-[v3.1.0](docs/MIGRATION_V3.1.0.md) · [v3.0.0](docs/MIGRATION_V3.0.0.md) · [v2.5.0](docs/MIGRATION_V2.5.0.md) · [v2.4.0](docs/MIGRATION_V2.4.0.md).
+[v3.2.0](docs/MIGRATION_V3.2.0.md) · [v3.1.0](docs/MIGRATION_V3.1.0.md) · [v3.0.0](docs/MIGRATION_V3.0.0.md) · [v2.5.0](docs/MIGRATION_V2.5.0.md) · [v2.4.0](docs/MIGRATION_V2.4.0.md).
 
 ---
 
@@ -301,7 +290,7 @@ RFC 3986 UserInfo bypass and multi-`@` authority attacks are both handled. DNS r
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Common issues |
 | [CHANGELOG](CHANGELOG.md) | Release history |
 
-**Migration:** [v2.2.2 → v2.3.0](docs/MIGRATION_V2.3.0.md) · [v2.3.3 → v2.3.4](docs/MIGRATION_V2.3.3_TO_V2.3.4.md) · [v2.4.x → v2.5.0](docs/MIGRATION_V2.5.0.md) · [v2.5.x → v3.0.0](docs/MIGRATION_V3.0.0.md)
+**Migration:** [v3.1.x → v3.2.0](docs/MIGRATION_V3.2.0.md) · [v2.5.x → v3.0.0](docs/MIGRATION_V3.0.0.md) · [v2.4.x → v2.5.0](docs/MIGRATION_V2.5.0.md)
 
 ---
 
