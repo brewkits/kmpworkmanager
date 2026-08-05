@@ -253,12 +253,12 @@ v2.6 polishes the rough edges that surface during on-call.
   budget exhaustion, alarm permission revocation, FGS type mismatch on
   Android 14+.
 
-### 3. iOS Live Activity helper
-- ⏳ Wrap `ActivityKit.Activity` from Kotlin/Native so camera apps can show
-  upload progress on the Lock Screen / Dynamic Island while a chain is
-  running. KMP-friendly contract: `LiveActivityChannel` flow that the host
-  app subscribes to from Swift (no `ActivityKit` Kotlin types — let the host
-  own the UI).
+### 3. iOS Live Activity helper — ✅ shipped in 3.2.0
+- ✅ `IosLiveActivityBridge` (expect/actual) — lightweight Kotlin/Native bridge that subscribes
+  to `TaskProgressBus` and delivers `WorkerProgress` events to Swift callbacks on the main
+  thread. Swift host owns all `ActivityKit` types; no ActivityKit symbols leak into Kotlin.
+  iOS actual uses `CoroutineScope(Dispatchers.Main + SupervisorJob)`; Android is a no-op stub.
+  See [`docs/IOS_LIVE_ACTIVITIES.md`](./IOS_LIVE_ACTIVITIES.md) for full Swift integration guide.
 
 ### 4. Per-task QoS profiles
 - ⏳ Introduce `TaskQoSProfile` enum:
@@ -292,14 +292,12 @@ v2.6 polishes the rough edges that surface during on-call.
   Less critical than the others; Android already exposes
   `Constraints.requiresUnmeteredNetwork` for the "Wi-Fi only" axis.
 
-### 7. iOS ZIP compression via zlib cinterop
-- ⏳ Replace the `allowIosUncompressedFallback` opt-in with a real ZIP
-  implementation backed by `/usr/lib/libz.dylib` (zlib is part of the iOS SDK,
-  no third-party Swift package needed). Plan: small Kotlin wrapper that emits
-  the ZIP container (local file headers + central directory + EOCD) and
-  delegates the compressed payload to `deflate`. ~150 lines + cinterop stub.
-  This closes the camera-app blocker called out in
-  [`docs/IOS_BGTASK_LIMITS.md`](./IOS_BGTASK_LIMITS.md) §4.
+### 7. iOS ZIP compression via zlib cinterop — ✅ shipped in 3.2.0
+- ✅ `FileCompressionWorker.ios.kt` rewritten with a real PKZIP/DEFLATE writer backed by
+  system `platform.zlib` — no external Swift packages. Streams input in 64 KiB chunks via
+  `deflate()` for O(1) RAM footprint. Output passes PKZIP local-header magic (`0x04034b50`)
+  and EOCD signature checks. `allowIosUncompressedFallback` deprecated and ignored.
+  `FileCompressionWorker` is now **Stable on both platforms**.
 
 ---
 
@@ -308,6 +306,43 @@ v2.6 polishes the rough edges that surface during on-call.
 **Theme:** the library's foundation can be sturdier. These are non-trivial
 projects and warrant a major-version bump. None are scheduled — call this a
 "directional roadmap."
+
+### 1. iOS 26 — `BGContinuedProcessingTask` support
+
+> **Status: ⏳ Planned — pending iOS 26 GM & Kotlin/Native binding availability.**
+> iOS 26 was announced at WWDC 2025. API is in Developer Beta; not stable until Q4 2026.
+
+`BGContinuedProcessingTask` (new in `BackgroundTasks` framework, iOS 26) is the premier
+background API for **user-initiated, long-running jobs** — file exports, video transcoding,
+bulk photo upload — that must complete even after the user backgrounds the app.
+
+**Why it matters for KMP WorkManager:**
+- Unlike `BGProcessingTask`, this task fires **immediately** when a user-initiated action
+  sends the app to the background — no opportunistic scheduling delay.
+- Conforms to `NSProgressReporting` — **mandatory progress reporting**, which maps
+  naturally onto our existing `WorkerProgress` + `TaskProgressBus` contract.
+- Optional **GPU access** (`requiredResources = .gpu`) — critical for camera-app video
+  encoding pipelines that today must stay in foreground.
+- iOS system displays task progress to the user and allows manual cancellation.
+
+**Planned implementation:**
+- `IosBackgroundContinuedTaskWorker` — new built-in worker wrapping `BGContinuedProcessingTask`.
+- `BGContinuedProcessingTaskConfig` — config with `localizedTitle`, `localizedSubtitle`,
+  `requiresGpu: Boolean`, `submissionStrategy` (fail / queue).
+- `BGTaskScheduler` handler registration mirrors the existing `IosBackgroundDownloadWorker`
+  pattern but uses the new request type.
+- Progress relay: `task.progress` (NSProgress) ← `WorkerProgress.percentage` via
+  `IosLiveActivityBridge` so Dynamic Island updates flow automatically.
+- Expiration handler: saves `ChainProgress` snapshot and calls `task.setTaskCompletedWithSuccess(false)`.
+- **Not supported on iOS Simulator** — physical device required (same constraint as
+  `IosBackgroundDownloadWorker`).
+
+**Blockers before implementation:**
+1. iOS 26 GM / public release (expected Q4 2026).
+2. Kotlin/Native interop headers for `BGContinuedProcessingTask` (will ship with
+   Kotlin 2.2+ native toolchain update targeting iOS 26 SDK).
+3. Verification that `BGTaskScheduler.shared.supportedResources` is queryable from
+   Kotlin/Native without crashing on iOS < 26.
 
 ### 1. ChainExecutor → explicit state machine
 - 💭 The current `ChainExecutor` (1,505 lines) hides its lifecycle inside
