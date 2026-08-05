@@ -9,6 +9,8 @@ worker declares the wrong type, the OS throws
 This guide pins down the right type per camera-app workload, plus the manifest
 snippets you need to paste into the host app.
 
+> **Note:** `KmpWorkManager` adheres to a strict "Opt-In Permissions" rule. We do not automatically declare `FOREGROUND_SERVICE*` permissions in the library manifest. You **must** manually declare these permissions and the `<service>` tag in your app's `AndroidManifest.xml` if you use `KmpHeavyWorker` to avoid Play Store review rejections for apps that don't need them.
+
 ## Pick the right type
 
 | Workload | Type constant | Min API | Manifest permission |

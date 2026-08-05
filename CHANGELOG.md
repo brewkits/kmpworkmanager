@@ -5,6 +5,12 @@ All notable changes to KMP WorkManager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Android:** Made Foreground Service permissions strictly opt-in. The library no longer automatically merges `FOREGROUND_SERVICE` and `FOREGROUND_SERVICE_DATA_SYNC` into the consumer app's manifest, preventing unwarranted Play Store rejections for apps that don't use foreground features (#64). If you use `KmpHeavyWorker`, you must manually declare the required permissions and service type in your app's `AndroidManifest.xml` (see `ANDROID_FGS_GUIDE.md`).
+
 ## [3.1.0] - 2026-07-15
 
 ### Added
