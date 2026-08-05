@@ -287,6 +287,7 @@ RFC 3986 UserInfo bypass and multi-`@` authority attacks are both handled. DNS r
 | [App Store Review Compliance](docs/APPLE_APP_STORE_REVIEW_GUIDELINES.md) | §2.5.4 — what gets rejected and how to ship safely |
 | [Android FGS Type Guide](docs/ANDROID_FGS_GUIDE.md) | `mediaProcessing` / `camera` / `dataSync` setup |
 | [iOS Background URLSession](docs/IOS_BACKGROUND_URL_SESSION.md) | Surviving app termination during long downloads |
+| [iOS Live Activities](docs/IOS_LIVE_ACTIVITIES.md) | Dynamic Island & Lock Screen progress via `IosLiveActivityBridge` |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Common issues |
 | [CHANGELOG](CHANGELOG.md) | Release history |
 
