@@ -7,7 +7,7 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
-import dev.brewkits.kmpworkmanager.KmpWorkManagerKoin
+import dev.brewkits.kmpworkmanager.KmpWorkManagerAndroid
 import dev.brewkits.kmpworkmanager.R
 import dev.brewkits.kmpworkmanager.background.domain.*
 import dev.brewkits.kmpworkmanager.utils.Logger
@@ -29,7 +29,7 @@ class KmpWorker(
     constructor(appContext: Context, workerParams: WorkerParameters) : this(
         appContext,
         workerParams,
-        KmpWorkManagerKoin.getKoin().get()
+        KmpWorkManagerAndroid.requireRegistry().androidWorkerFactory
     )
 
     override val workerLogTag: String get() = "KmpWorker"

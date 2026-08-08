@@ -8,7 +8,7 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
-import dev.brewkits.kmpworkmanager.KmpWorkManagerKoin
+import dev.brewkits.kmpworkmanager.KmpWorkManagerAndroid
 import dev.brewkits.kmpworkmanager.background.domain.*
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.utils.LogTags
@@ -40,7 +40,7 @@ open class KmpHeavyWorker(
         appContext,
         workerParams,
         try {
-            KmpWorkManagerKoin.getKoin().get()
+            KmpWorkManagerAndroid.requireRegistry().androidWorkerFactory
         } catch (e: IllegalStateException) {
             throw IllegalStateException(
                 "KmpWorkManager not initialized — KmpHeavyWorker cannot start. " +
