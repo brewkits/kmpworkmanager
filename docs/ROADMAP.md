@@ -333,28 +333,57 @@ so consumers who never touch Koin still carry it.
   `androidInstrumentedTest` source set where `KoinIsolationTest` actually uses it.
   `kmpworkmanager-android`'s POM now carries only `koin-core-jvm`.
 
-### Step 2 — minor (3.3.0)
+### Step 2 — minor (3.3.0) — the actual fix
+Removal and cleanup land together. A 3.3.0 that only *deprecated* `kmpWorkerModule()`
+would leave koin-core in core's POM — `kmpWorkerModule` is an `expect fun` declared in
+core's commonMain whose iOS `actual` calls `module { }`, so core keeps
+`implementation(koin-core)` for as long as that declaration lives there. Deprecation does
+not remove a dependency, and the POM is the thing consumers are complaining about. So the
+declaration goes in the same release.
+
 - ⏳ Replace the internal private `koinApplication` with a plain internal
   `ServiceRegistry`. Touches the 5 bindings, the 3 service-locator call sites
   (`BaseKmpWorker.kt:52`, `KmpWorker.kt:32`, `KmpHeavyWorker.kt:43`) and the
   `internal constructor(Koin)` of the public `KmpWorkManagerInstance`.
-- ⏳ Add a Koin-free `KmpWorkManager.initialize(workerFactory, config, iosTaskIds)`
-  on iOS, mirroring the Android entry point.
-- ⏳ Move `kmpWorkerModule()` into an optional `kmpworkmanager-koin` artifact;
-  deprecate the copy in core.
-- ⏳ Provide a Hilt-friendly `KmpWorkManagerHiltModule` for Android consumers who
-  already use Hilt.
-- ⚠️ **koin-core still ships in core's POM after this step.** `kmpWorkerModule` is an
-  `expect fun` declared in core's commonMain whose iOS `actual` calls `module { }`, so
-  core keeps `implementation(koin-core)` for as long as that declaration lives there.
-  Deprecation does not remove a dependency.
+  The registry must reproduce **both** resolution modes the Koin module relies on:
+  lazy singletons *and* eager ones — `IosEventStore`'s provider calls
+  `TaskEventManager.initialize(store)` as a resolution side effect, and Android's
+  `ExecutionHistoryStore` is deliberately `createdAtStart = true`. Getting this wrong
+  silently shifts `TaskEventManager` init timing. The iOS path must also preserve the
+  `migrationComplete` ordering documented in `CLAUDE.md`.
+- ⏳ Add a Koin-free `KmpWorkManager.initialize(workerFactory, config, iosTaskIds)` on
+  iOS, mirroring the Android entry point.
+- ⏳ Delete `kmpWorkerModule()` (and `kmpWorkerCoreModule()`) from core, plus the now
+  Koin-free `KoinModule*.kt` files. **koin-core leaves the published metadata here.**
+- ⏳ `docs/MIGRATION_V3.3.0.md` — the migration is ~4 lines in one file:
+  ```kotlin
+  // before
+  startKoin { modules(kmpWorkerModule(workerFactory = MyWorkerFactory())) }
+  // after
+  KmpWorkManager.initialize(workerFactory = MyWorkerFactory())
+  startKoin { modules(module { single { KmpWorkManager.getInstance().backgroundTaskScheduler } }) }
+  ```
+  Koin and Hilt users keep working via that snippet; it is documentation, not an artifact.
+- ⏳ Invariant test: the Koin-free init path must produce the *same wiring* as the Koin
+  module did — same instances, same eager/lazy timing — not merely compile.
+- ⏳ `KoinIsolationTest` loses its premise once there is no private Koin. Retire it, and
+  with it the `koin-android` test dependency added in step 1.
+- ⏳ Docs sweep: `README.md` (iOS setup, the primary offender), `KmpWorkManagerConfig.kt`
+  KDoc, `quickstart.md`, `platform-setup.md`, `examples.md`, `api-reference.md`,
+  `kmpworker-ksp/README.md`, and the `composeApp` iOS sample.
 
-### Step 3 — major (4.0.0)
-- ⏳ Delete the deprecated `kmpWorkerModule()` from core. This — not step 2 — is the
-  point at which koin-core leaves the published metadata.
-- ⏳ `kmpWorkerModule()` must go through the full deprecation cycle rather than be
-  deleted outright: it is currently the only documented iOS init path, so removing it
-  early breaks every existing iOS consumer.
+**Deliberately not doing:** a `kmpworkmanager-koin` bridge artifact, or a
+`KmpWorkManagerHiltModule`. Both were on the earlier version of this plan. Once
+`initialize()` exists, wrapping it in a Koin module or a Hilt `@Provides` is a
+three-line snippet in the consumer's own code; publishing a module × 4 targets × GPG
+signing × manual Central upload to save those three lines is a permanent maintenance
+cost for a one-time convenience.
+
+**Why a minor and not a major:** deleting a public API is a breaking change by strict
+semver, but this project has never held that line — v2.2.2, a *patch*, shipped "now
+requires WorkerFactory parameter" with `docs/MIGRATION_V2.2.2.md`. A major bump for a
+single dependency removal is a signal out of proportion to the work, and it would push
+the fix consumers are asking for further away for no benefit.
 
 ---
 
