@@ -219,7 +219,12 @@ object KmpWorkManager {
      * reinitializing with a different configuration.
      */
     fun shutdown() {
-        registryRef.value = null
+        if (registryRef.getAndSet(null) == null) return
+        // Release the global side-channel registrations too. TaskEventManager.initialize()
+        // is first-call-wins, so leaving the claim in place would make a later
+        // initialize() silently keep this dead registry's store.
+        TaskEventManager.releaseStore()
+        KmpWorkManagerRuntime.clearHistoryStore()
         Logger.i("KmpWorkManager", "✅ Shutdown complete")
     }
 

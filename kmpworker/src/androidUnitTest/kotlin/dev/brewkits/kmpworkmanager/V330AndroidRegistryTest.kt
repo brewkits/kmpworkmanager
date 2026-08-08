@@ -94,6 +94,32 @@ class V330AndroidRegistryTest {
     }
 
     @Test
+    fun `re-initialize after shutdown re-points the global TaskEventManager`() {
+        // TaskEventManager.initialize() is compare-and-set "first call wins", so if
+        // shutdown() does not clear it, the second initialize() silently keeps the dead
+        // registry's store and every event is written through an instance the live
+        // registry no longer owns.
+        KmpWorkManager.initialize(context = context, workerFactory = TestAndroidWorkerFactory())
+        val firstStore = KmpWorkManager.getInstance().eventStore
+
+        KmpWorkManager.shutdown()
+        KmpWorkManager.initialize(context = context, workerFactory = TestAndroidWorkerFactory())
+        val secondStore = KmpWorkManager.getInstance().eventStore
+
+        assertTrue(firstStore !== secondStore, "a fresh registry must build a fresh store")
+        assertSame(
+            secondStore,
+            TaskEventManager.currentStoreForTest(),
+            "TaskEventManager must follow the live registry across shutdown/re-initialize"
+        )
+        assertSame(
+            KmpWorkManagerAndroid.requireRegistry().executionHistoryStore,
+            KmpWorkManagerRuntime.executionHistoryStore,
+            "ExecutionHistoryStore must follow the live registry too"
+        )
+    }
+
+    @Test
     fun `services are singletons - repeated access returns the same instance`() {
         KmpWorkManager.initialize(context = context, workerFactory = TestAndroidWorkerFactory())
 

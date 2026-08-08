@@ -40,6 +40,14 @@ internal class KmpWorkManagerRuntimeContainer {
         executionHistoryStore = store
     }
 
+    /**
+     * Drops the reference to the current history store. Called by
+     * `KmpWorkManager.shutdown()` so a torn-down registry does not keep receiving records.
+     */
+    fun clearHistoryStore() {
+        executionHistoryStore = null
+    }
+
     // ── Safe Telemetry Helpers ───────────────────────────────────────────────
 
     fun notifyTaskScheduled(event: TelemetryHook.TaskScheduledEvent) {

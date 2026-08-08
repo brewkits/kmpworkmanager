@@ -13,6 +13,7 @@ import kotlin.test.Test
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
@@ -130,6 +131,48 @@ class V330KoinFreeInitTest {
 
         // A second init must not hand a different instance to code that already captured one.
         assertSame(executorBefore, executorAfter)
+    }
+
+    @Test
+    fun `re-initialize after shutdown re-points the global TaskEventManager`() {
+        // TaskEventManager.initialize() is compare-and-set "first call wins", so if
+        // shutdown() does not release the claim, the second initialize() silently keeps the
+        // dead registry's store and every event is written through an instance the live
+        // registry no longer owns.
+        KmpWorkManager.initialize(workerFactory = TestIosWorkerFactory())
+        val firstStore = KmpWorkManager.getInstance().eventStore
+
+        KmpWorkManager.shutdown()
+        KmpWorkManager.initialize(workerFactory = TestIosWorkerFactory())
+        val secondStore = KmpWorkManager.getInstance().eventStore
+
+        assertTrue(firstStore !== secondStore, "a fresh registry must build a fresh store")
+        assertSame(
+            secondStore,
+            TaskEventManager.currentStoreForTest(),
+            "TaskEventManager must follow the live registry across shutdown/re-initialize"
+        )
+        assertNotNull(
+            KmpWorkManagerRuntime.executionHistoryStore,
+            "ExecutionHistoryStore must be re-registered by the second initialize()"
+        )
+    }
+
+    @Test
+    fun `shutdown releases the global hooks so a torn-down registry stops receiving records`() {
+        KmpWorkManager.initialize(workerFactory = TestIosWorkerFactory())
+        assertNotNull(KmpWorkManagerRuntime.executionHistoryStore)
+
+        KmpWorkManager.shutdown()
+
+        assertNull(
+            KmpWorkManagerRuntime.executionHistoryStore,
+            "shutdown() must drop the history store, not leave a dead registry wired up"
+        )
+        assertNull(
+            TaskEventManager.currentStoreForTest(),
+            "shutdown() must release the TaskEventManager claim"
+        )
     }
 
     @Test
