@@ -54,6 +54,13 @@ object TaskEventManager {
     }
 
     /**
+     * Returns the registered store, or null if [initialize] has not run.
+     * For use in tests only.
+     * @suppress
+     */
+    internal fun currentStoreForTest(): EventStore? = eventStoreRef.value
+
+    /**
      * Emits a task completion event.
      *
      * Flow:

@@ -198,7 +198,7 @@ class WorkerProcessor(
             .addSuperinterface(iosWorkerFactoryClass)
             .addKdoc(
                 "Auto-generated iOS worker factory.\n\n" +
-                "Implements [BgTaskIdProvider]: `kmpWorkerModule()` automatically validates\n" +
+                "Implements [BgTaskIdProvider]: `KmpWorkManager.initialize()` automatically validates\n" +
                 "all declared BGTask IDs against `Info.plist` at startup.\n\n" +
                 "Override individual [providers] entries to supply workers from a DI container:\n" +
                 "```kotlin\n" +

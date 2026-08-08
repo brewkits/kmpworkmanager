@@ -333,7 +333,7 @@ so consumers who never touch Koin still carry it.
   `androidInstrumentedTest` source set where `KoinIsolationTest` actually uses it.
   `kmpworkmanager-android`'s POM now carries only `koin-core-jvm`.
 
-### Step 2 — minor (3.3.0) — the actual fix
+### Step 2 — minor (3.3.0) — ✅ done, the actual fix
 Removal and cleanup land together. A 3.3.0 that only *deprecated* `kmpWorkerModule()`
 would leave koin-core in core's POM — `kmpWorkerModule` is an `expect fun` declared in
 core's commonMain whose iOS `actual` calls `module { }`, so core keeps
@@ -341,8 +341,8 @@ core's commonMain whose iOS `actual` calls `module { }`, so core keeps
 not remove a dependency, and the POM is the thing consumers are complaining about. So the
 declaration goes in the same release.
 
-- ⏳ Replace the internal private `koinApplication` with a plain internal
-  `ServiceRegistry`. Touches the 5 bindings, the 3 service-locator call sites
+- ✅ Replaced the internal private `koinApplication` with a plain internal
+  `AndroidServiceRegistry` / `IosServiceRegistry`. Touches the 5 bindings, the 3 service-locator call sites
   (`BaseKmpWorker.kt:52`, `KmpWorker.kt:32`, `KmpHeavyWorker.kt:43`) and the
   `internal constructor(Koin)` of the public `KmpWorkManagerInstance`.
   The registry must reproduce **both** resolution modes the Koin module relies on:
@@ -351,11 +351,11 @@ declaration goes in the same release.
   `ExecutionHistoryStore` is deliberately `createdAtStart = true`. Getting this wrong
   silently shifts `TaskEventManager` init timing. The iOS path must also preserve the
   `migrationComplete` ordering documented in `CLAUDE.md`.
-- ⏳ Add a Koin-free `KmpWorkManager.initialize(workerFactory, config, iosTaskIds)` on
+- ✅ Added a Koin-free `KmpWorkManager.initialize(workerFactory, config, iosTaskIds)` on
   iOS, mirroring the Android entry point.
-- ⏳ Delete `kmpWorkerModule()` (and `kmpWorkerCoreModule()`) from core, plus the now
-  Koin-free `KoinModule*.kt` files. **koin-core leaves the published metadata here.**
-- ⏳ `docs/MIGRATION_V3.3.0.md` — the migration is ~4 lines in one file:
+- ✅ Deleted `kmpWorkerModule()` / `kmpWorkerCoreModule()` and the `KoinModule*.kt` files.
+  **koin-core is gone from all five publications** — verified against the generated POMs.
+- ✅ `docs/MIGRATION_V3.3.0.md` — the migration is ~4 lines in one file:
   ```kotlin
   // before
   startKoin { modules(kmpWorkerModule(workerFactory = MyWorkerFactory())) }
@@ -364,11 +364,13 @@ declaration goes in the same release.
   startKoin { modules(module { single { KmpWorkManager.getInstance().backgroundTaskScheduler } }) }
   ```
   Koin and Hilt users keep working via that snippet; it is documentation, not an artifact.
-- ⏳ Invariant test: the Koin-free init path must produce the *same wiring* as the Koin
-  module did — same instances, same eager/lazy timing — not merely compile.
-- ⏳ `KoinIsolationTest` loses its premise once there is no private Koin. Retire it, and
-  with it the `koin-android` test dependency added in step 1.
-- ⏳ Docs sweep: `README.md` (iOS setup, the primary offender), `KmpWorkManagerConfig.kt`
+- ✅ Invariant tests `V330KoinFreeInitTest` (iOS) + `V330AndroidRegistryTest` (Robolectric)
+  pin the wiring: singleton identity, eager store registration, and that
+  `requireRegistry()` still throws `IllegalStateException` — the deprecated worker
+  constructors catch exactly that type to rethrow their actionable message.
+- ✅ `KoinIsolationTest` retired along with its premise, and the `koin-android` test
+  dependency with it.
+- ✅ Docs sweep: `README.md` (iOS setup, the primary offender), `KmpWorkManagerConfig.kt`
   KDoc, `quickstart.md`, `platform-setup.md`, `examples.md`, `api-reference.md`,
   `kmpworker-ksp/README.md`, and the `composeApp` iOS sample.
 

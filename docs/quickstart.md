@@ -147,8 +147,8 @@ import composeApp
 struct iOSApp: App {
 
     init() {
-        // Initialize Koin — your iosModule must include
-        // kmpWorkerModule(workerFactory = IosWorkerFactoryGenerated())
+        // Your iosModule calls KmpWorkManager.initialize(workerFactory = IosWorkerFactoryGenerated()).
+        // Not a Koin user? Call KmpWorkManager.initialize() directly and skip Koin entirely.
         KoinInitializerKt.doInitKoin(platformModule: IOSModuleKt.iosModule)
 
         // Register background tasks
@@ -346,7 +346,7 @@ class SyncWorkerIos : IosWorker {
 
 *Note: The `name` value (`"SyncWorker"`) must match the `workerClassName` you pass to `scheduler.enqueue(...)`. Setting it explicitly also protects against silent breakage if ProGuard/R8 renames the wrapper class.*
 
-*By annotating these with `@Worker`, the KSP processor generates `AndroidWorkerFactoryGenerated` and `IosWorkerFactoryGenerated`, which you already passed to `KmpWorkManager.initialize()` on Android and to `kmpWorkerModule(workerFactory = …)` (inside `iosModule`, invoked via `KoinInitializerKt.doInitKoin(...)`) on iOS.*
+*By annotating these with `@Worker`, the KSP processor generates `AndroidWorkerFactoryGenerated` and `IosWorkerFactoryGenerated`, which you already passed to `KmpWorkManager.initialize()` on both platforms.*
 
 ---
 

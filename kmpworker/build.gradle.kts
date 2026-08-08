@@ -60,8 +60,6 @@ kotlin {
         }
 
         commonMain.dependencies {
-            // Koin for dependency injection
-            implementation(libs.koin.core)
             // Kotlinx Datetime for handling dates and times
             implementation(libs.kotlinx.datetime)
             // Kotlinx Serialization for JSON processing
@@ -91,9 +89,6 @@ kotlin {
             implementation(libs.androidx.work.runtime.ktx)
             implementation(libs.androidx.work.testing)
             implementation(libs.kotlinx.coroutines.test)
-            // KoinIsolationTest is the only consumer of koin-android in the project —
-            // it starts a host-app Koin to prove the library's private Koin stays isolated.
-            implementation(libs.koin.android)
         }
 
         val androidUnitTest by getting {

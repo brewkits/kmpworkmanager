@@ -376,8 +376,10 @@ Register factory in your iOS module:
 ```kotlin
 // iosMain/di/IOSModule.kt
 val iosModule = module {
-    // Include the library core module with your factory
-    includes(kmpWorkerModule(workerFactory = MyWorkerFactory()))
+    // The library is DI-agnostic — initialize it, then expose what you need.
+    KmpWorkManager.initialize(workerFactory = MyWorkerFactory())
+
+    single<BackgroundTaskScheduler> { KmpWorkManager.getInstance().backgroundTaskScheduler }
 
     // Your other iOS-specific dependencies...
 }

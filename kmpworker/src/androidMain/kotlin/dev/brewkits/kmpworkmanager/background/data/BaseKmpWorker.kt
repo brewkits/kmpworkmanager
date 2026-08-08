@@ -4,7 +4,7 @@ import android.content.Context
 import android.os.BatteryManager
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import dev.brewkits.kmpworkmanager.KmpWorkManagerKoin
+import dev.brewkits.kmpworkmanager.KmpWorkManagerAndroid
 import dev.brewkits.kmpworkmanager.KmpWorkManagerRuntime
 import dev.brewkits.kmpworkmanager.background.domain.*
 import dev.brewkits.kmpworkmanager.utils.Logger
@@ -49,7 +49,7 @@ abstract class BaseKmpWorker : CoroutineWorker {
         workerParams: WorkerParameters
     ) : super(appContext, workerParams) {
         this.workerFactory = try {
-            KmpWorkManagerKoin.getKoin().get()
+            KmpWorkManagerAndroid.requireRegistry().androidWorkerFactory
         } catch (e: IllegalStateException) {
             throw IllegalStateException(
                 "KmpWorkManager not initialized — worker cannot start. " +
