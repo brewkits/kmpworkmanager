@@ -183,6 +183,11 @@ internal object KmpWorkManagerAndroid {
                 return
             }
             registry = null
+            // Release the global side-channel registrations too. TaskEventManager.initialize()
+            // is first-call-wins, so leaving the claim in place would make a later
+            // initialize() silently keep this dead registry's store.
+            TaskEventManager.releaseStore()
+            KmpWorkManagerRuntime.clearHistoryStore()
             Logger.i("KmpWorkManager", "✅ Shutdown complete - resources released")
         }
     }
@@ -310,6 +315,16 @@ class KmpWorkManagerInstance internal constructor(private val registry: AndroidS
      */
     val eventStore: EventStore
         get() = registry.eventStore
+
+    /**
+     * The factory passed to [KmpWorkManager.initialize].
+     *
+     * Exposed for hosts that run workers outside WorkManager — a custom
+     * `BroadcastReceiver` for exact alarms, for example — and therefore need to resolve a
+     * worker by class name themselves.
+     */
+    val workerFactory: WorkerFactory
+        get() = registry.workerFactory
 
     /**
      * Returns the most recent task execution records, newest first.

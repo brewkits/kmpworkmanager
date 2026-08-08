@@ -20,9 +20,9 @@
 ```kotlin
 // build.gradle.kts
 commonMain.dependencies {
-    implementation("dev.brewkits:kmpworkmanager:3.2.0")          // core engine (no Ktor)
+    implementation("dev.brewkits:kmpworkmanager:3.3.0")          // core engine (no Ktor)
     // Optional — only if you use the built-in HTTP workers (Http*/ParallelHttp*).
-    implementation("dev.brewkits:kmpworkmanager-http:3.2.0")     // Ktor 3 HTTP workers
+    implementation("dev.brewkits:kmpworkmanager-http:3.3.0")     // Ktor 3 HTTP workers
 }
 ```
 
@@ -61,27 +61,32 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     override init() {
         super.init()
-        // IOSModuleKt.iosModule calls KmpWorkManager.initialize(workerFactory: IosWorkerFactoryGenerated())
-        KoinInitializerKt.doInitKoin(platformModule: IOSModuleKt.iosModule)
+        // Expose these from Kotlin, e.g. in a Setup.kt:
+        //   fun initKmpWorkManager() =
+        //       KmpWorkManager.initialize(workerFactory = IosWorkerFactoryGenerated())
+        //   fun kmpChainExecutor() = KmpWorkManager.getInstance().chainExecutor
+        SetupKt.initKmpWorkManager()
     }
 
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        let koin = KoinIOS()
-        
         BGTaskScheduler.shared.register(
             forTaskWithIdentifier: "kmp_chain_executor_task",
             using: nil
         ) { task in
             IosBackgroundTaskHandler.shared.handleChainExecutorTask(
                 task: task,
-                chainExecutor: koin.getChainExecutor()
+                chainExecutor: SetupKt.kmpChainExecutor()
             )
         }
         return true
     }
 }
 ```
+
+> **No DI framework required since v3.3.0.** If your app uses Koin or Hilt, bind
+> `KmpWorkManager.getInstance()` from your own module — see
+> [`docs/MIGRATION_V3.3.0.md`](docs/MIGRATION_V3.3.0.md).
 
 **2. `Info.plist`**:
 

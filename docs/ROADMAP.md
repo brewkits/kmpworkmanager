@@ -180,49 +180,61 @@ mainline release has been dogfooded for ~1–2 weeks. Neither is a correctness
 blocker, but both are technically-improvable structural choices surfaced
 during the late-cycle audit reviews.
 
-### 1. Replace `elapsedMs < timeout` heuristic with `withTimeoutOrNull`
+### 1. Replace `elapsedMs < timeout` heuristic with `withTimeoutOrNull` — ✅ shipped in 3.3.0
 
-- ⏳ **What**: the BUG 10 / BUG 11 fixes use `elapsedNow().inWholeMilliseconds
+- ✅ **What**: the BUG 10 / BUG 11 fixes used `elapsedNow().inWholeMilliseconds
   < chainTimeout` (resp. `taskTimeout`) inside `catch (TimeoutCancellationException)`
-  to disambiguate inner-vs-outer cancellation. The heuristic is correct under
-  normal load but can be defeated by CPU starvation / iOS process throttling
+  to disambiguate inner-vs-outer cancellation. The heuristic was correct under
+  normal load but could be defeated by CPU starvation / iOS process throttling
   that pauses the thread between the outer-TCE arrival and the inner catch's
   `.elapsedNow()` read — pushing `elapsed` past `chainTimeout` even when the
   outer scope was the actual canceller.
-- ⏳ **Fix**: switch the inner block to `withTimeoutOrNull(chainTimeout)`:
-  `null` return = inner timer fired (handle as chain/task timeout); TCE
-  propagating out = outer scope fired (rethrow). No timing heuristic needed.
-- ⏳ **Why deferred**: the heuristic is correct in all observed test runs and
-  in normal production conditions. Iiterating the structural refactor inside
-  `ChainExecutor.executeChain` and `executeTask` carries non-trivial regression
-  risk (both blocks contain failure-handling logic that today lives inside
-  the catch). Better landed in isolation post-2.5.0 dogfood.
-- ⏳ **Coverage**: existing `V250NestedTimeoutMisattributionTest` and
-  `V250TaskTimeoutMisattributionTest` will continue to pass under the
-  refactor; add a CPU-starvation-simulating test to pin the new contract.
+- ✅ **Fix**: `ChainExecutor.executeChain` and the task-level execution inside
+  `executeStep` now wrap their inner blocks in `withTimeoutOrNull(chainTimeout)` /
+  `withTimeoutOrNull(taskTimeout)` instead of `withTimeout(...)`. `null` return
+  = inner timer fired (handled as chain/task timeout); a
+  `TimeoutCancellationException` reaching the catch block can now only have
+  come from an outer scope, since kotlinx.coroutines identity-checks the
+  exception against the coroutine `withTimeoutOrNull` created internally
+  before ever converting it to `null`. No timing heuristic left anywhere on
+  this path.
+- ✅ **Coverage**: `V250NestedTimeoutMisattributionTest` and
+  `V250TaskTimeoutMisattributionTest` continue to pass unchanged (their
+  docstrings now point at the new mechanism). `V330TimeoutIdentityDisambiguationTest`
+  pins the underlying kotlinx.coroutines guarantee directly — the
+  CPU-starvation-style race can't be reproduced cheaply as a test (it needs a
+  real multi-second scheduling stall), so this proves the mechanism has no
+  window for it instead of trying to reproduce the race itself.
 
-### 2. File-backed `OverflowFileRegistry` for Android multi-process apps
+### 2. File-backed `OverflowFileRegistry` for Android multi-process apps — ✅ shipped in 3.3.0
 
-- ⏳ **What**: `OverflowFileRegistry` (Android) stores `taskId → overflow
+- ✅ **What**: `OverflowFileRegistry` (Android) stored `taskId → overflow
   path` mappings in a `SharedPreferences` (`MODE_PRIVATE`). On hosts with
   separate processes (`:background`, `:push`, …), each process holds its own
   in-RAM cache of the prefs file. A `register()` in process A and a
-  `consumeAndDelete()` in process B can race: B's cached view doesn't see A's
+  `consumeAndDelete()` in process B could race: B's cached view doesn't see A's
   write → returns null → overflow file leaks in `cacheDir` until the 24h
   janitor sweeps it.
-- ⏳ **Fix**: replace SharedPreferences with a file-backed registry under
-  `cacheDir/overflow_registry/<taskId>.path` — one file per entry, atomic
-  rename for writes, single `delete()` for consumption. Process-local cache
-  becomes a non-issue because every read goes to disk.
-- ⏳ **Why deferred**: only affects multi-process Android apps (a minority),
-  the 24h janitor is a working safety net (eventual consistency rather than
-  durable correctness), and no observable data loss — the task itself runs
-  fine on the first attempt; only a leaked file in cacheDir until the next
-  janitor pass. Real bug only matters if your app has separate `:background`
-  process AND uses oversized JSON inputs frequently AND cancels often.
-- ⏳ **Migration**: zero-config; the new registry reads the old SharedPreferences
-  entries once at first launch and migrates them to the file layout, then
-  clears the prefs.
+- ✅ **Fix**: replaced SharedPreferences with a file-backed registry under
+  `cacheDir/overflow_registry/<encoded taskId>.path` — one file per entry,
+  atomic temp-file-then-rename for writes, single `delete()` for consumption.
+  Process-local caching is a non-issue because there is no cache — every read
+  goes straight to the shared filesystem. Task ids are caller-supplied
+  (`BackgroundTaskScheduler.enqueue(id: String, ...)`), so the filename is
+  derived via an injective percent-encoding (not a hash — a collision there
+  would silently merge two unrelated tasks' entries) that also blocks path
+  traversal (`../../etc/passwd`-shaped ids can't escape the registry dir).
+- ✅ **Migration**: zero-config. The first `register`/`consumeAndDelete` call
+  in a process reads any legacy `SharedPreferences` entries once, writes them
+  into the new file layout, and clears the prefs — idempotent and safe to run
+  redundantly from multiple processes.
+- ✅ **Coverage**: `OverflowFileRegistryTest` gained cases for legacy-prefs
+  migration (including idempotent re-migration), collision-free encoding for
+  similar-looking ids, and hostile/path-traversal ids being contained and
+  still round-tripping correctly through the public API. The genuine
+  multi-process race is not reproducible in-process (Robolectric can't spawn
+  a second real process) — the fix removes the caching layer the race
+  depended on entirely rather than attempting to reproduce it.
 
 ---
 
@@ -298,7 +310,7 @@ See [v3.3 — DI-agnostic init](#v33--di-agnostic-init-koin-removal) below.
 
 ---
 
-## v3.3 — DI-agnostic init (Koin removal)
+## v3.3 — DI-agnostic init (Koin removal) — ✅ shipped in 3.3.0
 
 **Theme:** a background-task library should not force a DI framework onto its
 consumers. Raised by an outside library author in
