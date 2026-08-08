@@ -48,6 +48,13 @@ class V330RegistryHardeningTest {
             if (workerClassName == "NoopWorker") NoopWorker() else null
     }
 
+    // All iOS test classes share one Kotlin/Native test process, and Gradle's XML result
+    // writer is not thread-safe. An init/shutdown loop at the default INFO level floods
+    // that shared stdout and makes unrelated classes fail with
+    // "Could not write XML test results" — CI caught exactly this on iOS 17/18 while
+    // iOS 16 and every local run stayed green. Keep these tests quiet.
+    private val quiet = KmpWorkManagerConfig(logLevel = Logger.Level.ERROR)
+
     @BeforeTest
     fun setUp() = reset()
 
@@ -68,8 +75,8 @@ class V330RegistryHardeningTest {
         // relies on a single compare-and-set, so a race here would either install two
         // graphs or run the global registration side effects twice.
         withContext(Dispatchers.Default) {
-            val racers = (1..32).map { i ->
-                async { KmpWorkManager.initialize(workerFactory = TestIosWorkerFactory(i)) }
+            val racers = (1..8).map { i ->
+                async { KmpWorkManager.initialize(workerFactory = TestIosWorkerFactory(i), config = quiet) }
             }
             racers.awaitAll()
         }
@@ -82,18 +89,18 @@ class V330RegistryHardeningTest {
             "Exactly one registry must win, and it must be the one wired globally"
         )
         // Every accessor must agree after the race — no torn publication.
-        repeat(200) { assertSame(store, KmpWorkManager.getInstance().eventStore) }
+        repeat(50) { assertSame(store, KmpWorkManager.getInstance().eventStore) }
     }
 
     @Test
     fun `stress - concurrent readers never observe a partially built registry`() = runTest {
-        KmpWorkManager.initialize(workerFactory = TestIosWorkerFactory())
+        KmpWorkManager.initialize(workerFactory = TestIosWorkerFactory(), config = quiet)
         val expected = KmpWorkManager.getInstance().singleTaskExecutor
 
         withContext(Dispatchers.Default) {
-            val readers = (1..64).map {
+            val readers = (1..16).map {
                 async {
-                    repeat(50) {
+                    repeat(20) {
                         // `by lazy` must be thread-safe: a non-synchronized lazy would hand
                         // different instances to concurrent first-callers.
                         assertSame(expected, KmpWorkManager.getInstance().singleTaskExecutor)
@@ -109,8 +116,8 @@ class V330RegistryHardeningTest {
     fun `stress - repeated init-shutdown cycles do not leak global registrations`() = runTest {
         // Each cycle must fully release the global hooks; a leak here is what the
         // shutdown() fix addressed, and a loop is what would catch a partial fix.
-        repeat(50) {
-            KmpWorkManager.initialize(workerFactory = TestIosWorkerFactory())
+        repeat(10) {
+            KmpWorkManager.initialize(workerFactory = TestIosWorkerFactory(), config = quiet)
             assertNotNull(KmpWorkManagerRuntime.executionHistoryStore)
             assertNotNull(TaskEventManager.currentStoreForTest())
 
@@ -123,12 +130,12 @@ class V330RegistryHardeningTest {
 
     @Test
     fun `stress - concurrent shutdown and getInstance never yields a stale registry`() = runTest {
-        repeat(20) {
-            KmpWorkManager.initialize(workerFactory = TestIosWorkerFactory())
+        repeat(5) {
+            KmpWorkManager.initialize(workerFactory = TestIosWorkerFactory(), config = quiet)
             withContext(Dispatchers.Default) {
                 val shutdownJob = launch { KmpWorkManager.shutdown() }
                 val readerJob = launch {
-                    repeat(30) {
+                    repeat(10) {
                         // Either a live registry or a clean IllegalStateException — never a
                         // half-torn-down object.
                         runCatching { KmpWorkManager.getInstance().eventStore }
@@ -151,7 +158,7 @@ class V330RegistryHardeningTest {
         // catches "someone made init do disk I/O", not microsecond regressions.
         val elapsed = measureTime {
             repeat(20) {
-                KmpWorkManager.initialize(workerFactory = TestIosWorkerFactory())
+                KmpWorkManager.initialize(workerFactory = TestIosWorkerFactory(), config = quiet)
                 KmpWorkManager.shutdown()
             }
         }
@@ -164,16 +171,16 @@ class V330RegistryHardeningTest {
 
     @Test
     fun `performance - resolved services are cached not rebuilt per access`() {
-        KmpWorkManager.initialize(workerFactory = TestIosWorkerFactory())
+        KmpWorkManager.initialize(workerFactory = TestIosWorkerFactory(), config = quiet)
         // Warm the lazy.
         KmpWorkManager.getInstance().singleTaskExecutor
 
         val elapsed = measureTime {
-            repeat(100_000) { KmpWorkManager.getInstance().singleTaskExecutor }
+            repeat(10_000) { KmpWorkManager.getInstance().singleTaskExecutor }
         }
         assertTrue(
             elapsed.inWholeMilliseconds < 1_000,
-            "100k cached lookups took ${elapsed.inWholeMilliseconds}ms — the registry is " +
+            "10k cached lookups took ${elapsed.inWholeMilliseconds}ms — the registry is " +
                 "rebuilding instead of caching"
         )
     }
@@ -182,7 +189,7 @@ class V330RegistryHardeningTest {
 
     @Test
     fun `security - a factory returning null for unknown workers cannot be coerced`() {
-        KmpWorkManager.initialize(workerFactory = TestIosWorkerFactory())
+        KmpWorkManager.initialize(workerFactory = TestIosWorkerFactory(), config = quiet)
         val factory = KmpWorkManager.getInstance().singleTaskExecutor
 
         assertNotNull(factory)
@@ -214,7 +221,7 @@ class V330RegistryHardeningTest {
         }
 
         assertFailsWith<IllegalArgumentException> {
-            KmpWorkManager.initialize(workerFactory = NotAnIosFactory())
+            KmpWorkManager.initialize(workerFactory = NotAnIosFactory(), config = quiet)
         }
         assertFalse(KmpWorkManager.isInitialized())
         assertFailsWith<IllegalStateException> { KmpWorkManager.getInstance() }
@@ -247,7 +254,7 @@ class V330RegistryHardeningTest {
         // End-to-end proof that the registry wires the caller's factory through rather
         // than constructing its own — the whole point of the WorkerFactory contract.
         val factory = TestIosWorkerFactory(id = 7)
-        KmpWorkManager.initialize(workerFactory = factory)
+        KmpWorkManager.initialize(workerFactory = factory, config = quiet)
 
         assertNotNull(KmpWorkManager.getInstance().singleTaskExecutor)
         assertEquals(

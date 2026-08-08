@@ -50,6 +50,9 @@ class V330AndroidRegistryHardeningTest {
 
     private val context: Context get() = ApplicationProvider.getApplicationContext()
 
+    // Keep init/shutdown loops from flooding the test log; see the iOS counterpart.
+    private val quiet = KmpWorkManagerConfig(logLevel = Logger.Level.ERROR)
+
     @Before
     fun setUp() = reset()
 
@@ -71,7 +74,8 @@ class V330AndroidRegistryHardeningTest {
                 async {
                     KmpWorkManager.initialize(
                         context = context,
-                        workerFactory = TestAndroidWorkerFactory()
+                        workerFactory = TestAndroidWorkerFactory(),
+                        config = quiet
                     )
                 }
             }.awaitAll()
@@ -89,7 +93,7 @@ class V330AndroidRegistryHardeningTest {
 
     @Test
     fun `stress - concurrent readers never observe a partially built registry`() = runBlocking {
-        KmpWorkManager.initialize(context = context, workerFactory = TestAndroidWorkerFactory())
+        KmpWorkManager.initialize(context = context, workerFactory = TestAndroidWorkerFactory(), config = quiet)
         val expected = KmpWorkManager.getInstance().eventStore
 
         withContext(Dispatchers.Default) {
@@ -106,7 +110,7 @@ class V330AndroidRegistryHardeningTest {
     @Test
     fun `stress - repeated init-shutdown cycles do not leak global registrations`() {
         repeat(50) {
-            KmpWorkManager.initialize(context = context, workerFactory = TestAndroidWorkerFactory())
+            KmpWorkManager.initialize(context = context, workerFactory = TestAndroidWorkerFactory(), config = quiet)
             assertNotNull(KmpWorkManagerRuntime.executionHistoryStore)
             assertNotNull(TaskEventManager.currentStoreForTest())
 
@@ -128,7 +132,8 @@ class V330AndroidRegistryHardeningTest {
             repeat(20) {
                 KmpWorkManager.initialize(
                     context = context,
-                    workerFactory = TestAndroidWorkerFactory()
+                    workerFactory = TestAndroidWorkerFactory(),
+                    config = quiet
                 )
                 KmpWorkManager.shutdown()
             }
@@ -142,7 +147,7 @@ class V330AndroidRegistryHardeningTest {
 
     @Test
     fun `performance - resolved services are cached not rebuilt per access`() {
-        KmpWorkManager.initialize(context = context, workerFactory = TestAndroidWorkerFactory())
+        KmpWorkManager.initialize(context = context, workerFactory = TestAndroidWorkerFactory(), config = quiet)
         KmpWorkManager.getInstance().eventStore // warm the lazy
 
         val elapsed = measureTime {
