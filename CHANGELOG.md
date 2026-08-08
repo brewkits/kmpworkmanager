@@ -5,6 +5,24 @@ All notable changes to KMP WorkManager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.1] - 2026-08-08
+
+### Fixed
+
+- **iOS: single (non-chained) tasks never persisted their completion event or execution
+  history.** `SingleTaskExecutor` emitted fire-and-forget to `TaskEventBus` only — nothing
+  was written to `EventStore` or `ExecutionHistoryStore`, so `getExecutionHistory()` only
+  ever saw chain executions on iOS, and the emission itself could be lost entirely if
+  `cleanup()` cancelled the executor's scope before the fire-and-forget coroutine ran.
+  Found during 3.3.0 release verification and filed as
+  [#71](https://github.com/brewkits/kmpworkmanager/issues/71); fixed here by routing
+  through `TaskEventManager.emit()` (persists + forwards to the bus, same as
+  `ChainExecutor`) and saving an `ExecutionRecord`, both awaited inside `executeTask`'s own
+  coroutine under `NonCancellable` so a late cancellation can't cut the write off —
+  mirroring `ChainExecutor` and Android's `BaseKmpWorker`. `executeTask` gained an optional
+  `taskId` parameter (all three internal call sites now pass it) used as
+  `ExecutionRecord.chainId`, the same convention `BaseKmpWorker` uses on Android.
+
 ## [3.3.0] - 2026-08-08
 
 ### Removed

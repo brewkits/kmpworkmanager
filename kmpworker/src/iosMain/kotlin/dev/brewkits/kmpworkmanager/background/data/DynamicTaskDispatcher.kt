@@ -145,7 +145,7 @@ public class DynamicTaskDispatcher(
             Logger.i(LogTags.SCHEDULER, "DynamicTaskDispatcher: Executing '$taskId'")
 
             try {
-                val result = singleTaskExecutor.executeTask(meta.workerClassName, meta.inputJson)
+                val result = singleTaskExecutor.executeTask(meta.workerClassName, meta.inputJson, taskId = taskId)
 
                 if (meta.isPeriodic) {
                     // Periodic tasks have their own re-schedule contract — every invocation

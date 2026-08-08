@@ -741,7 +741,7 @@ public class NativeTaskScheduler(
                     val taskId = request.identifier
                     val meta = IosBackgroundTaskHandler.resolveTaskMetadata(taskId, fileStorage)
                     if (meta != null) {
-                        singleTaskExecutor.executeTask(meta.workerClassName, meta.inputJson)
+                        singleTaskExecutor.executeTask(meta.workerClassName, meta.inputJson, taskId = taskId)
                         if (meta.isPeriodic && meta.rawMeta != null) {
                             IosBackgroundTaskHandler.reschedulePeriodicTask(
                                 taskId, meta.workerClassName, meta.inputJson, meta.rawMeta, this@NativeTaskScheduler
