@@ -317,6 +317,16 @@ class KmpWorkManagerInstance internal constructor(private val registry: AndroidS
         get() = registry.eventStore
 
     /**
+     * The factory passed to [KmpWorkManager.initialize].
+     *
+     * Exposed for hosts that run workers outside WorkManager — a custom
+     * `BroadcastReceiver` for exact alarms, for example — and therefore need to resolve a
+     * worker by class name themselves.
+     */
+    val workerFactory: WorkerFactory
+        get() = registry.workerFactory
+
+    /**
      * Returns the most recent task execution records, newest first.
      *
      * Records persist locally across app launches. Call this when the app foregrounds

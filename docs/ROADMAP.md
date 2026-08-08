@@ -298,7 +298,7 @@ See [v3.3 — DI-agnostic init](#v33--di-agnostic-init-koin-removal) below.
 
 ---
 
-## v3.3 — DI-agnostic init (Koin removal)
+## v3.3 — DI-agnostic init (Koin removal) — ✅ shipped in 3.3.0
 
 **Theme:** a background-task library should not force a DI framework onto its
 consumers. Raised by an outside library author in

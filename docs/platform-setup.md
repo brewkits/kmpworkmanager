@@ -89,7 +89,7 @@ kotlin {
 
 ### 3. Application Class Setup
 
-Create an Application class to initialize Koin:
+Create an Application class to initialize the library:
 
 ```kotlin
 class KMPWorkManagerApp : Application() {
@@ -167,9 +167,6 @@ Add to `proguard-rules.pro`:
 # Keep WorkManager classes
 -keep class androidx.work.** { *; }
 -keep class dev.brewkits.kmpworkmanager.sample.background.** { *; }
-
-# Keep Koin classes
--keep class org.koin.** { *; }
 
 # Keep Kotlin coroutines
 -keepclassmembernames class kotlinx.** { *; }
@@ -410,20 +407,14 @@ struct iOSApp: App {
 
 class AppDelegate: NSObject, UIApplicationDelegate {
 
-    // Your Swift bridge to the shared Koin graph. See `composeApp` demo's
-    // `KoinIOS.kt` for a reference implementation — this is NOT a library API,
-    // it's your own helper.
-    private var koinIos: KoinIOS!
-
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
 
-        // Initialize Koin with your platform module
-        // This module should include your WorkerFactory
-        KoinInitializerKt.doInitKoin(platformModule: IOSModuleKt.iosModule)
-        koinIos = KoinIOS()
+        // No DI framework required since v3.3.0. `SetupKt` is your own Kotlin file
+        // exposing top-level functions to Swift — see the `composeApp` demo.
+        SetupKt.initKmpWorkManager()
 
         // Register background tasks
         registerBackgroundTasks()
@@ -435,9 +426,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     }
 
     private func registerBackgroundTasks() {
-        let scheduler = koinIos.getScheduler()
-        let chainExecutor = koinIos.getChainExecutor()
-        let dispatcher = koinIos.getDynamicTaskDispatcher()
+        let scheduler = SetupKt.kmpscheduler()
+        let chainExecutor = SetupKt.kmpchainExecutor()
+        let dispatcher = SetupKt.kmpdynamicTaskDispatcher()
 
         // 1. Master dispatcher — wakes up every dynamic task ID that is NOT
         //    declared as its own BGTask identifier in Info.plist. Required.
@@ -468,7 +459,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         //    iOS schedule them directly instead of via the master dispatcher.
         //    Skip this whole block unless you have a specific reason for it.
         //
-        // let executor = koinIos.getSingleTaskExecutor()
+        // let executor = SetupKt.kmpsingleTaskExecutor()
         // BGTaskScheduler.shared.register(
         //     forTaskWithIdentifier: "periodic-sync-task",
         //     using: nil
@@ -588,8 +579,7 @@ func application(
     didReceiveRemoteNotification userInfo: [AnyHashable : Any],
     fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
 ) {
-    let koinIos = KoinIOS()
-    let scheduler = koinIos.getScheduler()
+    let scheduler = SetupKt.kmpScheduler()
 
     // Trigger background task
     Task {
@@ -880,8 +870,8 @@ periodic tasks upon successful completion.
 ```swift
 IosBackgroundTaskHandler.shared.handleSingleTask(
     task: task,
-    scheduler: koinIos.getScheduler(),
-    executor: koinIos.getSingleTaskExecutor()
+    scheduler: SetupKt.kmpscheduler(),
+    executor: SetupKt.kmpsingleTaskExecutor()
 )
 ```
 

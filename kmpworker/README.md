@@ -20,7 +20,7 @@ The library uses a **worker factory pattern** (introduced in v2.x) that replaces
 - ✅ **Worker factory pattern** replaces hardcoded workers
 - ✅ **iOS Info.plist auto-reading** for task ID validation
 - ❌ **`WorkerTypes` object removed** (define your own)
-- ❌ **Koin initialization** now requires `workerFactory` parameter
+- ❌ **`kmpWorkerModule()` removed in v3.3.0** — use `KmpWorkManager.initialize(workerFactory = …)`
 
 ### Getting Started
 Follow the quick start guide below to integrate KMP WorkManager in your project.

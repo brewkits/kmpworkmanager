@@ -1312,8 +1312,8 @@ object IosBackgroundTaskHandler {
 BGTaskScheduler.shared.register(forTaskWithIdentifier: "my-task", using: nil) { task in
     IosBackgroundTaskHandler.shared.handleSingleTask(
         task: task,
-        scheduler: koin.getScheduler(),
-        executor: koin.getExecutor()
+        scheduler: SetupKt.kmpScheduler(),
+        executor: SetupKt.kmpExecutor()
     )
 }
 ```

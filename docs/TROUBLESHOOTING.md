@@ -45,20 +45,16 @@ Could not find dev.brewkits:kmpworkmanager:2.3.2
    ./gradlew --refresh-dependencies
    ```
 
-### Koin Conflict
+### `KoinApplicationAlreadyStartedException`
 
-**Problem:** `KoinApplicationAlreadyStartedException`
+**Problem:** seen on v2.2.1 and earlier, where the library called global `startKoin`
+and collided with the host app's Koin.
 
-**Solution:** KMP WorkManager uses isolated Koin scope. If conflict occurs:
-```kotlin
-// Don't initialize Koin manually for KmpWorkManager
-// The library handles its own Koin instance
-
-// Your app's Koin is separate:
-startKoin {
-    modules(myAppModule)
-}
-```
+**Solution:** upgrade. v2.2.2 moved Android to a private, isolated Koin instance, and
+**v3.3.0 removed Koin from the library entirely** — there is nothing left to collide
+with. `KmpWorkManager.initialize()` needs no DI framework; if your app uses Koin, bind
+`KmpWorkManager.getInstance()` from your own module. See
+[`MIGRATION_V3.3.0.md`](./MIGRATION_V3.3.0.md).
 
 ---
 

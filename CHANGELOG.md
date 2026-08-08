@@ -5,6 +5,60 @@ All notable changes to KMP WorkManager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.0] - 2026-08-08
+
+### Removed
+
+- **BREAKING — Koin is no longer a dependency.** `koin-core` shipped at `runtime` scope in all
+  five published artifacts, so consumers who never used Koin still carried it on the classpath
+  and in the iOS klib link ([#66](https://github.com/brewkits/kmpworkmanager/discussions/66)).
+  `kmpWorkerModule()` and `kmpWorkerCoreModule()` are removed; call `KmpWorkManager.initialize()`
+  instead. The migration is roughly four lines in one file — see
+  [`docs/MIGRATION_V3.3.0.md`](docs/MIGRATION_V3.3.0.md). Koin and Hilt users keep working by
+  binding `KmpWorkManager.getInstance()` from their own module; the library deliberately does
+  not ship a bridge artifact.
+- `koin-android` dropped from the Android artifact ([#67](https://github.com/brewkits/kmpworkmanager/pull/67)).
+  No production code imported it — it was only surviving because it transitively supplied
+  `androidx.core` (`NotificationCompat`), which is now declared directly.
+
+### Added
+
+- **iOS: `KmpWorkManager.initialize()`** — a DI-agnostic entry point mirroring Android's,
+  keeping the eager fail-fast checks (`IosWorkerFactory` type, Info.plist
+  `BGTaskSchedulerPermittedIdentifiers`) at the same point in startup
+  ([#68](https://github.com/brewkits/kmpworkmanager/pull/68)).
+- `KmpWorkManagerInstance.workerFactory` on Android, for hosts that run workers outside
+  WorkManager (a custom exact-alarm `BroadcastReceiver`, for example) and need to resolve a
+  worker by class name themselves.
+- Registry hardening suites — `V330RegistryHardeningTest` (iOS) and
+  `V330AndroidRegistryHardeningTest` (Robolectric) — covering concurrent init election,
+  concurrent readers against `by lazy`, init/shutdown leak loops, startup-path init cost,
+  cached-resolution cost, hostile worker class names, and fail-fast before state is published.
+
+### Fixed
+
+- **iOS: execution history and task events were silently dropped.** `EventStore` and
+  `ExecutionHistoryStore` were lazy `single { }` bindings whose global-registration side
+  effects only ran if something resolved them — and nothing in the library or the sample ever
+  did. Unless a host app resolved them itself, `KmpWorkManagerRuntime.executionHistoryStore`
+  stayed `null`, workers dropped every record through `?.save(record)`, and
+  `getExecutionHistory()` returned an empty list. Android was already correct via
+  `createdAtStart = true`. Both stores are now created eagerly on both platforms.
+- **`shutdown()` left stale global registrations.** `TaskEventManager.initialize()` is
+  compare-and-set "first call wins", and neither platform's `shutdown()` released the claim, so
+  `shutdown()` → `initialize()` left the global event store pointing at the dead registry's
+  instance while the live registry held a different one. `shutdown()` now releases both the
+  event store and the execution history store.
+
+### Changed
+
+- `KmpWorkManagerKoin` → `KmpWorkManagerAndroid`, backed by `AndroidServiceRegistry`; the iOS
+  equivalent is `IosServiceRegistry`. Both are plain internal registries of `by lazy`
+  singletons — the Koin module never used a container feature (no scopes, no qualifiers, no
+  `parametersOf`, no lazy graph).
+- Documentation swept for the removed API: README, quickstart, platform-setup, api-reference,
+  examples, troubleshooting, the KSP README, and the `@Worker` / `BgTaskIdProvider` KDoc.
+
 ## [3.2.0] - 2026-08-05
 
 ### Fixed
