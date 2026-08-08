@@ -108,15 +108,13 @@ class SyncWorker : IosWorker {
 // Use generated factory
 import dev.brewkits.kmpworkmanager.generated.IosWorkerFactoryGenerated
 
-startKoin {
-    modules(kmpWorkerModule(
-        workerFactory = IosWorkerFactoryGenerated()  // ✨ Auto-generated
-    ))
-}
+KmpWorkManager.initialize(
+    workerFactory = IosWorkerFactoryGenerated()  // ✨ Auto-generated
+)
 ```
 
 When any worker declares a `bgTaskId`, the generated `IosWorkerFactoryGenerated` also implements
-`BgTaskIdProvider`, and `kmpWorkerModule()` validates all declared BGTask IDs against
+`BgTaskIdProvider`, and `KmpWorkManager.initialize()` validates all declared BGTask IDs against
 `Info.plist → BGTaskSchedulerPermittedIdentifiers` at startup.
 
 ## Annotation Parameters

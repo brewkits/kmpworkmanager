@@ -61,7 +61,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     override init() {
         super.init()
-        // IOSModuleKt.iosModule calls kmpWorkerModule(workerFactory = IosWorkerFactoryGenerated())
+        // IOSModuleKt.iosModule calls KmpWorkManager.initialize(workerFactory: IosWorkerFactoryGenerated())
         KoinInitializerKt.doInitKoin(platformModule: IOSModuleKt.iosModule)
     }
 
