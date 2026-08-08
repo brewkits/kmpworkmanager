@@ -58,30 +58,31 @@ import platform.Foundation.*
  * }
  * ```
  *
- * ### Koin integration (typical setup)
+ * ### Typical setup (no DI framework required)
  * ```kotlin
- * // iosMain — expose executors via KoinIOS
- * class KoinIOS : KoinComponent {
- *     private val scheduler: BackgroundTaskScheduler by inject()
- *     private val executor: SingleTaskExecutor by inject()
- *     private val chainExecutor: ChainExecutor by inject()
- *
- *     fun getScheduler() = scheduler
- *     fun getExecutor() = executor
- *     fun getChainExecutor() = chainExecutor
+ * // iosMain — initialize once, then expose what Swift needs
+ * fun initKmpWorkManager() {
+ *     KmpWorkManager.initialize(workerFactory = MyWorkerFactory())
  * }
+ *
+ * fun kmpScheduler() = KmpWorkManager.getInstance().backgroundTaskScheduler
+ * fun kmpExecutor() = KmpWorkManager.getInstance().singleTaskExecutor
+ * fun kmpChainExecutor() = KmpWorkManager.getInstance().chainExecutor
  * ```
  * ```swift
  * // Swift — wire BGTaskScheduler registrations to the handler
- * let koin = KoinIOS()
  * BGTaskScheduler.shared.register(forTaskWithIdentifier: "my-sync-task", using: nil) { task in
  *     IosBackgroundTaskHandler.shared.handleSingleTask(
  *         task: task,
- *         scheduler: koin.getScheduler(),
- *         executor: koin.getExecutor()
+ *         scheduler: SetupKt.kmpScheduler(),
+ *         executor: SetupKt.kmpExecutor()
  *     )
  * }
  * ```
+ *
+ * Using Koin or Hilt? Nothing changes structurally — bind
+ * `KmpWorkManager.getInstance().…` inside your own module. See
+ * `docs/MIGRATION_V3.3.0.md`.
  *
  * ## What this handles for you
  * - BGTask `expirationHandler` setup
