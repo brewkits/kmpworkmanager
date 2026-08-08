@@ -53,8 +53,10 @@ kotlin {
             implementation(libs.androidx.work.runtime.ktx)
             // Coroutines support for Guava ListenableFuture
             implementation(libs.kotlinx.coroutines.guava)
-            // Koin for Android
-            implementation(libs.koin.android)
+            // NotificationCompat for the foreground-service notification in KmpWorker /
+            // KmpHeavyWorker. Declared explicitly — it used to arrive transitively via
+            // koin-android, which no production code in androidMain actually imports.
+            implementation(libs.androidx.core.ktx)
         }
 
         commonMain.dependencies {
@@ -89,6 +91,9 @@ kotlin {
             implementation(libs.androidx.work.runtime.ktx)
             implementation(libs.androidx.work.testing)
             implementation(libs.kotlinx.coroutines.test)
+            // KoinIsolationTest is the only consumer of koin-android in the project —
+            // it starts a host-app Koin to prove the library's private Koin stays isolated.
+            implementation(libs.koin.android)
         }
 
         val androidUnitTest by getting {

@@ -271,12 +271,9 @@ v2.6 polishes the rough edges that surface during on-call.
 - ⏳ Profile maps to `Constraints` + `TaskPriority` so existing API stays
   source-compatible.
 
-### 5. DI-agnostic init
-- ⏳ Replace internal Koin dependency with a private `ServiceLocator` that
-  consumers can populate without bringing Koin into their classpath. Koin
-  module stays as an opt-in convenience.
-- ⏳ Provide a Hilt-friendly `KmpWorkManagerHiltModule` for Android consumers
-  who already use Hilt.
+### 5. DI-agnostic init — 🚧 moved to its own milestone
+Promoted out of v2.6 and rescoped after [discussion #66](https://github.com/brewkits/kmpworkmanager/discussions/66).
+See [v3.3 — DI-agnostic init](#v33--di-agnostic-init-koin-removal) below.
 
 ### 6. Flutter parity — Group 2 built-in workers
 - ⏳ **HMAC-SHA256 request signing** (`request_signing.dart` parity) —
@@ -298,6 +295,66 @@ v2.6 polishes the rough edges that surface during on-call.
   `deflate()` for O(1) RAM footprint. Output passes PKZIP local-header magic (`0x04034b50`)
   and EOCD signature checks. `allowIosUncompressedFallback` deprecated and ignored.
   `FileCompressionWorker` is now **Stable on both platforms**.
+
+---
+
+## v3.3 — DI-agnostic init (Koin removal)
+
+**Theme:** a background-task library should not force a DI framework onto its
+consumers. Raised by an outside library author in
+[discussion #66](https://github.com/brewkits/kmpworkmanager/discussions/66); the
+complaint is correct on the facts — `koin-core:4.0.0` ships at `runtime` scope in
+the published `.pom`/`.module` for the root, `-android` and all three iOS variants,
+so consumers who never touch Koin still carry it.
+
+**Where the coupling actually is (audited at 3.2.0):**
+- **Android** is already Koin-free at the API surface. `KmpWorkManager.initialize()`
+  exposes no Koin types; behind it sits a *private* `koinApplication {}` (never
+  `startKoin` / `GlobalContext`), covered by `KoinIsolationTest`. The Koin-exposing
+  `kmpWorkerModule()` overload has been `@Deprecated` since 2.2.2.
+- **iOS** is genuinely coupled. `kmpWorkerModule()` is the only documented iOS init
+  path, and it is declared in commonMain as
+  `expect fun kmpWorkerModule(...): org.koin.core.module.Module` — a public function
+  returning a type from an `implementation`-scoped dependency, which forces consumers
+  to declare koin-core themselves just to call it.
+- The entire koin-core surface is 5 files: `KoinModule.kt`, `KoinModule.android.kt`,
+  `KoinModule.ios.kt`, `KmpWorkManagerKoin.kt` (+ `KoinIsolationTest.kt`).
+- `KoinModule.ios.kt` uses **no** DI-container feature — no scopes, qualifiers,
+  `parametersOf`, or lazy graph. Everything meaningful (logger config,
+  `KmpWorkManagerRuntime.configure`, the `IosWorkerFactory` type check, the Info.plist
+  `BGTaskSchedulerPermittedIdentifiers` validation) runs at module-*construction* time,
+  and all six wired classes are already public. Extraction is mechanical.
+
+### Step 1 — patch (3.2.1) — ✅ done
+- ✅ Dropped `koin-android`. No production code in `androidMain` imports
+  `org.koin.android.*`; the dependency was only surviving because it transitively
+  supplied `androidx.core` (`NotificationCompat` in `KmpWorker` / `KmpHeavyWorker`).
+  `androidx.core:core-ktx` is now declared directly, and `koin-android` moved to the
+  `androidInstrumentedTest` source set where `KoinIsolationTest` actually uses it.
+  `kmpworkmanager-android`'s POM now carries only `koin-core-jvm`.
+
+### Step 2 — minor (3.3.0)
+- ⏳ Replace the internal private `koinApplication` with a plain internal
+  `ServiceRegistry`. Touches the 5 bindings, the 3 service-locator call sites
+  (`BaseKmpWorker.kt:52`, `KmpWorker.kt:32`, `KmpHeavyWorker.kt:43`) and the
+  `internal constructor(Koin)` of the public `KmpWorkManagerInstance`.
+- ⏳ Add a Koin-free `KmpWorkManager.initialize(workerFactory, config, iosTaskIds)`
+  on iOS, mirroring the Android entry point.
+- ⏳ Move `kmpWorkerModule()` into an optional `kmpworkmanager-koin` artifact;
+  deprecate the copy in core.
+- ⏳ Provide a Hilt-friendly `KmpWorkManagerHiltModule` for Android consumers who
+  already use Hilt.
+- ⚠️ **koin-core still ships in core's POM after this step.** `kmpWorkerModule` is an
+  `expect fun` declared in core's commonMain whose iOS `actual` calls `module { }`, so
+  core keeps `implementation(koin-core)` for as long as that declaration lives there.
+  Deprecation does not remove a dependency.
+
+### Step 3 — major (4.0.0)
+- ⏳ Delete the deprecated `kmpWorkerModule()` from core. This — not step 2 — is the
+  point at which koin-core leaves the published metadata.
+- ⏳ `kmpWorkerModule()` must go through the full deprecation cycle rather than be
+  deleted outright: it is currently the only documented iOS init path, so removing it
+  early breaks every existing iOS consumer.
 
 ---
 
