@@ -111,15 +111,18 @@ history.
 
 `EventStore` and `ExecutionHistoryStore` were plain lazy `single { }` bindings on iOS, and the
 side effects that publish them globally (`TaskEventManager.initialize(...)`,
-`KmpWorkManagerRuntime.setHistoryStore(...)`) only ran *if something resolved them*. Nothing in
-the library ever did. So on iOS `KmpWorkManagerRuntime.executionHistoryStore` stayed `null`,
-workers dropped every record through the `?.save(record)` null-safe call, and
-`getExecutionHistory()` always returned an empty list. Android was correct via
-`createdAtStart = true`.
+`KmpWorkManagerRuntime.setHistoryStore(...)`) only ran *if something resolved them* — and
+nothing in the library or the sample app ever did.
+
+So unless your own code explicitly pulled `ExecutionHistoryStore` or `EventStore` out of Koin,
+`KmpWorkManagerRuntime.executionHistoryStore` stayed `null` on iOS, workers dropped every record
+through the `?.save(record)` null-safe call, and `getExecutionHistory()` returned an empty list.
+Android was correct via `createdAtStart = true`. If you *did* resolve either binding yourself,
+you were unaffected — and you still are, since both are now created for you.
 
 Both stores are now created eagerly during `initialize()` on both platforms.
-`V330KoinFreeInitTest` asserts it, including that `TaskEventManager` holds the *same* instance
-the registry hands out.
+`V330KoinFreeInitTest` (iOS) and `V330AndroidRegistryTest` (Android) assert it, including that
+`TaskEventManager` holds the *same* instance the registry hands out.
 
 ## Removed API
 
