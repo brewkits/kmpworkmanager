@@ -49,6 +49,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `shutdown()` → `initialize()` left the global event store pointing at the dead registry's
   instance while the live registry held a different one. `shutdown()` now releases both the
   event store and the execution history store.
+- **iOS: nested-timeout misattribution could theoretically survive under CPU starvation.**
+  `ChainExecutor.executeChain`/`executeStep` disambiguated an inner (chain/task) timeout from
+  an outer one via `elapsedNow() < timeout` inside `catch (TimeoutCancellationException)`.
+  Correct under normal load, but a scheduling stall between the outer cancellation and the
+  elapsed-time read could push `elapsed` past the inner budget and misattribute an outer
+  cancellation as a genuine chain/task timeout. Both call sites now wrap their inner block in
+  `withTimeoutOrNull` instead of `withTimeout` — kotlinx.coroutines identity-checks the
+  exception internally, so there is no elapsed-time read on this path at all, and no window
+  for the race. See `V330TimeoutIdentityDisambiguationTest`.
+- **Android: `OverflowFileRegistry` could leak files in multi-process apps.** The
+  `SharedPreferences`-backed registry caches in memory per `Context`, so a host with separate
+  processes (`:background`, `:push`, …) could race a `register()` in one process against a
+  `consumeAndDelete()` in another and leak the overflow file until the 24 h janitor sweep. Now
+  backed by one file per entry under `cacheDir/overflow_registry/`, with no per-process cache to
+  race. Task ids are caller-supplied, so filenames are derived via an injective, traversal-safe
+  percent-encoding rather than a hash. Migrates any legacy `SharedPreferences` entries
+  automatically on first use.
 
 ### Changed
 
