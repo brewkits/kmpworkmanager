@@ -198,7 +198,7 @@ object IosBackgroundTaskHandler {
 
         job = scope.launch {
             try {
-                val result = executor.executeTask(meta.workerClassName, meta.inputJson)
+                val result = executor.executeTask(meta.workerClassName, meta.inputJson, taskId = taskId)
 
                 if (meta.isPeriodic) {
                     // Periodic tasks self-re-schedule unconditionally — retry semantics
