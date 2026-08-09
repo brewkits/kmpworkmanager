@@ -5,7 +5,12 @@ All notable changes to KMP WorkManager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.3.1] - 2026-08-08
+## [3.3.1] - 2026-08-09
+
+A senior mobile QA/QC review pass across the whole library surfaced five further findings
+on top of issue #71 — all fixed here. None are regressions from 3.3.0 shipping; all were
+either narrow-trigger latent gaps or, in one case, code written for this very release that
+hadn't reached Maven Central yet.
 
 ### Fixed
 
@@ -22,6 +27,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mirroring `ChainExecutor` and Android's `BaseKmpWorker`. `executeTask` gained an optional
   `taskId` parameter (all three internal call sites now pass it) used as
   `ExecutionRecord.chainId`, the same convention `BaseKmpWorker` uses on Android.
+- **iOS: `SingleTaskExecutor` used a wall-clock diff for `ExecutionRecord.durationMs`.**
+  The exact class of bug `ChainExecutor.executeStep` already guards against for the
+  identical reason (see 3.3.0's `withTimeoutOrNull` entry below): an NTP sync or manual
+  clock change mid-task (up to 120s for `BGProcessingTask`) could silently corrupt the
+  persisted duration. This was in code written for the `executeTask`/`taskId` fix above,
+  caught during the same review before it ever reached a release. Now uses
+  `TimeSource.Monotonic` for the duration, wall-clock only for the `startedAtMs`/`endedAtMs`
+  timestamp fields — mirroring `ChainExecutor`'s existing split exactly.
+- **KSP: two `@Worker` classes claiming the same name or alias silently overwrote one
+  another** in the generated `providers` map — no compile error, no KSP warning. One
+  worker became permanently unreachable at runtime. `WorkerProcessor` now fails the build
+  (`logger.error()`) listing every colliding key and the classes claiming it. Covered by
+  `WorkerProcessorDuplicateKeyTest`, which calls the validation directly rather than
+  through `WorkerProcessorTest`'s compile-testing harness — that entire 21-test class is
+  `@Ignore`d (kctfork 0.6.0 never invokes the processor for in-memory sources), so none of
+  those tests actually run in CI today.
+- **iOS: caller-supplied task/chain ids were used unsanitized as filenames** at 13 call
+  sites in `IosFileStorage` (`saveTaskMetadata`, chain definition/progress/deleted-marker
+  files) — `dir.safeAppend("$id.json")`, where `safeAppend` only guards against
+  `URLByAppendingPathComponent` returning null, not path traversal. Ids containing `/` or
+  equal to `.`/`..` are now percent-encoded via `String.encodeAsPathComponent()`.
+  Deliberately narrow: only `/`, a bare `.`/`..`, and (for injectivity) a literal `%` are
+  escaped, so ordinary ids (`"nightly-sync"`, `"com.example.sync"`, UUIDs) produce the
+  exact same on-disk filename as before — tasks an app scheduled before upgrading past
+  this fix keep resolving correctly.
+- **`kmpworkmanager-http`: the HTTP clients' `User-Agent` header hardcoded
+  `"KmpWorkManager/2.3.4"`**, un-synced with the real published version across every
+  release since (13 releases stale at 3.3.0). `:kmpworker-http` now generates a
+  `LIBRARY_VERSION` constant from `VERSION_NAME` on every build, so the header can't drift
+  from the actual release again.
+- **`kmpworkmanager-http`: the SSRF-aware manual redirect-following interceptor was
+  duplicated verbatim** between `HttpClientProvider.android.kt` and
+  `HttpClientProvider.ios.kt` (~25 identical lines re-validating each `Location` header via
+  `SecurityValidator`, capping at 10 hops, stripping `Authorization`/`Cookie` on
+  cross-origin hops). The logic itself was correct; being security-critical, two copies
+  risked silently drifting apart on a future change landing in only one file. Extracted to
+  a single `HttpClient.installSecureRedirectFollowing()` in commonMain.
 
 ## [3.3.0] - 2026-08-08
 
