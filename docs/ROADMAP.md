@@ -401,6 +401,46 @@ the fix consumers are asking for further away for no benefit.
 
 ---
 
+## v3.3.1 — senior mobile QA/QC review pass — ✅ shipped
+
+**Theme:** a full-library review (correctness, architecture, test-coverage gaps,
+iOS/Android lifecycle & threading pitfalls) turned up six findings on top of
+[issue #71](https://github.com/brewkits/kmpworkmanager/issues/71) (iOS single tasks not
+persisting event/history, filed during 3.3.0 verification). None are regressions —
+either narrow-trigger latent gaps or, in one case, code written for 3.3.0 that hadn't
+reached Maven Central yet when the bug was found.
+
+- ✅ **iOS: `SingleTaskExecutor` didn't persist events/history for non-chained tasks**
+  (#71). Routed through `TaskEventManager.emit()` + `ExecutionHistoryStore.save()`,
+  mirroring `ChainExecutor`/`BaseKmpWorker`. `V331SingleTaskPersistenceTest`.
+- ✅ **iOS: `SingleTaskExecutor` used wall-clock for `ExecutionRecord.durationMs`** — the
+  same NTP-drift risk `ChainExecutor` already guards against, found in the fix above
+  before it shipped. Switched to `TimeSource.Monotonic`, matching `ChainExecutor`'s split.
+- ✅ **KSP: colliding `@Worker` name/alias silently overwrote one worker in the generated
+  factory** — no compile error, no warning. `WorkerProcessor` now `logger.error()`s.
+  `WorkerProcessorDuplicateKeyTest` calls the validation directly, since
+  `WorkerProcessorTest`'s entire 21-test compile-testing harness is `@Ignore`d
+  (kctfork 0.6.0 never invokes the processor for in-memory sources — none of those tests
+  run in CI today).
+- ✅ **iOS: task/chain ids used unsanitized as filenames** at 13 `IosFileStorage` call
+  sites — `safeAppend` guards only NPE, not traversal. Fixed via
+  `String.encodeAsPathComponent()`, deliberately narrow (only `/`, bare `.`/`..`, and `%`
+  for injectivity) so ordinary ids keep their exact pre-fix on-disk filename.
+  `V331PathTraversalTest` covers both the pure encoder and the real `IosFileStorage` API.
+- ✅ **`kmpworkmanager-http`: `User-Agent` hardcoded `"KmpWorkManager/2.3.4"`**, 13
+  releases stale. `:kmpworker-http` now generates `LIBRARY_VERSION` from `VERSION_NAME`
+  on every build.
+- ✅ **`kmpworkmanager-http`: SSRF-aware redirect-following interceptor duplicated
+  verbatim** between the Android and iOS `HttpClientProvider`s. Extracted to
+  `HttpClient.installSecureRedirectFollowing()` in commonMain — one copy of
+  security-critical logic instead of two that could silently drift apart.
+
+**Verification:** 887 iOS + 503 Android + 29 KSP + 38×2 `kmpworker-http` tests, 0
+failures across all of #71/finding-1/finding-2/finding-3/findings-4-5's PRs
+(#72, #73, #74).
+
+---
+
 ## v3.0 — long-term (P3)
 
 **Theme:** the library's foundation can be sturdier. These are non-trivial
