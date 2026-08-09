@@ -10,6 +10,7 @@ import kotlinx.coroutines.*
 import platform.Foundation.NSDate
 import platform.Foundation.NSUUID
 import platform.Foundation.timeIntervalSince1970
+import kotlin.time.TimeSource
 
 /**
  * Executes a single, non-chained background task on the iOS platform.
@@ -40,19 +41,27 @@ class SingleTaskExecutor(private val workerFactory: IosWorkerFactory) {
         Logger.i(LogTags.WORKER, "Executing task: $workerClassName (timeout: ${timeoutMs}ms)")
 
         val recordTaskId = taskId ?: workerClassName
+        // Wall-clock: persisted as ExecutionRecord.startedAtMs/endedAtMs (human-readable
+        // timestamps) — never used for duration math.
         val startTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
+        // Monotonic: used for ALL `duration` math (log lines and ExecutionRecord.durationMs).
+        // A wall-clock diff here would be corrupted by an NTP sync or manual clock change
+        // occurring mid-task (tasks can run up to 120s for BGProcessingTask) — the same
+        // class of bug ChainExecutor's `executeStep` already guards against for exactly
+        // this reason. See ChainExecutor.kt's `startMonotonic` for the sibling comment.
+        val startMonotonic = TimeSource.Monotonic.markNow()
 
         val worker = try {
             workerFactory.createWorker(workerClassName)
         } catch (e: IllegalArgumentException) {
             Logger.e(LogTags.WORKER, "Worker not registered: $workerClassName — ${e.message}")
             val result = WorkerResult.Failure("Worker not registered: $workerClassName")
-            recordCompletion(recordTaskId, workerClassName, result, startTime)
+            recordCompletion(recordTaskId, workerClassName, result, startTime, startMonotonic)
             return result
         } ?: run {
             Logger.e(LogTags.WORKER, "Worker not found: $workerClassName")
             val result = WorkerResult.Failure("Worker not found: $workerClassName")
-            recordCompletion(recordTaskId, workerClassName, result, startTime)
+            recordCompletion(recordTaskId, workerClassName, result, startTime, startMonotonic)
             return result
         }
 
@@ -78,7 +87,7 @@ class SingleTaskExecutor(private val workerFactory: IosWorkerFactory) {
                 )
 
                 val result = worker.doWork(input, env)
-                val duration = (NSDate().timeIntervalSince1970 * 1000).toLong() - startTime
+                val duration = startMonotonic.elapsedNow().inWholeMilliseconds
 
                 when (result) {
                     is WorkerResult.Success -> {
@@ -99,13 +108,13 @@ class SingleTaskExecutor(private val workerFactory: IosWorkerFactory) {
                     }
                 }
 
-                recordCompletion(recordTaskId, workerClassName, result, startTime)
+                recordCompletion(recordTaskId, workerClassName, result, startTime, startMonotonic)
                 result
             }
         } catch (e: TimeoutCancellationException) {
             Logger.e(LogTags.WORKER, "Task timed out after ${timeoutMs}ms: $workerClassName")
             val result = WorkerResult.Failure("Timed out after ${timeoutMs}ms")
-            recordCompletion(recordTaskId, workerClassName, result, startTime)
+            recordCompletion(recordTaskId, workerClassName, result, startTime, startMonotonic)
             result
         } catch (e: CancellationException) {
             // CancellationException MUST be rethrown — swallowing it prevents the parent
@@ -117,7 +126,7 @@ class SingleTaskExecutor(private val workerFactory: IosWorkerFactory) {
         } catch (e: Exception) {
             Logger.e(LogTags.WORKER, "Task threw exception: $workerClassName", e)
             val result = WorkerResult.Failure("Exception: ${e.message}")
-            recordCompletion(recordTaskId, workerClassName, result, startTime)
+            recordCompletion(recordTaskId, workerClassName, result, startTime, startMonotonic)
             result
         }
     }
@@ -140,7 +149,8 @@ class SingleTaskExecutor(private val workerFactory: IosWorkerFactory) {
         taskId: String,
         workerClassName: String,
         result: WorkerResult,
-        startTime: Long
+        startTime: Long,
+        startMonotonic: TimeSource.Monotonic.ValueTimeMark
     ) {
         val shortName = workerClassName.substringAfterLast('.')
         val event = when (result) {
@@ -173,7 +183,12 @@ class SingleTaskExecutor(private val workerFactory: IosWorkerFactory) {
                 Logger.w(LogTags.WORKER, "Failed to emit completion event for $workerClassName: ${e.message}")
             }
 
+            // Wall-clock, for the human-readable timestamp fields only.
             val endTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
+            // Monotonic, for durationMs — see the comment on `startMonotonic` in executeTask.
+            // Using `endTime - startTime` here would silently corrupt the persisted duration
+            // if the system clock changed mid-task.
+            val durationMs = startMonotonic.elapsedNow().inWholeMilliseconds
             val status = if (result is WorkerResult.Success) ExecutionStatus.SUCCESS else ExecutionStatus.FAILURE
             val errorMessage = when (result) {
                 is WorkerResult.Success -> null
@@ -188,7 +203,7 @@ class SingleTaskExecutor(private val workerFactory: IosWorkerFactory) {
                 status = status,
                 startedAtMs = startTime,
                 endedAtMs = endTime,
-                durationMs = endTime - startTime,
+                durationMs = durationMs,
                 totalSteps = 1,
                 completedSteps = if (status == ExecutionStatus.SUCCESS) 1 else 0,
                 failedStep = if (status != ExecutionStatus.SUCCESS) 0 else null,
