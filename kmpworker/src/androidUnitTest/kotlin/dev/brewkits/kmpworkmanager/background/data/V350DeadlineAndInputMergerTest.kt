@@ -202,6 +202,24 @@ class V350DeadlineAndInputMergerTest {
     }
 
     @Test
+    fun workerWithNullData_doesNotRepublishThePreviousStepsOutput() {
+        // Guards a stale-data leak specific to how Android carries the payload.
+        // Step N's inputData physically CONTAINS step N-1's output (that is the transport).
+        // If a worker that produces nothing echoed its own input back out, step N+1 would be
+        // handed step N-1's output as though step N had produced it — a silent, very
+        // confusing data corruption in a pipeline. The output must reflect only this worker.
+        val outcome = runWorker(
+            result = WorkerResult.Success(data = null),
+            mergePreviousOutput = true,
+            previousStepOutput = """{"filePath":"/tmp/stale.zip"}"""
+        )
+        assertNull(
+            (outcome as Result.Success).outputData.getString(NativeTaskScheduler.KEY_STEP_OUTPUT),
+            "A worker returning no data must publish nothing — never re-emit the previous step's output."
+        )
+    }
+
+    @Test
     fun oversizedOutput_isDroppedRatherThanFailingTheStep() {
         // WorkManager rejects Data over its limit at build time. Forwarding must degrade to
         // "no data" instead of turning a worker that genuinely succeeded into a failure.

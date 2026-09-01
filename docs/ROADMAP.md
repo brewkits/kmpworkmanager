@@ -7,6 +7,42 @@ Status legend: ✅ done · 🚧 in progress · ⏳ planned · 💭 idea / unsche
 
 ---
 
+## v3.5.0 — Jetpack WorkManager parity — ✅ shipped
+
+Four features native WorkManager users expect, implemented on **both** platforms:
+
+- ✅ **Task tags + group cancellation** — `TaskRequest.tags`, `enqueue(tags = …)`,
+  `cancelByTag()`, `cancelByWorkerClass()`. Covers standalone tasks and chain steps.
+  Not available for `TaskTrigger.Exact` on Android (AlarmManager is not tag-indexed).
+- ✅ **Per-task deadlines** — `TaskRequest.deadlineMs` / `enqueue(deadlineMs = …)`.
+  A task past its deadline is skipped, not run, and never retried. Gives
+  `TaskTrigger.Windowed.latest` real enforcement on iOS for the first time.
+- ✅ **Chain InputMerger** — `TaskRequest.mergeOutputFromPreviousStep`. Overwriting-merge
+  semantics matching WorkManager's `OverwritingInputMerger`, via one shared
+  `ChainInputMerger` so the two engines cannot drift.
+- ✅ **`ExistingPolicy.UPDATE`** — update a periodic task's constraints/input without
+  resetting its interval timer.
+
+Still open from the same parity analysis, in rough priority order:
+
+- ⏳ **`observeTaskState(id): Flow<TaskState>`** — live state stream, replacing
+  poll-`getExecutionHistory()`. Android: wrap `getWorkInfosForUniqueWorkFlow` (note:
+  WorkManager indexes by UUID, so this must go through the unique-name API, not
+  `getWorkInfoByIdFlow`). iOS: a `StateFlow` registry updated by `ChainExecutor` /
+  `SingleTaskExecutor` transitions.
+- ⏳ **`WorkQuery`-style batch query** — filter pending/running tasks by state/tag/worker.
+  Read-only on both platforms; iOS needs a scan across queue + metadata + active chains.
+- ⏳ **`ExistingPolicy.APPEND`** — append steps to a chain that is already queued or
+  running. iOS is the hard part: load-modify-save `ChainProgress` under a mutex while
+  `ChainExecutor` may be mid-chain. (The `when` over `ExistingPolicy` in iOS
+  `enqueueChain` is deliberately exhaustive so adding this forces a decision there.)
+- 💭 **`setNextScheduleTimeOverride()`** — **not feasible on iOS.** BGTaskScheduler offers
+  no way to override a registered task's next run; only cancel + reschedule, which is
+  what `cancel()` + `enqueue()` already do. Android-only, so it fails the
+  "both platforms or it isn't parity" bar below.
+
+---
+
 ## Next up (post-3.3.1) — the "irreplaceable, even for native-only teams" bar
 
 **Theme:** every milestone through 3.3.1 below made the library more correct or
