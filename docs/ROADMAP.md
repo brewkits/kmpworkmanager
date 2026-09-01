@@ -7,6 +7,36 @@ Status legend: ✅ done · 🚧 in progress · ⏳ planned · 💭 idea / unsche
 
 ---
 
+## Next up (post-3.3.1) — the "irreplaceable, even for native-only teams" bar
+
+**Theme:** every milestone through 3.3.1 below made the library more correct or
+more DX-friendly for teams *already* using it across both platforms. These two
+are chosen against a sharper bar: would a team building for **one platform
+only** — no shared-code motive at all — still pick this library over the
+platform's raw API? "Shared code" is worth nothing to that team, so the pitch
+has to come from somewhere else.
+
+- ⏳ **Flutter parity Group 2 — token refresh on 401 + HMAC request signing**
+  ([#81](https://github.com/brewkits/kmpworkmanager/issues/81)). Pitch: WorkManager/BGTaskScheduler give you
+  primitives; this ships a tested implementation of the auth-refresh and
+  request-signing logic most teams under-build (or skip) themselves. Promoted
+  out of the deferred v2.6 #6 slot below — see that entry for the full spec,
+  now superseded by #81 as the tracking issue.
+- ⏳ **Gradle plugin `io.brewkits.kmpworker`** ([#82](https://github.com/brewkits/kmpworkmanager/issues/82)).
+  Pitch: removes a *silent*-failure class (forgetting a worker's
+  `Info.plist`/Manifest declaration → the task just never runs, no error, no
+  warning) that costs native-only and KMP consumers equally. Promoted out of
+  the deferred v3.0 #3 slot below — see that entry for the full spec, now
+  superseded by #82.
+
+Both selected over other v2.6/v3.0 candidates (per-task QoS profiles, threat
+model docs, `ChainExecutor` state machine, `wasmJs` target) specifically
+because those don't clear the bar above — a native-only team can build QoS
+profiles or a state machine themselves without losing much, and docs alone
+don't create lock-in.
+
+---
+
 ## v2.5 — production hardening + Flutter parity (Group 1)
 
 **Theme:** unblock production camera-app adoption. Everything in this milestone
