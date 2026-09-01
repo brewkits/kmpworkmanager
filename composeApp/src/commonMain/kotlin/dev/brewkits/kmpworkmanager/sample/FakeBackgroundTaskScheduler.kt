@@ -16,7 +16,9 @@ class FakeBackgroundTaskScheduler : BackgroundTaskScheduler {
         workerClassName: String,
         constraints: Constraints,
         inputJson: String?,
-        policy: ExistingPolicy
+        policy: ExistingPolicy,
+        tags: Set<String>,
+        deadlineMs: Long?
     ): ScheduleResult {
         println("FakeBackgroundTaskScheduler: Enqueue called for $id")
         return ScheduleResult.ACCEPTED
@@ -28,6 +30,14 @@ class FakeBackgroundTaskScheduler : BackgroundTaskScheduler {
 
     override fun cancelAll() {
         println("FakeBackgroundTaskScheduler: CancelAll called")
+    }
+
+    override fun cancelByTag(tag: String) {
+        println("FakeBackgroundTaskScheduler: cancelByTag called for '$tag'")
+    }
+
+    override fun cancelByWorkerClass(workerClassName: String) {
+        println("FakeBackgroundTaskScheduler: cancelByWorkerClass called for '$workerClassName'")
     }
 
     override fun beginWith(task: TaskRequest): TaskChain {

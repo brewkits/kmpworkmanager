@@ -156,10 +156,22 @@ enum class ExactAlarmIOSBehavior {
 
 /**
  * Policy for handling a new task when one with the same ID already exists.
+ *
+ * - [KEEP]: The new request is silently discarded. The existing task runs unchanged.
+ * - [REPLACE]: The existing task is cancelled and replaced with the new request.
+ *   For periodic tasks, this **resets the interval timer** (the next run is scheduled
+ *   from `now + initialDelay`, not from the original anchor time).
+ * - [UPDATE]: The existing periodic task's constraints and input are updated **without**
+ *   resetting the interval timer. The next execution time is preserved. Ignored for
+ *   one-time tasks (treated as [REPLACE]).
+ *   - Android: maps to `ExistingPeriodicWorkPolicy.UPDATE` (WorkManager 2.8+).
+ *   - iOS: preserves `anchoredStartMs` from the existing metadata and resubmits the
+ *     BGTask request with the same drift-corrected `earliestBeginDate`.
  */
 enum class ExistingPolicy {
     KEEP,
-    REPLACE
+    REPLACE,
+    UPDATE
 }
 
 /**

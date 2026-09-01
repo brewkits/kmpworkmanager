@@ -226,8 +226,14 @@ public class NativeTaskScheduler(
         workerClassName: String,
         constraints: Constraints,
         inputJson: String?,
-        policy: ExistingPolicy
+        policy: ExistingPolicy,
+        tags: Set<String>,
+        deadlineMs: Long?
     ): ScheduleResult {
+        // Fail fast on unusable tags rather than at cancelByTag() time, where a bad tag
+        // would look like "nothing matched" instead of "the tag was never storable".
+        tags.forEach { validateTaskTag(it) }
+
         // Wait for migration to complete before accessing storage.
         // Guard with a timeout: if migration hangs (e.g. corrupted store), we reject rather than deadlock.
         if (!isTestMode || forceWaitMigration) {
@@ -249,10 +255,10 @@ public class NativeTaskScheduler(
 
         @Suppress("DEPRECATION")  // Keep backward compatibility for deprecated triggers 
         val result = when (trigger) {
-            is TaskTrigger.Periodic -> schedulePeriodicTask(id, trigger, workerClassName, constraints, inputJson, policy)
-            is TaskTrigger.OneTime -> scheduleOneTimeTask(id, trigger, workerClassName, constraints, inputJson, policy)
+            is TaskTrigger.Periodic -> schedulePeriodicTask(id, trigger, workerClassName, constraints, inputJson, policy, tags)
+            is TaskTrigger.OneTime -> scheduleOneTimeTask(id, trigger, workerClassName, constraints, inputJson, policy, tags, deadlineMs)
             is TaskTrigger.Exact -> scheduleExactAlarm(id, trigger, workerClassName, constraints, inputJson)
-            is TaskTrigger.Windowed -> scheduleWindowedTask(id, trigger, workerClassName, constraints, inputJson, policy)
+            is TaskTrigger.Windowed -> scheduleWindowedTask(id, trigger, workerClassName, constraints, inputJson, policy, tags, deadlineMs)
             is TaskTrigger.ContentUri -> rejectUnsupportedTrigger("ContentUri")
         }
 
@@ -328,7 +334,8 @@ public class NativeTaskScheduler(
         workerClassName: String,
         constraints: Constraints,
         inputJson: String?,
-        policy: ExistingPolicy
+        policy: ExistingPolicy,
+        tags: Set<String> = emptySet()
     ): ScheduleResult {
         val intervalMs = trigger.intervalMs
 
@@ -393,16 +400,19 @@ public class NativeTaskScheduler(
         }
 
         // Save metadata for re-scheduling after execution; preserve anchoredStartMs
-        val periodicMetadata = mapOf(
-            "isPeriodic" to "true",
-            "intervalMs" to "$intervalMs",
-            "anchoredStartMs" to "$anchoredStartMs",
-            "workerClassName" to workerClassName,
-            "inputJson" to (inputJson ?: ""),
-            "requiresNetwork" to "${constraints.requiresNetwork}",
-            "requiresCharging" to "${constraints.requiresCharging}",
-            "isHeavyTask" to "${constraints.isHeavyTask}"
-        )
+        val periodicMetadata = buildMap {
+            put("isPeriodic", "true")
+            put("intervalMs", "$intervalMs")
+            put("anchoredStartMs", "$anchoredStartMs")
+            put("workerClassName", workerClassName)
+            put("inputJson", inputJson ?: "")
+            put("requiresNetwork", "${constraints.requiresNetwork}")
+            put("requiresCharging", "${constraints.requiresCharging}")
+            put("isHeavyTask", "${constraints.isHeavyTask}")
+            if (tags.isNotEmpty()) put(DynamicTaskDispatcher.META_TAGS, tags.joinToString(","))
+            // No deadline for periodic work — see the matching note in Android's
+            // schedulePeriodicWork: a deadline on a recurring task is a delayed cancel.
+        }
         fileStorage.saveTaskMetadata(id, periodicMetadata, periodic = true)
 
         val request = createBackgroundTaskRequest(id, constraints)
@@ -420,7 +430,9 @@ public class NativeTaskScheduler(
         workerClassName: String,
         constraints: Constraints,
         inputJson: String?,
-        policy: ExistingPolicy
+        policy: ExistingPolicy,
+        tags: Set<String> = emptySet(),
+        deadlineMs: Long? = null
     ): ScheduleResult {
         Logger.i(LogTags.SCHEDULER, "Scheduling one-time task - ID: '$id', Delay: ${trigger.initialDelayMs}ms")
 
@@ -440,6 +452,10 @@ public class NativeTaskScheduler(
             if (constraints.maxRetries >= 0) {
                 put(DynamicTaskDispatcher.META_MAX_RETRIES, "${constraints.maxRetries}")
             }
+            // Only written when set, so existing metadata files stay byte-identical for
+            // callers that never use tags/deadlines (keeps upgrades a no-op on disk).
+            if (tags.isNotEmpty()) put(DynamicTaskDispatcher.META_TAGS, tags.joinToString(","))
+            if (deadlineMs != null) put(DynamicTaskDispatcher.META_DEADLINE_MS, "$deadlineMs")
         }
         fileStorage.saveTaskMetadata(id, taskMetadata, periodic = false)
 
@@ -476,7 +492,9 @@ public class NativeTaskScheduler(
         workerClassName: String,
         constraints: Constraints,
         inputJson: String?,
-        policy: ExistingPolicy
+        policy: ExistingPolicy,
+        tags: Set<String> = emptySet(),
+        deadlineMs: Long? = null
     ): ScheduleResult {
         val nowMs = (NSDate().timeIntervalSince1970 * 1000).toLong()
         val earliestDate = NSDate.dateWithTimeIntervalSince1970(trigger.earliest / 1000.0)
@@ -522,12 +540,18 @@ public class NativeTaskScheduler(
             return ScheduleResult.ACCEPTED
         }
 
-        val taskMetadata = mapOf(
-            "workerClassName" to workerClassName,
-            "inputJson" to (inputJson ?: ""),
-            "windowEarliest" to trigger.earliest.toString(),
-            "windowLatest" to trigger.latest.toString()
-        )
+        val taskMetadata = buildMap {
+            put("workerClassName", workerClassName)
+            put("inputJson", inputJson ?: "")
+            put("windowEarliest", trigger.earliest.toString())
+            put("windowLatest", trigger.latest.toString())
+            if (tags.isNotEmpty()) put(DynamicTaskDispatcher.META_TAGS, tags.joinToString(","))
+            // A Windowed trigger's `latest` IS a deadline and iOS cannot enforce it natively,
+            // so default to it when the caller gave no explicit deadline. This is what finally
+            // makes `latest` mean something on iOS instead of being a logged warning.
+            val effectiveDeadline = deadlineMs ?: trigger.latest
+            put(DynamicTaskDispatcher.META_DEADLINE_MS, "$effectiveDeadline")
+        }
         fileStorage.saveTaskMetadata(id, taskMetadata, periodic = false)
 
         val request = createBackgroundTaskRequest(id, constraints)
@@ -580,6 +604,18 @@ public class NativeTaskScheduler(
                     // Note: cancel() also deletes metadata; callers reading metadata for reschedule
                     // (e.g. schedulePeriodicTask) must read metadata BEFORE calling this function.
                     cancel(id)
+                    return true
+                }
+                ExistingPolicy.UPDATE -> {
+                    // UPDATE: update constraints/input without resetting the interval timer.
+                    // Callers (schedulePeriodicTask) have already read anchoredStartMs from metadata
+                    // BEFORE invoking this function. We cancel the pending BGTask request so the
+                    // new one (with updated earliestBeginDate) can be submitted, but we do NOT
+                    // delete the metadata — schedulePeriodicTask will overwrite it with updated
+                    // constraints while preserving the existing anchoredStartMs.
+                    Logger.i(LogTags.SCHEDULER, "UPDATE policy for task '$id': cancelling pending BGTask, preserving timer anchor")
+                    BGTaskScheduler.sharedScheduler.cancelTaskRequestWithIdentifier(id)
+                    // Do NOT call cancel(id) here — that deletes metadata, which would lose anchoredStartMs.
                     return true
                 }
             }
@@ -1186,29 +1222,40 @@ public class NativeTaskScheduler(
         val chainId = id ?: NSUUID.UUID().UUIDString()
         Logger.i(LogTags.CHAIN, "Enqueuing chain - ID: $chainId, Steps: ${steps.size}, Policy: $policy")
 
-        if (policy == ExistingPolicy.REPLACE) {
+        // UPDATE has no interval-preserving meaning for chains (there is no recurring
+        // anchor to preserve — a chain is a one-shot pipeline), so it degrades to REPLACE
+        // here. This matches Android, where enqueueChain maps UPDATE to
+        // ExistingWorkPolicy.REPLACE for the same reason. UPDATE only carries its distinct
+        // "keep the timer anchor" semantics on periodic tasks (see handleExistingPolicy).
+        //
+        // Kept as an exhaustive `when` rather than a boolean: when ExistingPolicy.APPEND
+        // is added, the compiler must force a decision here instead of silently routing
+        // APPEND down the KEEP branch. Android's enqueueChain relies on the same guard.
+        val chainPolicyIsReplace = when (policy) {
+            ExistingPolicy.REPLACE, ExistingPolicy.UPDATE -> true
+            ExistingPolicy.KEEP -> false
+        }
+
+        if (chainPolicyIsReplace) {
             // Cancel any running execution of this chain across ALL ChainExecutor
             // instances (e.g. a prior BGTask still running when the new request arrives).
             ChainJobRegistry.cancel(chainId)
         }
 
         if (fileStorage.chainExists(chainId)) {
-            when (policy) {
-                ExistingPolicy.KEEP -> {
-                    Logger.i(LogTags.CHAIN, "Chain $chainId already exists, KEEP policy - skipping")
-                    return
-                }
-                ExistingPolicy.REPLACE -> {
-                    Logger.i(LogTags.CHAIN, "Chain $chainId exists, REPLACE policy - using atomic replace...")
-                    try {
-                        fileStorage.replaceChainAtomic(chainId, steps)
-                        Logger.i(LogTags.CHAIN, "✅ Chain $chainId replaced atomically")
-                        return // Early return - atomic operation already enqueued
-                    } catch (e: Exception) {
-                        Logger.e(LogTags.CHAIN, "Failed to replace chain $chainId atomically", e)
-                        throw e
-                    }
-                }
+            if (!chainPolicyIsReplace) {
+                // KEEP: leave the existing chain untouched.
+                Logger.i(LogTags.CHAIN, "Chain $chainId already exists, KEEP policy - skipping")
+                return
+            }
+            Logger.i(LogTags.CHAIN, "Chain $chainId exists, $policy policy - using atomic replace...")
+            try {
+                fileStorage.replaceChainAtomic(chainId, steps)
+                Logger.i(LogTags.CHAIN, "✅ Chain $chainId replaced atomically")
+                return // Early return - atomic operation already enqueued
+            } catch (e: Exception) {
+                Logger.e(LogTags.CHAIN, "Failed to replace chain $chainId atomically", e)
+                throw e
             }
         }
 
@@ -1284,6 +1331,90 @@ public class NativeTaskScheduler(
         fileStorage.deleteTaskMetadata(id, periodic = true)
 
         Logger.d(LogTags.SCHEDULER, "Cancelled task '$id' and cleaned up metadata")
+    }
+
+    /**
+     * Cancels all pending or running tasks that carry the given user-defined tag.
+     *
+     * Scans the chain queue and cancels all chains containing a [TaskRequest] whose
+     * [TaskRequest.tags] includes [tag]. Active (running) chains are cancelled via
+     * [ChainJobRegistry]. Runs on the background scope to avoid blocking the caller.
+     */
+    override fun cancelByTag(tag: String) {
+        Logger.i(LogTags.SCHEDULER, "Cancelling tasks and chains by tag '$tag'")
+        backgroundScope.launch {
+            cancelMatching(tag = tag, workerClassName = null, reason = "tag='$tag'")
+        }
+    }
+
+    /**
+     * Shared body of [cancelByTag] and [cancelByWorkerClass].
+     *
+     * Covers **both** storage shapes a task can live in — chains (queue + definition files)
+     * and standalone tasks (metadata files) — because callers think in terms of "cancel my
+     * work", not in terms of which API scheduled it. Missing either half would make
+     * cancellation silently partial, which is worse than not offering it.
+     */
+    private suspend fun cancelMatching(tag: String?, workerClassName: String?, reason: String) {
+        val chainIds = fileStorage.findChainIdsByWorkerOrTag(workerClassName = workerClassName, tag = tag)
+        val taskIds = fileStorage.findTaskIdsByWorkerOrTag(workerClassName = workerClassName, tag = tag)
+        Logger.d(
+            LogTags.SCHEDULER,
+            "Found ${chainIds.size} chain(s) and ${taskIds.size} standalone task(s) matching $reason"
+        )
+
+        for (chainId in chainIds) {
+            cancelChainById(chainId, reason)
+        }
+        for ((taskId, isPeriodic) in taskIds) {
+            // Withdraw the pending BGTask request, then drop the metadata the dispatcher
+            // would otherwise resolve on its next wake-up.
+            BGTaskScheduler.sharedScheduler.cancelTaskRequestWithIdentifier(taskId)
+            fileStorage.deleteTaskMetadata(taskId, periodic = isPeriodic)
+            Logger.d(
+                LogTags.SCHEDULER,
+                "Cancelled standalone ${if (isPeriodic) "periodic" else "one-time"} task $taskId ($reason)"
+            )
+        }
+    }
+
+    /**
+     * Cancels one queued or running chain and leaves the queue in a state [ChainExecutor]
+     * can drain cleanly.
+     *
+     * The deleted-marker write is what makes this safe. Chain IDs live in an append-only
+     * queue that has no random-access removal, so a cancelled ID necessarily stays queued
+     * until the executor reaches it. Without the marker, the executor would dequeue the ID,
+     * find no definition, and log a `Logger.e("No chain definition found")` — an error-level
+     * report of a cancellation the caller deliberately requested. With the marker, it takes
+     * the existing "chain was cancelled" branch: INFO log, clean skip, marker cleared.
+     */
+    private suspend fun cancelChainById(chainId: String, reason: String) {
+        // Stop the running coroutine first so it cannot re-save progress underneath us.
+        ChainJobRegistry.cancel(chainId)
+        // Order matters: publish the tombstone before removing the definition, so an executor
+        // racing us sees "cancelled" rather than "definition missing".
+        fileStorage.markChainAsDeleted(chainId)
+        fileStorage.deleteChainDefinition(chainId)
+        fileStorage.deleteChainProgress(chainId)
+        Logger.d(LogTags.SCHEDULER, "Cancelled chain $chainId ($reason)")
+    }
+
+    /**
+     * Cancels all pending or running tasks whose [TaskRequest.workerClassName] matches
+     * [workerClassName].
+     *
+     * Equivalent to scanning chains for the worker class name.
+     */
+    override fun cancelByWorkerClass(workerClassName: String) {
+        Logger.i(LogTags.SCHEDULER, "Cancelling chains by worker class '$workerClassName'")
+        backgroundScope.launch {
+            cancelMatching(
+                tag = null,
+                workerClassName = workerClassName,
+                reason = "worker='$workerClassName'"
+            )
+        }
     }
 
     override fun cancelAll() {

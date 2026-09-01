@@ -42,6 +42,12 @@ class FakeBackgroundTaskScheduler(
     /** IDs passed to [cancel]. */
     val cancelledIds: MutableList<String> = mutableListOf()
 
+    /** Tags passed to [cancelByTag], in call order. */
+    val cancelledTags: MutableList<String> = mutableListOf()
+
+    /** Worker class names passed to [cancelByWorkerClass], in call order. */
+    val cancelledWorkerClasses: MutableList<String> = mutableListOf()
+
     /** True if [cancelAll] was called at least once. */
     var cancelAllCalled: Boolean = false
         private set
@@ -61,9 +67,11 @@ class FakeBackgroundTaskScheduler(
         workerClassName: String,
         constraints: Constraints,
         inputJson: String?,
-        policy: ExistingPolicy
+        policy: ExistingPolicy,
+        tags: Set<String>,
+        deadlineMs: Long?
     ): ScheduleResult {
-        enqueuedTasks += EnqueuedTask(id, trigger, workerClassName, constraints, inputJson, policy)
+        enqueuedTasks += EnqueuedTask(id, trigger, workerClassName, constraints, inputJson, policy, tags, deadlineMs)
         return defaultResult
     }
 
@@ -73,6 +81,14 @@ class FakeBackgroundTaskScheduler(
 
     override fun cancelAll() {
         cancelAllCalled = true
+    }
+
+    override fun cancelByTag(tag: String) {
+        cancelledTags += tag
+    }
+
+    override fun cancelByWorkerClass(workerClassName: String) {
+        cancelledWorkerClasses += workerClassName
     }
 
     override fun flushPendingProgress() {
@@ -99,6 +115,8 @@ class FakeBackgroundTaskScheduler(
     fun reset() {
         enqueuedTasks.clear()
         cancelledIds.clear()
+        cancelledTags.clear()
+        cancelledWorkerClasses.clear()
         cancelAllCalled = false
         enqueuedChains.clear()
         flushCount = 0
@@ -135,7 +153,9 @@ class FakeBackgroundTaskScheduler(
         val workerClassName: String,
         val constraints: Constraints,
         val inputJson: String?,
-        val policy: ExistingPolicy
+        val policy: ExistingPolicy,
+        val tags: Set<String> = emptySet(),
+        val deadlineMs: Long? = null
     )
 
     data class EnqueuedChain(

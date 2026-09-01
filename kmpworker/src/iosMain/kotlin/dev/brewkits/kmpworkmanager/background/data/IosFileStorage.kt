@@ -936,6 +936,31 @@ public class IosFileStorage(
     suspend fun getActiveChainIds(): List<String> = queue.getAllItems()
 
     /**
+     * Scans all chain IDs currently in the execution queue and returns those whose
+     * definition contains at least one task matching [workerClassName] OR whose
+     * [TaskRequest.tags] contains [tag].
+     *
+     * Either [workerClassName] or [tag] may be null — omitting both returns an empty list.
+     *
+     * **Performance:** O(N × S) where N = queue depth and S = average steps per chain.
+     * This is a fire-and-forget maintenance path, not on the hot execution path.
+     */
+    suspend fun findChainIdsByWorkerOrTag(
+        workerClassName: String? = null,
+        tag: String? = null
+    ): List<String> {
+        if (workerClassName == null && tag == null) return emptyList()
+        val allChainIds = queue.getAllItems()
+        return allChainIds.filter { chainId ->
+            val steps = loadChainDefinition(chainId) ?: return@filter false
+            steps.flatten().any { task ->
+                (workerClassName != null && task.workerClassName == workerClassName) ||
+                (tag != null && tag in task.tags)
+            }
+        }
+    }
+
+    /**
      * Get hours since last maintenance run
      *
      * @return Hours since last maintenance, or Int.MAX_VALUE if never run
@@ -1389,6 +1414,47 @@ public class IosFileStorage(
     }
 
     /**
+     * Finds standalone (non-chain) task IDs whose stored metadata matches [workerClassName]
+     * or carries [tag], scanning both the one-time and periodic metadata directories.
+     *
+     * The chain-side counterpart is [findChainIdsByWorkerOrTag]; both are needed because a
+     * task can be scheduled either way and `cancelByTag` must reach both. Returns pairs of
+     * `(taskId, isPeriodic)` so the caller can delete the right metadata file — the two
+     * directories can legitimately hold the same id.
+     *
+     * Either parameter may be null; passing both as null returns an empty list.
+     */
+    fun findTaskIdsByWorkerOrTag(
+        workerClassName: String? = null,
+        tag: String? = null
+    ): List<Pair<String, Boolean>> {
+        if (workerClassName == null && tag == null) return emptyList()
+        val matches = mutableListOf<Pair<String, Boolean>>()
+
+        listOf(tasksDirURL to false, periodicDirURL to true).forEach { (dir, isPeriodic) ->
+            val path = dir.path ?: return@forEach
+            val files = fileManager.contentsOfDirectoryAtPath(path, null) as? List<*> ?: return@forEach
+
+            files.forEach fileLoop@{ fileName ->
+                val name = fileName as? String ?: return@fileLoop
+                if (!name.endsWith(".json")) return@fileLoop
+                val taskId = name.removeSuffix(".json").decodeFromPathComponent()
+                val meta = loadTaskMetadata(taskId, periodic = isPeriodic) ?: return@fileLoop
+
+                val workerMatches = workerClassName != null &&
+                    meta["workerClassName"] == workerClassName
+                val tagMatches = tag != null &&
+                    meta[DynamicTaskDispatcher.META_TAGS]
+                        ?.split(',')
+                        ?.any { it == tag } == true
+
+                if (workerMatches || tagMatches) matches += taskId to isPeriodic
+            }
+        }
+        return matches
+    }
+
+    /**
      * Cleanup stale metadata older than specified days
      */
     fun cleanupStaleMetadata(olderThanDays: Int = 7) {
@@ -1707,6 +1773,24 @@ internal fun String.encodeAsPathComponent(): String {
     if (this == "..") return "%2E%2E"
     if ('%' !in this && '/' !in this) return this
     return replace("%", "%25").replace("/", "%2F")
+}
+
+/**
+ * Exact inverse of [encodeAsPathComponent] — recovers a task/chain id from its on-disk
+ * filename. Needed when enumerating a metadata directory, where the filename is the only
+ * record of the id (see [IosFileStorage.findTaskIdsByWorkerOrTag]).
+ *
+ * **Replacement order is the reverse of the encoder's and must stay that way.** The encoder
+ * escapes `%` *before* `/`, so the decoder must unescape `/` *before* `%`. Decoding in the
+ * other order would corrupt any id containing the literal text `"%2F"`: `"a%2Fb"` encodes to
+ * `"a%252Fb"`, and unescaping `%25`→`%` first would yield `"a%2Fb"` which a subsequent
+ * `%2F`→`/` pass would then wrongly turn into `"a/b"` — a different id.
+ */
+internal fun String.decodeFromPathComponent(): String {
+    if (this == "%2E") return "."
+    if (this == "%2E%2E") return ".."
+    if ('%' !in this) return this
+    return replace("%2F", "/").replace("%25", "%")
 }
 
 /** Converts a UTF-8 string to NSData using byte array encoding (not char count). */

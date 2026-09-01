@@ -234,11 +234,15 @@ class EdgeCasesTest {
             workerClassName: String,
             constraints: Constraints,
             inputJson: String?,
-            policy: ExistingPolicy
+            policy: ExistingPolicy,
+            tags: Set<String>,
+            deadlineMs: Long?
         ): ScheduleResult = ScheduleResult.ACCEPTED
 
         override fun cancel(id: String) {}
         override fun cancelAll() {}
+        override fun cancelByTag(tag: String) {}
+        override fun cancelByWorkerClass(workerClassName: String) {}
 
         override fun beginWith(task: TaskRequest): TaskChain {
             return TaskChain(this, listOf(task))

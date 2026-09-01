@@ -6,6 +6,8 @@
 package dev.brewkits.kmpworkmanager.background.data
 
 import dev.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
+import dev.brewkits.kmpworkmanager.background.domain.TaskCompletionEvent
+import dev.brewkits.kmpworkmanager.background.domain.TaskEventManager
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.utils.LogTags
@@ -63,6 +65,22 @@ public class DynamicTaskDispatcher(
         // i.e. >= 0). Bounds a `Failure(shouldRetry = true)` retry loop that carries no
         // per-result attemptCap. Absent → fall back to [DEFAULT_ATTEMPT_CAP].
         internal const val META_MAX_RETRIES = "maxRetries"
+
+        /**
+         * Task metadata key holding [dev.brewkits.kmpworkmanager.background.domain.TaskRequest.deadlineMs]
+         * (Unix epoch ms) for a standalone task. Written by `NativeTaskScheduler.enqueue`,
+         * read here at dispatch time. Absent means "no deadline".
+         */
+        internal const val META_DEADLINE_MS = "kmpDeadlineMs"
+
+        /**
+         * Task metadata key holding a standalone task's user tags, comma-separated.
+         * Read by `NativeTaskScheduler.cancelByTag` to resolve which tasks a tag covers.
+         *
+         * Comma is a safe separator here because [validateTaskTag] rejects it at the API
+         * boundary, so a tag can never contain one.
+         */
+        internal const val META_TAGS = "kmpTags"
 
         // Hard ceiling when the worker did not specify [WorkerResult.Retry.attemptCap] and
         // the caller set no Constraints.maxRetries. Mirrors WorkManager's default backoff
@@ -139,6 +157,32 @@ public class DynamicTaskDispatcher(
             val meta = IosBackgroundTaskHandler.resolveTaskMetadata(taskId, fileStorage)
             if (meta == null) {
                 Logger.e(LogTags.SCHEDULER, "No metadata found for dynamic task '$taskId' - skipping")
+                continue
+            }
+
+            // Deadline guard (P1-C) for standalone tasks. BGTaskScheduler is opportunistic:
+            // `earliestBeginDate` is a floor, never a ceiling, so a task can surface hours
+            // after the window its data was useful in. Checking at dispatch time — after the
+            // OS finally woke us — is the only place the real elapsed delay is known.
+            //
+            // Mirrors Android's BaseKmpWorker deadline guard, and like it, drops the task
+            // instead of retrying: a missed deadline cannot be un-missed by running later.
+            val deadlineMs = meta.rawMeta?.get(META_DEADLINE_MS)?.toLongOrNull()
+            if (deadlineMs != null && currentTimeMs() > deadlineMs) {
+                Logger.w(
+                    LogTags.SCHEDULER,
+                    "⏰ Dynamic task '$taskId' SKIPPED — deadline exceeded " +
+                        "(deadline=${deadlineMs}ms, now=${currentTimeMs()}ms). " +
+                        "Dropping instead of executing to avoid stale-data side-effects."
+                )
+                TaskEventManager.emit(
+                    TaskCompletionEvent(
+                        taskName = meta.workerClassName,
+                        success = false,
+                        message = "Deadline exceeded — task skipped"
+                    )
+                )
+                fileStorage.deleteTaskMetadata(taskId, periodic = false)
                 continue
             }
 

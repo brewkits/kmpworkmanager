@@ -43,13 +43,27 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         const val KEY_MAX_RETRIES = "maxRetries"
         // Chain identity, stamped per-step by enqueueChain()/createWorkRequest() and read back
         // by BaseKmpWorker to populate TelemetryHook events and ExecutionRecord. Namespaced
-        // (kmp_ prefix) rather than a bare name like "chainId" because WorkContinuation.then()
-        // merges a prerequisite step's outputData into the next step's inputData via the default
+        // (kmp_ prefix) rather than a bare key because WorkContinuation.then() merges a
+        // prerequisite step's outputData into the next step's inputData via the default
         // OverwritingInputMerger — a user worker whose own outputData happened to use a bare key
         // would silently clobber this stamp for step 2+.
         const val KEY_CHAIN_ID = "kmp_chain_id"
         const val KEY_STEP_INDEX = "kmp_step_index"
         const val KEY_TOTAL_STEPS = "kmp_total_steps"
+        // Per-task deadline: Unix epoch ms. BaseKmpWorker checks this before calling doWork().
+        const val KEY_DEADLINE_MS = "kmp_deadline_ms"
+        // InputMerger: flag indicating the previous step's output should be merged into inputJson.
+        const val KEY_MERGE_PREVIOUS_OUTPUT = "kmp_merge_previous_output"
+        /**
+         * InputMerger transport key. [BaseKmpWorker] writes the worker's
+         * `WorkerResult.Success.data` here as a JSON string on success; WorkManager's default
+         * `OverwritingInputMerger` then copies it into the next chain step's `inputData`,
+         * where [BaseKmpWorker] reads it back if that step set [KEY_MERGE_PREVIOUS_OUTPUT].
+         *
+         * Namespaced for the same reason as [KEY_CHAIN_ID]: everything a prerequisite emits
+         * lands in the successor's input, so a bare key could be clobbered by a user worker.
+         */
+        const val KEY_STEP_OUTPUT = "kmp_step_output"
         internal const val OVERFLOW_THRESHOLD_BYTES = 8192 // 8 KB
         private const val ZOMBIE_FILE_MAX_AGE_MS = 24 * 60 * 60 * 1000L // 24 hours
         private val cleanupStarted = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -106,12 +120,37 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         workerClassName: String,
         constraints: Constraints,
         inputJson: String?,
-        policy: ExistingPolicy
+        policy: ExistingPolicy,
+        tags: Set<String>,
+        deadlineMs: Long?
     ): ScheduleResult {
+        // Carries the standalone task's tags/deadline down the same path chain steps use,
+        // so `enqueue(tags = ...)` and `TaskRequest(tags = ...)` are stamped identically.
+        val taskMeta = TaskRequest(
+            workerClassName = workerClassName,
+            inputJson = inputJson,
+            constraints = constraints,
+            tags = tags,
+            deadlineMs = deadlineMs
+        )
+
+        // Exact alarms bypass WorkManager entirely (AlarmManager + AlarmReceiver), so the
+        // tag index and the inputData deadline stamp are both unavailable on that path.
+        // Warn instead of silently dropping — a caller who tagged a task expects
+        // cancelByTag() to reach it.
+        if (trigger is TaskTrigger.Exact && (tags.isNotEmpty() || deadlineMs != null)) {
+            Logger.w(
+                LogTags.SCHEDULER,
+                "Task '$id' uses TaskTrigger.Exact: tags and deadlineMs are NOT supported on the " +
+                    "exact-alarm path (it uses AlarmManager, not WorkManager). cancelByTag() will not " +
+                    "match this task — cancel it by id instead."
+            )
+        }
+
         val result = when (trigger) {
             is TaskTrigger.Exact -> scheduleExactAlarm(id, trigger, workerClassName, constraints, inputJson, policy)
-            is TaskTrigger.Periodic -> schedulePeriodicWork(id, trigger, workerClassName, constraints, inputJson, policy)
-            is TaskTrigger.ContentUri -> scheduleContentUriWork(id, trigger, workerClassName, constraints, inputJson, policy)
+            is TaskTrigger.Periodic -> schedulePeriodicWork(id, trigger, workerClassName, constraints, inputJson, policy, taskMeta)
+            is TaskTrigger.ContentUri -> scheduleContentUriWork(id, trigger, workerClassName, constraints, inputJson, policy, taskMeta)
             is TaskTrigger.Windowed -> {
                 val now = System.currentTimeMillis()
                 if (trigger.latest < now) {
@@ -120,13 +159,18 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
                 } else {
                     val delayMs = (trigger.earliest - now).coerceAtLeast(0L)
                     val updatedConstraints = constraints.copy()
+                    // A Windowed trigger's `latest` IS a deadline, so honour it as one even when
+                    // the caller passed no explicit deadlineMs. WorkManager cannot enforce
+                    // `latest` itself; stamping it here lets BaseKmpWorker skip a run the OS
+                    // delayed past the window (iOS ChainExecutor already does this for chains).
                     scheduleOneTimeWork(
                         id, TaskTrigger.OneTime(initialDelayMs = delayMs),
-                        workerClassName, updatedConstraints, inputJson, policy
+                        workerClassName, updatedConstraints, inputJson, policy,
+                        taskMeta.copy(deadlineMs = deadlineMs ?: trigger.latest)
                     )
                 }
             }
-            is TaskTrigger.OneTime -> scheduleOneTimeWork(id, trigger, workerClassName, constraints, inputJson, policy)
+            is TaskTrigger.OneTime -> scheduleOneTimeWork(id, trigger, workerClassName, constraints, inputJson, policy, taskMeta)
         }
 
         if (result == ScheduleResult.ACCEPTED) {
@@ -157,13 +201,15 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         workerClassName: String,
         constraints: Constraints,
         inputJson: String?,
-        policy: ExistingPolicy
+        policy: ExistingPolicy,
+        taskMeta: TaskRequest? = null
     ): ScheduleResult {
         Logger.i(LogTags.SCHEDULER, "Scheduling one-time task - ID: '$id', Delay: ${trigger.initialDelayMs}ms")
 
         val workManagerPolicy = when (policy) {
             ExistingPolicy.KEEP -> ExistingWorkPolicy.KEEP
-            ExistingPolicy.REPLACE -> ExistingWorkPolicy.REPLACE
+            ExistingPolicy.REPLACE,
+            ExistingPolicy.UPDATE -> ExistingWorkPolicy.REPLACE  // UPDATE has no meaning for one-time tasks
         }
 
         val wmConstraints = buildWorkManagerConstraints(constraints)
@@ -171,7 +217,8 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
             Logger.d(LogTags.SCHEDULER, "Building request for $workerClassName")
             buildOneTimeWorkRequest(
                 id, workerClassName, constraints, inputJson,
-                "one-time", trigger.initialDelayMs, wmConstraints
+                "one-time", trigger.initialDelayMs, wmConstraints,
+                task = taskMeta
             )
         } catch (e: IllegalArgumentException) {
             Logger.e(LogTags.SCHEDULER, "Rejecting one-time task '$id': ${e.message}", e)
@@ -191,7 +238,8 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         workerClassName: String,
         constraints: Constraints,
         inputJson: String?,
-        policy: ExistingPolicy
+        policy: ExistingPolicy,
+        taskMeta: TaskRequest? = null
     ): ScheduleResult {
         val intervalMs = trigger.intervalMs
         // WorkManager requires flexMs >= 5 min. Default to half the interval when not specified.
@@ -215,6 +263,10 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         val workManagerPolicy = when (policy) {
             ExistingPolicy.KEEP -> androidx.work.ExistingPeriodicWorkPolicy.KEEP
             ExistingPolicy.REPLACE -> androidx.work.ExistingPeriodicWorkPolicy.REPLACE
+            // UPDATE: preserve the existing schedule interval — only constraints/input change.
+            // Requires WorkManager 2.8+. Safe to use: minSdk for this lib is API 26 (WM 2.7 era)
+            // but WM 2.8 is pulled transitively via androidx.work:work-runtime:2.8+.
+            ExistingPolicy.UPDATE -> androidx.work.ExistingPeriodicWorkPolicy.UPDATE
         }
 
         val wmConstraints = buildWorkManagerConstraints(constraints)
@@ -243,6 +295,21 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
             .addTag("id-$id")
             .addTag("worker-$workerClassName")
 
+        // Same "user-" namespacing as one-time work so cancelByTag() resolves periodic tasks too.
+        taskMeta?.tags?.forEach { builder.addTag("user-$it") }
+
+        // NOTE: deadlineMs is deliberately NOT stamped for periodic work. A deadline is a
+        // one-shot concept ("skip if it hasn't started by T"); applied to a recurring task it
+        // would permanently disable every future run once T passes, which is a cancel, not a
+        // deadline. Callers wanting that should cancel the task instead.
+        if (taskMeta?.deadlineMs != null) {
+            Logger.w(
+                LogTags.SCHEDULER,
+                "Periodic task '$id' declared deadlineMs — ignored. A deadline would silently kill " +
+                    "every run after it elapses; cancel the task instead."
+            )
+        }
+
         workManager.enqueueUniquePeriodicWork(id, workManagerPolicy, builder.build())
         return ScheduleResult.ACCEPTED
     }
@@ -254,11 +321,13 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         workerClassName: String,
         constraints: Constraints,
         inputJson: String?,
-        policy: ExistingPolicy
+        policy: ExistingPolicy,
+        taskMeta: TaskRequest? = null
     ): ScheduleResult {
         val workManagerPolicy = when (policy) {
             ExistingPolicy.KEEP -> ExistingWorkPolicy.KEEP
-            ExistingPolicy.REPLACE -> ExistingWorkPolicy.REPLACE
+            ExistingPolicy.REPLACE,
+            ExistingPolicy.UPDATE -> ExistingWorkPolicy.REPLACE
         }
 
         val wmConstraints = buildWorkManagerConstraints(constraints) { builder ->
@@ -271,7 +340,8 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         val workRequest = try {
             buildOneTimeWorkRequest(
                 id, workerClassName, constraints, inputJson,
-                "content-uri", 0L, wmConstraints
+                "content-uri", 0L, wmConstraints,
+                task = taskMeta
             )
         } catch (e: IllegalArgumentException) {
             return ScheduleResult.REJECTED_OS_POLICY
@@ -353,9 +423,15 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         wmConstraints: androidx.work.Constraints,
         chainId: String? = null,
         stepIndex: Int? = null,
-        totalSteps: Int? = null
+        totalSteps: Int? = null,
+        task: TaskRequest? = null
     ): OneTimeWorkRequest {
-        val workData = buildWorkData(id, workerClassName, inputJson, constraints.maxRetries, chainId, stepIndex, totalSteps)
+        val workData = buildWorkData(
+            id, workerClassName, inputJson, constraints.maxRetries,
+            chainId, stepIndex, totalSteps,
+            deadlineMs = task?.deadlineMs,
+            mergeOutputFromPreviousStep = task?.mergeOutputFromPreviousStep ?: false
+        )
         val builder = if (constraints.isHeavyTask) {
             OneTimeWorkRequestBuilder<KmpHeavyWorker>()
         } else {
@@ -375,6 +451,10 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
             .addTag("id-$id")
             .addTag("worker-$workerClassName")
 
+        // Stamp user-defined tags from TaskRequest so cancelByTag() can resolve them.
+        // Tag format: "user-<tag>" to avoid collisions with our internal "worker-", "id-", etc.
+        task?.tags?.forEach { builder.addTag("user-$it") }
+
         if (initialDelayMs == 0L && !constraints.isHeavyTask) {
             // Expedited work does not support some constraints like charging.
             // Safe to set only if it's a simple urgent task.
@@ -393,7 +473,9 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         maxRetries: Int,
         chainId: String? = null,
         stepIndex: Int? = null,
-        totalSteps: Int? = null
+        totalSteps: Int? = null,
+        deadlineMs: Long? = null,
+        mergeOutputFromPreviousStep: Boolean = false
     ): Data {
         val builder = Data.Builder().putString("workerClassName", workerClassName)
         // Stamp the retry ceiling before any early return so null-input tasks are capped too.
@@ -401,6 +483,10 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         if (chainId != null) builder.putString(KEY_CHAIN_ID, chainId)
         if (stepIndex != null) builder.putInt(KEY_STEP_INDEX, stepIndex)
         if (totalSteps != null) builder.putInt(KEY_TOTAL_STEPS, totalSteps)
+        // Stamp deadline so BaseKmpWorker can skip the task if it runs too late.
+        if (deadlineMs != null) builder.putLong(KEY_DEADLINE_MS, deadlineMs)
+        // Stamp InputMerger flag so BaseKmpWorker merges the previous step's output.
+        if (mergeOutputFromPreviousStep) builder.putBoolean(KEY_MERGE_PREVIOUS_OUTPUT, true)
         if (inputJson == null) return builder.build()
 
         val bytes = inputJson.encodeToByteArray()
@@ -485,6 +571,28 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
     }
 
     /**
+     * Cancels all pending or running tasks that carry the given user-defined tag.
+     *
+     * Tags are stamped as `"user-<tag>"` in WorkManager so they don't collide with
+     * the library's own internal tags (`"worker-*"`, `"id-*"`, `"type-*"`).
+     */
+    override fun cancelByTag(tag: String) {
+        Logger.i(LogTags.SCHEDULER, "Cancelling tasks by tag '$tag'")
+        workManager.cancelAllWorkByTag("user-$tag")
+    }
+
+    /**
+     * Cancels all pending or running tasks whose workerClassName matches [workerClassName].
+     *
+     * Uses the `"worker-<className>"` tag that is stamped on every WorkRequest by
+     * [buildOneTimeWorkRequest] and [schedulePeriodicWork].
+     */
+    override fun cancelByWorkerClass(workerClassName: String) {
+        Logger.i(LogTags.SCHEDULER, "Cancelling tasks by worker class '$workerClassName'")
+        workManager.cancelAllWorkByTag("worker-$workerClassName")
+    }
+
+    /**
      * Cancels the AlarmManager PendingIntent for the given task ID.
      * Uses FLAG_NO_CREATE to look up the existing PendingIntent without creating a new one.
      * Safe to call even if no alarm was ever scheduled for this ID.
@@ -526,7 +634,8 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         val chainId = id ?: java.util.UUID.randomUUID().toString()
         val totalSteps = steps.size
         val wmPolicy = when (policy) {
-            ExistingPolicy.REPLACE -> ExistingWorkPolicy.REPLACE
+            ExistingPolicy.REPLACE,
+            ExistingPolicy.UPDATE -> ExistingWorkPolicy.REPLACE
             ExistingPolicy.KEEP -> ExistingWorkPolicy.KEEP
         }
 
@@ -561,7 +670,8 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
             wmConstraints,
             chainId,
             stepIndex,
-            totalSteps
+            totalSteps,
+            task = task  // Pass full TaskRequest to stamp tags, deadlineMs, mergeOutputFromPreviousStep
         )
     }
 

@@ -76,7 +76,9 @@ class IosBackgroundTaskHandlerTest {
             workerClassName: String,
             constraints: Constraints,
             inputJson: String?,
-            policy: ExistingPolicy
+            policy: ExistingPolicy,
+            tags: Set<String>,
+            deadlineMs: Long?
         ): ScheduleResult {
             lastEnqueue = EnqueueCall(id, trigger, workerClassName, constraints, inputJson, policy)
             return ScheduleResult.ACCEPTED
@@ -84,6 +86,8 @@ class IosBackgroundTaskHandlerTest {
 
         override fun cancel(id: String) = Unit
         override fun cancelAll() = Unit
+        override fun cancelByTag(tag: String) = Unit
+        override fun cancelByWorkerClass(workerClassName: String) = Unit
         override fun beginWith(task: TaskRequest): TaskChain = throw UnsupportedOperationException()
         override fun beginWith(tasks: List<TaskRequest>): TaskChain = throw UnsupportedOperationException()
         override suspend fun enqueueChain(chain: TaskChain, id: String?, policy: ExistingPolicy) = Unit

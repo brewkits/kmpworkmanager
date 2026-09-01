@@ -8,9 +8,11 @@ class TaskChainLogicTest {
     private class SimpleMockScheduler : BackgroundTaskScheduler {
         val enqueuedChains = mutableListOf<Pair<TaskChain, String?>>()
         
-        override suspend fun enqueue(id: String, trigger: TaskTrigger, workerClassName: String, constraints: Constraints, inputJson: String?, policy: ExistingPolicy) = ScheduleResult.ACCEPTED
+        override suspend fun enqueue(id: String, trigger: TaskTrigger, workerClassName: String, constraints: Constraints, inputJson: String?, policy: ExistingPolicy, tags: Set<String>, deadlineMs: Long?) = ScheduleResult.ACCEPTED
         override fun cancel(id: String) {}
         override fun cancelAll() {}
+        override fun cancelByTag(tag: String) {}
+        override fun cancelByWorkerClass(workerClassName: String) {}
         override fun beginWith(task: TaskRequest): TaskChain = TaskChain(this, listOf(task))
         override fun beginWith(tasks: List<TaskRequest>): TaskChain = TaskChain(this, tasks)
         override suspend fun enqueueChain(chain: TaskChain, id: String?, policy: ExistingPolicy) {

@@ -4,6 +4,7 @@ package dev.brewkits.kmpworkmanager.background.data
 
 import dev.brewkits.kmpworkmanager.KmpWorkManagerRuntime
 import dev.brewkits.kmpworkmanager.background.domain.BGTaskType
+import dev.brewkits.kmpworkmanager.background.domain.ChainInputMerger
 import dev.brewkits.kmpworkmanager.background.domain.ExecutionRecord
 import dev.brewkits.kmpworkmanager.background.domain.ExecutionStatus
 import dev.brewkits.kmpworkmanager.background.domain.TaskCompletionEvent
@@ -221,6 +222,18 @@ class ChainExecutor(
         // 10 minutes was too long — if the process is killed every 5 min (notification handler),
         // chains piled up in the queue but never executed (stuck behind stale locks).
         const val STALE_LOCK_TIMEOUT_MS = 3 * 60 * 1_000L // 3 minutes
+
+        /**
+         * Merges [previousOutput] into [baseInputJson] for the InputMerger pipeline (P1-D).
+         *
+         * Delegates to [ChainInputMerger], which is shared with Android so both platforms
+         * observe identical overwriting-merge semantics. Kept as a thin alias here because
+         * the iOS chain-execution tests reference it by this name.
+         */
+        internal fun buildMergedInput(
+            baseInputJson: String?,
+            previousOutput: kotlinx.serialization.json.JsonObject
+        ): String = ChainInputMerger.merge(baseInputJson, previousOutput)
     }
 
     /**
@@ -922,6 +935,12 @@ class ChainExecutor(
             try {
                 val chainOutcome = withTimeoutOrNull(chainTimeout) {
                     var allStepsSucceeded = true
+                    // InputMerger (P1-D): track the output of the most recently completed step.
+                    // Only non-null when the previous step returned WorkerResult.Success.data.
+                    // Passed into executeStep so tasks with mergeOutputFromPreviousStep=true
+                    // receive the merged JSON before their doWork() is called.
+                    var previousStepOutput: kotlinx.serialization.json.JsonObject? = null
+
                     for ((index, step) in steps.withIndex()) {
                         // Skip already completed steps
                         if (progress.isStepCompleted(index)) {
@@ -931,7 +950,7 @@ class ChainExecutor(
 
                         Logger.i(LogTags.CHAIN, "Executing step ${index + 1}/${steps.size} for chain $chainId (${step.size} tasks)")
 
-                        val stepOutcome = executeStep(step, index, progress, chainId)
+                        val stepOutcome = executeStep(step, index, progress, chainId, previousStepOutput)
                         progress = stepOutcome.updatedProgress
                         val stepError = stepOutcome.errorMessage
                         if (!stepOutcome.success) {
@@ -1037,14 +1056,21 @@ class ChainExecutor(
                             break
                         }
 
-                        // Step succeeded - update progress
+                        // Step succeeded - update progress and capture output for InputMerger
                         withContext(NonCancellable) {
                             progress = progress.withCompletedStep(index)
                             fileStorage.saveChainProgress(progress)
                         }
+                        // Forward this step's output to the next step (InputMerger P1-D).
+                        // Only set when the step produced non-null data; if null, the next
+                        // step's mergeOutputFromPreviousStep tasks will receive an empty merge.
+                        previousStepOutput = stepOutcome.outputData
+                        val forwardedNote =
+                            if (previousStepOutput != null) ", output forwarded to next step" else ""
                         Logger.d(
                             LogTags.CHAIN,
-                            "Step ${index + 1}/${steps.size} completed for chain $chainId (${progress.getCompletionPercentage()}% complete)"
+                            "Step ${index + 1}/${steps.size} completed for chain $chainId " +
+                                "(${progress.getCompletionPercentage()}% complete$forwardedNote)"
                         )
                     }
                     allStepsSucceeded
@@ -1224,6 +1250,12 @@ class ChainExecutor(
      * Tasks that already completed in a previous attempt (recorded in progress)
      * are skipped, making retry of partially-failed parallel steps idempotent.
      *
+     * **InputMerger (P1-D):**
+     * When [previousStepOutput] is non-null and a task sets [TaskRequest.mergeOutputFromPreviousStep]
+     * to `true`, the output JSON from the previous step is merged into the task's `inputJson`
+     * before `doWork()` is called. Fields from the previous step **overwrite** same-key fields
+     * in the original `inputJson` (consistent with WorkManager's `OverwritingInputMerger`).
+     *
      * **Per-task progress persistence (intentional design):**
      * Each task saves progress to the buffer immediately after it succeeds — not after
      * the entire step completes. This preserves partial progress on mid-step crashes:
@@ -1239,19 +1271,27 @@ class ChainExecutor(
      *
      * @return [StepOutcome] capturing the aggregate result of the step, including any
      *   Retry hints emitted by the FIRST failed task (used by the chain executor to set
-     *   `BGProcessingTaskRequest.earliestBeginDate` and enforce per-step `attemptCap`).
+     *   `BGProcessingTaskRequest.earliestBeginDate` and enforce per-step `attemptCap`),
+     *   and the merged output data from the last successfully completing task (for InputMerger).
      */
     private suspend fun executeStep(
         tasks: List<TaskRequest>,
         stepIndex: Int,
         progress: ChainProgress,
-        chainId: String
+        chainId: String,
+        previousStepOutput: kotlinx.serialization.json.JsonObject? = null
     ): StepOutcome {
         if (tasks.isEmpty()) return StepOutcome(success = true, updatedProgress = progress)
 
         var currentProgress = progress
         // Shared across all async blocks launched below — do not extract into a separate function.
         val progressMutex = Mutex()
+        // Accumulates the output data from successful tasks for InputMerger forwarding.
+        // Last non-null outputData wins (tasks within a parallel step run concurrently;
+        // the final value is non-deterministic for parallel steps with multiple data-producing
+        // tasks — callers should use InputMerger on sequential single-task steps when ordering matters).
+        var stepOutputData: kotlinx.serialization.json.JsonObject? = null
+        val outputMutex = Mutex()
 
         // Each async block returns a TaskOutcome carrying success + (optional) Retry hints.
         val results: List<TaskOutcome> = coroutineScope {
@@ -1265,7 +1305,13 @@ class ChainExecutor(
                         return@async TaskOutcome(success = true)
                     }
 
-                    val result = executeTask(task, chainId, stepIndex, progress.retryCount)
+                    // InputMerger: inject previous step output into this task's input if requested.
+                    val effectiveTask = if (task.mergeOutputFromPreviousStep && previousStepOutput != null) {
+                        val merged = buildMergedInput(task.inputJson, previousStepOutput)
+                        task.copy(inputJson = merged)
+                    } else task
+
+                    val result = executeTask(effectiveTask, chainId, stepIndex, progress.retryCount)
                     val success = result is WorkerResult.Success
                     if (success) {
                         withContext(NonCancellable) {
@@ -1273,6 +1319,11 @@ class ChainExecutor(
                                 currentProgress = currentProgress.withCompletedTaskInStep(stepIndex, taskIndex)
                                 fileStorage.saveChainProgress(currentProgress)
                             }
+                        }
+                        // Capture output data for InputMerger forwarding to next step.
+                        val successData = (result as WorkerResult.Success).data
+                        if (successData != null) {
+                            outputMutex.withLock { stepOutputData = successData }
                         }
                     }
                     when (result) {
@@ -1310,6 +1361,7 @@ class ChainExecutor(
         return StepOutcome(
             success = allSucceeded,
             updatedProgress = currentProgress,
+            outputData = stepOutputData,
             errorMessage = firstFailure?.errorMessage,
             retryDelayMs = firstFailure?.retryDelayMs,
             attemptCap = firstFailure?.attemptCap,
@@ -1339,10 +1391,15 @@ class ChainExecutor(
      * task (deterministic by iteration order). When a step has multiple failing tasks
      * with conflicting hints, the first one wins — callers should treat the values as
      * "guidance, not contract" and ensure their workers agree if they care about ordering.
+     *
+     * [outputData] holds the merged output from all successful tasks in this step,
+     * forwarded to the next step by the InputMerger when [TaskRequest.mergeOutputFromPreviousStep]
+     * is set. Last writer wins for parallel steps with multiple data-producing tasks.
      */
     private data class StepOutcome(
         val success: Boolean,
         val updatedProgress: ChainProgress,
+        val outputData: kotlinx.serialization.json.JsonObject? = null,  // InputMerger: forwarded to next step
         val errorMessage: String? = null,
         val retryDelayMs: Long? = null,
         val attemptCap: Int? = null,
@@ -1379,6 +1436,44 @@ class ChainExecutor(
                 message = "Requires unmetered (Wi-Fi) network but cellular is active",
                 shouldRetry = true
             )
+        }
+
+        // Deadline guard (P1-C): skip tasks whose business window has closed.
+        //
+        // Returns Success — deliberately, and this is the subtle part. A deadline miss is
+        // not a worker failure: the task chose not to run. Returning Failure here would
+        // abort the whole chain at this step, so a chain like
+        // `download → (deadline-bound) analytics-ping → upload` would lose its upload
+        // because an optional middle step went stale. Success skips just this task and lets
+        // the chain continue, and (being terminal) it is never retried.
+        //
+        // This mirrors Android exactly, where BaseKmpWorker returns `Result.success()` for
+        // the same condition while recording ExecutionStatus.SKIPPED. The emitted
+        // TaskCompletionEvent carries success=false on both platforms so observers can still
+        // see that the work did not actually happen.
+        val deadlineMs = task.deadlineMs
+        if (deadlineMs != null) {
+            val nowMs = (NSDate().timeIntervalSince1970 * 1000).toLong()
+            if (nowMs > deadlineMs) {
+                Logger.w(
+                    LogTags.CHAIN,
+                    "⏰ Task ${task.workerClassName} DEADLINE_EXCEEDED — deadline was " +
+                        "${NSDate.dateWithTimeIntervalSince1970(deadlineMs / 1000.0)}, " +
+                        "now=${NSDate.dateWithTimeIntervalSince1970(nowMs / 1000.0)}. " +
+                        "Skipping task to prevent stale-data side-effects; chain continues."
+                )
+                TaskEventBus.emit(
+                    TaskCompletionEvent(
+                        taskName = task.workerClassName,
+                        success = false,
+                        message = "Deadline exceeded — task skipped"
+                    )
+                )
+                return WorkerResult.Success(
+                    message = "Deadline exceeded — task skipped (deadlineMs=$deadlineMs, nowMs=$nowMs)",
+                    data = null  // nothing to forward to the next step's InputMerger
+                )
+            }
         }
 
         val worker = workerFactory.createWorker(task.workerClassName)
