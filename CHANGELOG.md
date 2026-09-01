@@ -5,6 +5,26 @@ All notable changes to KMP WorkManager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Android: chain-member tasks never reported `chainId`/`stepIndex` in telemetry, and
+  `ExecutionRecord.chainId` held the wrong ID.** Found by manually running the demo app's
+  Sequential chain and reading its logs: every `TaskStartedEvent` logged `chain=null
+  step=null` even for genuine chain-member tasks. Root cause: WorkManager's native
+  `then()`-chaining carries no chain metadata of its own — `enqueueChain()` never stamped
+  it into a step's `inputData`, so `BaseKmpWorker` had nothing to read (iOS's
+  `ChainExecutor` has always done this correctly). `ExecutionRecord.chainId` was also
+  populated with `ListenableWorker.id` (WorkManager's per-request random UUID) instead of
+  the ID passed to `TaskChain.withId()`. `enqueueChain()` now stamps namespaced
+  `kmp_chain_id`/`kmp_step_index`/`kmp_total_steps` keys per step; `BaseKmpWorker` reads
+  them back for `TaskStartedEvent`/`TaskCompletedEvent`/`TaskFailedEvent` and
+  `ExecutionRecord`. Standalone tasks are unaffected. **Behavior change:**
+  `ExecutionRecord.failedStep` on Android was previously always `0` on failure; it now
+  reports the real 0-based step index that failed (still `0` for standalone tasks). See
+  [#87](https://github.com/brewkits/kmpworkmanager/pull/87).
+
 ## [3.3.1] - 2026-08-09
 
 A senior mobile QA/QC review pass across the whole library surfaced five further findings
