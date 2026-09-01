@@ -22,12 +22,23 @@ has to come from somewhere else.
   request-signing logic most teams under-build (or skip) themselves. Promoted
   out of the deferred v2.6 #6 slot below — see that entry for the full spec,
   now superseded by #81 as the tracking issue.
-- ⏳ **Gradle plugin `io.brewkits.kmpworker`** ([#82](https://github.com/brewkits/kmpworkmanager/issues/82)).
-  Pitch: removes a *silent*-failure class (forgetting a worker's
-  `Info.plist`/Manifest declaration → the task just never runs, no error, no
-  warning) that costs native-only and KMP consumers equally. Promoted out of
-  the deferred v3.0 #3 slot below — see that entry for the full spec, now
-  superseded by #82.
+- ⏳ **Android FGS-type runtime check** ([#82](https://github.com/brewkits/kmpworkmanager/issues/82)).
+  Pitch: on iOS, `@Worker(bgTaskId=…)` + the KSP-generated `BgTaskIdProvider`
+  already `require()`-crashes loudly at `KmpWorkManager.initialize()` if a
+  `bgTaskId` is missing from `Info.plist` — Android has no equivalent for a
+  missing `android:foregroundServiceType`. Today the failure only surfaces
+  when a `KmpHeavyWorker` actually calls `setForeground()`, which already
+  catches and logs the resulting exception clearly (see `KmpHeavyWorker.kt`)
+  but only at that point, not at worker registration. #82 originally proposed
+  a Gradle plugin generating/validating manifest entries from `@Worker`
+  annotations at build time; investigation found `@Worker` is
+  `SOURCE`-retention (invisible to a Gradle plugin without a new KSP→Gradle
+  pipeline) and `foregroundServiceType` is a computed `open val`, not a
+  literal KSP can resolve — so static analysis can't reliably cover this.
+  Revised to an Android-side runtime check (`PackageManager.getServiceInfo()`
+  against the actual merged manifest, compared to the declared type) at
+  `KmpHeavyWorker` construction/init time, moving the check earlier without
+  a new module. See #82 for the corrected scope.
 
 Both selected over other v2.6/v3.0 candidates (per-task QoS profiles, threat
 model docs, `ChainExecutor` state machine, `wasmJs` target) specifically
