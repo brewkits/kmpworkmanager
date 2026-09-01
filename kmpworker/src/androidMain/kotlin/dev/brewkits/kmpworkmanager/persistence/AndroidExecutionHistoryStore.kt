@@ -73,8 +73,10 @@ class AndroidExecutionHistoryStore(context: Context) : ExecutionHistoryStore {
         synchronized(fileLock) {
             try {
                 if (historyFile.exists()) {
-                    historyFile.delete()
-                    historyFile.createNewFile()
+                    // Truncate in place. Avoids delete()+createNewFile() whose boolean return
+                    // values were ignored (CodeQL java/ignored-error-status-of-call); writeText
+                    // throws on failure, which the catch below already handles.
+                    historyFile.writeText("")
                 }
                 Logger.d(LogTags.SCHEDULER, "ExecutionHistory cleared")
             } catch (e: Exception) {

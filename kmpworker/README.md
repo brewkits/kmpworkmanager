@@ -20,21 +20,21 @@ The library uses a **worker factory pattern** (introduced in v2.x) that replaces
 - ✅ **Worker factory pattern** replaces hardcoded workers
 - ✅ **iOS Info.plist auto-reading** for task ID validation
 - ❌ **`WorkerTypes` object removed** (define your own)
-- ❌ **Koin initialization** now requires `workerFactory` parameter
+- ❌ **`kmpWorkerModule()` removed in v3.3.0** — use `KmpWorkManager.initialize(workerFactory = …)`
 
 ### Getting Started
 Follow the quick start guide below to integrate KMP WorkManager in your project.
 
 ### Quick Migration Example
 
-**Before (pre-v2.0)**:
+**Before (pre-v3.3)**:
 ```kotlin
 startKoin {
-    modules(kmpWorkerModule())  // ❌ No longer works
+    modules(kmpWorkerModule(workerFactory = MyWorkerFactory()))  // ❌ No longer works
 }
 ```
 
-**After (v2.x+)**:
+**After (v3.3+)** — no DI framework required:
 ```kotlin
 // 1. Create worker factory
 class MyWorkerFactory : AndroidWorkerFactory {
@@ -44,12 +44,11 @@ class MyWorkerFactory : AndroidWorkerFactory {
     }
 }
 
-// 2. Pass factory to Koin
-startKoin {
-    modules(kmpWorkerModule(
-        workerFactory = MyWorkerFactory()  // ✅ Required
-    ))
-}
+// 2. Initialize directly
+KmpWorkManager.initialize(
+    context = this,                   // Android only
+    workerFactory = MyWorkerFactory()
+)
 ```
 
 ---
@@ -173,12 +172,10 @@ class MyWorkerFactory : IosWorkerFactory {
 class MyApp : Application() {
     override fun onCreate() {
         super.onCreate()
-        startKoin {
-            androidContext(this@MyApp)
-            modules(kmpWorkerModule(
-                workerFactory = MyWorkerFactory()  // ✅ Required in v1.0.0
-            ))
-        }
+        KmpWorkManager.initialize(
+            context = this,
+            workerFactory = MyWorkerFactory()
+        )
     }
 }
 ```
@@ -186,13 +183,9 @@ class MyApp : Application() {
 **iOS:**
 
 ```kotlin
-// iOS - KoinSetup.kt
-fun initKoinIos() {
-    startKoin {
-        modules(kmpWorkerModule(
-            workerFactory = MyWorkerFactory()  // ✅ Required in v1.0.0
-        ))
-    }
+// iOS - Setup.kt
+fun initKmpWorkManager() {
+    KmpWorkManager.initialize(workerFactory = MyWorkerFactory())
 }
 ```
 

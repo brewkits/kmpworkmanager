@@ -27,10 +27,17 @@ import kotlin.test.*
  * cancellation cleanly, so chain progress isn't polluted — but the telemetry
  * emitted from inside `executeTask`'s catch is already on the bus by then.
  *
- * **Fix**: compare `duration` (elapsed wall-clock since task start) against
- * `taskTimeout`. If `duration < taskTimeout`, the cancellation cannot have come
- * from our own `withTimeout(taskTimeout)` timer — rethrow so the outer scope
- * observes its own cancellation, without emitting misleading telemetry.
+ * **Original fix (v2.5.0)**: compare `duration` (elapsed wall-clock since task start)
+ * against `taskTimeout`. If `duration < taskTimeout`, the cancellation cannot have come
+ * from our own `withTimeout(taskTimeout)` timer — rethrow so the outer scope observes
+ * its own cancellation, without emitting misleading telemetry.
+ *
+ * **Superseded in 3.3.0**: `executeStep`'s task execution now wraps the inner block in
+ * `withTimeoutOrNull(taskTimeout)` instead of `withTimeout(taskTimeout)`. kotlinx.coroutines
+ * identity-checks the `TimeoutCancellationException` against the coroutine
+ * `withTimeoutOrNull` created internally, so an outer scope's exception is never converted
+ * to `null` here and always propagates unabsorbed. See
+ * [V330TimeoutIdentityDisambiguationTest] for a test of the mechanism itself.
  *
  * **Test strategy**: subscribe to `TaskEventBus.events` BEFORE triggering a
  * caller-side `withTimeout(1500ms)` that fires while a slow worker is mid-`delay`.

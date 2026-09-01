@@ -1,11 +1,17 @@
 package dev.brewkits.kmpworkmanager.sample.stats
 
+import dev.brewkits.kmpworkmanager.background.domain.TaskCompletionEvent
+import dev.brewkits.kmpworkmanager.background.domain.TaskEventBus
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.datetime.Clock
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 /**
  * Statistics about task execution
@@ -42,6 +48,47 @@ data class TaskExecution(
 @OptIn(kotlin.time.ExperimentalTime::class)
 object TaskStatsManager {
     private val mutex = Mutex()
+
+    @kotlin.concurrent.Volatile
+    private var collecting = false
+
+    /**
+     * Subscribes the dashboard to the library's completion events.
+     *
+     * Without this, nothing ever calls [recordTaskComplete] and the dashboard shows a
+     * permanent "0 / no tasks executed yet" no matter how many tasks run — which is what
+     * it did before, and it made the demo look broken.
+     *
+     * Idempotent: safe to call from every platform entry point.
+     */
+    fun startCollecting(scope: CoroutineScope) {
+        if (collecting) return
+        collecting = true
+        scope.launch {
+            TaskEventBus.events.collect { event ->
+                if (event is TaskCompletionEvent) onCompletionEvent(event)
+            }
+        }
+    }
+
+    private suspend fun onCompletionEvent(event: TaskCompletionEvent) {
+        // KNOWN LIMITATION: a single run can produce two events — the library emits one
+        // from SingleTaskExecutor/ChainExecutor, and this demo's own workers emit a
+        // friendlier one for the snackbar. Both arrive with a short name
+        // (SingleTaskExecutor already applies substringAfterLast('.')), so they cannot be
+        // told apart here and such a task counts twice. Cosmetic, demo-only; the library's
+        // own persisted records in EventStore / ExecutionHistoryStore are unaffected.
+
+        // TaskCompletionEvent carries no task id or duration, so synthesise both: key the
+        // execution by worker name, and read the duration the worker reported in
+        // outputData when it provided one.
+        val taskId = event.taskName
+        val reportedDuration = (event.outputData?.get("duration") as? JsonPrimitive)
+            ?.contentOrNull?.toLongOrNull() ?: 0L
+
+        recordTaskStart(taskId = taskId, taskName = event.taskName.substringAfterLast('.'))
+        recordTaskComplete(taskId = taskId, success = event.success, duration = reportedDuration)
+    }
     private val _stats = MutableStateFlow(TaskStats())
     private val _recentExecutions = MutableStateFlow<List<TaskExecution>>(emptyList())
     private val activeExecutions = mutableMapOf<String, TaskExecution>()

@@ -40,7 +40,7 @@ package dev.brewkits.kmpworkmanager.annotations
  * }
  * ```
  *
- * When `IosWorkerFactoryGenerated` is passed to `kmpWorkerModule()`, the library
+ * When `IosWorkerFactoryGenerated` is passed to `KmpWorkManager.initialize()`, the library
  * automatically validates that all `bgTaskId` values are declared in
  * `Info.plist → BGTaskSchedulerPermittedIdentifiers` — failing fast at app startup
  * instead of silently misbehaving at runtime.
@@ -60,7 +60,7 @@ package dev.brewkits.kmpworkmanager.annotations
  *   class is renamed or obfuscated by ProGuard/R8, persisted tasks whose stored name
  *   matches the old simple name will silently fail to find the factory entry.
  * @param bgTaskId iOS `BGTaskSchedulerPermittedIdentifiers` entry required by this worker.
- *   Leave empty (`""`) for Android-only workers. When non-empty, `kmpWorkerModule()`
+ *   Leave empty (`""`) for Android-only workers. When non-empty, `KmpWorkManager.initialize()`
  *   validates the ID against `Info.plist` at startup.
  * @param aliases Additional lookup keys that resolve to this worker. Use for safe migration
  *   when renaming a worker: add the old name as an alias so tasks already persisted in the

@@ -9,7 +9,7 @@ import dev.brewkits.kmpworkmanager.background.domain.AndroidWorkerFactory
 /**
  * WorkManager [WorkerFactory] that creates [KmpWorker] and [KmpHeavyWorker] with
  * a directly injected [AndroidWorkerFactory], eliminating the Service Locator
- * (`KmpWorkManagerKoin.getKoin().get()`) anti-pattern.
+ * (`KmpWorkManagerAndroid.requireRegistry()`) anti-pattern.
  *
  * **Automatic setup:** When `KmpWorkManager.initialize()` is called and WorkManager has
  * not yet been initialized by the host app, this factory is registered automatically via

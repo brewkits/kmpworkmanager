@@ -489,9 +489,17 @@ class ChainExecutor(
         var chainsFailed = 0
         var wasKilledBySystem = false
 
+        // Snapshot the queue depth so a chain re-enqueued for retry during THIS batch (see the
+        // retryable-failure path in executeChain) is NOT re-executed until the next BGTask
+        // invocation. Without this bound a transiently-failing chain would be retried back-to-back
+        // within one BGTask — no backoff, burning its whole retry budget in milliseconds. Mirrors
+        // the snapshot the single-task DynamicTaskDispatcher uses for the same reason.
+        val initialQueueSize = getChainQueueSize()
+        val chainsToProcess = minOf(maxChains, initialQueueSize)
+
         try {
             withTimeout(conservativeTimeout) {
-                for (iteration in 0 until maxChains) {
+                for (iteration in 0 until chainsToProcess) {
                     // Check shutdown flag — AtomicInt read is always immediate, no suspension needed.
                     if (isShuttingDown.value != 0) {
                         Logger.w(LogTags.CHAIN, "Stopping batch execution - shutdown requested")
@@ -811,9 +819,29 @@ class ChainExecutor(
                 )
             }
 
+            // Resolve the chain-level retry budget from the tasks' Constraints.maxRetries.
+            // Constraints.maxRetries is per-task, but ChainProgress.maxRetries is one budget
+            // for the whole chain, so we take the largest EXPLICIT value (>= 0) any node asked
+            // for — a chain must not abandon before its most retry-tolerant step is satisfied.
+            // If no node set it (all default -1), keep ChainProgress's platform default so iOS
+            // behaviour is unchanged for callers that never touch maxRetries.
+            //
+            // Contract mapping: Constraints.maxRetries = N means "N+1 total attempts" (1 initial
+            // + N retries), matching Android. ChainProgress abandons when retryCount >= maxRetries
+            // and retryCount starts at 0 and increments per failed attempt, so `maxRetries = M`
+            // permits exactly M attempts. Therefore M = N + 1.
+            val explicitMaxRetries = steps.flatten()
+                .mapNotNull { it.constraints?.maxRetries }
+                .filter { it >= 0 }
+                .maxOrNull()
+            val chainAttemptBudget = explicitMaxRetries
+                ?.let { it + 1 }
+                ?: ChainProgress.DEFAULT_MAX_RETRIES
+
             var progress = rawProgress ?: ChainProgress(
                 chainId = chainId,
-                totalSteps = steps.size
+                totalSteps = steps.size,
+                maxRetries = chainAttemptBudget
             )
 
             // 5a. Poison-pill guard: increment crash attempt counter and persist BEFORE any work.
@@ -892,7 +920,7 @@ class ChainExecutor(
             val chainStartMonotonic = TimeSource.Monotonic.markNow()
             var chainSucceeded = false
             try {
-                chainSucceeded = withTimeout(chainTimeout) {
+                val chainOutcome = withTimeoutOrNull(chainTimeout) {
                     var allStepsSucceeded = true
                     for ((index, step) in steps.withIndex()) {
                         // Skip already completed steps
@@ -973,6 +1001,21 @@ class ChainExecutor(
                                 )
                                 fileStorage.deleteChainDefinition(chainId)
                                 fileStorage.deleteChainProgress(chainId)
+                            } else {
+                                // Retry budget remains — re-enqueue so the chain actually runs again
+                                // on a later BGTask (the batch-tail scheduleNextBGTask picks up the
+                                // non-empty queue). Without this the chain was dequeued and never
+                                // put back: its retryCount could never climb, so Constraints.maxRetries
+                                // was a no-op and the definition+progress leaked on disk. The batch's
+                                // initialQueueSize snapshot prevents an immediate same-batch re-run.
+                                withContext(NonCancellable) {
+                                    fileStorage.enqueueChain(chainId)
+                                }
+                                Logger.i(
+                                    LogTags.CHAIN,
+                                    "Chain $chainId re-enqueued for retry " +
+                                        "(retryCount=${progress.retryCount}/${progress.maxRetries})"
+                                )
                             }
 
                             KmpWorkManagerRuntime.notifyChainFailed(
@@ -1006,75 +1049,77 @@ class ChainExecutor(
                     }
                     allStepsSucceeded
                 }
-            } catch (e: TimeoutCancellationException) {
-                // Disambiguate inner vs outer timeout. `withTimeout(chainTimeout)` cancels
-                // its children with a TimeoutCancellationException, but an OUTER
-                // `withTimeout(batchTimeout)` further up the stack does the same — and
-                // its exception propagates through this inner block on its way out.
-                // Without this check, a batch-level timeout fired 1 s into the chain
-                // would be mis-logged as "Chain timed out (chainTimeout ms)" and SWALLOWED
-                // by the `return false` below, defeating the outer timeout's purpose.
-                //
-                // Heuristic: if elapsed wall-clock < chainTimeout, the cancellation cannot
-                // have come from our own `withTimeout(chainTimeout)` block — therefore it
-                // came from an outer scope and must be rethrown so the outer scope
-                // observes its own cancellation.
-                val elapsedMs = chainStartMonotonic.elapsedNow().inWholeMilliseconds
-                if (elapsedMs < chainTimeout) {
-                    Logger.w(
-                        LogTags.CHAIN,
-                        "Chain $chainId saw TimeoutCancellationException after only ${elapsedMs}ms " +
-                            "(< chainTimeout ${chainTimeout}ms) — attributing to an OUTER timeout " +
-                            "(e.g. batch). Saving progress as a graceful interrupt and rethrowing."
-                    )
+
+                if (chainOutcome == null) {
+                    // GENUINE chain-level timeout. `withTimeoutOrNull` returns `null` if and
+                    // only if *its own* timer fired — kotlinx.coroutines identity-checks the
+                    // TimeoutCancellationException against the coroutine it created internally
+                    // (see withTimeoutOrNull's implementation) before deciding whether to
+                    // absorb it as `null` or let it propagate. An OUTER timeout further up the
+                    // stack (executeChainsInBatch's withTimeout) is a *different* coroutine's
+                    // exception, so it is never converted to `null` here — it surfaces as a
+                    // real TimeoutCancellationException in the catch block below instead.
+                    // No elapsed-time heuristic needed to tell the two apart.
+                    val failedStep = progress.getNextStepIndex() ?: (steps.size - 1)
                     withContext(NonCancellable) {
+                        progress = progress.withTimeout(failedStep, "Chain timed out (${chainTimeout}ms)")
                         fileStorage.saveChainProgress(progress)
                     }
-                    // Re-queue for resumption — the chain itself didn't fail; it was
-                    // pre-empted by the batch wall clock.
-                    withContext(NonCancellable) {
-                        fileStorage.enqueueChain(chainId)
-                    }
-                    historyStatus = ExecutionStatus.FAILURE
+
+                    fileStorage.enqueueChain(chainId)
+                    Logger.i(
+                        LogTags.CHAIN,
+                        "Chain $chainId timed out after ${chainTimeout}ms — re-queued for resumption " +
+                        "(completed ${progress.completedSteps.size}/${steps.size} steps)"
+                    )
+
+                    KmpWorkManagerRuntime.notifyChainFailed(
+                        TelemetryHook.ChainFailedEvent(
+                            chainId = chainId,
+                            failedStep = progress.getNextStepIndex() ?: (steps.size - 1),
+                            platform = "ios",
+                            error = "Chain timed out (${chainTimeout}ms)",
+                            retryCount = progress.retryCount,
+                            willRetry = true
+                        )
+                    )
+                    historyStatus = ExecutionStatus.TIMEOUT
                     historyFailedStep = progress.getNextStepIndex() ?: (steps.size - 1)
-                    historyError = "Outer (batch) timeout pre-empted chain after ${elapsedMs}ms"
+                    historyError = "Chain timed out (${chainTimeout}ms)"
                     historyRetryCount = progress.retryCount
                     historyCompletedSteps = progress.completedSteps.size
-                    throw e
+                    return false
                 }
 
-                // Genuine chain-level timeout: the aggregate wall-clock time of all steps
-                // exceeded chainTimeout. Progress WAS saved after each completed step, so
-                // we can resume on the next BGTask invocation.
-                val failedStep = progress.getNextStepIndex() ?: (steps.size - 1)
+                chainSucceeded = chainOutcome
+            } catch (e: TimeoutCancellationException) {
+                // Reaching here means `withTimeoutOrNull(chainTimeout)` above did NOT absorb
+                // this exception as its own timeout (that case returns `chainOutcome == null`
+                // and is handled above without an exception at all) — so this can only be an
+                // OUTER timeout (e.g. executeChainsInBatch's withTimeout(conservativeTimeout))
+                // propagating through. Previously this was inferred from an elapsed-time
+                // heuristic that a CPU-starvation window could defeat; the identity check
+                // kotlinx.coroutines performs internally makes that heuristic unnecessary.
+                val elapsedMs = chainStartMonotonic.elapsedNow().inWholeMilliseconds
+                Logger.w(
+                    LogTags.CHAIN,
+                    "Chain $chainId interrupted by an OUTER timeout after ${elapsedMs}ms " +
+                        "(e.g. batch) — saving progress as a graceful interrupt and rethrowing."
+                )
                 withContext(NonCancellable) {
-                    progress = progress.withTimeout(failedStep, "Chain timed out (${chainTimeout}ms)")
                     fileStorage.saveChainProgress(progress)
                 }
-
-                fileStorage.enqueueChain(chainId)
-                Logger.i(
-                    LogTags.CHAIN,
-                    "Chain $chainId timed out after ${chainTimeout}ms — re-queued for resumption " +
-                    "(completed ${progress.completedSteps.size}/${steps.size} steps)"
-                )
-
-                KmpWorkManagerRuntime.notifyChainFailed(
-                    TelemetryHook.ChainFailedEvent(
-                        chainId = chainId,
-                        failedStep = progress.getNextStepIndex() ?: (steps.size - 1),
-                        platform = "ios",
-                        error = "Chain timed out (${chainTimeout}ms)",
-                        retryCount = progress.retryCount,
-                        willRetry = true
-                    )
-                )
-                historyStatus = ExecutionStatus.TIMEOUT
+                // Re-queue for resumption — the chain itself didn't fail; it was
+                // pre-empted by the batch wall clock.
+                withContext(NonCancellable) {
+                    fileStorage.enqueueChain(chainId)
+                }
+                historyStatus = ExecutionStatus.FAILURE
                 historyFailedStep = progress.getNextStepIndex() ?: (steps.size - 1)
-                historyError = "Chain timed out (${chainTimeout}ms)"
+                historyError = "Outer (batch) timeout pre-empted chain after ${elapsedMs}ms"
                 historyRetryCount = progress.retryCount
                 historyCompletedSteps = progress.completedSteps.size
-                return false
+                throw e
             } catch (e: CancellationException) {
                 Logger.w(LogTags.CHAIN, "🛑 Chain $chainId cancelled due to graceful shutdown")
 
@@ -1409,7 +1454,7 @@ class ChainExecutor(
 
         try {
             return try {
-                withTimeout(taskTimeout) {
+                val taskOutcome = withTimeoutOrNull(taskTimeout) {
                     val currentJob = currentCoroutineContext()[Job]
                     val env = WorkerEnvironment(
                         progressListener = object : ProgressListener {
@@ -1533,49 +1578,54 @@ class ChainExecutor(
                         }
                     }
                 }
-            } catch (e: TimeoutCancellationException) {
-                val duration = startMonotonic.elapsedNow().inWholeMilliseconds
-                // Disambiguate inner vs outer timeout — same shape as the chain-level fix
-                // (see executeChain's catch block above). `withTimeout(taskTimeout)` cancels
-                // its children with TimeoutCancellationException, but an OUTER scope
-                // (executeChain's withTimeout(chainTimeout) or executeChainsInBatch's
-                // withTimeout(conservativeTimeout)) does the same — its TCE propagates DOWN
-                // through this inner block. Without this check, an outer cancellation fired
-                // 1 s into a task would be mis-logged as "Timeout after 1000ms (limit:
-                // ${taskTimeout}ms)" and the spurious Failure would be persisted into
-                // chain progress as a step error, eventually exhausting the per-step retry
-                // budget for tasks that never genuinely failed.
-                if (duration < taskTimeout) {
-                    Logger.w(
-                        LogTags.CHAIN,
-                        "Task ${task.workerClassName} saw TimeoutCancellationException after only " +
-                            "${duration}ms (< taskTimeout ${taskTimeout}ms) — attributing to an OUTER " +
-                            "timeout (chain/batch). Rethrowing so the outer scope observes its own cancellation."
-                    )
-                    throw e
-                }
 
-                Logger.e(LogTags.CHAIN, "⏱️ Task ${task.workerClassName} timed out after ${duration}ms (limit: ${taskTimeout}ms)")
-                TaskEventBus.emit(
-                    TaskCompletionEvent(
-                        taskName = task.workerClassName,
-                        success = false,
-                        message = "⏱️ Timeout after ${duration}ms",
-                        outputData = null
+                if (taskOutcome == null) {
+                    // GENUINE task-level timeout. `withTimeoutOrNull` returns `null` if and
+                    // only if *its own* timer fired — same identity-check mechanism as the
+                    // chain-level fix above, so no elapsed-time heuristic is needed to
+                    // distinguish this from an outer (chain/batch) timeout.
+                    val duration = startMonotonic.elapsedNow().inWholeMilliseconds
+                    Logger.e(LogTags.CHAIN, "⏱️ Task ${task.workerClassName} timed out after ${duration}ms (limit: ${taskTimeout}ms)")
+                    TaskEventBus.emit(
+                        TaskCompletionEvent(
+                            taskName = task.workerClassName,
+                            success = false,
+                            message = "⏱️ Timeout after ${duration}ms",
+                            outputData = null
+                        )
                     )
-                )
-                KmpWorkManagerRuntime.notifyTaskFailed(
-                    TelemetryHook.TaskFailedEvent(
-                        taskName = task.workerClassName,
-                        chainId = chainId,
-                        stepIndex = stepIndex,
-                        platform = "ios",
-                        error = "Timeout after ${duration}ms",
-                        durationMs = duration,
-                        retryCount = retryCount
+                    KmpWorkManagerRuntime.notifyTaskFailed(
+                        TelemetryHook.TaskFailedEvent(
+                            taskName = task.workerClassName,
+                            chainId = chainId,
+                            stepIndex = stepIndex,
+                            platform = "ios",
+                            error = "Timeout after ${duration}ms",
+                            durationMs = duration,
+                            retryCount = retryCount
+                        )
                     )
+                    WorkerResult.Failure("Timeout after ${duration}ms")
+                } else {
+                    taskOutcome
+                }
+            } catch (e: TimeoutCancellationException) {
+                // Reaching here means `withTimeoutOrNull(taskTimeout)` above did NOT absorb
+                // this exception as its own timeout (that case returns `taskOutcome == null`
+                // and is handled above without an exception at all) — so this can only be an
+                // OUTER timeout (executeChain's withTimeout(chainTimeout) or
+                // executeChainsInBatch's withTimeout(conservativeTimeout)) propagating
+                // through. Previously this was inferred from an elapsed-time heuristic that a
+                // CPU-starvation window could defeat; the identity check kotlinx.coroutines
+                // performs internally makes that heuristic unnecessary.
+                val duration = startMonotonic.elapsedNow().inWholeMilliseconds
+                Logger.w(
+                    LogTags.CHAIN,
+                    "Task ${task.workerClassName} interrupted by an OUTER timeout after " +
+                        "${duration}ms (chain/batch level) — rethrowing so the outer scope " +
+                        "observes its own cancellation."
                 )
-                WorkerResult.Failure("Timeout after ${duration}ms")
+                throw e
             } catch (e: CancellationException) {
                 // Must re-throw — swallowing breaks coroutine cancellation protocol.
                 throw e

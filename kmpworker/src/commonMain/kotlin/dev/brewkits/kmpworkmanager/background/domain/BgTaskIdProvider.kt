@@ -4,7 +4,7 @@ package dev.brewkits.kmpworkmanager.background.domain
  * Implemented by KSP-generated [IosWorkerFactoryGenerated] to expose the set of
  * BGTask IDs that this factory's workers require.
  *
- * When `kmpWorkerModule()` receives a [WorkerFactory] that also implements this
+ * When `KmpWorkManager.initialize()` receives a [WorkerFactory] that also implements this
  * interface, it automatically cross-checks the declared IDs against the app's
  * `Info.plist` `BGTaskSchedulerPermittedIdentifiers` and fails fast with a
  * descriptive error if any are missing — catching the misconfiguration at
@@ -41,7 +41,7 @@ package dev.brewkits.kmpworkmanager.background.domain
 interface BgTaskIdProvider {
     /**
      * The set of `BGTaskSchedulerPermittedIdentifiers` entries that this factory's
-     * workers require. Validated against `Info.plist` at `kmpWorkerModule()` startup.
+     * workers require. Validated against `Info.plist` at `KmpWorkManager.initialize()` startup.
      */
     val requiredBgTaskIds: Set<String>
 }

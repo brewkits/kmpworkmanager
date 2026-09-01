@@ -51,7 +51,7 @@ class V230BugFixesDocumentationTest {
 
         // Fix #3: Koin Scope Isolation
         // Bug: Used global Koin via "by inject()"
-        // Fix: Use KmpWorkManagerKoin.getKoin().get()
+        // Fix: Use the private KmpWorkManagerAndroid registry
         // Tested in: KmpWorkerKoinScopeTest.kt
 
         // Fix #4: KmpHeavyWorker Usage

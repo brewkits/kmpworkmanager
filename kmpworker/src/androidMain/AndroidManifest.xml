@@ -16,21 +16,6 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!--
-        FOREGROUND_SERVICE is required since Android 9 (API 28) to start any foreground service.
-        KmpHeavyWorker calls setForeground() which promotes the worker to a foreground service.
-        Without this permission, SecurityException is thrown at runtime — not at build time.
-    -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-
-    <!--
-        FOREGROUND_SERVICE_DATA_SYNC is required on Android 14+ (API 34+) when using
-        FOREGROUND_SERVICE_TYPE_DATA_SYNC in ForegroundInfo. Without this permission,
-        startForeground() throws SecurityException on API 34+ devices.
-        This permission is automatically merged into the consumer app's manifest.
-    -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
-
-    <!--
         SCHEDULE_EXACT_ALARM is required on Android 12+ (API 31+) to schedule exact alarms
         using AlarmManager.setExactAndAllowWhileIdle(). Without this permission,
         alarmManager.canScheduleExactAlarms() returns false and scheduling attempts
@@ -39,17 +24,6 @@
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
     <application>
-        <!--
-            Required for Android 14 (API 34) and above.
-            KmpHeavyWorker uses setForeground() which delegates to SystemForegroundService.
-            We must explicitly specify the service type here to match what is passed to
-            ForegroundInfo in KmpHeavyWorker.android.kt.
-        -->
-        <service
-            android:name="androidx.work.impl.foreground.SystemForegroundService"
-            android:foregroundServiceType="dataSync"
-            tools:node="merge" />
-
         <receiver android:name=".background.data.DefaultAlarmReceiver" android:exported="false" />
     </application>
 

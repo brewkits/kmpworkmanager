@@ -31,11 +31,11 @@ enum class CompressionLevel {
  * @property compressionLevel Compression level (low, medium, high) - default: medium
  * @property excludePatterns List of patterns to exclude (e.g., "*.tmp", ".DS_Store")
  * @property deleteOriginal Whether to delete original files after compression - default: false
- * @property allowIosUncompressedFallback Opt-in for iOS only. When `true`, iOS falls back
- *   to copying the file uncompressed if a native ZIP implementation is not wired in
- *   (default `false` — the worker fails fast with an explicit error so callers do not
- *   silently ship un-zipped data). See `docs/BUILTIN_WORKERS_GUIDE.md` for how to wire
- *   ZIPFoundation. Ignored on Android (which always uses `java.util.zip`).
+ * @property allowIosUncompressedFallback **Deprecated since v3.2.0.** iOS now produces a real
+ *   PKZIP archive via native `platform.zlib` (system library). This flag is kept for backward
+ *   source compatibility but is **ignored** — the worker always produces a valid ZIP regardless
+ *   of its value. Previously in v2.5, setting `true` produced an uncompressed file copy;
+ *   that behavior is permanently replaced by real DEFLATE compression. Ignored on Android.
  */
 @Serializable
 data class FileCompressionConfig(

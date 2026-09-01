@@ -20,9 +20,9 @@
 ```kotlin
 // build.gradle.kts
 commonMain.dependencies {
-    implementation("dev.brewkits:kmpworkmanager:3.0.0")          // core engine (no Ktor)
+    implementation("dev.brewkits:kmpworkmanager:3.3.0")          // core engine (no Ktor)
     // Optional — only if you use the built-in HTTP workers (Http*/ParallelHttp*).
-    implementation("dev.brewkits:kmpworkmanager-http:3.0.0")     // Ktor 3 HTTP workers
+    implementation("dev.brewkits:kmpworkmanager-http:3.3.0")     // Ktor 3 HTTP workers
 }
 ```
 
@@ -61,27 +61,32 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     override init() {
         super.init()
-        // IOSModuleKt.iosModule calls kmpWorkerModule(workerFactory = IosWorkerFactoryGenerated())
-        KoinInitializerKt.doInitKoin(platformModule: IOSModuleKt.iosModule)
+        // Expose these from Kotlin, e.g. in a Setup.kt:
+        //   fun initKmpWorkManager() =
+        //       KmpWorkManager.initialize(workerFactory = IosWorkerFactoryGenerated())
+        //   fun kmpChainExecutor() = KmpWorkManager.getInstance().chainExecutor
+        SetupKt.initKmpWorkManager()
     }
 
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        let koin = KoinIOS()
-        
         BGTaskScheduler.shared.register(
             forTaskWithIdentifier: "kmp_chain_executor_task",
             using: nil
         ) { task in
             IosBackgroundTaskHandler.shared.handleChainExecutorTask(
                 task: task,
-                chainExecutor: koin.getChainExecutor()
+                chainExecutor: SetupKt.kmpChainExecutor()
             )
         }
         return true
     }
 }
 ```
+
+> **No DI framework required since v3.3.0.** If your app uses Koin or Hilt, bind
+> `KmpWorkManager.getInstance()` from your own module — see
+> [`docs/MIGRATION_V3.3.0.md`](docs/MIGRATION_V3.3.0.md).
 
 **2. `Info.plist`**:
 
@@ -204,222 +209,16 @@ and no recovery mechanism for incomplete work. Getting it wrong means your tasks
 
 ---
 
-## What's new in v3.0.0
+## What's new in v3.2.0
 
-**Ktor 3 support** (Issue #33). The HTTP layer now targets **Ktor 3.1.x**.
+**Opt-In Permissions Architecture (Android).** To comply with strict Play Store guidelines and prevent unwarranted app rejections, KMP WorkManager no longer automatically merges `FOREGROUND_SERVICE` and `FOREGROUND_SERVICE_DATA_SYNC` permissions into your app's manifest. If your app only uses standard background tasks, this update ensures you won't be blocked during app review.
 
-- **⚠️ Breaking — requires Ktor 3.** Ktor 2 and Ktor 3 share the same Maven coordinates
-  and are binary-incompatible, so a single app classpath can hold only one of them. Apps
-  still on Ktor 2 should **stay on `2.5.1`** until they migrate to Ktor 3.
-- **⚠️ Breaking — HTTP workers moved to `kmpworkmanager-http`.** The core artifact no
-  longer depends on Ktor. If you use the built-in `Http*` / `ParallelHttp*` workers, add
-  `implementation("dev.brewkits:kmpworkmanager-http:3.0.0")` and register
-  `HttpWorkerRegistry`. Worker names/config unchanged; see the migration guide.
-- **EOF handling fix** — Ktor 3 moved its IO layer to `kotlinx-io`, where
-  `ByteReadChannel.readAvailable()` returns `-1` at end-of-stream (Ktor 2 returned `0`).
-  The built-in `HttpDownloadWorker` / `ParallelHttpDownloadWorker` read loops now honor
-  this, preventing a potential spin / stale-buffer read at EOF.
-- No public API changes beyond the Ktor version itself — worker constructors, configs,
-  and `HttpClientProvider` are unchanged.
+> **Breaking Change for Heavy Worker Users:** If you use `KmpHeavyWorker`, you **must** now manually declare the required FGS permissions in your `AndroidManifest.xml`. See the [v3.2.0 Migration Guide](docs/MIGRATION_V3.2.0.md).
 
-Upgrade notes: [`docs/MIGRATION_V3.0.0.md`](docs/MIGRATION_V3.0.0.md).
+## Previous releases
 
-## What's new in v2.5.0
-
-v2.5.0 is a hardening release driven by a production architecture review for camera-app workloads. Highlights:
-
-- **Parallel HTTP download/upload workers** — `ParallelHttpDownloadWorker` splits one
-  file into N HTTP `Range` chunks (default 4, up to 16) with per-chunk `.partN` resume;
-  `ParallelHttpUploadWorker` runs one POST per file under a `maxConcurrent` semaphore.
-- **Checksum verification** for `HttpDownloadWorker` — `expectedChecksum` +
-  `ChecksumAlgorithm` (MD5 / SHA-1 / SHA-256 / SHA-512) via Okio's `HashingSource`.
-- **DuplicatePolicy** on `HttpDownloadConfig` — `OVERWRITE` (default, preserves
-  pre-v2.5 behaviour), `SKIP` (return Success without network), `RENAME` (append `_1`,
-  `_2`, … to the stem).
-- **iOS background URLSession download** — `IosBackgroundDownloadWorker` survives
-  full app termination; persisted state store ensures cold-launch completion events
-  are delivered to the right `savePath` (the P0 bug fixed in this release).
-- **iOS chain retry honoring** — `WorkerResult.Retry(delayMs, attemptCap)` is now
-  honored at the chain executor level on iOS via `ChainProgress.stepRetryCounts` +
-  `ChainExecutor.requestedNextBgTaskDelayMs`.
-- **Android FGS type configurable** — `KmpHeavyWorker.foregroundServiceType` is
-  overrideable. Companion-object aliases (`FGS_DATA_SYNC`, `FGS_MEDIA_PROCESSING`,
-  `FGS_CAMERA`, …) make camera-app workloads first-class.
-- **Adversarial test coverage** — collision proof for `PendingIntent` request codes
-  (CRC32 vs `String.hashCode`), `BroadcastReceiver` lifecycle (Robolectric), iOS
-  per-step retry counter, backward-compat with v2.4.3-shaped JSON files, cold-launch
-  survival for background URLSession state.
-- **Hard-limit docs** — [`docs/IOS_BGTASK_LIMITS.md`](docs/IOS_BGTASK_LIMITS.md),
-  [`docs/ANDROID_FGS_GUIDE.md`](docs/ANDROID_FGS_GUIDE.md),
-  [`docs/APPLE_APP_STORE_REVIEW_GUIDELINES.md`](docs/APPLE_APP_STORE_REVIEW_GUIDELINES.md).
-
-Full breakdown: [`CHANGELOG.md`](CHANGELOG.md). Upgrade notes for users on v2.4.x:
-[`docs/MIGRATION_V2.5.0.md`](docs/MIGRATION_V2.5.0.md).
-
-## What's new in the v2.4.x line
-
-### iOS Dynamic Task IDs (no more Info.plist for every task) — v2.4.1+
-
-Previously, every task ID had to be declared in `BGTaskSchedulerPermittedIdentifiers` before scheduling. **v2.4.1** removes that constraint: only the two library dispatcher IDs need to be in `Info.plist`. All other task IDs are routed through an internal `AppendOnlyQueue` and executed when the OS fires the master dispatcher slot.
-
-```kotlin
-// This ID does NOT need to be in Info.plist
-scheduler.enqueue(
-    id = "user-${userId}-daily-sync",   // dynamic, per-user ID
-    trigger = TaskTrigger.Periodic(intervalMs = 24 * 60 * 60 * 1000),
-    workerClassName = "DailySyncWorker"
-)
-```
-
-```xml
-<!-- Info.plist — only these two entries are needed -->
-<key>BGTaskSchedulerPermittedIdentifiers</key>
-<array>
-    <string>kmp_master_dispatcher_task</string>
-    <string>kmp_chain_executor_task</string>
-</array>
-```
-
-> **Both dispatchers must also be registered in your `AppDelegate`** with
-> `IosBackgroundTaskHandler.shared.handleMasterDispatcherTask(...)` and
-> `handleChainExecutorTask(...)` respectively — see the
-> [Quickstart](docs/quickstart.md#ios-setup) for the full snippet. Declaring an
-> identifier in `BGTaskSchedulerPermittedIdentifiers` without registering its
-> handler causes `BGTaskScheduler` to raise `NSInternalInconsistencyException`.
-
-### Periodic Task Improvements
-Added granular control over the first execution of periodic tasks. You can now defer the initial run or set a specific delay, ensuring your app doesn't choke on heavy sync tasks immediately upon startup.
-
-```kotlin
-// Run every 1 hour, but defer the very first run by 1 hour
-TaskTrigger.Periodic(
-    intervalMs = 3600_000,
-    runImmediately = false
-)
-```
-
-### Swift Interop 2.0
-iOS developers can now use idiomatic `Double` (seconds) instead of `Long` (milliseconds) for all triggers, making the API feel native to the Apple ecosystem.
-
-```swift
-// Swift
-let trigger = createTaskTriggerPeriodicSeconds(
-    intervalSeconds: 3600, 
-    initialDelaySeconds: 600
-)
-```
-
-### iOS Native Background Task Handler
-The host application no longer needs to copy and maintain 150+ lines of Swift boilerplate to handle iOS background tasks. The library exposes three native handlers via `IosBackgroundTaskHandler.shared`:
-
-```swift
-// AppDelegate.swift — register the two dispatchers once in didFinishLaunching.
-let scheduler = koinIos.getScheduler()
-let dispatcher = koinIos.getDynamicTaskDispatcher()
-let chainExecutor = koinIos.getChainExecutor()
-
-BGTaskScheduler.shared.register(forTaskWithIdentifier: "kmp_master_dispatcher_task", using: nil) { task in
-    IosBackgroundTaskHandler.shared.handleMasterDispatcherTask(
-        task: task, dispatcher: dispatcher, scheduler: scheduler
-    )
-}
-BGTaskScheduler.shared.register(forTaskWithIdentifier: "kmp_chain_executor_task", using: nil) { task in
-    IosBackgroundTaskHandler.shared.handleChainExecutorTask(
-        task: task, chainExecutor: chainExecutor
-    )
-}
-```
-
-These handlers automatically:
-- Set up the `expirationHandler` for graceful shutdown.
-- Resolve worker metadata (`workerClassName`, `inputJson`) from file storage.
-- Execute the worker with timeout protection via `SingleTaskExecutor`.
-- **Auto-reschedule periodic tasks** and the chain executor if the queue is not empty.
-- Perform deadline checks for windowed tasks.
-
-A third handler, `handleSingleTask(task:, scheduler:, executor:)`, is available
-if you opt into giving a specific task its own dedicated identifier in
-`BGTaskSchedulerPermittedIdentifiers` (rather than going through the master
-dispatcher). Most apps don't need it.
-
-### Hardened iOS Persistence & Safety
-We've overhauled the iOS storage engine to ensure industrial-grade reliability:
-- **Okio Streaming**: All file operations (Events, History, Queue) now use Okio. Peak RAM usage is now constant (O(1)) regardless of file size, preventing OOM kills on older devices.
-- **Race Condition Fixes**: Critical fix in `IosFileCoordinator` using `AtomicInt` to ensure background blocks are executed exactly once, even during high-concurrency stress or timeouts.
-- **Self-Healing Queue**: We now detect CRC32 checksum mismatches and automatically recover/reset corrupted records to prevent persistent job stalls.
-- **UTF-8 Safety**: Guaranteed safety against multi-byte character corruption (Emoji/CJK) at chunk boundaries.
-
-### Execution history (v2.3.8)
-Every chain execution is persisted locally. Collect, upload, clear:
-
-```kotlin
-lifecycleScope.launch {
-    val records = scheduler.getExecutionHistory(limit = 200)
-    if (records.isNotEmpty()) {
-        analyticsService.uploadBatch(records)
-        scheduler.clearExecutionHistory()
-    }
-}
-```
-
-Each `ExecutionRecord` carries `chainId`, `status` (SUCCESS / FAILURE / ABANDONED / SKIPPED / TIMEOUT), `durationMs`, step counts, error message, retry count, and platform. Up to 500 records kept; older ones pruned automatically.
-
-### Telemetry hook
-Route task lifecycle events to Sentry, Crashlytics, or Datadog:
-
-```kotlin
-KmpWorkManagerConfig(
-    telemetryHook = object : TelemetryHook {
-        override fun onTaskFailed(event: TelemetryHook.TaskFailedEvent) {
-            Sentry.captureMessage("Task failed: ${event.taskName} — ${event.error}")
-        }
-        override fun onChainFailed(event: TelemetryHook.ChainFailedEvent) {
-            analytics.track("chain_failed", mapOf(
-                "chainId"   to event.chainId,
-                "failedStep" to event.failedStep
-            ))
-        }
-    }
-)
-```
-
-Six events: `onTaskStarted`, `onTaskCompleted`, `onTaskFailed`, `onChainCompleted`, `onChainFailed`, `onChainSkipped`. All have default no-op implementations.
-
-### Task priority
-`LOW`, `NORMAL`, `HIGH`, `CRITICAL`. On Android, `HIGH`/`CRITICAL` map to expedited work. On iOS, the queue is sorted by priority before each BGTask window:
-
-```kotlin
-scheduler.beginWith(
-    TaskRequest(workerClassName = "PaymentSyncWorker", priority = TaskPriority.CRITICAL)
-).enqueue()
-```
-
-### Battery guard
-```kotlin
-KmpWorkManagerConfig(minBatteryLevelPercent = 10) // defer when < 10% and not charging
-```
-Default `5%`. Works on both platforms.
-
-### KSP: BGTask ID validation
-
-```kotlin
-// iosMain
-@Worker("SyncWorker", bgTaskId = "com.example.sync-task")
-class SyncWorker : IosWorker { ... }
-
-// kmpWorkerModule() automatically validates bgTaskId against Info.plist at startup
-kmpWorkerModule(workerFactory = IosWorkerFactoryGenerated())
-```
-
-Add to `build.gradle.kts`:
-```kotlin
-plugins { id("com.google.devtools.ksp") }
-
-dependencies {
-    ksp("dev.brewkits:kmpworker-ksp:3.0.0")
-    commonMain.implementation("dev.brewkits:kmpworker-annotations:3.0.0")
-}
-```
+See the [changelog](CHANGELOG.md) for the full history, and the per-version upgrade guides:
+[v3.2.0](docs/MIGRATION_V3.2.0.md) · [v3.1.0](docs/MIGRATION_V3.1.0.md) · [v3.0.0](docs/MIGRATION_V3.0.0.md) · [v2.5.0](docs/MIGRATION_V2.5.0.md) · [v2.4.0](docs/MIGRATION_V2.4.0.md).
 
 ---
 
@@ -427,14 +226,14 @@ dependencies {
 
 | Worker | Status | Notes |
 |--------|--------|-------|
-| `HttpRequestWorker` | Stable | One-shot HTTP with configurable method, headers, body. SSRF-validated. |
+| `HttpRequestWorker` | Stable | One-shot HTTP with configurable method, headers, body. SSRF-validated. Optional `HmacSigningConfig` (HMAC-SHA256 request signing, GitHub-webhook-style prefix support) and `TokenRefreshConfig` (auto-refresh + one-shot retry on `401`, dot-notation token extraction from the refresh response). |
 | `HttpDownloadWorker` | Stable (v2.5+) | Resumable download via HTTP `Range`. `<savePath>.partial` survives process kill; a process kill resumes from last byte. Supports SHA-256/SHA-1/SHA-512/MD5 checksum verification and `DuplicatePolicy` (overwrite / skip / rename). |
-| `ParallelHttpDownloadWorker` | New in v2.5 | Splits a single file into N (1..16, default 4) HTTP `Range` chunks downloaded concurrently with per-chunk `.partN` resume. Automatic sequential fallback when the server does not advertise `Accept-Ranges: bytes`. Same checksum verification surface as `HttpDownloadWorker`. |
+| `ParallelHttpDownloadWorker` | Stable | Splits a single file into N (1..16, default 4) HTTP `Range` chunks downloaded concurrently with per-chunk `.partN` resume. Automatic sequential fallback when the server does not advertise `Accept-Ranges: bytes`. Same checksum verification surface as `HttpDownloadWorker`. |
 | `HttpUploadWorker` | ⚠️ Experimental | Streaming multipart upload. No resumable / chunked upload yet (see `ParallelHttpUploadWorker` for multi-file uploads). |
-| `ParallelHttpUploadWorker` | New in v2.5 | One POST per file with per-host `maxConcurrent` limit (1..16, default 3) and per-file retry on 5xx / network errors (`maxRetries` 0..5). Per-file outcomes exposed via `WorkerResult.Success.data.fileResults`. |
+| `ParallelHttpUploadWorker` | Stable | One POST per file with per-host `maxConcurrent` limit (1..16, default 3) and per-file retry on 5xx / network errors (`maxRetries` 0..5). Per-file outcomes exposed via `WorkerResult.Success.data.fileResults`. |
 | `IosBackgroundDownloadWorker` | iOS-only, experimental (v2.5+) | Hands the download to `URLSessionConfiguration.background` so the transfer survives **full app termination**. Host AppDelegate must wire `application(_:handleEventsForBackgroundURLSession:completionHandler:)` — see [docs/IOS_BACKGROUND_URL_SESSION.md](docs/IOS_BACKGROUND_URL_SESSION.md). |
 | `HttpSyncWorker` | Stable | Fetch-and-persist data sync. |
-| `FileCompressionWorker` | ✅ Android · 🚧 iOS | **iOS has no ZIP codec in Kotlin/Native.** The default behavior on iOS is to **fail fast** with an explicit error. Set `FileCompressionConfig.allowIosUncompressedFallback = true` to accept an uncompressed copy at the output path (useful for demo chains; the output is **not** a real ZIP). For real iOS compression, integrate [ZIPFoundation](https://github.com/weichsel/ZIPFoundation) via cinterop. |
+| `FileCompressionWorker` | ✅ Stable | Produces a real PKZIP archive (DEFLATE) on both Android and iOS. Android uses `java.util.zip`; iOS uses native `platform.zlib` (system library, no external deps). Supports low/medium/high compression levels, exclude patterns, and optional delete-original. The `allowIosUncompressedFallback` flag is **deprecated** (ignored) since v3.2.0 — iOS now always produces a valid ZIP. |
 
 > **Camera / media-app advisory.** For burst upload (50 photos at once), use
 > `ParallelHttpUploadWorker` instead of one chain step per file. For RAW / video
@@ -493,10 +292,11 @@ RFC 3986 UserInfo bypass and multi-`@` authority attacks are both handled. DNS r
 | [App Store Review Compliance](docs/APPLE_APP_STORE_REVIEW_GUIDELINES.md) | §2.5.4 — what gets rejected and how to ship safely |
 | [Android FGS Type Guide](docs/ANDROID_FGS_GUIDE.md) | `mediaProcessing` / `camera` / `dataSync` setup |
 | [iOS Background URLSession](docs/IOS_BACKGROUND_URL_SESSION.md) | Surviving app termination during long downloads |
+| [iOS Live Activities](docs/IOS_LIVE_ACTIVITIES.md) | Dynamic Island & Lock Screen progress via `IosLiveActivityBridge` |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Common issues |
 | [CHANGELOG](CHANGELOG.md) | Release history |
 
-**Migration:** [v2.2.2 → v2.3.0](docs/MIGRATION_V2.3.0.md) · [v2.3.3 → v2.3.4](docs/MIGRATION_V2.3.3_TO_V2.3.4.md) · [v2.4.x → v2.5.0](docs/MIGRATION_V2.5.0.md) · [v2.5.x → v3.0.0](docs/MIGRATION_V3.0.0.md)
+**Migration:** [v3.1.x → v3.2.0](docs/MIGRATION_V3.2.0.md) · [v2.5.x → v3.0.0](docs/MIGRATION_V3.0.0.md) · [v2.4.x → v2.5.0](docs/MIGRATION_V2.5.0.md)
 
 ---
 

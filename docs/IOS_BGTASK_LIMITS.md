@@ -324,6 +324,45 @@ fired by now. If the user never opens the app, **the task waits indefinitely**.
 
 ---
 
+## 6. Dynamic-task master dispatcher is always a `BGProcessingTask`, never a `BGAppRefreshTask`
+
+### What's actually happening
+
+Dynamic task IDs (not declared in `Info.plist`) are queued internally and
+woken via the single static `kmp_master_dispatcher_task` identifier. That
+dispatcher is **always** submitted as a `BGProcessingTaskRequest` —
+`requiresNetworkConnectivity` is now derived from the pending queue (`true`
+only when *every* pending task requires network; see the fix below), but the
+request *type* itself never becomes the cheaper, more favorably-scheduled
+`BGAppRefreshTaskRequest`, even when every pending task is light. That's
+deliberate: `BGAppRefreshTask`'s hard ~30s ceiling (no extension API) leaves
+no safe margin for the batch executor's per-task timeout (25s) plus wake and
+completion overhead — see
+[docs/ios-dynamic-task-scheduling.md § 5](ios-dynamic-task-scheduling.md#why-not-bgapprefreshtaskrequest-when-the-queue-is-all-light)
+for the full reasoning.
+
+### Library guarantees
+
+- ✅ A task scheduled with a **static ID** declared in `Info.plist` correctly
+  becomes a `BGAppRefreshTaskRequest` when `Constraints.isHeavyTask = false`.
+- ✅ `requiresNetworkConnectivity` on the dynamic-task master dispatcher is
+  `true` when every pending dynamic task requires network, `false` otherwise
+  — so an all-network-dependent queue no longer wakes opportunistically
+  offline just to fail every task and re-queue them.
+- ❌ Dynamic task IDs never get a `BGAppRefreshTaskRequest`, even when every
+  pending task is light — the master dispatcher's request *type* is fixed.
+
+### Workaround
+
+Declare a dedicated static ID for lightweight, network-bound work instead of
+relying on the dynamic-task path — that's the only way to get an actual
+`BGAppRefreshTaskRequest` today. See
+[docs/ios-dynamic-task-scheduling.md § 5](ios-dynamic-task-scheduling.md#5-known-trade-off-master-dispatcher-ignores-per-task-constraints)
+for the full explanation and the tracked follow-up
+([#79](https://github.com/brewkits/kmpworkmanager/issues/79)).
+
+---
+
 ## Summary table
 
 | Limit | Hard ceiling | Library can mitigate? | Workaround |
@@ -333,6 +372,7 @@ fired by now. If the user never opens the app, **the task waits indefinitely**.
 | Headless DI cold-start | ~10 s before budget starts ticking | No | Lazy-init non-BGTask deps; measure cold-start on real devices |
 | No ZIP codec | K/N stdlib gap | Yes (fail-fast default) | Use Swift host for compression, or wait for v2.6 zlib cinterop |
 | Exact alarms need user action | iOS has no "wake at time T and run code" primitive | Partial (catch-up on app open) | Use `UNUserNotification` for user-visible alarms; server-side scheduler for SLA-critical timing |
+| Master dispatcher never becomes `BGAppRefreshTask` | Always `BGProcessingTaskRequest` — 25s per-task timeout leaves no margin under App Refresh's 30s ceiling | No (not safe with current batch executor; network flag alone is fixed) | Use a dedicated static `Info.plist` ID for light tasks |
 
 ---
 

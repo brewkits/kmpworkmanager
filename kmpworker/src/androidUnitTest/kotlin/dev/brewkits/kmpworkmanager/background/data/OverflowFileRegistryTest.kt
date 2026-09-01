@@ -15,26 +15,29 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Regression net for the v2.5.0 QA-review-found overflow-file leak.
+ * Regression net for the v2.5.0 QA-review-found overflow-file leak, and for the 3.3.0
+ * multi-process fix (ROADMAP.md "File-backed `OverflowFileRegistry` for Android
+ * multi-process apps").
  *
- * **The bug**: `NativeTaskScheduler.cancel(id)` did not delete the
+ * **The original bug**: `NativeTaskScheduler.cancel(id)` did not delete the
  * `cacheDir/kmp_input_<uuid>.json` overflow file that was created when the input JSON
  * exceeded 8 KB. The file lived in cacheDir until the 24 h `cleanupStaleAlarms` sweep
- * mopped it up. Apps that schedule and cancel many large-input tasks (camera draft
- * save → cancel → save → cancel → …) accumulated megabytes of orphaned files.
+ * mopped it up.
  *
- * **The fix**: an `OverflowFileRegistry` records the (taskId, absolutePath) mapping
- * at schedule time. `cancel(id)` looks the mapping up, deletes the file, and removes
- * the entry. This test pins:
+ * **The v2.5.0 fix**: an `OverflowFileRegistry` records the (taskId, absolutePath)
+ * mapping at schedule time, backed by `SharedPreferences`. `cancel(id)` looks the
+ * mapping up, deletes the file, and removes the entry.
  *
- *  1. `register` writes a mapping that survives a fresh registry lookup.
- *  2. `consumeAndDelete` returns the recorded path AND removes the file.
- *  3. `consumeAndDelete` is idempotent — a second call returns null without throwing.
- *  4. `register(path = null)` is a no-op (lets callers pass through without a guard).
- *  5. The on-disk file is actually gone after consume (not just the prefs entry).
+ * **The 3.3.0 fix**: `SharedPreferences` caches its contents in memory per `Context`
+ * instance. Hosts with separate processes (`:background`, `:push`, …) each hold their
+ * own cache, so a `register()` in process A could race a `consumeAndDelete()` in
+ * process B — B's cache doesn't see A's write yet, returns null, and the file leaks
+ * until the janitor sweep. The registry is now backed by one file per entry under
+ * `cacheDir/overflow_registry/`, which has no per-process caching layer to race.
  *
- * **Why Robolectric**: SharedPreferences requires a real Android Context. Robolectric
- * provides a fast in-memory implementation suitable for JVM unit tests.
+ * **Why Robolectric**: both the legacy `SharedPreferences` path (migration test) and
+ * `cacheDir` need a real Android `Context`. Robolectric provides fast in-memory/real-fs
+ * implementations suitable for JVM unit tests.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33])
@@ -43,20 +46,26 @@ class OverflowFileRegistryTest {
     private lateinit var context: Context
     private lateinit var tempDir: File
 
+    private val legacyPrefs
+        get() = context.getSharedPreferences("dev.brewkits.kmpworkmanager.overflow_files", Context.MODE_PRIVATE)
+
+    private val registryDir
+        get() = File(context.cacheDir, "overflow_registry")
+
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
         tempDir = File(context.cacheDir, "registry-test-${System.nanoTime()}").apply { mkdirs() }
-        // Start each test with a clean prefs slate.
-        context.getSharedPreferences("dev.brewkits.kmpworkmanager.overflow_files", Context.MODE_PRIVATE)
-            .edit().clear().commit()
+        legacyPrefs.edit().clear().commit()
+        registryDir.deleteRecursively()
+        OverflowFileRegistry.resetMigrationStateForTesting()
     }
 
     @After
     fun tearDown() {
         tempDir.deleteRecursively()
-        context.getSharedPreferences("dev.brewkits.kmpworkmanager.overflow_files", Context.MODE_PRIVATE)
-            .edit().clear().commit()
+        legacyPrefs.edit().clear().commit()
+        registryDir.deleteRecursively()
     }
 
     private fun makeOverflowFile(name: String, content: String = "{\"x\":1}"): File =
@@ -122,19 +131,118 @@ class OverflowFileRegistryTest {
 
     @Test
     fun manyRegisterCancelCycles_leakNothing() {
-        // Stress: 100 round-trips. After the loop, prefs should be empty and tempDir
-        // should be empty. Pinned to prove the spec for camera-app "save → cancel"
-        // workloads doesn't accumulate residue.
+        // Stress: 100 round-trips. After the loop, the registry directory should be empty
+        // and tempDir should be empty. Pinned to prove the spec for camera-app
+        // "save → cancel" workloads doesn't accumulate residue.
         repeat(100) { i ->
             val f = makeOverflowFile("kmp_input_loop_$i.json")
             OverflowFileRegistry.register(context, "task-loop-$i", f.absolutePath)
             OverflowFileRegistry.consumeAndDelete(context, "task-loop-$i")
         }
 
-        val prefs = context.getSharedPreferences("dev.brewkits.kmpworkmanager.overflow_files", Context.MODE_PRIVATE)
-        assertTrue(prefs.all.isEmpty(), "prefs must be empty after 100 round-trips, got ${prefs.all}")
+        val leftoverEntries = registryDir.listFiles()?.toList() ?: emptyList()
+        assertTrue(leftoverEntries.isEmpty(), "registry dir must be empty after 100 round-trips, got ${leftoverEntries.map { it.name }}")
 
-        val leftover = tempDir.listFiles()?.filter { it.name.startsWith("kmp_input_loop_") } ?: emptyList()
-        assertTrue(leftover.isEmpty(), "no overflow files should remain, got ${leftover.map { it.name }}")
+        val leftoverFiles = tempDir.listFiles()?.filter { it.name.startsWith("kmp_input_loop_") } ?: emptyList()
+        assertTrue(leftoverFiles.isEmpty(), "no overflow files should remain, got ${leftoverFiles.map { it.name }}")
+    }
+
+    // ── 3.3.0: file-backed storage properties ──────────────────────────────────────────
+
+    @Test
+    fun distinctTaskIds_neverCollide_evenWithSimilarLookingIds() {
+        // The encoding must be INJECTIVE — a hash-based key derivation risks two
+        // different task ids mapping to the same filename, which would silently merge
+        // (and mutually clobber/delete) two unrelated tasks' overflow-file entries. This
+        // is the correctness property a hash-based scheme (like a CRC32 key) would NOT
+        // guarantee; percent-encoding does, by construction.
+        val fileA = makeOverflowFile("kmp_input_f.json")
+        val fileB = makeOverflowFile("kmp_input_g.json")
+
+        OverflowFileRegistry.register(context, "task/with/slashes", fileA.absolutePath)
+        OverflowFileRegistry.register(context, "task-with-slashes", fileB.absolutePath)
+
+        // Consuming one must not affect the other.
+        val consumedA = OverflowFileRegistry.consumeAndDelete(context, "task/with/slashes")
+        assertEquals(fileA.absolutePath, consumedA)
+        assertTrue(fileB.exists(), "an unrelated similarly-named task's file must survive")
+
+        val consumedB = OverflowFileRegistry.consumeAndDelete(context, "task-with-slashes")
+        assertEquals(fileB.absolutePath, consumedB)
+    }
+
+    @Test
+    fun hostileTaskIds_cannotEscapeTheRegistryDirectory() {
+        // Task ids are caller-supplied (BackgroundTaskScheduler.enqueue(id: String, ...)),
+        // so a path-traversal-shaped id must not let register() write outside
+        // overflow_registry/, and must still round-trip correctly through the public API.
+        val file = makeOverflowFile("kmp_input_h.json")
+        val hostileIds = listOf(
+            "../../../etc/passwd",
+            "..",
+            ".",
+            "a/../../b",
+            "task with spaces",
+            "τάσκ-unicode-🎯"
+        )
+
+        for (id in hostileIds) {
+            OverflowFileRegistry.register(context, id, file.absolutePath)
+        }
+
+        // Every entry must have landed inside overflow_registry/ — none of the hostile
+        // ids may have escaped it (e.g. by writing into cacheDir directly or its parent).
+        val entries = registryDir.listFiles()?.toList() ?: emptyList()
+        assertEquals(hostileIds.size, entries.size, "every hostile id must produce exactly one contained entry file")
+        for (entry in entries) {
+            assertEquals(registryDir.canonicalPath, entry.canonicalFile.parentFile?.canonicalPath)
+        }
+
+        // And each must still be independently consumable via the public API.
+        for (id in hostileIds) {
+            assertEquals(file.absolutePath, OverflowFileRegistry.consumeAndDelete(context, id))
+        }
+    }
+
+    // ── 3.3.0: legacy SharedPreferences migration ───────────────────────────────────────
+
+    @Test
+    fun legacyPrefsEntry_isMigratedAndConsumedCorrectly() {
+        // Simulate a v2.5.0-era app that has an existing registry entry in
+        // SharedPreferences from before the upgrade to the file-backed registry — written
+        // directly to prefs, bypassing OverflowFileRegistry entirely (it never wrote
+        // prefs in this test process before this point).
+        val file = makeOverflowFile("kmp_input_legacy.json")
+        legacyPrefs.edit().putString("of_legacy-task", file.absolutePath).commit()
+
+        // No register() call for "legacy-task" in this process — the only way consume can
+        // find it is by migrating the legacy entry first.
+        val returned = OverflowFileRegistry.consumeAndDelete(context, "legacy-task")
+
+        assertEquals(file.absolutePath, returned, "legacy entry must be found via migration")
+        assertFalse(file.exists(), "migrated entry must still delete the overflow file")
+        assertTrue(legacyPrefs.all.isEmpty(), "legacy prefs must be cleared after migration")
+    }
+
+    @Test
+    fun legacyMigration_isIdempotent_acrossRepeatedCalls() {
+        val fileX = makeOverflowFile("kmp_input_x.json")
+        val fileY = makeOverflowFile("kmp_input_y.json")
+        legacyPrefs.edit()
+            .putString("of_legacy-x", fileX.absolutePath)
+            .putString("of_legacy-y", fileY.absolutePath)
+            .commit()
+
+        // Trigger migration via a register() call unrelated to either legacy entry.
+        val untouched = makeOverflowFile("kmp_input_z.json")
+        OverflowFileRegistry.register(context, "task-z", untouched.absolutePath)
+
+        // Simulate migration running again (e.g. a second process, or the latch being
+        // re-armed) — must not throw, must not duplicate/corrupt entries.
+        OverflowFileRegistry.resetMigrationStateForTesting()
+        OverflowFileRegistry.register(context, "task-z2", untouched.absolutePath)
+
+        assertEquals(fileX.absolutePath, OverflowFileRegistry.consumeAndDelete(context, "legacy-x"))
+        assertEquals(fileY.absolutePath, OverflowFileRegistry.consumeAndDelete(context, "legacy-y"))
     }
 }

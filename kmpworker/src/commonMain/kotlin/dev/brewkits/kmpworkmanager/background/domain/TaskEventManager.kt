@@ -54,6 +54,26 @@ object TaskEventManager {
     }
 
     /**
+     * Clears the registered store so a later [initialize] can install a new one.
+     *
+     * LIFECYCLE: [initialize] is deliberately compare-and-set "first call wins" so that a
+     * duplicate init cannot swap the store out from under in-flight workers. That guard
+     * also means a re-`initialize` after `KmpWorkManager.shutdown()` would silently keep
+     * the dead registry's store — events would be written through an instance the live
+     * registry no longer owns. `shutdown()` calls this to release the claim.
+     */
+    internal fun releaseStore() {
+        eventStoreRef.value = null
+    }
+
+    /**
+     * Returns the registered store, or null if [initialize] has not run.
+     * For use in tests only.
+     * @suppress
+     */
+    internal fun currentStoreForTest(): EventStore? = eventStoreRef.value
+
+    /**
      * Emits a task completion event.
      *
      * Flow:
