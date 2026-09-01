@@ -20,7 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the ID passed to `TaskChain.withId()`. `enqueueChain()` now stamps namespaced
   `kmp_chain_id`/`kmp_step_index`/`kmp_total_steps` keys per step; `BaseKmpWorker` reads
   them back for `TaskStartedEvent`/`TaskCompletedEvent`/`TaskFailedEvent` and
-  `ExecutionRecord`. Standalone tasks are unaffected. See
+  `ExecutionRecord`. Standalone tasks are unaffected. **Behavior change:**
+  `ExecutionRecord.failedStep` on Android was previously always `0` on failure; it now
+  reports the real 0-based step index that failed (still `0` for standalone tasks). See
   [#87](https://github.com/brewkits/kmpworkmanager/pull/87).
 
 ## [3.3.1] - 2026-08-09
