@@ -25,7 +25,7 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
       - run: chmod +x gradlew
       - name: kmpworker checks (excludes platform-specific tests)
         run: >-
@@ -81,7 +81,7 @@ jobs:
         run: sudo xcode-select -s "/Applications/Xcode_${{ matrix.xcode }}.app"
       - name: List simulator runtimes (diagnostic)
         run: xcrun simctl list runtimes
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
       - run: chmod +x gradlew
       - name: iosSimulatorArm64Test
         env:
@@ -111,7 +111,7 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
       - run: chmod +x gradlew
       - name: testDebugUnitTest
         run: ./gradlew :kmpworker:testDebugUnitTest :kmpworker-http:testDebugUnitTest
@@ -154,7 +154,7 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
       - run: chmod +x gradlew
       - name: Enable KVM (Linux only — no-op on macOS)
         if: runner.os == 'Linux'
@@ -196,7 +196,7 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
       - run: chmod +x gradlew
       - name: Android demo APK
         run: ./gradlew :composeApp:assembleDebug
