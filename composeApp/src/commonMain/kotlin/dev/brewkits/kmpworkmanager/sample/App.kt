@@ -20,6 +20,7 @@ import dev.brewkits.kmpworkmanager.background.domain.Constraints
 import dev.brewkits.kmpworkmanager.background.domain.TaskRequest
 import dev.brewkits.kmpworkmanager.background.domain.TaskTrigger
 import dev.brewkits.kmpworkmanager.background.domain.TaskEventBus
+import dev.brewkits.kmpworkmanager.sample.stats.TaskStatsManager
 import dev.brewkits.kmpworkmanager.background.domain.TaskCompletionEvent
 import dev.brewkits.kmpworkmanager.background.domain.ScheduleResult
 import dev.brewkits.kmpworkmanager.sample.debug.DebugScreen
@@ -73,6 +74,11 @@ fun App(
 
     // Snackbar host state for showing toast messages
     val snackbarHostState = remember { SnackbarHostState() }
+
+    // Feed the dashboard's stats from the same event stream.
+    LaunchedEffect(Unit) {
+        TaskStatsManager.startCollecting(this)
+    }
 
     // Listen for task completion events and show snackbar
     LaunchedEffect(Unit) {

@@ -5,6 +5,7 @@ plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidLibrary)
     alias(libs.plugins.kotlinx.serialization)
+    alias(libs.plugins.kover)
     id("maven-publish")
     id("signing")
 }
@@ -52,13 +53,13 @@ kotlin {
             implementation(libs.androidx.work.runtime.ktx)
             // Coroutines support for Guava ListenableFuture
             implementation(libs.kotlinx.coroutines.guava)
-            // Koin for Android
-            implementation(libs.koin.android)
+            // NotificationCompat for the foreground-service notification in KmpWorker /
+            // KmpHeavyWorker. Declared explicitly — it used to arrive transitively via
+            // koin-android, which no production code in androidMain actually imports.
+            implementation(libs.androidx.core.ktx)
         }
 
         commonMain.dependencies {
-            // Koin for dependency injection
-            implementation(libs.koin.core)
             // Kotlinx Datetime for handling dates and times
             implementation(libs.kotlinx.datetime)
             // Kotlinx Serialization for JSON processing
@@ -120,6 +121,9 @@ android {
 
     testOptions {
         unitTests.isReturnDefaultValues = true
+        // Let Robolectric load merged Android resources (e.g. the worker notification
+        // strings used by KmpWorker.getForegroundInfo()) in JVM unit tests.
+        unitTests.isIncludeAndroidResources = true
     }
 }
 

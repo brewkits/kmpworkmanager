@@ -4,12 +4,11 @@ import android.content.Context
 import androidx.work.Configuration
 import androidx.work.DelegatingWorkerFactory
 import androidx.work.WorkManager
-import dev.brewkits.kmpworkmanager.background.data.KmpHeavyWorker
-import dev.brewkits.kmpworkmanager.background.data.KmpWorker
 import dev.brewkits.kmpworkmanager.background.data.KmpWorkerFactory
 import dev.brewkits.kmpworkmanager.background.data.NativeTaskScheduler
 import dev.brewkits.kmpworkmanager.background.domain.AndroidWorkerFactory
 import dev.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
+import dev.brewkits.kmpworkmanager.background.domain.ExecutionRecord
 import dev.brewkits.kmpworkmanager.background.domain.TaskEventManager
 import dev.brewkits.kmpworkmanager.background.domain.WorkerFactory
 import dev.brewkits.kmpworkmanager.persistence.AndroidEventStore
@@ -17,56 +16,69 @@ import dev.brewkits.kmpworkmanager.persistence.AndroidExecutionHistoryStore
 import dev.brewkits.kmpworkmanager.persistence.EventStore
 import dev.brewkits.kmpworkmanager.persistence.ExecutionHistoryStore
 import dev.brewkits.kmpworkmanager.utils.Logger
-import org.koin.core.Koin
-import org.koin.core.KoinApplication
-import org.koin.dsl.koinApplication
-import org.koin.dsl.module
 
 /**
- * Private Koin instance for KMP WorkManager
+ * Android service registry — the Koin-free replacement for the private `koinApplication`
+ * that used to live here.
  *
- * **Breaking Change:** Isolated Koin to prevent conflicts with host app's Koin.
- *
- * **Problem:**
- * - Used global Koin (startKoin)
- * - Conflicts with host app's Koin = instant crash
- * - "A KoinApplication has already been started" error
- *
- * **Solution:**
- * - Private KoinApplication (not global)
- * - Host app's Koin is completely independent
- * - No conflicts, no crashes
- *
- * **Migration:**
- * ```kotlin
- * // OLD
- * startKoin {
- *     androidContext(this@Application)
- *     modules(kmpWorkerModule(workerFactory = MyWorkerFactory()))
- * }
- *
- * // NEW
- * KmpWorkManager.initialize(
- *     context = this@Application,
- *     workerFactory = MyWorkerFactory(),
- *     config = KmpWorkManagerConfig(logLevel = Logger.Level.INFO)
- * )
- * ```
+ * Each service is a `by lazy` singleton, which reproduces Koin's `single { }` semantics
+ * (created once, on first access, thread-safely) without a DI container. The two
+ * persistence stores are deliberately **not** lazy — see [createEagerServices].
  */
-internal object KmpWorkManagerKoin {
-    private lateinit var koinApp: KoinApplication
-    @Volatile
-    private var isInitialized = false
-    private val initLock = Any()
+internal class AndroidServiceRegistry(
+    val context: Context,
+    val workerFactory: WorkerFactory
+) {
+    val androidWorkerFactory: AndroidWorkerFactory by lazy {
+        workerFactory as? AndroidWorkerFactory
+            ?: error("WorkerFactory must implement AndroidWorkerFactory on Android")
+    }
+
+    val backgroundTaskScheduler: BackgroundTaskScheduler by lazy {
+        NativeTaskScheduler(context)
+    }
+
+    val eventStore: EventStore by lazy { AndroidEventStore(context) }
+
+    val executionHistoryStore: ExecutionHistoryStore by lazy {
+        AndroidExecutionHistoryStore(context)
+    }
 
     /**
-     * Initialize private Koin instance (thread-safe)
+     * Instantiates the services that must exist before any worker runs, and publishes them
+     * to the global runtime hooks that workers read from.
      *
-     * @param context Android application context
-     * @param workerFactory Worker factory implementation
-     * @param config Configuration for logging and other settings
-     * @throws IllegalStateException if already initialized with throw=true
+     * LIFECYCLE: both stores register themselves through a global side channel —
+     * [TaskEventManager.initialize] and [KmpWorkManagerRuntime.setHistoryStore] — which
+     * workers consult via nullable reads. `ExecutionHistoryStore` already carried
+     * `createdAtStart = true` in the Koin module for exactly this reason; `EventStore` did
+     * not, so events went unpersisted (with only a warn log) unless the host app happened to
+     * resolve it. Both are eager now, on both platforms.
+     *
+     * Both constructors are cheap — their directory resolution is itself `by lazy`, so no
+     * file I/O happens on the main thread during init.
      */
+    fun createEagerServices() {
+        TaskEventManager.initialize(eventStore)
+        KmpWorkManagerRuntime.setHistoryStore(executionHistoryStore)
+    }
+}
+
+/**
+ * Internal holder for the Android registry.
+ *
+ * **History:** this used to be `KmpWorkManagerKoin`, a private `KoinApplication` introduced
+ * in 2.2.2 to stop the library's global `startKoin` from colliding with the host app's Koin
+ * ("A KoinApplication has already been started"). Isolation solved the crash but still put
+ * `koin-core` in every consumer's POM — see discussion #66. The container was only ever used
+ * as a service locator over a handful of singletons, so it is now a plain registry and Koin
+ * is gone entirely.
+ */
+internal object KmpWorkManagerAndroid {
+    @Volatile
+    private var registry: AndroidServiceRegistry? = null
+    private val initLock = Any()
+
     fun initialize(
         context: Context,
         workerFactory: WorkerFactory,
@@ -74,7 +86,7 @@ internal object KmpWorkManagerKoin {
         throwOnDuplicate: Boolean = false
     ) {
         // Double-checked locking pattern for thread safety
-        if (isInitialized) {
+        if (registry != null) {
             if (throwOnDuplicate) {
                 throw IllegalStateException("KmpWorkManager already initialized")
             }
@@ -84,7 +96,7 @@ internal object KmpWorkManagerKoin {
 
         synchronized(initLock) {
             // Check again inside lock (double-checked locking)
-            if (isInitialized) {
+            if (registry != null) {
                 if (throwOnDuplicate) {
                     throw IllegalStateException("KmpWorkManager already initialized")
                 }
@@ -100,7 +112,8 @@ internal object KmpWorkManagerKoin {
             KmpWorkManagerRuntime.configure(config)
 
             // Propagate optional foreground notification title to KmpWorker
-            dev.brewkits.kmpworkmanager.background.data.BaseKmpWorker.configNotificationTitle = config.androidForegroundNotificationTitle
+            dev.brewkits.kmpworkmanager.background.data.BaseKmpWorker.configNotificationTitle =
+                config.androidForegroundNotificationTitle
 
             // Register KmpWorkerFactory with WorkManager so KmpWorker / KmpHeavyWorker receive
             // AndroidWorkerFactory via constructor injection instead of a Service Locator lookup.
@@ -121,48 +134,15 @@ internal object KmpWorkManagerKoin {
                     Logger.w(
                         "KmpWorkManager",
                         "WorkManager already initialized by host app — KmpWorkerFactory not registered. " +
-                            "Add KmpWorkerFactory to your DelegatingWorkerFactory to eliminate the Koin " +
+                            "Add KmpWorkerFactory to your DelegatingWorkerFactory to eliminate the " +
                             "Service Locator fallback. See KmpWorkerFactory KDoc for setup instructions."
                     )
                 }
             }
 
-            // Create private Koin instance (not global!)
-            koinApp = koinApplication {
-                modules(
-                    module {
-                        // Context
-                        single<Context> { context }
-
-                        // Worker factory
-                        single<WorkerFactory> { workerFactory }
-                        single<AndroidWorkerFactory> {
-                            workerFactory as? AndroidWorkerFactory
-                                ?: error("WorkerFactory must implement AndroidWorkerFactory on Android")
-                        }
-
-                        // Task scheduler
-                        single<BackgroundTaskScheduler> {
-                            NativeTaskScheduler(get())
-                        }
-
-                        // Event persistence
-                        single<EventStore> {
-                            val store = AndroidEventStore(get())
-                            TaskEventManager.initialize(store)
-                            store
-                        }
-
-                        // Execution history persistence — created eagerly so
-                        // KmpWorkManagerRuntime.executionHistoryStore is set before any worker runs.
-                        single<ExecutionHistoryStore>(createdAtStart = true) {
-                            AndroidExecutionHistoryStore(get()).also {
-                                KmpWorkManagerRuntime.setHistoryStore(it)
-                            }
-                        }
-                    }
-                )
-            }
+            val created = AndroidServiceRegistry(context = context, workerFactory = workerFactory)
+            created.createEagerServices()
+            registry = created
 
             // Cleanup stale overflow temp files from previous sessions.
             // If the app was force-killed between spilling the file and the worker's finally block,
@@ -170,8 +150,7 @@ internal object KmpWorkManagerKoin {
             // when no workers are running yet, so there's no risk of racing with an active worker.
             cleanupStaleOverflowFiles(context)
 
-            isInitialized = true
-            Logger.i("KmpWorkManager", "✅ Initialized with private Koin (isolated from host app)")
+            Logger.i("KmpWorkManager", "✅ Initialized (no DI framework required)")
         }
     }
 
@@ -199,63 +178,50 @@ internal object KmpWorkManagerKoin {
      */
     fun shutdown() {
         synchronized(initLock) {
-            if (!isInitialized) {
+            if (registry == null) {
                 Logger.w("KmpWorkManager", "Not initialized - nothing to shutdown")
                 return
             }
-
-            try {
-                koinApp.close()
-                Logger.i("KmpWorkManager", "✅ Shutdown complete - Koin resources released")
-            } catch (e: Exception) {
-                Logger.e("KmpWorkManager", "Error during shutdown", e)
-            } finally {
-                isInitialized = false
-            }
+            registry = null
+            // Release the global side-channel registrations too. TaskEventManager.initialize()
+            // is first-call-wins, so leaving the claim in place would make a later
+            // initialize() silently keep this dead registry's store.
+            TaskEventManager.releaseStore()
+            KmpWorkManagerRuntime.clearHistoryStore()
+            Logger.i("KmpWorkManager", "✅ Shutdown complete - resources released")
         }
     }
 
     /**
-     * Get private Koin instance
-     * @throws IllegalStateException if not initialized
+     * @throws IllegalStateException if [initialize] has not been called. The message is the
+     * one workers surface when WorkManager instantiates them before app init has run, so
+     * keep it actionable.
      */
-    fun getKoin(): Koin {
-        if (!isInitialized) {
-            throw IllegalStateException(
-                """
-                KmpWorkManager not initialized!
+    fun requireRegistry(): AndroidServiceRegistry = registry ?: throw IllegalStateException(
+        """
+        KmpWorkManager not initialized!
 
-                Call KmpWorkManager.initialize() in your Application.onCreate():
+        Call KmpWorkManager.initialize() in your Application.onCreate():
 
-                KmpWorkManager.initialize(
-                    context = this,
-                    workerFactory = MyWorkerFactory()
-                )
-                """.trimIndent()
-            )
-        }
-        return koinApp.koin
-    }
+        KmpWorkManager.initialize(
+            context = this,
+            workerFactory = MyWorkerFactory()
+        )
+        """.trimIndent()
+    )
 
-    /**
-     * Check if initialized (thread-safe)
-     */
-    fun isInitialized(): Boolean {
-        // Volatile read ensures visibility across threads
-        return isInitialized
-    }
+    fun isInitialized(): Boolean = registry != null
 }
 
 /**
- * Public API for KmpWorkManager initialization
+ * Public API for KmpWorkManager initialization.
  *
- * **Usage:**
+ * **Usage — no DI framework required:**
  * ```kotlin
  * class MyApplication : Application() {
  *     override fun onCreate() {
  *         super.onCreate()
  *
- *         // Initialize KmpWorkManager
  *         KmpWorkManager.initialize(
  *             context = this,
  *             workerFactory = MyWorkerFactory(),
@@ -266,10 +232,24 @@ internal object KmpWorkManagerKoin {
  *     }
  * }
  * ```
+ *
+ * **If you use Koin, Hilt or anything else,** wrap this in your own module — the library no
+ * longer ships one:
+ * ```kotlin
+ * // Koin
+ * val appModule = module {
+ *     single { KmpWorkManager.getInstance().backgroundTaskScheduler }
+ * }
+ *
+ * // Hilt
+ * @Provides @Singleton
+ * fun scheduler(): BackgroundTaskScheduler =
+ *     KmpWorkManager.getInstance().backgroundTaskScheduler
+ * ```
  */
 object KmpWorkManager {
     /**
-     * Initialize KmpWorkManager with isolated Koin
+     * Initialize KmpWorkManager.
      *
      * @param context Android application context
      * @param workerFactory Worker factory implementation
@@ -280,13 +260,13 @@ object KmpWorkManager {
         workerFactory: WorkerFactory,
         config: KmpWorkManagerConfig = KmpWorkManagerConfig()
     ) {
-        KmpWorkManagerKoin.initialize(context, workerFactory, config)
+        KmpWorkManagerAndroid.initialize(context, workerFactory, config)
     }
 
     /**
      * Check if KmpWorkManager is initialized
      */
-    fun isInitialized(): Boolean = KmpWorkManagerKoin.isInitialized()
+    fun isInitialized(): Boolean = KmpWorkManagerAndroid.isInitialized()
 
     /**
      * Get KmpWorkManager instance
@@ -295,7 +275,7 @@ object KmpWorkManager {
      * @throws IllegalStateException if not initialized
      */
     fun getInstance(): KmpWorkManagerInstance {
-        return KmpWorkManagerInstance(KmpWorkManagerKoin.getKoin())
+        return KmpWorkManagerInstance(KmpWorkManagerAndroid.requireRegistry())
     }
 
     /**
@@ -316,19 +296,35 @@ object KmpWorkManager {
      * ```
      */
     fun shutdown() {
-        KmpWorkManagerKoin.shutdown()
+        KmpWorkManagerAndroid.shutdown()
     }
 }
 
 /**
  * KmpWorkManager instance providing access to scheduler and other services
  */
-class KmpWorkManagerInstance internal constructor(private val koin: Koin) {
+class KmpWorkManagerInstance internal constructor(private val registry: AndroidServiceRegistry) {
     /**
      * Background task scheduler for enqueuing and managing tasks
      */
     val backgroundTaskScheduler: BackgroundTaskScheduler
-        get() = koin.get()
+        get() = registry.backgroundTaskScheduler
+
+    /**
+     * Persistent store for task completion events.
+     */
+    val eventStore: EventStore
+        get() = registry.eventStore
+
+    /**
+     * The factory passed to [KmpWorkManager.initialize].
+     *
+     * Exposed for hosts that run workers outside WorkManager — a custom
+     * `BroadcastReceiver` for exact alarms, for example — and therefore need to resolve a
+     * worker by class name themselves.
+     */
+    val workerFactory: WorkerFactory
+        get() = registry.workerFactory
 
     /**
      * Returns the most recent task execution records, newest first.
@@ -339,7 +335,7 @@ class KmpWorkManagerInstance internal constructor(private val koin: Koin) {
      *
      * @param limit Maximum number of records to return. Defaults to 100.
      */
-    suspend fun getExecutionHistory(limit: Int = 100): List<dev.brewkits.kmpworkmanager.background.domain.ExecutionRecord> =
+    suspend fun getExecutionHistory(limit: Int = 100): List<ExecutionRecord> =
         backgroundTaskScheduler.getExecutionHistory(limit)
 
     /**

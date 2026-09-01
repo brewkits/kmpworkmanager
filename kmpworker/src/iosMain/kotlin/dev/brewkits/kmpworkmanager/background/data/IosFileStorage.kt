@@ -43,6 +43,22 @@ internal data class ChainTransaction(
 )
 
 /**
+ * Aggregate light/network profile of the tasks currently pending in the dynamic-task queue.
+ * See [IosFileStorage.getDynamicQueueConstraintSummary].
+ */
+internal data class DynamicQueueConstraintSummary(
+    val pendingCount: Int,
+    val heavyCount: Int,
+    val networkRequiredCount: Int
+) {
+    /** True when every pending task is light — safe to schedule as `BGAppRefreshTask`. */
+    val allLight: Boolean get() = pendingCount > 0 && heavyCount == 0
+
+    /** True when every pending task requires network connectivity. */
+    val allRequireNetwork: Boolean get() = pendingCount > 0 && networkRequiredCount == pendingCount
+}
+
+/**
  * Configuration for [IosFileStorage].
  *
  * @param diskSpaceBufferBytes Minimum free space required before any write (safety margin).
@@ -515,6 +531,36 @@ public class IosFileStorage(
     suspend fun getQueueSize(): Int = queue.getSize()
 
     /**
+     * Aggregate light/network profile of every task currently sitting in the dynamic-task
+     * queue. Lets the master dispatcher be scheduled with constraints that actually match
+     * what's pending, instead of always requesting an unconstrained `BGProcessingTask`.
+     * See docs/ios-dynamic-task-scheduling.md § 5.
+     *
+     * Always reads from disk (like [getQueueSize]) — the same multi-instance staleness
+     * concern applies, and this is called once per master-dispatcher schedule decision,
+     * not per task, so the extra I/O is acceptable.
+     *
+     * **Performance**: O(N) on queue size (bounded by [MAX_QUEUE_SIZE]) — one metadata
+     * read per pending task.
+     */
+    internal suspend fun getDynamicQueueConstraintSummary(): DynamicQueueConstraintSummary {
+        val ids = tasksQueue.getAllItems()
+        var heavyCount = 0
+        var networkCount = 0
+        for (id in ids) {
+            // A dynamic task ID is either one-time or periodic metadata — never both.
+            val meta = loadTaskMetadata(id, periodic = false) ?: loadTaskMetadata(id, periodic = true)
+            if (meta?.get("isHeavyTask") == "true") heavyCount++
+            if (meta?.get("requiresNetwork") == "true") networkCount++
+        }
+        return DynamicQueueConstraintSummary(
+            pendingCount = ids.size,
+            heavyCount = heavyCount,
+            networkRequiredCount = networkCount
+        )
+    }
+
+    /**
      * Sort the execution queue by task priority (highest first).
      *
      * Drains all chain IDs from the queue, sorts them by the maximum [TaskPriority]
@@ -688,7 +734,7 @@ public class IosFileStorage(
      * Save chain definition to file
      */
     fun saveChainDefinition(id: String, steps: List<List<TaskRequest>>) {
-        val chainFile = chainsDirURL.safeAppend("$id.json")
+        val chainFile = chainsDirURL.safeAppend("${id.encodeAsPathComponent()}.json")
         val json = Json.encodeToString(steps)
 
         // Use actual UTF-8 byte count, not String.length (UTF-16 char count).
@@ -716,7 +762,7 @@ public class IosFileStorage(
      * now `suspend` (must acquire `progressMutex` to evict the buffer entry).
      */
     suspend fun loadChainDefinition(id: String): List<List<TaskRequest>>? {
-        val chainFile = chainsDirURL.safeAppend("$id.json")
+        val chainFile = chainsDirURL.safeAppend("${id.encodeAsPathComponent()}.json")
 
         // The `coordinated` callback is a non-suspend block, so the suspend-only
         // `deleteChainProgress(id)` call has to happen AFTER coordination returns.
@@ -751,7 +797,7 @@ public class IosFileStorage(
      * Delete chain definition
      */
     fun deleteChainDefinition(id: String) {
-        val chainFile = chainsDirURL.safeAppend("$id.json")
+        val chainFile = chainsDirURL.safeAppend("${id.encodeAsPathComponent()}.json")
         deleteFile(chainFile)
         Logger.d(LogTags.CHAIN, "Deleted chain definition $id")
     }
@@ -760,7 +806,7 @@ public class IosFileStorage(
      * Check if chain definition exists
      */
     fun chainExists(id: String): Boolean {
-        val chainFile = chainsDirURL.safeAppend("$id.json")
+        val chainFile = chainsDirURL.safeAppend("${id.encodeAsPathComponent()}.json")
         val path = chainFile.path ?: return false
         return fileManager.fileExistsAtPath(path)
     }
@@ -773,7 +819,7 @@ public class IosFileStorage(
      *
      */
     fun markChainAsDeleted(chainId: String) {
-        val markerFile = deletedChainsDirURL.safeAppend("$chainId.marker")
+        val markerFile = deletedChainsDirURL.safeAppend("${chainId.encodeAsPathComponent()}.marker")
         val timestamp = NSDate().timeIntervalSince1970.toLong()
 
         coordinated(markerFile, write = true) { safeUrl ->
@@ -789,7 +835,7 @@ public class IosFileStorage(
      *
      */
     fun isChainDeleted(chainId: String): Boolean {
-        val markerFile = deletedChainsDirURL.safeAppend("$chainId.marker")
+        val markerFile = deletedChainsDirURL.safeAppend("${chainId.encodeAsPathComponent()}.marker")
         val path = markerFile.path ?: return false
         return fileManager.fileExistsAtPath(path)
     }
@@ -800,7 +846,7 @@ public class IosFileStorage(
      *
      */
     fun clearDeletedMarker(chainId: String) {
-        val markerFile = deletedChainsDirURL.safeAppend("$chainId.marker")
+        val markerFile = deletedChainsDirURL.safeAppend("${chainId.encodeAsPathComponent()}.marker")
         deleteFile(markerFile)
         Logger.d(LogTags.CHAIN, "Cleared deleted marker for chain $chainId")
     }
@@ -1006,7 +1052,7 @@ public class IosFileStorage(
                 // call returns (the coordinator itself cannot be interrupted mid-call).
                 kotlinx.coroutines.currentCoroutineContext().ensureActive()
 
-                val progressFile = chainsDirURL.safeAppend("${chainId}_progress.json")
+                val progressFile = chainsDirURL.safeAppend("${chainId.encodeAsPathComponent()}_progress.json")
                 val json = Json.encodeToString(progress)
 
                 try {
@@ -1166,7 +1212,7 @@ public class IosFileStorage(
      * @return The progress state, or null if no progress file exists or is corrupt
      */
     fun loadChainProgress(chainId: String): ChainProgress? {
-        val progressFile = chainsDirURL.safeAppend("${chainId}_progress.json")
+        val progressFile = chainsDirURL.safeAppend("${chainId.encodeAsPathComponent()}_progress.json")
 
         return coordinated(progressFile, write = false) { safeUrl ->
             val json = readStringFromFile(safeUrl) ?: return@coordinated null
@@ -1251,7 +1297,7 @@ public class IosFileStorage(
         progressMutex.withLock {
             progressBuffer.remove(chainId)
         }
-        val progressFile = chainsDirURL.safeAppend("${chainId}_progress.json")
+        val progressFile = chainsDirURL.safeAppend("${chainId.encodeAsPathComponent()}_progress.json")
         deleteFile(progressFile)
         Logger.d(LogTags.CHAIN, "Deleted chain progress $chainId (buffer + disk)")
     }
@@ -1263,7 +1309,7 @@ public class IosFileStorage(
      */
     fun saveTaskMetadata(id: String, metadata: Map<String, String>, periodic: Boolean) {
         val dir = if (periodic) periodicDirURL else tasksDirURL
-        val metaFile = dir.safeAppend("$id.json")
+        val metaFile = dir.safeAppend("${id.encodeAsPathComponent()}.json")
         val json = Json.encodeToString(metadata)
 
         coordinated(metaFile, write = true) { safeUrl ->
@@ -1278,7 +1324,7 @@ public class IosFileStorage(
      */
     fun loadTaskMetadata(id: String, periodic: Boolean): Map<String, String>? {
         val dir = if (periodic) periodicDirURL else tasksDirURL
-        val metaFile = dir.safeAppend("$id.json")
+        val metaFile = dir.safeAppend("${id.encodeAsPathComponent()}.json")
 
         return coordinated(metaFile, write = false) { safeUrl ->
             val json = readStringFromFile(safeUrl) ?: return@coordinated null
@@ -1337,7 +1383,7 @@ public class IosFileStorage(
      */
     fun deleteTaskMetadata(id: String, periodic: Boolean) {
         val dir = if (periodic) periodicDirURL else tasksDirURL
-        val metaFile = dir.safeAppend("$id.json")
+        val metaFile = dir.safeAppend("${id.encodeAsPathComponent()}.json")
         deleteFile(metaFile)
         Logger.d(LogTags.SCHEDULER, "Deleted ${if (periodic) "periodic" else "task"} metadata for $id")
     }
@@ -1629,6 +1675,39 @@ class InsufficientDiskSpaceException(
 private fun NSURL.safeAppend(component: String): NSURL =
     URLByAppendingPathComponent(component)
         ?: throw IllegalStateException("Failed to construct URL: base='$path' component='$component'")
+
+/**
+ * Encodes a caller-supplied task/chain id for safe use as a single filesystem path
+ * component (e.g. `"$id.json"` in [saveTaskMetadata], `"${chainId}_progress.json"` in the
+ * chain-progress paths).
+ *
+ * Task and chain ids come straight from the public API (`scheduler.enqueue(id, ...)`,
+ * `TaskChain.withId(...)`) and are interpolated directly into filenames throughout this
+ * class. Unescaped, an id containing `/` lets a caller construct additional path
+ * segments, and an id that is exactly `.` or `..` is a reserved filesystem name with
+ * special meaning — either could produce a path outside the intended storage directory
+ * (`safeAppend` only guards against `URLByAppendingPathComponent` returning null; it has
+ * no traversal awareness).
+ *
+ * Deliberately narrow — only `/`, a bare `.`/`..`, and (to keep the mapping injective,
+ * see below) literal `%` are percent-encoded. Every other character, including letters,
+ * digits, `-`, `_`, dots within a longer string, and Unicode, passes through unchanged.
+ * Broadening this (e.g. escaping all non-ASCII) would change the on-disk filename for
+ * ids that are already safe today, silently breaking `loadTaskMetadata`/
+ * `loadChainDefinition` for tasks an app scheduled before upgrading past this fix. Only
+ * genuinely hazardous ids change filename — and a genuinely hazardous id was never going
+ * to resolve correctly before this fix either.
+ *
+ * `%` is escaped first, before `/`, so the mapping stays injective: without this, an id
+ * containing the literal text `"%2F"` would be indistinguishable on disk from an id
+ * containing a real `/` — two different ids silently sharing one file.
+ */
+internal fun String.encodeAsPathComponent(): String {
+    if (this == ".") return "%2E"
+    if (this == "..") return "%2E%2E"
+    if ('%' !in this && '/' !in this) return this
+    return replace("%", "%25").replace("/", "%2F")
+}
 
 /** Converts a UTF-8 string to NSData using byte array encoding (not char count). */
 @OptIn(ExperimentalForeignApi::class, kotlinx.cinterop.BetaInteropApi::class)

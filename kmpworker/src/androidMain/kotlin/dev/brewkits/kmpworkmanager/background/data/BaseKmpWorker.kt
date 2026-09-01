@@ -4,7 +4,7 @@ import android.content.Context
 import android.os.BatteryManager
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import dev.brewkits.kmpworkmanager.KmpWorkManagerKoin
+import dev.brewkits.kmpworkmanager.KmpWorkManagerAndroid
 import dev.brewkits.kmpworkmanager.KmpWorkManagerRuntime
 import dev.brewkits.kmpworkmanager.background.domain.*
 import dev.brewkits.kmpworkmanager.utils.Logger
@@ -49,7 +49,7 @@ abstract class BaseKmpWorker : CoroutineWorker {
         workerParams: WorkerParameters
     ) : super(appContext, workerParams) {
         this.workerFactory = try {
-            KmpWorkManagerKoin.getKoin().get()
+            KmpWorkManagerAndroid.requireRegistry().androidWorkerFactory
         } catch (e: IllegalStateException) {
             throw IllegalStateException(
                 "KmpWorkManager not initialized — worker cannot start. " +
@@ -105,6 +105,12 @@ abstract class BaseKmpWorker : CoroutineWorker {
         val workerClassName = inputData.getString("workerClassName")
             ?: return Result.failure()
 
+        // Chain identity, stamped by NativeTaskScheduler.enqueueChain() for chain-member tasks
+        // only; absent (null) for standalone one-time/periodic/exact-alarm tasks.
+        val chainId = inputData.getString(NativeTaskScheduler.KEY_CHAIN_ID)
+        val stepIndex = inputData.getInt(NativeTaskScheduler.KEY_STEP_INDEX, -1).takeIf { it >= 0 }
+        val totalSteps = inputData.getInt(NativeTaskScheduler.KEY_TOTAL_STEPS, -1).takeIf { it >= 0 }
+
         val startTime = System.currentTimeMillis()
         var isRetrying = false
         var wasCancelled = false
@@ -114,6 +120,8 @@ abstract class BaseKmpWorker : CoroutineWorker {
         KmpWorkManagerRuntime.notifyTaskStarted(
             TelemetryHook.TaskStartedEvent(
                 taskName = workerClassName,
+                chainId = chainId,
+                stepIndex = stepIndex,
                 platform = "android",
                 startedAtMs = startTime
             )
@@ -148,6 +156,8 @@ abstract class BaseKmpWorker : CoroutineWorker {
                     KmpWorkManagerRuntime.notifyTaskCompleted(
                         TelemetryHook.TaskCompletedEvent(
                             taskName = workerClassName,
+                            chainId = chainId,
+                            stepIndex = stepIndex,
                             platform = "android",
                             success = true,
                             durationMs = duration
@@ -170,6 +180,8 @@ abstract class BaseKmpWorker : CoroutineWorker {
                     KmpWorkManagerRuntime.notifyTaskCompleted(
                         TelemetryHook.TaskCompletedEvent(
                             taskName = workerClassName,
+                            chainId = chainId,
+                            stepIndex = stepIndex,
                             platform = "android",
                             success = false,
                             durationMs = duration,
@@ -179,17 +191,35 @@ abstract class BaseKmpWorker : CoroutineWorker {
                     KmpWorkManagerRuntime.notifyTaskFailed(
                         TelemetryHook.TaskFailedEvent(
                             taskName = workerClassName,
+                            chainId = chainId,
+                            stepIndex = stepIndex,
                             platform = "android",
                             error = result.message,
                             durationMs = duration,
                             retryCount = runAttemptCount
                         )
                     )
-                    historyStatus = if (result.shouldRetry) ExecutionStatus.FAILURE else ExecutionStatus.ABANDONED
-                    if (result.shouldRetry) {
+                    // Honor an explicit retry ceiling stamped into inputData by the caller/plugin.
+                    // Semantics: maxRetries=N → at most N+1 total runs (1 initial + N retries).
+                    // runAttemptCount is 0-based, so retries are exhausted once runAttemptCount >= N.
+                    // Absent key → -1 → uncapped (back-compat with existing WorkRequests).
+                    // Mirrors iOS DynamicTaskDispatcher.handleOneTimeResult (effectiveCap = 1 +
+                    // maxRetries) and the attemptCap ceiling used by the WorkerResult.Retry branch below.
+                    val maxRetries = inputData.getInt(NativeTaskScheduler.KEY_MAX_RETRIES, -1)
+                    val retriesExhausted = maxRetries in 0..runAttemptCount
+                    val willRetry = result.shouldRetry && !retriesExhausted
+                    historyStatus = if (willRetry) ExecutionStatus.FAILURE else ExecutionStatus.ABANDONED
+                    if (willRetry) {
                         isRetrying = true
                         return Result.retry()
                     } else {
+                        if (result.shouldRetry && retriesExhausted) {
+                            Logger.w(
+                                LogTags.WORKER,
+                                "$workerLogTag retry cap reached for $workerClassName " +
+                                    "(maxRetries=$maxRetries, runAttemptCount=$runAttemptCount). Marking as permanent failure."
+                            )
+                        }
                         return Result.failure()
                     }
                 }
@@ -203,7 +233,13 @@ abstract class BaseKmpWorker : CoroutineWorker {
 
                     // Honor attemptCap as a hard ceiling. runAttemptCount is 0-based, so
                     // attemptCap=3 means we accept runs 0, 1, 2 — retry only if (runAttemptCount + 1) < cap.
-                    val cap = result.attemptCap
+                    // Precedence mirrors iOS handleOneTimeResult: the per-result attemptCap wins;
+                    // otherwise fall back to Constraints.maxRetries (N retries → cap of N+1 total
+                    // runs) stamped into inputData; otherwise uncapped (WorkManager quota governs).
+                    val cap = result.attemptCap ?: run {
+                        val maxRetries = inputData.getInt(NativeTaskScheduler.KEY_MAX_RETRIES, -1)
+                        if (maxRetries >= 0) maxRetries + 1 else null
+                    }
                     if (cap != null && runAttemptCount + 1 >= cap) {
                         Logger.w(
                             LogTags.WORKER,
@@ -220,6 +256,8 @@ abstract class BaseKmpWorker : CoroutineWorker {
                         KmpWorkManagerRuntime.notifyTaskFailed(
                             TelemetryHook.TaskFailedEvent(
                                 taskName = workerClassName,
+                                chainId = chainId,
+                                stepIndex = stepIndex,
                                 platform = "android",
                                 error = "Retry cap reached: ${result.reason}",
                                 durationMs = duration,
@@ -238,6 +276,8 @@ abstract class BaseKmpWorker : CoroutineWorker {
                     KmpWorkManagerRuntime.notifyTaskFailed(
                         TelemetryHook.TaskFailedEvent(
                             taskName = workerClassName,
+                            chainId = chainId,
+                            stepIndex = stepIndex,
                             platform = "android",
                             error = "Retry requested: ${result.reason}",
                             durationMs = duration,
@@ -285,6 +325,8 @@ abstract class BaseKmpWorker : CoroutineWorker {
             KmpWorkManagerRuntime.notifyTaskCompleted(
                 TelemetryHook.TaskCompletedEvent(
                     taskName = workerClassName,
+                    chainId = chainId,
+                    stepIndex = stepIndex,
                     platform = "android",
                     success = false,
                     durationMs = duration,
@@ -294,6 +336,8 @@ abstract class BaseKmpWorker : CoroutineWorker {
             KmpWorkManagerRuntime.notifyTaskFailed(
                 TelemetryHook.TaskFailedEvent(
                     taskName = workerClassName,
+                    chainId = chainId,
+                    stepIndex = stepIndex,
                     platform = "android",
                     error = e.message ?: "Unknown exception",
                     durationMs = duration,
@@ -334,14 +378,23 @@ abstract class BaseKmpWorker : CoroutineWorker {
                         KmpWorkManagerRuntime.executionHistoryStore?.save(
                             ExecutionRecord(
                                 id = java.util.UUID.randomUUID().toString(),
-                                chainId = id.toString(),
+                                // Real chain ID for chain-member tasks (see NativeTaskScheduler.
+                                // enqueueChain's KEY_CHAIN_ID stamp); falls back to this
+                                // WorkRequest's own WorkManager-assigned id for standalone tasks,
+                                // matching ExecutionRecord.chainId's documented "or auto-generated"
+                                // fallback. NOTE: unlike iOS's ChainExecutor, which writes one
+                                // aggregate record per chain, Android's WorkManager runs each chain
+                                // step through this class independently — so a multi-step chain on
+                                // Android produces one ExecutionRecord per step, all sharing the
+                                // same chainId, rather than a single record for the whole chain.
+                                chainId = chainId ?: id.toString(),
                                 status = historyStatus!!,
                                 startedAtMs = startTime,
                                 endedAtMs = nowMs,
                                 durationMs = historyDuration,
-                                totalSteps = 1,
+                                totalSteps = totalSteps ?: 1,
                                 completedSteps = if (historyStatus == ExecutionStatus.SUCCESS) 1 else 0,
-                                failedStep = if (historyStatus != ExecutionStatus.SUCCESS) 0 else null,
+                                failedStep = if (historyStatus != ExecutionStatus.SUCCESS) (stepIndex ?: 0) else null,
                                 errorMessage = null,
                                 retryCount = runAttemptCount,
                                 platform = "android",
