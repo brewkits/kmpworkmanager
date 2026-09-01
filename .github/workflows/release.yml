@@ -225,7 +225,7 @@ jobs:
       # below, visible only to maintainers in the Actions UI.
       - name: Create GitHub Release
         if: ${{ inputs.dry_run == false }}
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: ${{ steps.version.outputs.tag }}
