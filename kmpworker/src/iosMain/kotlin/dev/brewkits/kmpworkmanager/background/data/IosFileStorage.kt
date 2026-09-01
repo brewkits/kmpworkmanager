@@ -43,6 +43,22 @@ internal data class ChainTransaction(
 )
 
 /**
+ * Aggregate light/network profile of the tasks currently pending in the dynamic-task queue.
+ * See [IosFileStorage.getDynamicQueueConstraintSummary].
+ */
+internal data class DynamicQueueConstraintSummary(
+    val pendingCount: Int,
+    val heavyCount: Int,
+    val networkRequiredCount: Int
+) {
+    /** True when every pending task is light — safe to schedule as `BGAppRefreshTask`. */
+    val allLight: Boolean get() = pendingCount > 0 && heavyCount == 0
+
+    /** True when every pending task requires network connectivity. */
+    val allRequireNetwork: Boolean get() = pendingCount > 0 && networkRequiredCount == pendingCount
+}
+
+/**
  * Configuration for [IosFileStorage].
  *
  * @param diskSpaceBufferBytes Minimum free space required before any write (safety margin).
@@ -513,6 +529,36 @@ public class IosFileStorage(
      * which is acceptable since getQueueSize() is called infrequently (once per BGTask).
      */
     suspend fun getQueueSize(): Int = queue.getSize()
+
+    /**
+     * Aggregate light/network profile of every task currently sitting in the dynamic-task
+     * queue. Lets the master dispatcher be scheduled with constraints that actually match
+     * what's pending, instead of always requesting an unconstrained `BGProcessingTask`.
+     * See docs/ios-dynamic-task-scheduling.md § 5.
+     *
+     * Always reads from disk (like [getQueueSize]) — the same multi-instance staleness
+     * concern applies, and this is called once per master-dispatcher schedule decision,
+     * not per task, so the extra I/O is acceptable.
+     *
+     * **Performance**: O(N) on queue size (bounded by [MAX_QUEUE_SIZE]) — one metadata
+     * read per pending task.
+     */
+    internal suspend fun getDynamicQueueConstraintSummary(): DynamicQueueConstraintSummary {
+        val ids = tasksQueue.getAllItems()
+        var heavyCount = 0
+        var networkCount = 0
+        for (id in ids) {
+            // A dynamic task ID is either one-time or periodic metadata — never both.
+            val meta = loadTaskMetadata(id, periodic = false) ?: loadTaskMetadata(id, periodic = true)
+            if (meta?.get("isHeavyTask") == "true") heavyCount++
+            if (meta?.get("requiresNetwork") == "true") networkCount++
+        }
+        return DynamicQueueConstraintSummary(
+            pendingCount = ids.size,
+            heavyCount = heavyCount,
+            networkRequiredCount = networkCount
+        )
+    }
 
     /**
      * Sort the execution queue by task priority (highest first).
