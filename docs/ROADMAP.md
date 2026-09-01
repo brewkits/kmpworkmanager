@@ -550,14 +550,16 @@ bulk photo upload — that must complete even after the user backgrounds the app
   but obviously cannot persist past page reload. Useful for documenting the
   API in a runnable playground.
 
-### 3. Gradle plugin `io.brewkits.kmpworker`
-- 💭 Eliminate the manual `Info.plist` + `AndroidManifest.xml` declarations.
-  The plugin reads `@Worker(bgTaskId = …)` annotations and emits the iOS
-  permitted-identifiers array + the Android `<service android:foregroundServiceType=…>`
-  block. Today these are easy to forget, and the failure mode is silent
-  (tasks "just don't run").
-- 💭 Stretch: synthesize the boot receiver + Hilt module so consumers can drop
-  the plugin and have zero manual wiring.
+### 3. ~~Gradle plugin `io.brewkits.kmpworker`~~ — superseded by #82
+Originally proposed a Gradle plugin generating/validating `Info.plist` +
+`AndroidManifest.xml` declarations from `@Worker` annotations. Superseded:
+iOS already fails loudly via the KSP-generated `BgTaskIdProvider`, and a
+Gradle plugin can't reliably validate the Android side (`@Worker` is
+`SOURCE`-retention; `foregroundServiceType` is a computed `open val`, not a
+literal a plugin could resolve). See
+[#82](https://github.com/brewkits/kmpworkmanager/issues/82) and "Next up"
+above for the shipped replacement (manifest-mismatch diagnostics inside
+`KmpHeavyWorker.doWork()`).
 
 ### 4. Flutter parity — Group 3 built-in workers (long tail)
 - 💭 **Image processing worker** — resize (maxWidth/maxHeight + maintain aspect
