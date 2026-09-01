@@ -5,10 +5,43 @@ All notable changes to KMP WorkManager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.4.0] - 2026-09-01
+
+### Added
+
+- **`kmpworkmanager-http`: HMAC-SHA256 request signing + token refresh on 401.**
+  `HttpRequestConfig` gains optional `hmacSigning: HmacSigningConfig` (canonical string
+  `METHOD\nURL\nBODY\nTIMESTAMP`, via Okio's `ByteString.hmacSha256()`) and
+  `tokenRefresh: TokenRefreshConfig` (dot-notation JSON path extraction from the refresh
+  response, one-shot retry on 401, SSRF-validated at both the caller and inside
+  `TokenRefresh.refreshToken()` itself so any future caller of `TokenRefreshConfig` stays
+  protected). Fixes [#81](https://github.com/brewkits/kmpworkmanager/issues/81).
+- **iOS: the master dispatcher now derives `requiresNetworkConnectivity` from the actual
+  pending-task queue** instead of a static value, via a new
+  `IosFileStorage.getDynamicQueueConstraintSummary()` O(N) scan. Only relaxes the
+  constraint when *every* pending task is network-independent; the dispatcher itself stays
+  `BGProcessingTaskRequest` always (an earlier draft that switched to
+  `BGAppRefreshTaskRequest` for all-light queues was reverted before merge — that request
+  type's hard ~30s ceiling has no safety margin against a full-length task). See
+  [discussion #78](https://github.com/brewkits/kmpworkmanager/discussions/78) /
+  [#79](https://github.com/brewkits/kmpworkmanager/issues/79).
 
 ### Fixed
 
+- **Android: `KmpHeavyWorker` now diagnoses `foregroundServiceType` manifest mismatches**
+  that previously failed silently. On API 29-33 (below the API 34 `ForegroundServiceTypeException`
+  cliff) a worker/manifest type mismatch didn't throw — the FGS just silently started with
+  whatever type the manifest declared. `doWork()` now reads the merged manifest's actual
+  declaration via `PackageManager.getServiceInfo()` and logs a proactive warning on
+  mismatch (bitwise-AND against the manifest's bitmask, not equality — `foregroundServiceType`
+  is an OR-bitmask per `docs/ANDROID_FGS_GUIDE.md`'s own `dataSync|camera` example), plus
+  enriches the existing `setForeground()` exception log on API 34+. Diagnostics-only: never
+  throws on a failed manifest read, and skipped entirely below API 29. Supersedes the
+  Gradle-plugin approach originally proposed in
+  [#82](https://github.com/brewkits/kmpworkmanager/issues/82) — investigation found iOS
+  already fails loudly via the KSP-generated `BgTaskIdProvider`, and a Gradle plugin can't
+  reliably validate the Android side (`@Worker` is `SOURCE`-retention;
+  `foregroundServiceType` is a computed `open val`, not a plugin-resolvable literal).
 - **Android: chain-member tasks never reported `chainId`/`stepIndex` in telemetry, and
   `ExecutionRecord.chainId` held the wrong ID.** Found by manually running the demo app's
   Sequential chain and reading its logs: every `TaskStartedEvent` logged `chain=null
