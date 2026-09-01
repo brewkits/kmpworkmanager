@@ -274,17 +274,29 @@ public class DynamicTaskDispatcher(
 
     private fun currentTimeMs(): Long = (NSDate().timeIntervalSince1970 * 1000).toLong()
 
-    private fun rescheduleMasterDispatcher() {
+    private suspend fun rescheduleMasterDispatcher() {
         if (NSBundle.mainBundle.bundleIdentifier == null) return
+
+        // Derive requiresNetworkConnectivity from what's actually still pending, instead of
+        // always requesting unconstrained. See docs/ios-dynamic-task-scheduling.md § 5.
+        //
+        // The dispatcher stays a BGProcessingTaskRequest here (never BGAppRefreshTaskRequest)
+        // even when every pending task is light — see the NOTE in
+        // NativeTaskScheduler.submitTaskRequest's dynamic-task branch for why that's not safe
+        // yet with the current batch executor's per-task timeout budget.
+        val summary = fileStorage.getDynamicQueueConstraintSummary()
+        val requiresNetwork = summary.allRequireNetwork
 
         memScoped {
             val errorPtr = alloc<ObjCObjectVar<NSError?>>()
-            val request = BGProcessingTaskRequest("kmp_master_dispatcher_task")
-            request.earliestBeginDate = NSDate()
-            // Individual task network constraints are checked by each worker.
-            // false here allows non-network tasks to run opportunistically even without
-            // connectivity; workers that need network return Failure and remain in the queue.
-            request.requiresNetworkConnectivity = false
+            val request = BGProcessingTaskRequest("kmp_master_dispatcher_task").apply {
+                earliestBeginDate = NSDate()
+                // Individual task network constraints are checked by each worker.
+                // Only require network here when EVERY pending task needs it — otherwise
+                // false lets non-network tasks run opportunistically even without
+                // connectivity; workers that need network return Failure and remain queued.
+                requiresNetworkConnectivity = requiresNetwork
+            }
 
             val ok = BGTaskScheduler.sharedScheduler.submitTaskRequest(request, errorPtr.ptr)
             if (!ok) {

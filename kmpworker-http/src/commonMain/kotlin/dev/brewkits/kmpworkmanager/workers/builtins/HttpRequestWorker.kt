@@ -9,6 +9,8 @@ import dev.brewkits.kmpworkmanager.workers.config.HttpMethod as WorkerHttpMethod
 import dev.brewkits.kmpworkmanager.workers.config.HttpRequestConfig
 import dev.brewkits.kmpworkmanager.workers.utils.HttpClientProvider
 import dev.brewkits.kmpworkmanager.workers.utils.SecurityValidator
+import dev.brewkits.kmpworkmanager.workers.utils.applyHmacSigning
+import dev.brewkits.kmpworkmanager.workers.utils.executeWithTokenRefresh
 import io.ktor.client.*
 import io.ktor.client.plugins.*
 import io.ktor.client.request.*
@@ -41,6 +43,16 @@ class HttpRequestWorker(
                 return WorkerResult.Failure("Invalid or unsafe URL")
             }
 
+            // TokenRefreshConfig.refreshUrl is a second outbound destination this worker
+            // calls directly — it must pass the same SSRF gate as the primary URL, not
+            // just the http(s):// prefix check TokenRefreshConfig.init does.
+            config.tokenRefresh?.let { refresh ->
+                if (!SecurityValidator.validateURL(refresh.refreshUrl)) {
+                    Logger.e("HttpRequestWorker", "Invalid or unsafe refresh URL: ${SecurityValidator.sanitizedURL(refresh.refreshUrl)}")
+                    return WorkerResult.Failure("Invalid or unsafe refresh URL")
+                }
+            }
+
             Logger.i("HttpRequestWorker", "Executing ${config.httpMethod} request to ${SecurityValidator.sanitizedURL(config.url)}")
 
             executeRequest(httpClient, config)
@@ -52,29 +64,57 @@ class HttpRequestWorker(
 
     private suspend fun executeRequest(client: HttpClient, config: HttpRequestConfig): WorkerResult {
         return try {
-            val response: HttpResponse = client.request(config.url) {
-                method = when (config.httpMethod) {
-                    WorkerHttpMethod.GET -> HttpMethod.Get
-                    WorkerHttpMethod.POST -> HttpMethod.Post
-                    WorkerHttpMethod.PUT -> HttpMethod.Put
-                    WorkerHttpMethod.DELETE -> HttpMethod.Delete
-                    WorkerHttpMethod.PATCH -> HttpMethod.Patch
-                }
+            val response: HttpResponse = executeWithTokenRefresh(client, config.tokenRefresh) { newToken ->
+                client.request(config.url) {
+                    method = when (config.httpMethod) {
+                        WorkerHttpMethod.GET -> HttpMethod.Get
+                        WorkerHttpMethod.POST -> HttpMethod.Post
+                        WorkerHttpMethod.PUT -> HttpMethod.Put
+                        WorkerHttpMethod.DELETE -> HttpMethod.Delete
+                        WorkerHttpMethod.PATCH -> HttpMethod.Patch
+                    }
 
-                timeout {
-                    requestTimeoutMillis = config.timeoutMs
-                    connectTimeoutMillis = config.timeoutMs
-                    socketTimeoutMillis = config.timeoutMs
-                }
+                    timeout {
+                        requestTimeoutMillis = config.timeoutMs
+                        connectTimeoutMillis = config.timeoutMs
+                        socketTimeoutMillis = config.timeoutMs
+                    }
 
-                SecurityValidator.sanitizeHeaders(config.headers)?.forEach { (key, value) ->
-                    header(key, value)
-                }
+                    SecurityValidator.sanitizeHeaders(config.headers)?.forEach { (key, value) ->
+                        header(key, value)
+                    }
 
-                // Set body for POST/PUT/PATCH
-                if (config.body != null && config.httpMethod in setOf(WorkerHttpMethod.PUT, WorkerHttpMethod.PATCH, WorkerHttpMethod.POST)) {
-                    setBody(config.body)
-                    contentType(ContentType.Application.Json)
+                    // Set body for POST/PUT/PATCH. Body-bearing methods only — a body sent
+                    // in the config for GET/DELETE is never written to the wire, and must
+                    // therefore also be excluded from what gets signed below.
+                    val sendsBody = config.httpMethod in setOf(WorkerHttpMethod.PUT, WorkerHttpMethod.PATCH, WorkerHttpMethod.POST)
+                    val bodyOnWire = config.body.takeIf { sendsBody }
+                    if (bodyOnWire != null) {
+                        setBody(bodyOnWire)
+                        contentType(ContentType.Application.Json)
+                    }
+
+                    // A retried request (newToken != null) overrides whatever Authorization
+                    // config.headers set above — the refreshed token is what must be sent.
+                    // `header()` APPENDS (Ktor's HeadersBuilder), so the stale value set
+                    // above must be removed first or the request would carry both.
+                    val tokenRefresh = config.tokenRefresh
+                    if (newToken != null && tokenRefresh != null) {
+                        headers.remove(tokenRefresh.authHeaderName)
+                        header(tokenRefresh.authHeaderName, "${tokenRefresh.authHeaderPrefix}$newToken")
+                    }
+
+                    // NOTE: computeHmacSignature signs METHOD/URL/BODY/TIMESTAMP only — it
+                    // does NOT cover headers, so a refreshed Authorization header above is
+                    // NOT part of what's signed. What DOES differ between the original and
+                    // retried attempt is the timestamp (recomputed per call), so the two
+                    // signatures differ even though the covered fields are otherwise the same.
+                    // bodyOnWire (not config.body) — must match exactly what setBody sent,
+                    // so a GET/DELETE with a config.body that's never written to the wire
+                    // doesn't sign bytes the server will never see.
+                    config.hmacSigning?.let { signingConfig ->
+                        applyHmacSigning(config.httpMethod.name, config.url, bodyOnWire, signingConfig)
+                    }
                 }
             }
 

@@ -7,6 +7,51 @@ Status legend: ✅ done · 🚧 in progress · ⏳ planned · 💭 idea / unsche
 
 ---
 
+## Next up (post-3.3.1) — the "irreplaceable, even for native-only teams" bar
+
+**Theme:** every milestone through 3.3.1 below made the library more correct or
+more DX-friendly for teams *already* using it across both platforms. These two
+are chosen against a sharper bar: would a team building for **one platform
+only** — no shared-code motive at all — still pick this library over the
+platform's raw API? "Shared code" is worth nothing to that team, so the pitch
+has to come from somewhere else.
+
+- ⏳ **Flutter parity Group 2 — token refresh on 401 + HMAC request signing**
+  ([#81](https://github.com/brewkits/kmpworkmanager/issues/81)). Pitch: WorkManager/BGTaskScheduler give you
+  primitives; this ships a tested implementation of the auth-refresh and
+  request-signing logic most teams under-build (or skip) themselves. Promoted
+  out of the deferred v2.6 #6 slot below — see that entry for the full spec,
+  now superseded by #81 as the tracking issue.
+- ⏳ **Android FGS-type diagnosability** ([#82](https://github.com/brewkits/kmpworkmanager/issues/82)).
+  Pitch: on iOS, `@Worker(bgTaskId=…)` + the KSP-generated `BgTaskIdProvider`
+  already `require()`-crashes loudly at `KmpWorkManager.initialize()` if a
+  `bgTaskId` is missing from `Info.plist` — Android has no equivalent
+  registration-time hook for a missing/mismatched `android:foregroundServiceType`.
+  `KmpHeavyWorker.doWork()` already catches and logs the `setForeground()`
+  exception (see `KmpHeavyWorker.kt`), but the message names only what the
+  worker *declared*, not what the manifest actually has, and on API 29-33
+  a mismatch doesn't throw at all (`ForegroundServiceTypeException` is
+  API 34+) — a real silent-failure window on those OS versions. #82
+  originally proposed a Gradle plugin generating/validating manifest entries
+  from `@Worker` annotations at build time; investigation found `@Worker` is
+  `SOURCE`-retention (invisible to a Gradle plugin without a new KSP→Gradle
+  pipeline) and `foregroundServiceType` is a computed `open val`, not a
+  literal KSP can resolve — so static analysis can't reliably cover this.
+  Revised to reading the actual merged manifest via
+  `PackageManager.getServiceInfo()` inside `doWork()`: enrich the existing
+  exception log with the manifest's declared type, and add a proactive
+  `Logger.w` on API 29-33 where nothing throws today. No new module,
+  diagnostics-only (never fails a worker on its own). See #82 for the
+  corrected scope.
+
+Both selected over other v2.6/v3.0 candidates (per-task QoS profiles, threat
+model docs, `ChainExecutor` state machine, `wasmJs` target) specifically
+because those don't clear the bar above — a native-only team can build QoS
+profiles or a state machine themselves without losing much, and docs alone
+don't create lock-in.
+
+---
+
 ## v2.5 — production hardening + Flutter parity (Group 1)
 
 **Theme:** unblock production camera-app adoption. Everything in this milestone
@@ -505,14 +550,16 @@ bulk photo upload — that must complete even after the user backgrounds the app
   but obviously cannot persist past page reload. Useful for documenting the
   API in a runnable playground.
 
-### 3. Gradle plugin `io.brewkits.kmpworker`
-- 💭 Eliminate the manual `Info.plist` + `AndroidManifest.xml` declarations.
-  The plugin reads `@Worker(bgTaskId = …)` annotations and emits the iOS
-  permitted-identifiers array + the Android `<service android:foregroundServiceType=…>`
-  block. Today these are easy to forget, and the failure mode is silent
-  (tasks "just don't run").
-- 💭 Stretch: synthesize the boot receiver + Hilt module so consumers can drop
-  the plugin and have zero manual wiring.
+### 3. ~~Gradle plugin `io.brewkits.kmpworker`~~ — superseded by #82
+Originally proposed a Gradle plugin generating/validating `Info.plist` +
+`AndroidManifest.xml` declarations from `@Worker` annotations. Superseded:
+iOS already fails loudly via the KSP-generated `BgTaskIdProvider`, and a
+Gradle plugin can't reliably validate the Android side (`@Worker` is
+`SOURCE`-retention; `foregroundServiceType` is a computed `open val`, not a
+literal a plugin could resolve). See
+[#82](https://github.com/brewkits/kmpworkmanager/issues/82) and "Next up"
+above for the shipped replacement (manifest-mismatch diagnostics inside
+`KmpHeavyWorker.doWork()`).
 
 ### 4. Flutter parity — Group 3 built-in workers (long tail)
 - 💭 **Image processing worker** — resize (maxWidth/maxHeight + maintain aspect
