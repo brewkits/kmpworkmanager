@@ -21,10 +21,10 @@ Add KMP WorkManager to your `build.gradle.kts` (module level):
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("dev.brewkits:kmpworkmanager:3.0.0")
+            implementation("dev.brewkits:kmpworkmanager:3.3.0")
             // Optional — only if you use the built-in HTTP workers (Http*/ParallelHttp*).
             // Requires Ktor 3; see docs/MIGRATION_V3.0.0.md.
-            implementation("dev.brewkits:kmpworkmanager-http:3.0.0")
+            implementation("dev.brewkits:kmpworkmanager-http:3.1.0")
         }
     }
 }
@@ -59,7 +59,7 @@ Add these permissions to your `AndroidManifest.xml`:
 </manifest>
 ```
 
-### Step 2: Initialize Koin in Application Class
+### Step 2: Initialize in your Application class
 
 Create or update your `Application` class:
 
@@ -127,16 +127,26 @@ through the master dispatcher's internal queue and executed when iOS fires the
 master dispatcher slot. See [iOS Dynamic Task Scheduling](ios-dynamic-task-scheduling.md)
 for the full mechanism.
 
-### Step 2: Initialize Koin in AppDelegate
+### Step 2: Initialize in AppDelegate
 
 Create or update your `iOSApp.swift`. You must register **both** dispatcher
 identifiers with `BGTaskScheduler`. The library provides `handleMasterDispatcherTask`
 and `handleChainExecutorTask` so you don't write any boilerplate.
 
-> `KoinInitializerKt.doInitKoin(...)` and `KoinIOS()` below are **your own** Swift
-> bridges to the shared Koin graph (the demo app's [`KoinIOS.kt`](https://github.com/brewkits/kmpworkmanager/blob/main/composeApp/src/iosMain/kotlin/dev/brewkits/kmpworkmanager/sample/di/KoinIOS.kt)
-> is a working reference). They are **not** library APIs — wire them to match
-> your project's DI setup.
+> **No DI framework required since v3.3.0.** `SetupKt` below is **your own** Kotlin
+> file exposing top-level functions to Swift — not a library API. Using Koin or Hilt?
+> Bind `KmpWorkManager.getInstance()` inside your own module instead; see
+> [`MIGRATION_V3.3.0.md`](./MIGRATION_V3.3.0.md).
+>
+> ```kotlin
+> // iosMain/Setup.kt
+> fun initKmpWorkManager() =
+>     KmpWorkManager.initialize(workerFactory = IosWorkerFactoryGenerated())
+>
+> fun kmpScheduler() = KmpWorkManager.getInstance().backgroundTaskScheduler
+> fun kmpDispatcher() = KmpWorkManager.getInstance().dynamicTaskDispatcher
+> fun kmpChainExecutor() = KmpWorkManager.getInstance().chainExecutor
+> ```
 
 ```swift
 import SwiftUI
@@ -147,9 +157,7 @@ import composeApp
 struct iOSApp: App {
 
     init() {
-        // Initialize Koin — your iosModule must include
-        // kmpWorkerModule(workerFactory = IosWorkerFactoryGenerated())
-        KoinInitializerKt.doInitKoin(platformModule: IOSModuleKt.iosModule)
+        SetupKt.initKmpWorkManager()
 
         // Register background tasks
         registerBackgroundTasks()
@@ -162,10 +170,9 @@ struct iOSApp: App {
     }
 
     private func registerBackgroundTasks() {
-        let koin = KoinIOS()
-        let scheduler = koin.getScheduler()
-        let dispatcher = koin.getDynamicTaskDispatcher()
-        let chainExecutor = koin.getChainExecutor()
+        let scheduler = SetupKt.kmpScheduler()
+        let dispatcher = SetupKt.kmpDispatcher()
+        let chainExecutor = SetupKt.kmpChainExecutor()
 
         // 1. Master dispatcher — handles every dynamic task ID
         //    (everything not pre-registered as its own BGTask identifier).
@@ -231,10 +238,11 @@ class MyViewModel(
 }
 ```
 
-Or get it from Koin directly:
+Or reach it directly, without any DI framework:
 
 ```kotlin
-val scheduler: BackgroundTaskScheduler = get()
+val scheduler: BackgroundTaskScheduler =
+    KmpWorkManager.getInstance().backgroundTaskScheduler
 ```
 
 ### 2. Schedule a Periodic Task
@@ -346,7 +354,7 @@ class SyncWorkerIos : IosWorker {
 
 *Note: The `name` value (`"SyncWorker"`) must match the `workerClassName` you pass to `scheduler.enqueue(...)`. Setting it explicitly also protects against silent breakage if ProGuard/R8 renames the wrapper class.*
 
-*By annotating these with `@Worker`, the KSP processor generates `AndroidWorkerFactoryGenerated` and `IosWorkerFactoryGenerated`, which you already passed to `KmpWorkManager.initialize()` on Android and to `kmpWorkerModule(workerFactory = …)` (inside `iosModule`, invoked via `KoinInitializerKt.doInitKoin(...)`) on iOS.*
+*By annotating these with `@Worker`, the KSP processor generates `AndroidWorkerFactoryGenerated` and `IosWorkerFactoryGenerated`, which you already passed to `KmpWorkManager.initialize()` on both platforms.*
 
 ---
 
@@ -366,7 +374,7 @@ That's it! You now have KMP WorkManager set up. Here's what you can do next:
 
 ### Android: Tasks Not Running
 
-1. **Check WorkManager initialization**: Ensure Koin is properly initialized
+1. **Check initialization**: Ensure `KmpWorkManager.initialize()` runs in `Application.onCreate()`
 2. **Check permissions**: Verify all required permissions are in AndroidManifest.xml
 3. **Check constraints**: Tasks won't run if constraints aren't met (e.g., no network)
 4. **Check Doze mode**: Test with `adb shell dumpsys battery unplug` and `adb shell dumpsys deviceidle force-idle`

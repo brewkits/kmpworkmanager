@@ -674,6 +674,45 @@ Constraints(
 
 ---
 
+#### maxRetries
+
+```kotlin
+maxRetries: Int = -1
+```
+
+Hard ceiling on retry attempts. `maxRetries = N` allows at most **N + 1** total runs
+(1 initial run + N retries); the scheduler stops rescheduling once the run-attempt count
+reaches `N`. This caps both a `WorkerResult.Failure(shouldRetry = true)` and a
+`WorkerResult.Retry` that carries no explicit `attemptCap` (a per-result `attemptCap` always
+wins over `maxRetries`).
+
+**Applies to one-time and chained tasks only.** Periodic tasks ignore it — a periodic task
+runs indefinitely by design, so a total-run ceiling is meaningless.
+
+The default `-1` means **use the platform default** (not a shared value):
+- **Android:** uncapped — WorkManager's own quota/backoff governs the upper bound (WorkManager
+  has no native max-retry API, so `maxRetries` is enforced inside the worker).
+- **iOS:** falls back to the built-in defaults (5 attempts for single tasks; a budget of 3
+  whole-chain retries).
+
+**Example:**
+
+```kotlin
+// At most 4 total runs (1 initial + 3 retries), then permanent failure.
+Constraints(
+    backoffPolicy = BackoffPolicy.EXPONENTIAL,
+    backoffDelayMs = 10_000,
+    maxRetries = 3
+)
+
+// Never retry — the initial run is the only attempt.
+Constraints(maxRetries = 0)
+```
+
+**Platform Support:** ✅ Android, ✅ iOS *(one-time & chained tasks; ignored for periodic)*
+
+---
+
 ### Existing Work Policy
 
 #### existingWorkPolicy

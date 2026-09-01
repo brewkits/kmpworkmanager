@@ -59,9 +59,15 @@ public class DynamicTaskDispatcher(
         // that a poison-pill task can't loop forever burning quota.
         internal const val META_ATTEMPT_COUNT = "kmpAttemptCount"
 
-        // Hard ceiling when the worker did not specify [WorkerResult.Retry.attemptCap].
-        // Mirrors WorkManager's default backoff retry budget so behaviour matches the
-        // Android side. Same magnitude as ChainProgress.MAX_RETRIES.
+        // Metadata key carrying the caller's Constraints.maxRetries (only stamped when set,
+        // i.e. >= 0). Bounds a `Failure(shouldRetry = true)` retry loop that carries no
+        // per-result attemptCap. Absent → fall back to [DEFAULT_ATTEMPT_CAP].
+        internal const val META_MAX_RETRIES = "maxRetries"
+
+        // Hard ceiling when the worker did not specify [WorkerResult.Retry.attemptCap] and
+        // the caller set no Constraints.maxRetries. Mirrors WorkManager's default backoff
+        // retry budget so behaviour matches the Android side. Same magnitude as
+        // ChainProgress.DEFAULT_MAX_RETRIES.
         internal const val DEFAULT_ATTEMPT_CAP = 5
     }
 
@@ -139,7 +145,7 @@ public class DynamicTaskDispatcher(
             Logger.i(LogTags.SCHEDULER, "DynamicTaskDispatcher: Executing '$taskId'")
 
             try {
-                val result = singleTaskExecutor.executeTask(meta.workerClassName, meta.inputJson)
+                val result = singleTaskExecutor.executeTask(meta.workerClassName, meta.inputJson, taskId = taskId)
 
                 if (meta.isPeriodic) {
                     // Periodic tasks have their own re-schedule contract — every invocation
@@ -224,7 +230,15 @@ public class DynamicTaskDispatcher(
 
         val rawMeta = meta.rawMeta ?: emptyMap()
         val currentAttempt = rawMeta[META_ATTEMPT_COUNT]?.toIntOrNull() ?: 1  // 1 = original run
-        val effectiveCap = attemptCap ?: DEFAULT_ATTEMPT_CAP
+        // Precedence for the total-attempt ceiling (all in "attempts including the original"):
+        //  1. WorkerResult.Retry.attemptCap — most specific, the worker's own per-result cap.
+        //  2. Constraints.maxRetries (stamped into metadata, only when >= 0) → N + 1 attempts,
+        //     matching Android's "N retries = N+1 runs" contract.
+        //  3. DEFAULT_ATTEMPT_CAP — nothing specified.
+        val metaMaxRetries = rawMeta[META_MAX_RETRIES]?.toIntOrNull()?.takeIf { it >= 0 }
+        val effectiveCap = attemptCap
+            ?: metaMaxRetries?.let { it + 1 }
+            ?: DEFAULT_ATTEMPT_CAP
         val nextAttempt = currentAttempt + 1
 
         if (nextAttempt > effectiveCap) {
@@ -260,17 +274,29 @@ public class DynamicTaskDispatcher(
 
     private fun currentTimeMs(): Long = (NSDate().timeIntervalSince1970 * 1000).toLong()
 
-    private fun rescheduleMasterDispatcher() {
+    private suspend fun rescheduleMasterDispatcher() {
         if (NSBundle.mainBundle.bundleIdentifier == null) return
+
+        // Derive requiresNetworkConnectivity from what's actually still pending, instead of
+        // always requesting unconstrained. See docs/ios-dynamic-task-scheduling.md § 5.
+        //
+        // The dispatcher stays a BGProcessingTaskRequest here (never BGAppRefreshTaskRequest)
+        // even when every pending task is light — see the NOTE in
+        // NativeTaskScheduler.submitTaskRequest's dynamic-task branch for why that's not safe
+        // yet with the current batch executor's per-task timeout budget.
+        val summary = fileStorage.getDynamicQueueConstraintSummary()
+        val requiresNetwork = summary.allRequireNetwork
 
         memScoped {
             val errorPtr = alloc<ObjCObjectVar<NSError?>>()
-            val request = BGProcessingTaskRequest("kmp_master_dispatcher_task")
-            request.earliestBeginDate = NSDate()
-            // Individual task network constraints are checked by each worker.
-            // false here allows non-network tasks to run opportunistically even without
-            // connectivity; workers that need network return Failure and remain in the queue.
-            request.requiresNetworkConnectivity = false
+            val request = BGProcessingTaskRequest("kmp_master_dispatcher_task").apply {
+                earliestBeginDate = NSDate()
+                // Individual task network constraints are checked by each worker.
+                // Only require network here when EVERY pending task needs it — otherwise
+                // false lets non-network tasks run opportunistically even without
+                // connectivity; workers that need network return Failure and remain queued.
+                requiresNetworkConnectivity = requiresNetwork
+            }
 
             val ok = BGTaskScheduler.sharedScheduler.submitTaskRequest(request, errorPtr.ptr)
             if (!ok) {

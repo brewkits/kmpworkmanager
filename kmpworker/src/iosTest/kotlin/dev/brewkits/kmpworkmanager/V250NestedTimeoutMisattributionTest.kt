@@ -25,9 +25,21 @@ import kotlin.test.*
  *      hit its own deadline
  *   3. Returned `false` instead of rethrowing — defeating the outer's cancellation
  *
- * **Fix**: compare elapsed wall-clock against `chainTimeout`. If
+ * **Original fix (v2.5.0)**: compare elapsed wall-clock against `chainTimeout`. If
  * `elapsedMs < chainTimeout`, the cancellation couldn't have originated from the
  * inner timer — therefore an outer scope fired it. Rethrow.
+ *
+ * **Superseded in 3.3.0**: `executeChain` now wraps the inner block in
+ * `withTimeoutOrNull(chainTimeout)` instead of `withTimeout(chainTimeout)`. Rather than
+ * inferring the source from elapsed time, kotlinx.coroutines itself identity-checks the
+ * `TimeoutCancellationException` against the coroutine `withTimeoutOrNull` created — an
+ * outer scope's exception is a different coroutine's exception, so it is never converted
+ * to `null` and always propagates to the `catch (TimeoutCancellationException)` block
+ * below unabsorbed. This test still exercises and pins the same observable contract (the
+ * outer TCE surfaces, chain progress isn't mislabelled); see
+ * [V330TimeoutIdentityDisambiguationTest] for a test of the underlying mechanism itself,
+ * including the CPU-starvation-style race this heuristic could not survive but the
+ * identity check has no window for at all.
  *
  * **Test strategy**: both tests force the outer cancellation from a CALLER-SIDE
  * `withTimeout` (above `executeChainsInBatch`). This route bypasses the

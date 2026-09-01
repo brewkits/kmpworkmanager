@@ -123,8 +123,8 @@ class MyAlarmReceiver : AlarmReceiver() {
         workerClassName: String,
         inputJson: String?
     ) {
-        // Execute work using your DI framework
-        val workerFactory = KoinContext.get().get<WorkerFactory>()
+        // Reach the factory you passed to KmpWorkManager.initialize()
+        val workerFactory = KmpWorkManager.getInstance().workerFactory
         val worker = workerFactory.createWorker(workerClassName)
 
         CoroutineScope(Dispatchers.IO).launch {
@@ -161,7 +161,7 @@ class MyTaskScheduler(context: Context) : NativeTaskScheduler(context) {
     }
 }
 
-// In Koin module
+// Register it with whatever DI you use, e.g. a Koin module:
 single<BackgroundTaskScheduler> { MyTaskScheduler(androidContext()) }
 ```
 

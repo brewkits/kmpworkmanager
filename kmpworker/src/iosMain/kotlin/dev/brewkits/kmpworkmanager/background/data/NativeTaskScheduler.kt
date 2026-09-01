@@ -430,10 +430,17 @@ public class NativeTaskScheduler(
             return ScheduleResult.ACCEPTED
         }
 
-        val taskMetadata = mapOf(
-            "workerClassName" to workerClassName,
-            "inputJson" to (inputJson ?: "")
-        )
+        val taskMetadata = buildMap {
+            put("workerClassName", workerClassName)
+            put("inputJson", inputJson ?: "")
+            // Persist an explicit retry ceiling so the single-task retry loop
+            // (DynamicTaskDispatcher.handleOneTimeResult) can honor Constraints.maxRetries.
+            // Stored only when set (>= 0); absence means "use the platform default", matching
+            // Android. Keyed by the same constant the dispatcher reads back.
+            if (constraints.maxRetries >= 0) {
+                put(DynamicTaskDispatcher.META_MAX_RETRIES, "${constraints.maxRetries}")
+            }
+        }
         fileStorage.saveTaskMetadata(id, taskMetadata, periodic = false)
 
         val request = createBackgroundTaskRequest(id, constraints)
@@ -600,18 +607,38 @@ public class NativeTaskScheduler(
     }
 
     /**
-     * Returns the earliestBeginDate of the currently-pending Master Dispatcher request,
-     * or null if no such request is pending (or in test mode).
-     * Used to avoid pushing back the dispatcher when a later-dated dynamic task is enqueued.
+     * Snapshot of the currently-pending Master Dispatcher request, or null if none is
+     * pending (or in test mode). The dispatcher is always a `BGProcessingTaskRequest`
+     * (see [submitTaskRequest]'s dynamic-task branch for why it never becomes a
+     * `BGAppRefreshTaskRequest`); [requiresNetwork] lets that branch decide whether the
+     * aggregate queue profile now needs a different `requiresNetworkConnectivity` value,
+     * not just a date change.
      */
-    private suspend fun getPendingMasterDispatcherDate(): NSDate? {
+    private data class PendingMasterDispatcherInfo(
+        val earliestBeginDate: NSDate?,
+        val requiresNetwork: Boolean
+    )
+
+    /**
+     * Returns a snapshot of the currently-pending Master Dispatcher request (date +
+     * requiresNetworkConnectivity), or null if none is pending.
+     * Used to avoid pushing back the dispatcher when a later-dated dynamic task is enqueued,
+     * and to detect when the aggregate queue profile now requires a different network flag.
+     */
+    private suspend fun getPendingMasterDispatcherInfo(): PendingMasterDispatcherInfo? {
         if (NSBundle.mainBundle.bundleIdentifier == null) return null
         return suspendCancellableCoroutine { continuation ->
             BGTaskScheduler.sharedScheduler.getPendingTaskRequestsWithCompletionHandler { requests ->
                 if (continuation.isActive) {
-                    val master = requests?.filterIsInstance<BGTaskRequest>()
+                    val master = requests?.filterIsInstance<BGProcessingTaskRequest>()
                         ?.find { it.identifier == MASTER_DISPATCHER_IDENTIFIER }
-                    continuation.resume(master?.earliestBeginDate)
+                    val info = master?.let {
+                        PendingMasterDispatcherInfo(
+                            earliestBeginDate = it.earliestBeginDate,
+                            requiresNetwork = it.requiresNetworkConnectivity
+                        )
+                    }
+                    continuation.resume(info)
                 }
             }
             continuation.invokeOnCancellation { }
@@ -659,21 +686,53 @@ public class NativeTaskScheduler(
 
                 val proposedDate = request.earliestBeginDate
 
-                // Only reschedule Master Dispatcher if the proposed date is earlier than the
-                // currently-pending one. Submitting a later date silently replaces an earlier
-                // pending request, delaying tasks already waiting in the queue.
-                val existingMasterDate = getPendingMasterDispatcherDate()
-                if (existingMasterDate != null && proposedDate != null &&
-                    proposedDate.timeIntervalSinceDate(existingMasterDate) >= 0) {
+                // Derive the Master Dispatcher's requiresNetworkConnectivity from what's
+                // actually pending now (including the task just enqueued above), instead of
+                // always submitting unconstrained. See docs/ios-dynamic-task-scheduling.md § 5.
+                //
+                // NOTE: the dispatcher always stays a BGProcessingTaskRequest here — it does
+                // NOT switch to BGAppRefreshTaskRequest for all-light queues. That looked like
+                // the obvious next step but isn't safe with the current batch executor:
+                // BGAppRefreshTask has a hard ~30s ceiling with no extension API
+                // (docs/IOS_BGTASK_LIMITS.md § 1), while a single dequeued task may run up to
+                // SingleTaskExecutor.DEFAULT_TIMEOUT_MS (25s) — there's no safe margin left for
+                // wake latency + completion overhead, let alone a second task in the batch.
+                // Tracked as follow-up scope in issue #79.
+                val summary = fileStorage.getDynamicQueueConstraintSummary()
+                val desiredRequiresNetwork = summary.allRequireNetwork
+
+                val existing = getPendingMasterDispatcherInfo()
+                val existingDate = existing?.earliestBeginDate
+                val proposedIsNotEarlier = existingDate != null && proposedDate != null &&
+                    proposedDate.timeIntervalSinceDate(existingDate) >= 0
+                val networkFlagUnchanged = existing != null && existing.requiresNetwork == desiredRequiresNetwork
+
+                // Only reschedule the Master Dispatcher if the proposed date is earlier than the
+                // currently-pending one, OR the aggregate queue profile now needs a different
+                // requiresNetworkConnectivity value. Submitting a later date (with no flag
+                // change) would silently replace an earlier pending request, delaying tasks
+                // already waiting.
+                if (existing != null && proposedIsNotEarlier && networkFlagUnchanged) {
                     Logger.d(LogTags.SCHEDULER,
-                        "Master Dispatcher already scheduled earlier — keeping existing schedule for '$id'")
+                        "Master Dispatcher already scheduled earlier with matching constraints — keeping existing schedule for '$id'")
                     return ScheduleResult.ACCEPTED
                 }
 
+                // When resubmitting, never regress an earlier date already pending — the same
+                // identifier replaces the old request on submit regardless of date, so pick the
+                // earlier of the two if both exist.
+                val earliestBeginDate = when {
+                    existingDate != null && proposedDate != null ->
+                        if (existingDate.timeIntervalSinceDate(proposedDate) < 0) existingDate else proposedDate
+                    existingDate != null -> existingDate
+                    else -> proposedDate
+                }
+
+                Logger.d(LogTags.SCHEDULER, "Master Dispatcher: BGProcessingTaskRequest (requiresNetwork=$desiredRequiresNetwork)")
                 val masterRequest = BGProcessingTaskRequest(MASTER_DISPATCHER_IDENTIFIER).apply {
-                    requiresNetworkConnectivity = false
+                    requiresNetworkConnectivity = desiredRequiresNetwork
                     requiresExternalPower = false
-                    earliestBeginDate = proposedDate
+                    this.earliestBeginDate = earliestBeginDate
                 }
 
                 return submitTaskRequest(masterRequest, "Master Dispatcher for task '$id'")
@@ -734,7 +793,7 @@ public class NativeTaskScheduler(
                     val taskId = request.identifier
                     val meta = IosBackgroundTaskHandler.resolveTaskMetadata(taskId, fileStorage)
                     if (meta != null) {
-                        singleTaskExecutor.executeTask(meta.workerClassName, meta.inputJson)
+                        singleTaskExecutor.executeTask(meta.workerClassName, meta.inputJson, taskId = taskId)
                         if (meta.isPeriodic && meta.rawMeta != null) {
                             IosBackgroundTaskHandler.reschedulePeriodicTask(
                                 taskId, meta.workerClassName, meta.inputJson, meta.rawMeta, this@NativeTaskScheduler

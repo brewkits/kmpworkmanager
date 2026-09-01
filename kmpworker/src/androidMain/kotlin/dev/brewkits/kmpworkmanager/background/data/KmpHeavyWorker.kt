@@ -2,13 +2,15 @@ package dev.brewkits.kmpworkmanager.background.data
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.ComponentName
 import android.content.Context
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
-import dev.brewkits.kmpworkmanager.KmpWorkManagerKoin
+import dev.brewkits.kmpworkmanager.KmpWorkManagerAndroid
 import dev.brewkits.kmpworkmanager.background.domain.*
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.utils.LogTags
@@ -40,7 +42,7 @@ open class KmpHeavyWorker(
         appContext,
         workerParams,
         try {
-            KmpWorkManagerKoin.getKoin().get()
+            KmpWorkManagerAndroid.requireRegistry().androidWorkerFactory
         } catch (e: IllegalStateException) {
             throw IllegalStateException(
                 "KmpWorkManager not initialized — KmpHeavyWorker cannot start. " +
@@ -54,6 +56,14 @@ open class KmpHeavyWorker(
     companion object {
         private const val NOTIFICATION_CHANNEL_ID = "kmp_heavy_worker_channel"
         private const val NOTIFICATION_ID = 1001
+
+        /**
+         * The service `androidx.work` declares in its own AAR manifest — every app depending
+         * on `work-runtime` merges this into its final manifest automatically, so it's always
+         * present with SOME `foregroundServiceType`, never a component the host app authored
+         * itself. Used to read the app's actual merged FGS type declaration for diagnostics.
+         */
+        private const val SYSTEM_FOREGROUND_SERVICE_CLASS = "androidx.work.impl.foreground.SystemForegroundService"
 
         /**
          * Convenience aliases for the most common FGS types. These are the same integer
@@ -113,13 +123,41 @@ open class KmpHeavyWorker(
     override val workerLogTag: String get() = "KmpHeavyWorker"
 
     override suspend fun doWork(): Result {
-        // QA double-check fix: setForeground() can throw on Android 14+ when the FGS type
-        // declared by [foregroundServiceType] doesn't match the host app's manifest. The
-        // raw exception (ForegroundServiceStartNotAllowedException on API 31+, SecurityException
-        // on permission gaps, plain IllegalStateException on misconfig) used to escape the
-        // worker and crash the WorkManager job runner with an opaque stack trace. We catch
-        // it here and translate into a Result.failure() carrying an actionable diagnostic
-        // pointing to docs/ANDROID_FGS_GUIDE.md.
+        // Diagnostic-only, best-effort read of the manifest's actual declared FGS type(s) for
+        // this app. Never throws and never affects control flow on its own — a
+        // getServiceInfo() failure (component genuinely absent, PackageManager quirk on a
+        // given OEM, …) must not turn a worker that would otherwise succeed into a failure.
+        // See docs/ROADMAP.md "Android FGS-type diagnosability" (#82) for why this exists:
+        // the pre-fix exception message below named only what THIS worker declared, not
+        // what the manifest actually has, and on API 29-33 a mismatch doesn't throw at all
+        // (ForegroundServiceTypeException is API 34+) — proactively warn there since
+        // nothing else will.
+        //
+        // `foregroundServiceType` on <service> is an OR-bitmask of possibly several types
+        // (docs/ANDROID_FGS_GUIDE.md's own examples declare e.g. "dataSync|camera" so one
+        // service backs workers of different types) — so this worker's single declared type
+        // must be present as a BIT in the manifest value, not equal to it. `!=` here would
+        // false-positive on every multi-type manifest, which is the guide's own recommended
+        // pattern, and API < 29 or a manifest that omits foregroundServiceType entirely reads
+        // back as `0` (FOREGROUND_SERVICE_TYPE_NONE / "manifest" default) — `0 != anything`
+        // would also false-positive on every app that hasn't set a type at all, which is
+        // common and not itself a mismatch worth warning about (only a positive, wrong bit is).
+        val manifestFgsType = readManifestForegroundServiceType()
+        if (manifestFgsType != null && manifestFgsType != 0 && (manifestFgsType and foregroundServiceType) == 0 &&
+            Build.VERSION.SDK_INT in Build.VERSION_CODES.Q until Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            Logger.w(
+                LogTags.WORKER,
+                "foregroundServiceType mismatch: worker declares $foregroundServiceType but the " +
+                    "manifest's <service android:foregroundServiceType=…> declares $manifestFgsType " +
+                    "(a bitmask — this worker's type is not one of the bits set there). " +
+                    "On this OS version (API ${Build.VERSION.SDK_INT}, below Android 14) a mismatch " +
+                    "does NOT throw — the FGS silently starts with the manifest's type instead of the " +
+                    "one this worker expects. See docs/ANDROID_FGS_GUIDE.md.",
+            )
+        }
+
+        // Handle Android 14+ FGS exceptions gracefully to prevent WorkManager crashes.
+        // Translates raw exceptions into Result.failure() with diagnostic logs.
         try {
             setForeground(createForegroundInfo())
         } catch (e: SecurityException) {
@@ -127,7 +165,8 @@ open class KmpHeavyWorker(
                 LogTags.WORKER,
                 "Foreground service start denied (SecurityException). " +
                     "Type=$foregroundServiceType requires a matching FOREGROUND_SERVICE_<TYPE> " +
-                    "permission in AndroidManifest.xml. See docs/ANDROID_FGS_GUIDE.md.",
+                    "permission in AndroidManifest.xml.${manifestTypeSuffix(manifestFgsType)} " +
+                    "See docs/ANDROID_FGS_GUIDE.md.",
                 e,
             )
             return Result.failure()
@@ -140,7 +179,8 @@ open class KmpHeavyWorker(
                     "This typically means: (a) the host app is in a state where it cannot start " +
                     "an FGS (background-without-special-permission), OR (b) the FGS type " +
                     "$foregroundServiceType is not declared on <service android:foregroundServiceType=…> " +
-                    "in the manifest. See docs/ANDROID_FGS_GUIDE.md for type-by-type setup.",
+                    "in the manifest.${manifestTypeSuffix(manifestFgsType)} " +
+                    "See docs/ANDROID_FGS_GUIDE.md for type-by-type setup.",
                 e,
             )
             return Result.failure()
@@ -197,4 +237,37 @@ open class KmpHeavyWorker(
             ForegroundInfo(NOTIFICATION_ID, notification)
         }
     }
+
+    /**
+     * Reads the `android:foregroundServiceType` this app's manifest actually declares for
+     * WorkManager's `SystemForegroundService` — via [PackageManager.getServiceInfo], which
+     * returns the fully merged manifest, not the source `AndroidManifest.xml` fragment this
+     * library or the host app authored in isolation.
+     *
+     * Best-effort and diagnostic-only: returns `null` on ANY failure (component genuinely
+     * absent — shouldn't happen since `androidx.work` declares it, but a `NameNotFoundException`
+     * or OEM `PackageManager` quirk must not throw out of `doWork()`) or below API 29, where
+     * `ServiceInfo.foregroundServiceType` doesn't exist. Callers must treat `null` as
+     * "unknown," never as "zero" or "mismatch."
+     */
+    private fun readManifestForegroundServiceType(): Int? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
+        return try {
+            val component = ComponentName(applicationContext, SYSTEM_FOREGROUND_SERVICE_CLASS)
+            val info = applicationContext.packageManager.getServiceInfo(component, PackageManager.GET_SERVICES)
+            info.foregroundServiceType
+        } catch (e: Exception) {
+            Logger.d(LogTags.WORKER, "Could not read manifest foregroundServiceType (non-fatal, diagnostics only): ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Appends the manifest's actual declared type bitmask to a diagnostic message, when
+     * known. Note this is a bitmask (possibly several `FOREGROUND_SERVICE_TYPE_*` bits
+     * OR'd together on a shared `<service>` — see docs/ANDROID_FGS_GUIDE.md), not
+     * necessarily equal to this worker's single [foregroundServiceType].
+     */
+    private fun manifestTypeSuffix(manifestFgsType: Int?): String =
+        if (manifestFgsType != null) " Manifest currently declares type bitmask=$manifestFgsType." else ""
 }

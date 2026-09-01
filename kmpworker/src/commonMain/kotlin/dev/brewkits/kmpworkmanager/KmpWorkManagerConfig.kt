@@ -15,10 +15,11 @@ import dev.brewkits.kmpworkmanager.utils.Logger
  *     minFreeDiskSpaceBytes = 25_000_000L  // 25MB for older/low-storage devices
  * )
  *
- * startKoin {
- *     androidContext(this@Application)
- *     modules(kmpWorkerModule(workerFactory = MyWorkerFactory(), config = config))
- * }
+ * KmpWorkManager.initialize(
+ *     context = this@Application,  // Android only
+ *     workerFactory = MyWorkerFactory(),
+ *     config = config
+ * )
  * ```
  *
  * @param logLevel Minimum log level to output. Default: INFO (production-friendly)

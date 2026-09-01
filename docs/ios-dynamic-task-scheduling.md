@@ -61,3 +61,26 @@ As of version **2.4.3**, KMP WorkManager has implemented **Option 2** (the Libra
 
 This architecture delivers a seamless, unified Developer Experience (DX) across Android and iOS, perfectly aligning with the "Write once, run anywhere" philosophy of Kotlin Multiplatform.
 
+---
+
+## 5. Known Trade-off: Master Dispatcher Ignores Per-Task Constraints
+
+The master dispatcher always submits `kmp_master_dispatcher_task` as a **`BGProcessingTaskRequest`**. As of the fix below, `requiresNetworkConnectivity` is derived from the pending queue; the request *type* itself is always `BGProcessingTaskRequest`, never `BGAppRefreshTaskRequest` — see "Why not `BGAppRefreshTaskRequest`?" below for why that's deliberate, not an oversight.
+
+* **Why unconstrained by default:** a dynamic-task queue is typically mixed (some tasks need network, some don't; some are light, some are heavy). Submitting an unconstrained `BGProcessingTaskRequest` lets non-network tasks run opportunistically even while offline — each worker still checks its own `Constraints.requiresNetwork` at execution time and fails/retries if unmet. Constraining the dispatcher itself would block the *whole* batch on the strictest pending task.
+* **What's fixed:** `NativeTaskScheduler.submitTaskRequest` and `DynamicTaskDispatcher.rescheduleMasterDispatcher` now read `IosFileStorage.getDynamicQueueConstraintSummary()` and set `requiresNetworkConnectivity = true` only when **every** pending dynamic task requires network — so a queue that's entirely network-dependent no longer wakes opportunistically while offline just to fail every task and re-queue them.
+* **This only affects dynamic task IDs.** A task scheduled with a **static ID declared in `Info.plist`** goes through `createBackgroundTaskRequest()` directly and correctly becomes a `BGAppRefreshTaskRequest` when `Constraints.isHeavyTask = false`.
+
+### Why not `BGAppRefreshTaskRequest` when the queue is all-light?
+
+This was the original ask in [discussion #78](https://github.com/brewkits/kmpworkmanager/discussions/78) — use the cheaper, better-scheduled `BGAppRefreshTaskRequest` when every pending task is light. It turns out **not to be safe** with the current batch executor, so it's deliberately not implemented:
+
+* `BGAppRefreshTask` has a hard ceiling of **~30 seconds with no extension API** (see [IOS_BGTASK_LIMITS.md § 1](./IOS_BGTASK_LIMITS.md)).
+* `DynamicTaskDispatcher.executePendingTasks` dequeues and runs tasks in a loop; a single dequeued task may run up to `SingleTaskExecutor.DEFAULT_TIMEOUT_MS` (**25 seconds**) before its own per-task timeout fires.
+* 25s of worker execution plus BGTask wake latency and completion/cleanup overhead leaves no safe margin under a 30s hard ceiling — not even for a *single* queued task, let alone a batch. Unlike a static light task (one task, one `BGAppRefreshTask` window, by construction), the master dispatcher is a **batch** processor sized for `BGProcessingTask`'s multi-minute budget; "every pending task is light" does not mean "the batch fits in 30 seconds."
+* Making this safe would require the dispatcher to know it's running under an App Refresh budget and cap itself to (at most) one task with a much smaller per-task timeout — plus verification on a physical device, since the Simulator doesn't model real `BGTaskScheduler` timing (see the iOS Simulator Fallback warning in `NativeTaskScheduler.kt`).
+
+Tracked as follow-up scope in [brewkits/kmpworkmanager#79](https://github.com/brewkits/kmpworkmanager/issues/79) if it's worth pursuing later.
+
+**Workaround today:** for lightweight, network-bound, latency-sensitive work, declare a dedicated static ID in `BGTaskSchedulerPermittedIdentifiers` instead of relying on the dynamic-task/master-dispatcher path — that's still the only way to get an actual `BGAppRefreshTaskRequest` for iOS background work in this library.
+

@@ -93,14 +93,60 @@ class WorkerProcessor(
             }
         }
 
-        if (androidWorkers.isNotEmpty()) generateAndroidFactory(androidWorkers)
-        if (iosWorkers.isNotEmpty())     generateIosFactory(iosWorkers)
+        if (androidWorkers.isNotEmpty()) {
+            validateNoDuplicateKeys(androidWorkers, "Android")
+            generateAndroidFactory(androidWorkers)
+        }
+        if (iosWorkers.isNotEmpty()) {
+            validateNoDuplicateKeys(iosWorkers, "iOS")
+            generateIosFactory(iosWorkers)
+        }
 
         logger.info(
             "KmpWorker KSP: generated factories for " +
                 "${androidWorkers.size} Android + ${iosWorkers.size} iOS workers"
         )
         return emptyList()
+    }
+
+    /**
+     * Fails the build if two different `@Worker` classes claim the same factory key on the
+     * same platform — either two classes sharing an explicit or default `name`, or one
+     * worker's `aliases` colliding with another worker's `name`/`aliases`.
+     *
+     * Without this check, `generateAndroidFactory`/`generateIosFactory` emit
+     * `put(key) { ... }` once per (name + alias) entry into the same map; a second `put()`
+     * with the same key silently overwrites the first with no compile error and no KSP
+     * warning. One of the two workers becomes permanently unreachable at runtime — its
+     * tasks resolve to the *other* worker's implementation, or `createWorker()` returns the
+     * wrong instance. Since `@Worker(name = ...)` is documented as the stable identifier
+     * persisted tasks are looked up by, this is exactly the kind of collision this project
+     * has been burned by before (see `PendingIntentCodes` — String.hashCode() collisions
+     * splitting alarms across reboots).
+     *
+     * Reports every colliding key with all classes that claim it — the same class appearing
+     * twice for a key (e.g. `@Worker(name = "X", aliases = ["X"])`) is redundant, not
+     * harmful, and is not flagged.
+     */
+    internal fun validateNoDuplicateKeys(workers: List<WorkerInfo>, platform: String) {
+        val keyToClasses = mutableMapOf<String, MutableSet<String>>()
+        workers.forEach { worker ->
+            (listOf(worker.name) + worker.aliases).forEach { key ->
+                keyToClasses.getOrPut(key) { mutableSetOf() }.add(worker.className.canonicalName)
+            }
+        }
+        keyToClasses.forEach { (key, classes) ->
+            if (classes.size > 1) {
+                logger.error(
+                    "@Worker key \"$key\" ($platform) is claimed by multiple classes: " +
+                        "${classes.sorted().joinToString(", ")}. Each @Worker name and alias must " +
+                        "be unique per platform — the generated factory's providers map holds one " +
+                        "entry per key, so all but one of these workers would be silently " +
+                        "unreachable at runtime. Give each a distinct @Worker(name = ...) or " +
+                        "remove the colliding alias."
+                )
+            }
+        }
     }
 
     // ── Android factory ────────────────────────────────────────────────────────
@@ -198,7 +244,7 @@ class WorkerProcessor(
             .addSuperinterface(iosWorkerFactoryClass)
             .addKdoc(
                 "Auto-generated iOS worker factory.\n\n" +
-                "Implements [BgTaskIdProvider]: `kmpWorkerModule()` automatically validates\n" +
+                "Implements [BgTaskIdProvider]: `KmpWorkManager.initialize()` automatically validates\n" +
                 "all declared BGTask IDs against `Info.plist` at startup.\n\n" +
                 "Override individual [providers] entries to supply workers from a DI container:\n" +
                 "```kotlin\n" +
@@ -295,7 +341,7 @@ private fun KSClassDeclaration.extendsWorkerType(
     return false
 }
 
-private data class WorkerInfo(
+internal data class WorkerInfo(
     val name: String,
     val className: ClassName,
     val bgTaskId: String,

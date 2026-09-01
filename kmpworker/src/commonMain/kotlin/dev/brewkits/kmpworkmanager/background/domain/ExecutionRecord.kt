@@ -3,11 +3,19 @@ package dev.brewkits.kmpworkmanager.background.domain
 import kotlinx.serialization.Serializable
 
 /**
- * A single persisted record of a background task chain execution.
+ * A single persisted record of a background task or chain-step execution.
  *
- * Records are written when a chain finishes (success, failure, abandoned, skipped)
+ * Records are written when a task finishes (success, failure, abandoned, skipped)
  * and stored locally via [ExecutionHistoryStore]. Call [BackgroundTaskScheduler.getExecutionHistory]
  * to retrieve them and upload to your server when the app is foregrounded.
+ *
+ * **Platform divergence:** on iOS, [ChainExecutor] writes ONE aggregate record per chain
+ * (`totalSteps` = the chain's full step count, written once the chain finishes). On Android,
+ * WorkManager runs each chain step through an independent `Worker`, so a multi-step chain
+ * produces ONE [ExecutionRecord] PER STEP, all sharing the same [chainId] — `totalSteps` on
+ * each of those records reflects the chain's total step count, not "1 record = 1 step".
+ * Group by [chainId] and use [completedSteps]/`workerClassNames.size` if you need per-chain
+ * rollups on Android.
  *
  * ```kotlin
  * // Collect on app foreground, upload to backend

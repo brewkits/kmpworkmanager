@@ -10,7 +10,6 @@ import androidx.work.OneTimeWorkRequest
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.PeriodicWorkRequest
 import androidx.work.WorkManager
-import dev.brewkits.kmpworkmanager.KmpWorkManagerKoin
 import dev.brewkits.kmpworkmanager.KmpWorkManagerRuntime
 import dev.brewkits.kmpworkmanager.background.domain.*
 import dev.brewkits.kmpworkmanager.utils.LogTags
@@ -39,6 +38,18 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
     companion object {
         const val TAG_KMP_TASK = "kmp-worker-task"
         const val KEY_INPUT_JSON_FILE = "inputJsonFile"
+        // Retry ceiling stamped from Constraints.maxRetries and read back by BaseKmpWorker.
+        // Absent → treated as -1 (uncapped). WorkManager has no native max-retry API.
+        const val KEY_MAX_RETRIES = "maxRetries"
+        // Chain identity, stamped per-step by enqueueChain()/createWorkRequest() and read back
+        // by BaseKmpWorker to populate TelemetryHook events and ExecutionRecord. Namespaced
+        // (kmp_ prefix) rather than a bare name like "chainId" because WorkContinuation.then()
+        // merges a prerequisite step's outputData into the next step's inputData via the default
+        // OverwritingInputMerger — a user worker whose own outputData happened to use a bare key
+        // would silently clobber this stamp for step 2+.
+        const val KEY_CHAIN_ID = "kmp_chain_id"
+        const val KEY_STEP_INDEX = "kmp_step_index"
+        const val KEY_TOTAL_STEPS = "kmp_total_steps"
         internal const val OVERFLOW_THRESHOLD_BYTES = 8192 // 8 KB
         private const val ZOMBIE_FILE_MAX_AGE_MS = 24 * 60 * 60 * 1000L // 24 hours
         private val cleanupStarted = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -339,9 +350,12 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         inputJson: String?,
         taskType: String,
         initialDelayMs: Long,
-        wmConstraints: androidx.work.Constraints
+        wmConstraints: androidx.work.Constraints,
+        chainId: String? = null,
+        stepIndex: Int? = null,
+        totalSteps: Int? = null
     ): OneTimeWorkRequest {
-        val workData = buildWorkData(id, workerClassName, inputJson)
+        val workData = buildWorkData(id, workerClassName, inputJson, constraints.maxRetries, chainId, stepIndex, totalSteps)
         val builder = if (constraints.isHeavyTask) {
             OneTimeWorkRequestBuilder<KmpHeavyWorker>()
         } else {
@@ -372,8 +386,21 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         return builder.build()
     }
 
-    private fun buildWorkData(taskId: String, workerClassName: String, inputJson: String?): Data {
+    private fun buildWorkData(
+        taskId: String,
+        workerClassName: String,
+        inputJson: String?,
+        maxRetries: Int,
+        chainId: String? = null,
+        stepIndex: Int? = null,
+        totalSteps: Int? = null
+    ): Data {
         val builder = Data.Builder().putString("workerClassName", workerClassName)
+        // Stamp the retry ceiling before any early return so null-input tasks are capped too.
+        if (maxRetries >= 0) builder.putInt(KEY_MAX_RETRIES, maxRetries)
+        if (chainId != null) builder.putString(KEY_CHAIN_ID, chainId)
+        if (stepIndex != null) builder.putInt(KEY_STEP_INDEX, stepIndex)
+        if (totalSteps != null) builder.putInt(KEY_TOTAL_STEPS, totalSteps)
         if (inputJson == null) return builder.build()
 
         val bytes = inputJson.encodeToByteArray()
@@ -396,6 +423,11 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
     }
 
     private fun buildPeriodicWorkData(workerClassName: String, inputJson: String?): Data {
+        // maxRetries is intentionally NOT stamped for periodic work. A periodic task runs
+        // indefinitely by design, so "N+1 total runs" is meaningless; and WorkManager's
+        // runAttemptCount for periodic work is version-dependent (may accumulate across periods),
+        // which would silently disable retries forever once the cap is hit. maxRetries applies to
+        // one-time and chained tasks only — see Constraints.maxRetries.
         val builder = Data.Builder().putString("workerClassName", workerClassName)
         if (inputJson == null) return builder.build()
 
@@ -492,20 +524,32 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         if (steps.isEmpty()) return
 
         val chainId = id ?: java.util.UUID.randomUUID().toString()
+        val totalSteps = steps.size
         val wmPolicy = when (policy) {
             ExistingPolicy.REPLACE -> ExistingWorkPolicy.REPLACE
             ExistingPolicy.KEEP -> ExistingWorkPolicy.KEEP
         }
 
-        var continuation = workManager.beginUniqueWork(chainId, wmPolicy, steps.first().map { createWorkRequest(it) })
-        steps.drop(1).forEach { step ->
-            continuation = continuation.then(step.map { createWorkRequest(it) })
+        // Stamp chainId/stepIndex/totalSteps into every step's inputData so BaseKmpWorker can
+        // recover chain identity for TelemetryHook events and ExecutionRecord — WorkManager's
+        // native then()-chaining carries no chain metadata of its own (only a per-step tag).
+        var continuation = workManager.beginUniqueWork(
+            chainId, wmPolicy, steps.first().map { createWorkRequest(it, chainId, 0, totalSteps) }
+        )
+        steps.drop(1).forEachIndexed { offset, step ->
+            val stepIndex = offset + 1
+            continuation = continuation.then(step.map { createWorkRequest(it, chainId, stepIndex, totalSteps) })
         }
         continuation.enqueue()
     }
 
     @OptIn(AndroidOnly::class)
-    private fun createWorkRequest(task: TaskRequest): OneTimeWorkRequest {
+    private fun createWorkRequest(
+        task: TaskRequest,
+        chainId: String? = null,
+        stepIndex: Int? = null,
+        totalSteps: Int? = null
+    ): OneTimeWorkRequest {
         val wmConstraints = buildWorkManagerConstraints(task.constraints ?: Constraints())
         return buildOneTimeWorkRequest(
             java.util.UUID.randomUUID().toString(),
@@ -514,7 +558,10 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
             task.inputJson,
             "chain",
             0L,
-            wmConstraints
+            wmConstraints,
+            chainId,
+            stepIndex,
+            totalSteps
         )
     }
 

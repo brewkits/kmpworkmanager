@@ -142,15 +142,12 @@ class AndroidWorkerDiagnostics(
         val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE)
             as? ConnectivityManager ?: return false
 
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val network = connectivityManager.activeNetwork ?: return false
-            val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
-            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-        } else {
-            @Suppress("DEPRECATION")
-            val activeNetwork = connectivityManager.activeNetworkInfo
-            activeNetwork?.isConnected == true
-        }
+        // minSdk is 26 (> API 23/M), so the modern NetworkCapabilities API is always available.
+        // The legacy NetworkInfo.isConnected path was dead code and is dropped to clear the
+        // CodeQL java/deprecated-call alerts.
+        val network = connectivityManager.activeNetwork ?: return false
+        val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
+        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
     /**

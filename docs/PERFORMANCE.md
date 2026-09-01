@@ -30,7 +30,7 @@ Time to schedule a task:
 
 | Operation | Android | iOS | Notes |
 |-----------|---------|-----|-------|
-| Single task | 8-12ms | 15-25ms | Includes Koin resolution |
+| Single task | 8-12ms | 15-25ms | Includes registry resolution |
 | 10 tasks (sequential) | 80-120ms | 150-250ms | Linear scaling |
 | 10 tasks (parallel) | 15-20ms | 30-45ms | Batched operation |
 
