@@ -226,7 +226,7 @@ See the [changelog](CHANGELOG.md) for the full history, and the per-version upgr
 
 | Worker | Status | Notes |
 |--------|--------|-------|
-| `HttpRequestWorker` | Stable | One-shot HTTP with configurable method, headers, body. SSRF-validated. |
+| `HttpRequestWorker` | Stable | One-shot HTTP with configurable method, headers, body. SSRF-validated. Optional `HmacSigningConfig` (HMAC-SHA256 request signing, GitHub-webhook-style prefix support) and `TokenRefreshConfig` (auto-refresh + one-shot retry on `401`, dot-notation token extraction from the refresh response). |
 | `HttpDownloadWorker` | Stable (v2.5+) | Resumable download via HTTP `Range`. `<savePath>.partial` survives process kill; a process kill resumes from last byte. Supports SHA-256/SHA-1/SHA-512/MD5 checksum verification and `DuplicatePolicy` (overwrite / skip / rename). |
 | `ParallelHttpDownloadWorker` | Stable | Splits a single file into N (1..16, default 4) HTTP `Range` chunks downloaded concurrently with per-chunk `.partN` resume. Automatic sequential fallback when the server does not advertise `Accept-Ranges: bytes`. Same checksum verification surface as `HttpDownloadWorker`. |
 | `HttpUploadWorker` | ⚠️ Experimental | Streaming multipart upload. No resumable / chunked upload yet (see `ParallelHttpUploadWorker` for multi-file uploads). |
