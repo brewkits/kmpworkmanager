@@ -33,9 +33,32 @@ Still open from the same parity analysis, in rough priority order:
 - ⏳ **`WorkQuery`-style batch query** — filter pending/running tasks by state/tag/worker.
   Read-only on both platforms; iOS needs a scan across queue + metadata + active chains.
 - ⏳ **`ExistingPolicy.APPEND`** — append steps to a chain that is already queued or
-  running. iOS is the hard part: load-modify-save `ChainProgress` under a mutex while
-  `ChainExecutor` may be mid-chain. (The `when` over `ExistingPolicy` in iOS
-  `enqueueChain` is deliberately exhaustive so adding this forces a decision there.)
+  running. Android maps to `ExistingWorkPolicy.APPEND`/`APPEND_OR_REPLACE` directly; iOS
+  needs real design work, and **an earlier analysis of this got it wrong in a way worth
+  recording**:
+
+  > *Claim:* "`ChainExecutor` re-reads `loadChainDefinition()` fresh from disk before each
+  > step, so appending to the end is race-free."
+  >
+  > *Reality (verified in code):* `executeChain` calls `loadChainDefinition` **once**
+  > (~line 748) and then iterates the resulting in-memory list (~line 925) — both inside
+  > the same function. Nothing re-reads the definition per step.
+
+  Consequences the design must handle, none of which the "just append" approach covers:
+  - Appending to a **running** chain writes to disk that the in-flight executor never
+    re-reads, so the new steps are silently dropped for that invocation.
+  - `executeChain` **deletes the chain definition on completion** (~line 1153), so
+    appending to a chain that just finished writes into a file about to vanish, or
+    resurrects a deleted one, depending on timing.
+  - `ChainProgress` records completed-step indices; appending must not renumber existing
+    steps or a resumed chain will re-run or skip work.
+
+  A workable shape is probably: re-read the definition at the top of each step iteration
+  under the chain's existing lock, plus an explicit rule for "append to a chain that is
+  finishing" (reject, or convert to a new chain). Not a small change — treat it as its own
+  milestone, not a quick win. (The `when` over `ExistingPolicy` in iOS `enqueueChain` is
+  deliberately exhaustive so adding this forces a decision there rather than silently
+  falling through to the KEEP branch.)
 - 💭 **`setNextScheduleTimeOverride()`** — **not feasible on iOS.** BGTaskScheduler offers
   no way to override a registered task's next run; only cancel + reschedule, which is
   what `cancel()` + `enqueue()` already do. Android-only, so it fails the
