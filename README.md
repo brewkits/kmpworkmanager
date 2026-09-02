@@ -262,7 +262,7 @@ and no recovery mechanism for incomplete work. Getting it wrong means your tasks
 |---------|---------|-----|-------|
 | `OneTime(delayMs)` | WorkManager | BGTaskScheduler | Minimum delay may be enforced by OS |
 | `Periodic(intervalMs)` | WorkManager | BGTaskScheduler | Min 15 min on both platforms |
-| `Exact(epochMs)` | AlarmManager | Best-effort | iOS cannot guarantee exact timing |
+| `Exact(epochMs)` | AlarmManager | Best-effort | iOS: shows a notification by default — worker code does not run unless the user taps it or the app is reopened. Not a substitute for Android's real exact alarm; see `docs/iOS-EXACT-ALARM-GUIDE.md` |
 | `Windowed(earliest, latest)` | WorkManager with delay | BGTaskScheduler | Preferred over Exact on iOS |
 | `ContentUri(uri)` | WorkManager ContentUriTrigger | — | Android only |
 
@@ -305,6 +305,7 @@ See the [changelog](CHANGELOG.md) for the full history, and the per-version upgr
 | `HttpUploadWorker` | ⚠️ Experimental | Streaming multipart upload. No resumable / chunked upload yet (see `ParallelHttpUploadWorker` for multi-file uploads). |
 | `ParallelHttpUploadWorker` | Stable | One POST per file with per-host `maxConcurrent` limit (1..16, default 3) and per-file retry on 5xx / network errors (`maxRetries` 0..5). Per-file outcomes exposed via `WorkerResult.Success.data.fileResults`. |
 | `IosBackgroundDownloadWorker` | iOS-only, experimental (v2.5+) | Hands the download to `URLSessionConfiguration.background` so the transfer survives **full app termination**. Host AppDelegate must wire `application(_:handleEventsForBackgroundURLSession:completionHandler:)` — see [docs/IOS_BACKGROUND_URL_SESSION.md](docs/IOS_BACKGROUND_URL_SESSION.md). |
+| `IosBackgroundUploadWorker` | iOS-only, experimental (v3.6+) | Upload counterpart to `IosBackgroundDownloadWorker` — same background-daemon lifecycle and AppDelegate hook. Source must be a file on disk (`uploadTaskWithRequest(_:fromFile:)`; background sessions don't support in-memory bodies). |
 | `HttpSyncWorker` | Stable | Fetch-and-persist data sync. |
 | `FileCompressionWorker` | ✅ Stable | Produces a real PKZIP archive (DEFLATE) on both Android and iOS. Android uses `java.util.zip`; iOS uses native `platform.zlib` (system library, no external deps). Supports low/medium/high compression levels, exclude patterns, and optional delete-original. The `allowIosUncompressedFallback` flag is **deprecated** (ignored) since v3.2.0 — iOS now always produces a valid ZIP. |
 
@@ -362,9 +363,11 @@ RFC 3986 UserInfo bypass and multi-`@` authority attacks are both handled. DNS r
 | [Constraints & Triggers](docs/constraints-triggers.md) | All scheduling options |
 | [iOS Best Practices](docs/ios-best-practices.md) | BGTask gotchas and recommendations |
 | [iOS BGTask Hard Limits](docs/IOS_BGTASK_LIMITS.md) | Opportunistic scheduling, time budget, headless DI |
+| [iOS Exact Alarm Guide](docs/iOS-EXACT-ALARM-GUIDE.md) | What `TaskTrigger.Exact` actually does on iOS, and what not to use it for |
 | [App Store Review Compliance](docs/APPLE_APP_STORE_REVIEW_GUIDELINES.md) | §2.5.4 — what gets rejected and how to ship safely |
 | [Android FGS Type Guide](docs/ANDROID_FGS_GUIDE.md) | `mediaProcessing` / `camera` / `dataSync` setup |
-| [iOS Background URLSession](docs/IOS_BACKGROUND_URL_SESSION.md) | Surviving app termination during long downloads |
+| [iOS Background URLSession](docs/IOS_BACKGROUND_URL_SESSION.md) | Surviving app termination during long downloads/uploads |
+| [iOS App Group Storage](docs/IOS_APP_GROUP_STORAGE.md) | Sharing task storage with a Widget/Share Extension |
 | [iOS Live Activities](docs/IOS_LIVE_ACTIVITIES.md) | Dynamic Island & Lock Screen progress via `IosLiveActivityBridge` |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Common issues |
 | [CHANGELOG](CHANGELOG.md) | Release history |

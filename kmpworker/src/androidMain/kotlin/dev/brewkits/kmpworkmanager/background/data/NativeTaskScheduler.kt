@@ -455,15 +455,31 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         // Tag format: "user-<tag>" to avoid collisions with our internal "worker-", "id-", etc.
         task?.tags?.forEach { builder.addTag("user-$it") }
 
-        if (initialDelayMs == 0L && !constraints.isHeavyTask) {
-            // Expedited work does not support some constraints like charging.
-            // Safe to set only if it's a simple urgent task.
-            if (!constraints.requiresCharging && !constraints.requiresUnmeteredNetwork) {
-                builder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-            }
+        if (shouldExpedite(task, constraints, initialDelayMs)) {
+            builder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
         }
 
         return builder.build()
+    }
+
+    /**
+     * `TaskPriority.kt`'s KDoc documents `CRITICAL`/`HIGH` -> `setExpedited()`, `NORMAL`/`LOW` ->
+     * standard work. This used to expedite unconditionally (ignoring `task?.priority` entirely),
+     * so even LOW-priority chain steps jumped the WorkManager quota queue. Standalone `enqueue()`
+     * tasks have no priority parameter on either platform (`TaskPriority` lives on `TaskRequest`,
+     * which is chain-step-only by contract) — `task` is null there, so they never qualify. This
+     * is an intentional behavior change; see CHANGELOG.
+     *
+     * `internal` (not `private`) so a Robolectric test can exercise this decision directly
+     * without needing to inspect WorkManager's internal `WorkSpec.expedited` field, which has
+     * no stable public accessor.
+     */
+    internal fun shouldExpedite(task: TaskRequest?, constraints: Constraints, initialDelayMs: Long): Boolean {
+        val isHighPriority = task?.priority == TaskPriority.HIGH || task?.priority == TaskPriority.CRITICAL
+        if (initialDelayMs != 0L || constraints.isHeavyTask || !isHighPriority) return false
+        // Expedited work does not support some constraints like charging.
+        // Safe to set only if it's a simple urgent task.
+        return !constraints.requiresCharging && !constraints.requiresUnmeteredNetwork
     }
 
     private fun buildWorkData(

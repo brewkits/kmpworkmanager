@@ -150,7 +150,21 @@ data class Exact(
 **Parameters:**
 - `atEpochMillis`: Exact timestamp in epoch milliseconds
 
-**Platform Support:** ✅ Android, ✅ iOS
+**Platform Support:** ✅ Android (real exact alarm) · ⚠️ iOS (best-effort, see below — do not treat as equivalent)
+
+> **Claim vs. Reality (verified in code)**
+>
+> *Claim a reader might assume from "✅ iOS":* an exact alarm on iOS wakes the app and runs
+> worker code at the requested time, like Android's `AlarmManager.setExactAndAllowWhileIdle`.
+>
+> *Reality:* iOS has **no primitive** for "wake up at exactly time T and run this code" —
+> confirmed in the library's own KDoc at `NativeTaskScheduler.kt:1057-1109`. What actually
+> happens by default (`ExactAlarmIOSBehavior.SHOW_NOTIFICATION`) is a local notification is
+> shown at the requested time; **your worker code does not run unless the user taps it**.
+> `ATTEMPT_BACKGROUND_RUN` additionally tries an opportunistic `BGTaskScheduler` request, with
+> no timing guarantee. The only reliable way missed work gets caught up is a
+> `applicationDidBecomeActive` hook the host app must wire in — see
+> `docs/iOS-EXACT-ALARM-GUIDE.md` and `docs/IOS_BGTASK_LIMITS.md` §5 for the full breakdown.
 
 **Example:**
 
@@ -180,7 +194,7 @@ val tomorrow8AM = Clock.System.now()
 TaskTrigger.Exact(atEpochMillis = tomorrow8AM)
 ```
 
-**Use Cases:**
+**Use Cases — Android only:**
 - Medication reminders
 - Meeting notifications
 - Scheduled posts
@@ -188,18 +202,29 @@ TaskTrigger.Exact(atEpochMillis = tomorrow8AM)
 - Appointment alerts
 - Event reminders
 
+**Use Cases — iOS (non-critical, opportunistic only):**
+- "Sync drafts when the app opens after 2 AM"
+- "Show a 'long time no see' nudge the next time the user opens the app"
+- Any trigger where missing the exact moment has zero cost — never alarm clocks, medication
+  reminders, trading/financial triggers, or expiring time-locked content.
+
 **Implementation:**
-- **Android**: `AlarmManager.setExactAndAllowWhileIdle()`
-- **iOS**: `UNUserNotificationCenter` local notification
+- **Android**: `AlarmManager.setExactAndAllowWhileIdle()` — real OS-level exact alarm, fires
+  even if the app is fully closed.
+- **iOS**: `UNUserNotificationCenter` local notification (`ExactAlarmIOSBehavior.SHOW_NOTIFICATION`,
+  the default) shows a banner only — worker code runs only if the user taps it, or via the
+  `applicationDidBecomeActive` catch-up path. `ATTEMPT_BACKGROUND_RUN` additionally requests an
+  opportunistic `BGTaskScheduler` run with no timing guarantee.
 
 **Permissions Required:**
 - **Android**: `SCHEDULE_EXACT_ALARM` permission (Android 12+)
-- **iOS**: Notification permission
+- **iOS**: Notification permission (required for `SHOW_NOTIFICATION` to have any effect at all)
 
 **Important Notes:**
-- Tasks run even in Doze mode
-- Very precise execution (within seconds)
-- Best for user-facing time-sensitive operations
+- **Android**: tasks run even in Doze mode, with precise execution (within seconds). Best for
+  user-facing time-sensitive operations.
+- **iOS**: DO NOT use for anything where missing the time window has irreversible cost. See
+  `docs/iOS-EXACT-ALARM-GUIDE.md` for the full DO/DON'T list.
 
 ---
 
@@ -796,22 +821,26 @@ Constraints(qos = QualityOfService.HIGH)
 
 ### Constraints
 
+> This table lists the actual `Constraints` fields in `Contracts.kt` — some older field names
+> below this table (`networkType`, `requiresBatteryNotLow`, `requiresStorageNotLow`,
+> `requiresDeviceIdle`, `expedited`, `existingWorkPolicy` as a `Constraints` field) no longer
+> exist in the current contract; they were superseded by the `SystemConstraint` enum and the
+> separate `ExistingPolicy` parameter. See `Contracts.kt:87-128`.
+
 | Constraint | Android | iOS | Notes |
 |------------|---------|-----|-------|
 | requiresNetwork | ✅ | ✅ | Full support |
-| networkType | ✅ | Partial | iOS: CONNECTED, UNMETERED only |
-| requiresUnmeteredNetwork | ✅ | ✅ | Full support |
-| requiresCharging | ✅ | ✅ | Full support |
-| requiresBatteryNotLow | ✅ | ✅ | Full support |
-| requiresStorageNotLow | ✅ | ❌ | Android only |
-| requiresDeviceIdle | ✅ | ❌ | Android only |
-| allowWhileIdle | ✅ | ❌ | Android only |
+| requiresUnmeteredNetwork | ✅ | ✅ | iOS: enforced for chain steps and standalone tasks alike |
+| requiresCharging | ✅ | ⚠️ | iOS: honored unconditionally for tasks with a static Info.plist identifier + `isHeavyTask=true` (OS-level flag). For every other standalone/chain task, enforced only if the host app has opted in to `UIDevice.batteryMonitoringEnabled` — the library never toggles that flag itself. Hosts that don't opt in see this constraint silently unenforced — tracked gap, see `docs/ROADMAP.md` |
+| `systemConstraints`: `REQUIRE_BATTERY_NOT_LOW` / `ALLOW_LOW_BATTERY` | ✅ | ✅ | iOS: via `NSProcessInfo.processInfo().lowPowerModeEnabled`, for both chain steps and standalone tasks |
+| `systemConstraints`: `ALLOW_LOW_STORAGE` | ✅ | ❌ | iOS has no storage-pressure constraint API — structurally not supported |
+| `systemConstraints`: `DEVICE_IDLE` | ✅ | ❌ | iOS has no Doze-equivalent — structurally not supported |
+| allowWhileIdle | ✅ | ❌ | Android only — no Doze-equivalent on iOS to bypass |
 | isHeavyTask | ✅ | ✅ | Full support |
-| expedited | ✅ | ❌ | Android only |
-| backoffPolicy | ✅ | ✅ | Full support |
-| backoffDelayMs | ✅ | ✅ | Full support |
-| existingWorkPolicy | ✅ | Partial | iOS: REPLACE, KEEP only |
-| qos | ❌ | ✅ | iOS only |
+| backoffPolicy / backoffDelayMs | ✅ | ✅ | iOS: wired into standalone-task retry timing when explicitly set (default behavior unchanged — retry on the next opportunistic wake) |
+| maxRetries | ✅ | ✅ | Full support |
+| qos | — | ⚠️ | Logged only on iOS ("iOS manages priority automatically"); currently a no-op on both platforms |
+| exactAlarmIOSBehavior | N/A | ✅ | iOS-only field, ignored on Android |
 
 ---
 

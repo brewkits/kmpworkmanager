@@ -412,6 +412,7 @@ public class NativeTaskScheduler(
             if (tags.isNotEmpty()) put(DynamicTaskDispatcher.META_TAGS, tags.joinToString(","))
             // No deadline for periodic work — see the matching note in Android's
             // schedulePeriodicWork: a deadline on a recurring task is a delayed cancel.
+            putStandaloneConstraintMetadata(constraints)
         }
         fileStorage.saveTaskMetadata(id, periodicMetadata, periodic = true)
 
@@ -456,6 +457,7 @@ public class NativeTaskScheduler(
             // callers that never use tags/deadlines (keeps upgrades a no-op on disk).
             if (tags.isNotEmpty()) put(DynamicTaskDispatcher.META_TAGS, tags.joinToString(","))
             if (deadlineMs != null) put(DynamicTaskDispatcher.META_DEADLINE_MS, "$deadlineMs")
+            putStandaloneConstraintMetadata(constraints)
         }
         fileStorage.saveTaskMetadata(id, taskMetadata, periodic = false)
 

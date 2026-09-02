@@ -49,7 +49,18 @@ internal data class ChainTransaction(
 internal data class DynamicQueueConstraintSummary(
     val pendingCount: Int,
     val heavyCount: Int,
-    val networkRequiredCount: Int
+    val networkRequiredCount: Int,
+    /**
+     * Earliest epoch-ms the master dispatcher should be re-requested, derived from pending
+     * tasks' backoff floors ([DynamicTaskDispatcher.META_NEXT_RETRY_EARLIEST_MS]).
+     *
+     * `null` means "now" — at least one pending task has no floor (or none are pending), so
+     * the dispatcher should be woken as soon as possible rather than waiting out some other
+     * task's backoff. Only when EVERY pending task has an unexpired floor does this hold the
+     * minimum of those floors, so the dispatcher isn't woken early just to find nothing
+     * runnable and burn BGTask quota re-scheduling itself.
+     */
+    val earliestBackoffFloorMs: Long?
 ) {
     /** True when every pending task is light — safe to schedule as `BGAppRefreshTask`. */
     val allLight: Boolean get() = pendingCount > 0 && heavyCount == 0
@@ -547,16 +558,26 @@ public class IosFileStorage(
         val ids = tasksQueue.getAllItems()
         var heavyCount = 0
         var networkCount = 0
+        var minFloorMs: Long? = null
+        var everyPendingHasFloor = ids.isNotEmpty()
         for (id in ids) {
             // A dynamic task ID is either one-time or periodic metadata — never both.
             val meta = loadTaskMetadata(id, periodic = false) ?: loadTaskMetadata(id, periodic = true)
             if (meta?.get("isHeavyTask") == "true") heavyCount++
             if (meta?.get("requiresNetwork") == "true") networkCount++
+
+            val floorMs = meta?.get(DynamicTaskDispatcher.META_NEXT_RETRY_EARLIEST_MS)?.toLongOrNull()
+            if (floorMs == null) {
+                everyPendingHasFloor = false
+            } else {
+                minFloorMs = if (minFloorMs == null) floorMs else minOf(minFloorMs, floorMs)
+            }
         }
         return DynamicQueueConstraintSummary(
             pendingCount = ids.size,
             heavyCount = heavyCount,
-            networkRequiredCount = networkCount
+            networkRequiredCount = networkCount,
+            earliestBackoffFloorMs = if (everyPendingHasFloor) minFloorMs else null
         )
     }
 

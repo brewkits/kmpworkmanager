@@ -96,6 +96,55 @@ TaskEventBus.events
     }
 ```
 
+## Uploads (v3.6.0+)
+
+`IosBackgroundUploadWorker` is the upload counterpart — same daemon-managed lifecycle,
+same `AppDelegate` hook, same async-completion-via-`TaskEventBus` contract as the
+download worker above.
+
+```kotlin
+val config = IosBackgroundUploadConfig(
+    url = "https://api.example.com/uploads",
+    filePath = "$documents/report.pdf",
+    sessionIdentifier = "com.example.app.bg.reports",
+    httpMethod = "POST",
+    allowsCellularAccess = true
+)
+scheduler.beginWith(
+    TaskRequest(
+        workerClassName = "IosBackgroundUploadWorker",
+        inputJson = json.encodeToString(config)
+    )
+).enqueue(id = "upload-${report.id}")
+```
+
+**Source must be a file on disk.** Background `NSURLSessionUploadTask` requires
+`uploadTaskWithRequest(_:fromFile:)` — in-memory (`fromData:`) request bodies are not
+supported for background sessions at all, so there is no data-based alternative. Write
+your payload to disk first if it doesn't already live there, and don't delete that file
+until you observe completion on `TaskEventBus` — the daemon reads directly from the path
+you gave it, for as long as the transfer is in flight.
+
+Uploads share the same `sessionIdentifier` conventions and the same
+`sharedContainerIdentifier` App Group option as downloads (see below) — one background
+session identifier can multiplex both directions safely.
+
+## App Group sharing (v3.6.0+)
+
+Both `IosBackgroundDownloadConfig` and `IosBackgroundUploadConfig` accept a
+`sharedContainerIdentifier` (an App Group id, `group.<bundleId>...`). Setting it
+configures the underlying `NSURLSessionConfiguration` so a Share/Widget Extension in the
+same App Group can also observe or initiate transfers on that session.
+
+**This does not share the completion-tracking state.** `BackgroundDownloadStateStore` always
+writes its JSON file to the *main app's* Application Support directory
+(`<AppSupport>/dev.brewkits.kmpworkmanager/bg_url_session_state.json`) — it does not accept a
+custom `baseDirectory` and is unaffected by `KmpWorkManager.initialize(appGroupIdentifier = ...)`
+(see [`docs/IOS_APP_GROUP_STORAGE.md`](./IOS_APP_GROUP_STORAGE.md), which covers task/chain/
+progress storage only). An extension in the same App Group cannot read which transfers are
+pending or complete today — `sharedContainerIdentifier` only lets it *share the transport*
+(observe/initiate `NSURLSessionTask`s on the session), not the app's bookkeeping of them.
+
 ## Limits and gotchas
 
 | Behaviour | Notes |

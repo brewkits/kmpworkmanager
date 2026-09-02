@@ -10,6 +10,7 @@ import dev.brewkits.kmpworkmanager.background.domain.ExecutionStatus
 import dev.brewkits.kmpworkmanager.background.domain.TaskCompletionEvent
 import dev.brewkits.kmpworkmanager.background.domain.TaskEventBus
 import dev.brewkits.kmpworkmanager.background.domain.TaskProgressBus
+import dev.brewkits.kmpworkmanager.background.domain.SystemConstraint
 import dev.brewkits.kmpworkmanager.background.domain.TaskRequest
 import dev.brewkits.kmpworkmanager.background.domain.TelemetryHook
 import dev.brewkits.kmpworkmanager.background.domain.TaskEventManager
@@ -1434,6 +1435,28 @@ class ChainExecutor(
             )
             return WorkerResult.Failure(
                 message = "Requires unmetered (Wi-Fi) network but cellular is active",
+                shouldRetry = true
+            )
+        }
+
+        // SystemConstraint.REQUIRE_BATTERY_NOT_LOW guard. Uses NSProcessInfo's OS-defined Low
+        // Power Mode signal rather than a raw battery percentage — matches Android's
+        // `setRequiresBatteryNotLow()`, which also keys off an OS-defined "battery low"
+        // threshold rather than an app-configurable one. Independent of
+        // `KmpWorkManagerRuntime.minBatteryLevelPercent` (a separate, opt-in global knob
+        // checked further below) — this is the per-task contract field instead.
+        val systemConstraints = task.constraints?.systemConstraints.orEmpty()
+        if (SystemConstraint.REQUIRE_BATTERY_NOT_LOW in systemConstraints &&
+            SystemConstraint.ALLOW_LOW_BATTERY !in systemConstraints &&
+            NSProcessInfo.processInfo().lowPowerModeEnabled
+        ) {
+            Logger.w(
+                LogTags.CHAIN,
+                "⚠️ Task ${task.workerClassName} requires battery not low but Low Power Mode is " +
+                    "enabled — returning Failure(shouldRetry=true)."
+            )
+            return WorkerResult.Failure(
+                message = "Requires battery not low, but Low Power Mode is enabled",
                 shouldRetry = true
             )
         }

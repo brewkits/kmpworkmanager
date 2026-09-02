@@ -98,7 +98,7 @@ with. `KmpWorkManager.initialize()` needs no DI framework; if your app uses Koin
 
 ### Exact Alarms Not Working
 
-**Problem:** Alarms don't fire at exact time
+**Problem:** Alarms don't fire at exact time (Android)
 
 **Required Permission (Android 12+):**
 ```xml
@@ -116,6 +116,10 @@ if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
     }
 }
 ```
+
+**On iOS**, a missing permission is not the cause — iOS has no exact-alarm primitive at all.
+`TaskTrigger.Exact` shows a local notification by default and does not run worker code unless
+the user taps it. See `docs/IOS_BGTASK_LIMITS.md` §5 and `docs/iOS-EXACT-ALARM-GUIDE.md`.
 
 ### Heavy Tasks Failing
 

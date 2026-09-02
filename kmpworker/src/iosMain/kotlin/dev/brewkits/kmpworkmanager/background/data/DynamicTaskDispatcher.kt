@@ -6,6 +6,7 @@
 package dev.brewkits.kmpworkmanager.background.data
 
 import dev.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
+import dev.brewkits.kmpworkmanager.background.domain.BackoffPolicy
 import dev.brewkits.kmpworkmanager.background.domain.TaskCompletionEvent
 import dev.brewkits.kmpworkmanager.background.domain.TaskEventManager
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
@@ -35,7 +36,8 @@ import kotlinx.cinterop.ObjCObjectVar
  */
 public class DynamicTaskDispatcher(
     private val singleTaskExecutor: SingleTaskExecutor,
-    private val fileStorage: IosFileStorage = IosFileStorage()
+    private val fileStorage: IosFileStorage = IosFileStorage(),
+    private val networkStateProvider: IosNetworkStateProvider = DefaultIosNetworkStateProvider()
 ) {
     private val isShuttingDown = AtomicInt(0)
 
@@ -82,11 +84,55 @@ public class DynamicTaskDispatcher(
          */
         internal const val META_TAGS = "kmpTags"
 
+        /**
+         * Task metadata key holding [dev.brewkits.kmpworkmanager.background.domain.Constraints.requiresUnmeteredNetwork]
+         * for a standalone task. BGTaskScheduler has no Wi-Fi-only OS-level flag, so this is
+         * checked at dispatch time via [StandaloneConstraintGuard] instead. Only written when
+         * `true`.
+         */
+        internal const val META_REQUIRES_UNMETERED_NETWORK = "kmpRequiresUnmeteredNetwork"
+
+        /**
+         * Task metadata key holding whether
+         * [dev.brewkits.kmpworkmanager.background.domain.SystemConstraint.REQUIRE_BATTERY_NOT_LOW]
+         * is set on a standalone task. Only written when present.
+         */
+        internal const val META_REQUIRES_BATTERY_NOT_LOW = "kmpRequiresBatteryNotLow"
+
+        /**
+         * Task metadata key holding whether
+         * [dev.brewkits.kmpworkmanager.background.domain.SystemConstraint.ALLOW_LOW_BATTERY]
+         * is set on a standalone task — overrides [META_REQUIRES_BATTERY_NOT_LOW] for that task.
+         * Only written when present.
+         */
+        internal const val META_ALLOW_LOW_BATTERY = "kmpAllowLowBattery"
+
+        /**
+         * Task metadata keys carrying
+         * [dev.brewkits.kmpworkmanager.background.domain.Constraints.backoffPolicy]/`backoffDelayMs`
+         * for a standalone task's retry timing. Only written when non-default.
+         */
+        internal const val META_BACKOFF_POLICY = "kmpBackoffPolicy"
+        internal const val META_BACKOFF_DELAY_MS = "kmpBackoffDelayMs"
+
+        /**
+         * Task metadata key holding the epoch-ms floor before which a retried standalone task
+         * must not be re-executed, computed from [META_BACKOFF_POLICY]/[META_BACKOFF_DELAY_MS].
+         * Checked in [executePendingTasks] before dispatch.
+         */
+        internal const val META_NEXT_RETRY_EARLIEST_MS = "kmpNextRetryEarliestMs"
+
         // Hard ceiling when the worker did not specify [WorkerResult.Retry.attemptCap] and
         // the caller set no Constraints.maxRetries. Mirrors WorkManager's default backoff
         // retry budget so behaviour matches the Android side. Same magnitude as
         // ChainProgress.DEFAULT_MAX_RETRIES.
         internal const val DEFAULT_ATTEMPT_CAP = 5
+
+        // NSDate has no timeIntervalSince1970 constructor in Kotlin/Native cinterop — only
+        // timeIntervalSinceReferenceDate (Apple's epoch: 2001-01-01). This is the fixed
+        // offset between the two epochs, used to convert an epoch-ms backoff floor into an
+        // NSDate. Mirrors NativeTaskScheduler's private constant of the same value.
+        private const val APPLE_TO_UNIX_EPOCH_OFFSET_SECONDS = 978307200.0
     }
 
     /**
@@ -184,6 +230,54 @@ public class DynamicTaskDispatcher(
                 )
                 fileStorage.deleteTaskMetadata(taskId, periodic = false)
                 continue
+            }
+
+            // Backoff guard — one-time tasks only (see handleOneTimeResult). Re-queues without
+            // executing so a retry actually waits out its computed delay instead of firing on
+            // the very next opportunistic BGTask wake.
+            if (!meta.isPeriodic) {
+                val nextRetryEarliestMs = meta.rawMeta?.get(META_NEXT_RETRY_EARLIEST_MS)?.toLongOrNull()
+                if (nextRetryEarliestMs != null && currentTimeMs() < nextRetryEarliestMs) {
+                    Logger.d(
+                        LogTags.SCHEDULER,
+                        "Dynamic task '$taskId' still within backoff window " +
+                            "(${nextRetryEarliestMs - currentTimeMs()}ms left) — deferring"
+                    )
+                    try {
+                        fileStorage.enqueueTask(taskId)
+                    } catch (e: IllegalStateException) {
+                        Logger.w(LogTags.SCHEDULER, "Dynamic task '$taskId' backoff re-queue skipped: ${e.message}")
+                    }
+                    continue
+                }
+            }
+
+            // Constraint guard for standalone tasks — BGTaskScheduler has no Wi-Fi-only or
+            // Low-Power-Mode flag, so these are enforced here instead of at OS-request time.
+            // Periodic tasks only warn (not blocked): unlike one-time tasks they have no
+            // "defer without breaking the schedule" path today, and their OS-level
+            // requiresNetworkConnectivity/requiresExternalPower flags already cover the common
+            // case at submission time.
+            val violation = StandaloneConstraintGuard.violationReason(meta.rawMeta, networkStateProvider)
+            if (violation != null) {
+                if (meta.isPeriodic) {
+                    Logger.w(LogTags.SCHEDULER, "Periodic task '$taskId' running despite: $violation")
+                } else {
+                    // Deferred, not failed: an unmet constraint means the task never got a
+                    // chance to run at all, so it must NOT consume retry budget. Re-enqueue
+                    // exactly like the backoff guard above — same reasoning, same pattern —
+                    // instead of routing through handleOneTimeResult, which increments
+                    // META_ATTEMPT_COUNT and would eventually delete the task (after
+                    // DEFAULT_ATTEMPT_CAP dispatcher wakes) purely because the constraint kept
+                    // being unmet, e.g. a Wi-Fi-only task during a long commute on cellular.
+                    Logger.w(LogTags.SCHEDULER, "Dynamic task '$taskId' deferred — $violation")
+                    try {
+                        fileStorage.enqueueTask(taskId)
+                    } catch (e: IllegalStateException) {
+                        Logger.w(LogTags.SCHEDULER, "Dynamic task '$taskId' constraint re-queue skipped: ${e.message}")
+                    }
+                    continue
+                }
             }
 
             Logger.i(LogTags.SCHEDULER, "DynamicTaskDispatcher: Executing '$taskId'")
@@ -297,8 +391,25 @@ public class DynamicTaskDispatcher(
 
         // Persist updated attempt counter BEFORE re-enqueue so a crash between
         // enqueue and metadata-write can't reset the counter to 1 on the next run.
+        //
+        // Backoff floor: only stamped when the caller actually set a non-default
+        // Constraints.backoffPolicy/backoffDelayMs (i.e. META_BACKOFF_POLICY/META_BACKOFF_DELAY_MS
+        // is present in metadata — see putStandaloneConstraintMetadata, which only writes these
+        // keys for non-default values). Without an explicit request, retries keep the
+        // pre-existing behavior: fire on the very next opportunistic BGTask wake, no artificial
+        // floor. Unconditionally defaulting to a 30s/EXPONENTIAL floor here would silently
+        // change retry timing for every existing caller that never touched backoffPolicy.
+        val hasExplicitBackoff = rawMeta.containsKey(META_BACKOFF_POLICY) || rawMeta.containsKey(META_BACKOFF_DELAY_MS)
         val updatedMeta = rawMeta.toMutableMap().apply {
             put(META_ATTEMPT_COUNT, nextAttempt.toString())
+            if (hasExplicitBackoff) {
+                val backoffPolicy = rawMeta[META_BACKOFF_POLICY]
+                    ?.let { runCatching { BackoffPolicy.valueOf(it) }.getOrNull() }
+                    ?: BackoffPolicy.EXPONENTIAL
+                val backoffDelayMs = rawMeta[META_BACKOFF_DELAY_MS]?.toLongOrNull() ?: 30_000L
+                val nextRetryEarliestMs = currentTimeMs() + computeBackoffDelayMs(backoffPolicy, backoffDelayMs, currentAttempt)
+                put(META_NEXT_RETRY_EARLIEST_MS, "$nextRetryEarliestMs")
+            }
         }
         fileStorage.saveTaskMetadata(taskId, updatedMeta, periodic = false)
 
@@ -318,6 +429,20 @@ public class DynamicTaskDispatcher(
 
     private fun currentTimeMs(): Long = (NSDate().timeIntervalSince1970 * 1000).toLong()
 
+    /**
+     * Mirrors WorkManager's backoff math (`WorkRequest.setBackoffCriteria`): LINEAR scales the
+     * base delay by the attempt number, EXPONENTIAL doubles it each attempt. Capped at 1 hour,
+     * the same ceiling WorkManager applies to its own backoff.
+     */
+    private fun computeBackoffDelayMs(policy: BackoffPolicy, baseDelayMs: Long, attempt: Int): Long {
+        val maxDelayMs = 60 * 60 * 1000L
+        val delay = when (policy) {
+            BackoffPolicy.LINEAR -> baseDelayMs * attempt
+            BackoffPolicy.EXPONENTIAL -> baseDelayMs * (1L shl (attempt - 1).coerceIn(0, 20))
+        }
+        return delay.coerceIn(0L, maxDelayMs)
+    }
+
     private suspend fun rescheduleMasterDispatcher() {
         if (NSBundle.mainBundle.bundleIdentifier == null) return
 
@@ -331,10 +456,22 @@ public class DynamicTaskDispatcher(
         val summary = fileStorage.getDynamicQueueConstraintSummary()
         val requiresNetwork = summary.allRequireNetwork
 
+        // If every pending task is still within its backoff window, honor the earliest of
+        // those floors instead of NSDate() (now) — otherwise the dispatcher wakes
+        // immediately, finds nothing runnable (the backoff guard in executePendingTasks
+        // re-queues without executing), and re-requests itself again, burning BGTask quota
+        // for the whole backoff duration instead of actually waiting it out.
+        val earliestBeginDate = summary.earliestBackoffFloorMs
+            ?.let { floorMs ->
+                val unixSeconds = floorMs / 1000.0
+                NSDate(timeIntervalSinceReferenceDate = unixSeconds - APPLE_TO_UNIX_EPOCH_OFFSET_SECONDS)
+            }
+            ?: NSDate()
+
         memScoped {
             val errorPtr = alloc<ObjCObjectVar<NSError?>>()
             val request = BGProcessingTaskRequest("kmp_master_dispatcher_task").apply {
-                earliestBeginDate = NSDate()
+                this.earliestBeginDate = earliestBeginDate
                 // Individual task network constraints are checked by each worker.
                 // Only require network here when EVERY pending task needs it — otherwise
                 // false lets non-network tasks run opportunistically even without

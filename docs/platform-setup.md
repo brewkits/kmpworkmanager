@@ -719,7 +719,7 @@ xcrun simctl spawn booted log stream --predicate 'subsystem == "com.apple.BGTask
 
 #### Exact Alarms Not Triggering
 
-**Problem**: `TaskTrigger.Exact` doesn't fire
+**Problem**: `TaskTrigger.Exact` doesn't fire (Android)
 
 **Solutions**:
 
@@ -737,6 +737,11 @@ xcrun simctl spawn booted log stream --predicate 'subsystem == "com.apple.BGTask
    ```
 
 3. Verify `AlarmReceiver` is registered in `AndroidManifest.xml`
+
+> **On iOS this is not a permission bug to fix.** iOS has no exact-alarm primitive at all —
+> by default `TaskTrigger.Exact` only shows a local notification and does not run your worker
+> code unless the user taps it. Read `docs/IOS_BGTASK_LIMITS.md` §5 before assuming this is
+> something to configure your way out of.
 
 ---
 

@@ -5,6 +5,104 @@ All notable changes to KMP WorkManager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Second Android/iOS parity pass: six constraint-handling gaps closed, none previously
+documented as platform-impossible — they were simply unwired.
+
+### Added
+
+- **iOS: `requiresUnmeteredNetwork` and `requiresCharging` now enforced for standalone tasks**
+  — previously only chain steps (`ChainExecutor`) checked these; a plain `enqueue()` task
+  ignored them entirely. Now checked at dispatch time in `DynamicTaskDispatcher` and in the
+  static-Info.plist-identifier path (`IosBackgroundTaskHandler`), deferring with a retry
+  instead of running on cellular / unplugged power. `requiresUnmeteredNetwork` is always
+  enforced; `requiresCharging` — like the pre-existing `ChainExecutor` battery guard it
+  mirrors — only fires once the host app has opted in to `UIDevice.batteryMonitoringEnabled`,
+  since toggling that flag ourselves would race the host's own UI thread. Hosts that never
+  touch that flag see no enforcement here (see `docs/ROADMAP.md` for the tracked follow-up).
+- **iOS: `SystemConstraint.REQUIRE_BATTERY_NOT_LOW` / `ALLOW_LOW_BATTERY` implemented** — via
+  `NSProcessInfo.isLowPowerModeEnabled`, for both chain steps and standalone tasks. Independent
+  of the existing `KmpWorkManagerRuntime.minBatteryLevelPercent` global knob.
+- **iOS: `Constraints.backoffPolicy` / `backoffDelayMs` now affect standalone-task retry
+  timing** — only when explicitly set (the default keeps the pre-existing "retry on the next
+  opportunistic wake" behavior, so no existing caller's timing silently changes). LINEAR scales
+  the base delay by attempt number, EXPONENTIAL doubles it, both capped at 1 hour — mirroring
+  WorkManager's own backoff math.
+
+### Fixed
+
+- **iOS: an unmet standalone-task constraint no longer burns retry budget.** The first cut of
+  the `requiresUnmeteredNetwork`/`requiresCharging`/`REQUIRE_BATTERY_NOT_LOW` guard above routed
+  a deferred task through the same path as a real worker failure, incrementing the attempt
+  counter — so a Wi-Fi-only task stuck on cellular for `DEFAULT_ATTEMPT_CAP` (5) opportunistic
+  wakes (e.g. a commute) would be silently deleted, having never run once. A constraint
+  deferral now re-queues/re-submits without touching the attempt counter, matching the existing
+  backoff-guard pattern and Android WorkManager's own contract (unmet constraints leave work
+  enqueued, they don't consume retries).
+- **iOS: the dynamic-task master dispatcher now honors the backoff floor when re-requesting
+  itself.** Previously `rescheduleMasterDispatcher()` always requested `earliestBeginDate =
+  now`, so a task in a multi-minute/hour backoff window caused the dispatcher to wake
+  immediately, find nothing runnable, and re-request itself again — repeating for the whole
+  backoff duration and burning BGTask quota. It now requests the earliest of all pending tasks'
+  backoff floors when every pending task is still backed off (falling back to "now" the moment
+  any task is actually ready).
+- **iOS: a dedicated-Info.plist-identifier task's `Constraints.maxRetries` no longer resets to
+  the platform default after its first retry.** `reconstructConstraintsFromMetadata` — used to
+  rebuild `Constraints` for `scheduler.enqueue()` re-submission — omitted `maxRetries`, so the
+  fresh metadata written on re-submit silently dropped the caller's custom cap in favor of
+  `DEFAULT_ATTEMPT_CAP` (5) from the second attempt onward.
+- **iOS: a dedicated-Info.plist-identifier one-time task's `windowLatest`/tags/deadline no
+  longer vanish on the first retry or constraint deferral.** Re-submitting via
+  `scheduler.enqueue(trigger = TaskTrigger.OneTime(...))` rebuilds metadata from scratch
+  (`scheduleOneTimeTask`'s `buildMap`, which has no parameter for any of these three fields);
+  `handleOneTimeTaskResult` now explicitly carries them forward from the pre-re-submit
+  metadata. Previously a Windowed task lost its deadline enforcement permanently after its very
+  first retry.
+- **Docs: removed a false claim that App Group storage (`appGroupIdentifier`) makes execution
+  history readable from an extension.** `IosEventStore`/`IosExecutionHistoryStore` are not
+  wired to the shared `IosFileStorage` at all — only task/chain/progress metadata
+  (`loadTaskMetadata`) is. `docs/IOS_APP_GROUP_STORAGE.md` and the `initialize()` KDoc now say
+  so explicitly.
+
+### Changed
+
+- **Android: `setExpedited()` now gated on `TaskPriority`** — `CRITICAL`/`HIGH` chain steps are
+  expedited as documented in `TaskPriority.kt`; `NORMAL`/`LOW` steps (the default) and every
+  standalone `enqueue()` task (which has no priority parameter) are not. Previously every
+  eligible task (delay=0, not heavy, no charging/unmetered requirement) was expedited
+  unconditionally, regardless of priority — this narrows the fast-track lane to match the
+  documented contract. If your app relied on the old blanket-expedited behavior for NORMAL/LOW
+  work, it may now see slightly later scheduling under WorkManager quota pressure.
+
+Also extends two features that shipped experimentally in earlier releases, and adds one new
+storage seam:
+
+- **`IosBackgroundUploadWorker`** — the upload counterpart to `IosBackgroundDownloadWorker`
+  (v2.5.0), which was download-only. Same background-`NSURLSession` lifecycle, same
+  `AppDelegate` hook, same async-completion-via-`TaskEventBus` contract. Source must be an
+  on-disk file (`uploadTaskWithRequest(_:fromFile:)`) — background sessions don't support
+  in-memory request bodies at all.
+- **`sharedContainerIdentifier` on `IosBackgroundDownloadConfig`/`IosBackgroundUploadConfig`**
+  — configures the background `NSURLSessionConfiguration` so a Share/Widget Extension in the
+  same App Group can observe or initiate transfers on that session. Shares only the transport;
+  see the note below on what it does not share.
+- **`KmpWorkManager.initialize(appGroupIdentifier = ...)`** — roots task/chain/progress storage
+  in a shared App Group container instead of the app's private Application Support directory,
+  so an extension can construct its own read-only `IosFileStorage(baseDirectory = ...)` against
+  the same container. Fails fast with `IllegalArgumentException` if the App Group entitlement
+  is missing, rather than silently falling back to private storage. **Does not** support running
+  the scheduler in more than one process against the same container — `ChainJobRegistry`, the
+  progress-flush debounce buffer, and the dynamic queue's size counters are in-memory and
+  process-local; exactly one process may run the scheduler, others must be read-only. See
+  [`docs/IOS_APP_GROUP_STORAGE.md`](docs/IOS_APP_GROUP_STORAGE.md) for the full contract,
+  including what's explicitly out of scope (live cross-process notifications).
+- Also note: `BackgroundDownloadStateStore` (the completion-tracking store for background
+  URLSession transfers) is **not** affected by `appGroupIdentifier` — it always writes to the
+  main app's private Application Support directory, so `sharedContainerIdentifier` and
+  `appGroupIdentifier` do not currently combine to give an extension visibility into pending
+  transfer state.
+
 ## [3.5.0] - 2026-09-02
 
 Jetpack WorkManager parity pass: four features that native WorkManager users expect and

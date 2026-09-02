@@ -145,4 +145,72 @@ class MasterDispatcherConstraintSummaryTest {
         assertEquals(1, summary.pendingCount)
         assertTrue(summary.allLight, "after the heavy task is dequeued, only the light task remains")
     }
+
+    // ==================== earliestBackoffFloorMs ====================
+    // Covers the fix where rescheduleMasterDispatcher() ignored backoff floors entirely
+    // (always requested earliestBeginDate = now), causing the dispatcher to wake
+    // immediately, find nothing runnable, and re-request itself repeatedly for the whole
+    // backoff duration instead of waiting it out.
+
+    @Test
+    fun `earliestBackoffFloorMs is null for an empty queue`() = runTest {
+        val storage = makeStorage("floor-empty")
+
+        assertNull(storage.getDynamicQueueConstraintSummary().earliestBackoffFloorMs)
+    }
+
+    @Test
+    fun `earliestBackoffFloorMs is null when a pending task has no backoff floor`() = runTest {
+        val storage = makeStorage("floor-none")
+
+        storage.enqueueTask("no-floor-task")
+        storage.saveTaskMetadata("no-floor-task", metaFor(requiresNetwork = false, isHeavyTask = false), periodic = false)
+
+        assertNull(
+            storage.getDynamicQueueConstraintSummary().earliestBackoffFloorMs,
+            "A task with no floor is ready now — the dispatcher must not wait for anything"
+        )
+    }
+
+    @Test
+    fun `earliestBackoffFloorMs is null when only SOME pending tasks have a floor`() = runTest {
+        val storage = makeStorage("floor-mixed")
+
+        storage.enqueueTask("floored")
+        storage.saveTaskMetadata(
+            "floored",
+            metaFor(requiresNetwork = false, isHeavyTask = false) +
+                (DynamicTaskDispatcher.META_NEXT_RETRY_EARLIEST_MS to "99999999999999"),
+            periodic = false
+        )
+        storage.enqueueTask("ready-now")
+        storage.saveTaskMetadata("ready-now", metaFor(requiresNetwork = false, isHeavyTask = false), periodic = false)
+
+        assertNull(
+            storage.getDynamicQueueConstraintSummary().earliestBackoffFloorMs,
+            "One ready task means the dispatcher should wake ASAP, not wait for the other's floor"
+        )
+    }
+
+    @Test
+    fun `earliestBackoffFloorMs is the minimum floor when every pending task is backed off`() = runTest {
+        val storage = makeStorage("floor-min")
+
+        storage.enqueueTask("floor-later")
+        storage.saveTaskMetadata(
+            "floor-later",
+            metaFor(requiresNetwork = false, isHeavyTask = false) +
+                (DynamicTaskDispatcher.META_NEXT_RETRY_EARLIEST_MS to "5000"),
+            periodic = false
+        )
+        storage.enqueueTask("floor-sooner")
+        storage.saveTaskMetadata(
+            "floor-sooner",
+            metaFor(requiresNetwork = false, isHeavyTask = false) +
+                (DynamicTaskDispatcher.META_NEXT_RETRY_EARLIEST_MS to "1000"),
+            periodic = false
+        )
+
+        assertEquals(1000L, storage.getDynamicQueueConstraintSummary().earliestBackoffFloorMs)
+    }
 }

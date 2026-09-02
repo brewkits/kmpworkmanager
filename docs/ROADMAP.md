@@ -64,6 +64,75 @@ Still open from the same parity analysis, in rough priority order:
   what `cancel()` + `enqueue()` already do. Android-only, so it fails the
   "both platforms or it isn't parity" bar below.
 
+**A second parity pass (2026-09-02) found 6 more real, verified-in-code gaps** — none of
+these were previously documented as "impossible on iOS"/"impossible on Android", they were
+just unwired. Landed in the "Ultra 1+2+3" pass:
+
+- ✅ **`requiresUnmeteredNetwork` unchecked for standalone iOS tasks** — was enforced only
+  inside `ChainExecutor.executeTask` (chain steps); `DynamicTaskDispatcher`/`SingleTaskExecutor`
+  never checked it for a plain `enqueue()`. Fixed: `StandaloneConstraintGuard` checks
+  `isNetworkCellular()` before dispatch in both `DynamicTaskDispatcher` and
+  `IosBackgroundTaskHandler`, deferring — never abandoning — the task while the constraint
+  stays unmet (see the "constraint deferral" note below for the follow-up this uncovered).
+- ⏳ **`requiresCharging` unchecked for dynamic-queue standalone iOS tasks** — was only honored
+  for tasks with a static Info.plist identifier + `isHeavyTask=true`; the Master Dispatcher
+  path hardcoded `requiresExternalPower = false`. Partially fixed via the same
+  `StandaloneConstraintGuard` used for `requiresUnmeteredNetwork`, but its charging check
+  (`defaultIsNotCharging()`) only fires if the host app has already opted in to
+  `UIDevice.batteryMonitoringEnabled` — same opt-in pattern `ChainExecutor`'s battery guard
+  uses, but it means the check is a no-op for the majority of host apps, which don't turn that
+  on. **Still not done**: (a) an unconditional read (e.g. via `NSProcessInfo` the way
+  `REQUIRE_BATTERY_NOT_LOW` does, rather than requiring host opt-in) so this actually enforces
+  for apps that never touch `batteryMonitoringEnabled`; (b) holding the OS-level
+  `BGProcessingTaskRequest.requiresExternalPower` flag itself for an all-charging-required
+  queue (the `allRequireCharging` aggregate this would need was scoped out as non-blocking) —
+  see the constraint-deferral note below.
+- ✅ **`Constraints.backoffPolicy`/`backoffDelayMs` had zero effect on iOS** — a retry just
+  waited for the next opportunistic BGTask wake, with no LINEAR/EXPONENTIAL delay computation.
+  Fixed: `nextRetryEarliestMs` is computed and persisted, dispatch is skipped until it passes,
+  and `rescheduleMasterDispatcher()` now requests the earliest of all pending tasks' backoff
+  floors (instead of always "now") when every pending task is still backed off — otherwise the
+  dispatcher would wake immediately, find nothing runnable, and re-request itself for the whole
+  backoff window, burning BGTask quota.
+- ✅ **`SystemConstraint.REQUIRE_BATTERY_NOT_LOW`/`ALLOW_LOW_BATTERY` unimplemented on iOS** —
+  not structurally impossible (unlike `DEVICE_IDLE`/`ALLOW_LOW_STORAGE`, which genuinely have
+  no iOS primitive). Fixed via `NSProcessInfo.processInfo().lowPowerModeEnabled` — a better
+  parity match than the existing `KmpWorkManagerRuntime.minBatteryLevelPercent` global knob,
+  since both this and Android's `setRequiresBatteryNotLow()` key off an OS-defined threshold
+  rather than an app-configurable one. The two mechanisms are independent; this doesn't replace
+  `minBatteryLevelPercent`.
+- ✅ **`TaskPriority` was a documented no-op on Android** — the inverse-direction gap. KDoc
+  (`TaskPriority.kt:16-17`) claimed `CRITICAL`/`HIGH` map to `setExpedited()`, but
+  `androidMain/NativeTaskScheduler.kt` called `setExpedited()` unconditionally (subject only to
+  delay/heavy/charging/unmetered checks), never reading `task.priority`. Fixed — narrows which
+  tasks get expedited by default; see CHANGELOG's `[Unreleased] Changed` entry for the behavior
+  change this is for existing callers.
+- ✅ **`docs/constraints-triggers.md` referenced a pre-refactor `Constraints` shape** —
+  `networkType`, `requiresBatteryNotLow`, `requiresStorageNotLow`, `requiresDeviceIdle`,
+  `expedited`, `existingWorkPolicy` as a `Constraints` field — none of which exist in the
+  current contract (superseded by `SystemConstraint` and a separate `ExistingPolicy` param).
+  Corrected 2026-09-02 (Exact section + Platform Support Matrix).
+- 📝 **`docs/ios-best-practices.md` has the SAME pre-refactor-shape staleness, not yet
+  touched** — e.g. its "Limited Constraints"/"Unsupported Constraints" code samples (§4 and
+  "Pitfall #3") show `requiresBatteryNotLow`/`requiresStorageNotLow` as direct `Constraints`
+  fields and claim `requiresCharging`/`REQUIRE_BATTERY_NOT_LOW` are unconditionally "ignored on
+  iOS" — both now false after the 2026-09-02 parity pass above (the pre-refactor fields don't
+  exist at all; `requiresCharging` and `REQUIRE_BATTERY_NOT_LOW` are enforced, the former with
+  the `batteryMonitoringEnabled` opt-in caveat noted above). Needs the same doc pass
+  `constraints-triggers.md` already got.
+
+**Follow-up uncovered by the above (2026-09-02, not done):** a constraint deferral (unlike a
+backoff floor) carries no `nextRetryEarliestMs`, so `rescheduleMasterDispatcher()` still
+requests `earliestBeginDate = now` for it — the dispatcher wakes immediately, finds the
+constraint still unmet, defers again, and re-requests itself, repeating for as long as the
+constraint stays unmet (e.g. the whole length of a commute for a Wi-Fi-only task). This is
+strictly better than the pre-fix behavior (which "solved" the churn by deleting the task after
+5 wakes), so it's not blocking, but it does burn BGTask quota. `requiresCharging` has a real
+OS-level fix available — `BGProcessingTaskRequest.requiresExternalPower`, held off by the OS
+itself rather than by repeated wakes — via the `allRequireCharging` aggregate noted above.
+`requiresUnmeteredNetwork` has no OS-level equivalent (BGTaskScheduler has no Wi-Fi-only flag),
+so that half of this gap has no cheaper fix than periodic wakes.
+
 ---
 
 ## Next up (post-3.3.1) — the "irreplaceable, even for native-only teams" bar
@@ -273,7 +342,8 @@ source; all are fixed in v2.5.0 before publish:
   (`docs/internal/IOS_FILE_STORAGE_SPLIT.md`) + `storage/BaseDirectory.kt`
   scaffold committed; per-store extraction across stages 1–5 still pending.
 - ⏳ `IosBackgroundDownloadWorker` polish — authentication challenges, TLS
-  pinning hook, upload variant (background URL session uploads).
+  pinning hook. **Upload variant and `sharedContainerIdentifier` landing in the
+  "Ultra 1+2+3" pass** — see `IosBackgroundUploadWorker` below once shipped.
 
 ---
 
@@ -375,6 +445,32 @@ v2.6 polishes the rough edges that surface during on-call.
   thread. Swift host owns all `ActivityKit` types; no ActivityKit symbols leak into Kotlin.
   iOS actual uses `CoroutineScope(Dispatchers.Main + SupervisorJob)`; Android is a no-op stub.
   See [`docs/IOS_LIVE_ACTIVITIES.md`](./IOS_LIVE_ACTIVITIES.md) for full Swift integration guide.
+- ⚠️ **Scope limit (verified in code)**: this only relays progress while the app process is
+  alive — `TaskProgressBus` is an in-memory `SharedFlow`, not persisted. It cannot update a
+  Live Activity after the app is killed. Real post-kill updates need `BGContinuedProcessingTask`
+  (see §1 below), which isn't GA yet — don't build against this bridge expecting it to survive
+  process death.
+
+### 3b. App Group storage — ✅ read-only sharing shipped in 3.6.0, live sync not started
+- ✅ `KmpWorkManager.initialize(appGroupIdentifier = ...)` threads one shared `IosFileStorage`
+  (rooted at the App Group container) through `ChainExecutor`/`DynamicTaskDispatcher`/
+  `NativeTaskScheduler`. Fails fast with `IllegalArgumentException` on a missing/misconfigured
+  entitlement rather than silently falling back to private storage. See
+  [`docs/IOS_APP_GROUP_STORAGE.md`](./IOS_APP_GROUP_STORAGE.md).
+- 🚫 **Still explicitly out of scope**: live cross-process state sharing / running the
+  scheduler in more than one process against the same container. `ChainJobRegistry`
+  (in-memory `Job` map), `IosFileStorage`'s progress-flush debounce buffer, and the dynamic
+  queue's `AtomicInt` size counters are all single-process by construction — sharing the
+  storage *location* (done above) does not make it safe to run the scheduler in two processes
+  at once. Making that safe needs a Darwin-notification-driven cache-invalidation redesign
+  across all three, which is its own milestone, not a bolt-on. Until then: **one process runs
+  the scheduler; other processes (widgets/extensions) may only read** from the shared
+  container via their own `IosFileStorage(baseDirectory = ...)`.
+- ⚠️ Also unresolved: `BackgroundDownloadStateStore` (background-URLSession completion
+  tracking) is not wired to `appGroupIdentifier` — it always writes to the main app's private
+  Application Support directory. Combining this with the App Group storage above (so an
+  extension could see pending/complete background transfers, not just scheduled tasks) is
+  future work, not done in 3.6.0.
 
 ### 4. Per-task QoS profiles
 - ⏳ Introduce `TaskQoSProfile` enum:
