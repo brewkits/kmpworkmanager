@@ -129,6 +129,17 @@ storage seam:
   `appGroupIdentifier` do not currently combine to give an extension visibility into pending
   transfer state.
 
+Closes out Flutter parity Group 2 (`kmpworker-http`), the last unbuilt item from that group:
+
+- **`maxBytesPerSecond` bandwidth throttling** on `HttpDownloadConfig`, `HttpUploadConfig`,
+  `ParallelHttpDownloadConfig`, and `ParallelHttpUploadConfig` — a token-bucket
+  (`BandwidthThrottle`) caps the average transfer rate while still allowing brief bursts,
+  rather than chopping the stream into fixed time slices. The two parallel configs cap the
+  **aggregate** rate across every concurrent chunk/file via one shared throttle instance, not
+  a separate budget per chunk. `null` (default) is unlimited — fully backward compatible.
+  Independent of `Constraints.requiresUnmeteredNetwork` (a Wi-Fi-only gate, not a rate limit)
+  and of `maxBytes` (a size ceiling, not a rate one).
+
 ## [3.5.0] - 2026-09-02
 
 Jetpack WorkManager parity pass: four features that native WorkManager users expect and

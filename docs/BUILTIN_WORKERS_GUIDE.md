@@ -439,7 +439,10 @@ data class HttpDownloadConfig(
     val url: String,                          // Required: http:// or https://
     val savePath: String,                     // Required: absolute path
     val headers: Map<String, String>? = null, // Optional headers
-    val timeoutMs: Long = 300000              // Default: 5 minutes
+    val timeoutMs: Long = 300000,             // Default: 5 minutes
+    val maxBytesPerSecond: Long? = null       // Optional bandwidth cap (v3.6+); null = unlimited
+    // resumable, maxBytes, expectedChecksum, checksumAlgorithm, onDuplicate also exist —
+    // see the KDoc on HttpDownloadConfig for the full v2.5+ field set.
 )
 ```
 
@@ -453,7 +456,8 @@ data class HttpUploadConfig(
     val mimeType: String? = null,             // Optional: auto-detected if null
     val headers: Map<String, String>? = null, // Optional headers
     val fields: Map<String, String>? = null,  // Optional form fields
-    val timeoutMs: Long = 120000              // Default: 2 minutes
+    val timeoutMs: Long = 120000,             // Default: 2 minutes
+    val maxBytesPerSecond: Long? = null       // Optional bandwidth cap (v3.6+); null = unlimited
 )
 ```
 

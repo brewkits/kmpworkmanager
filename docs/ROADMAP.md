@@ -531,11 +531,24 @@ See [v3.3 — DI-agnostic init](#v33--di-agnostic-init-koin-removal) below.
 ### 6. Flutter parity — Group 2 built-in workers
 - ✅ **HMAC-SHA256 request signing** (`request_signing.dart` parity) — shipped, see #81 above.
 - ✅ **Token refresh on 401** (`token_refresh_config.dart` parity) — shipped, see #81 above.
-- ⏳ **Bandwidth throttling** — token-bucket on download/upload bytes-per-second. Still not
-  built (checked 2026-09-02 — `ParallelHttpDownloadWorker`'s only "throttl-" hit is progress
-  *reporting* cadence, unrelated to actual transfer rate limiting). Less critical than the
-  others; Android already exposes `Constraints.requiresUnmeteredNetwork` for the "Wi-Fi only"
-  axis.
+- ✅ **Bandwidth throttling** — shipped 2026-09-02. `BandwidthThrottle` (`kmpworker-http`) is a
+  shared token-bucket rate limiter: `consume(bytes)` sleeps just long enough to keep the
+  average rate since construction at or below the configured cap, allowing brief bursts rather
+  than chopping the stream into fixed slices. `maxBytesPerSecond: Long?` added to
+  `HttpDownloadConfig`, `HttpUploadConfig`, `ParallelHttpDownloadConfig`, and
+  `ParallelHttpUploadConfig` — the two parallel configs cap the **aggregate** rate across all
+  chunks/files via ONE shared throttle instance (mutex-protected accounting, so concurrent
+  writers can't each claim an independent budget). Covered by `BandwidthThrottleTest`
+  (pure-algorithm, virtual-time) plus real-wall-clock-bound wiring tests on the download side
+  (`HttpDownloadWorkerBandwidthThrottleTest`, the new case in `ParallelHttpDownloadWorkerTest`).
+  **Known test-tooling gap, not a code gap**: the equivalent upload-side timing assertions
+  don't work — `ktor-client-mock`'s `MockEngine` never invokes
+  `OutgoingContent.WriteChannelContent.writeTo()` (and therefore never runs the throttle's
+  `consume()` call) unless the mock handler reads `request.body`, which
+  `ParallelHttpUploadWorkerTest`'s own pre-existing comment already flags as unreliable across
+  K/N targets (`toByteArray()` unavailable). Upload wiring is the same one-line pattern already
+  verified on the download side; the upload tests confirm config round-trip and that the
+  worker still succeeds with the field set, not the timing itself.
 
 ### 7. iOS ZIP compression via zlib cinterop — ✅ shipped in 3.2.0
 - ✅ `FileCompressionWorker.ios.kt` rewritten with a real PKZIP/DEFLATE writer backed by

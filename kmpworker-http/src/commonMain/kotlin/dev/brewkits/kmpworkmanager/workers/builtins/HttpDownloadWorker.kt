@@ -10,6 +10,7 @@ import dev.brewkits.kmpworkmanager.utils.AppDispatchers
 import dev.brewkits.kmpworkmanager.workers.config.ChecksumAlgorithm
 import dev.brewkits.kmpworkmanager.workers.config.DuplicatePolicy
 import dev.brewkits.kmpworkmanager.workers.config.HttpDownloadConfig
+import dev.brewkits.kmpworkmanager.workers.utils.BandwidthThrottle
 import dev.brewkits.kmpworkmanager.workers.utils.HttpClientProvider
 import dev.brewkits.kmpworkmanager.workers.utils.SecurityValidator
 import dev.brewkits.kmpworkmanager.utils.platformFileSystem
@@ -216,6 +217,7 @@ class HttpDownloadWorker(
             val startingOffset = if (appendMode) existingBytes else 0L
             var lastReportTime = 0L
             val reportIntervalMs = 200L
+            val throttle = config.maxBytesPerSecond?.let { BandwidthThrottle(it) }
 
             withContext(AppDispatchers.IO) {
                 val sink: Sink = if (appendMode) {
@@ -236,6 +238,7 @@ class HttpDownloadWorker(
                         if (bytesRead > 0) {
                             buffered.write(buffer, 0, bytesRead)
                             downloadedThisAttempt += bytesRead
+                            throttle?.consume(bytesRead)
 
                             val totalOnDisk = startingOffset + downloadedThisAttempt
                             if (totalOnDisk > effectiveMaxBytes) {

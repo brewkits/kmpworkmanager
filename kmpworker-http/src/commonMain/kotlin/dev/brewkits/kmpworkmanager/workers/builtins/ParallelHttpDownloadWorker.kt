@@ -10,6 +10,7 @@ import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.utils.platformFileSystem
 import dev.brewkits.kmpworkmanager.workers.config.ChecksumAlgorithm
 import dev.brewkits.kmpworkmanager.workers.config.ParallelHttpDownloadConfig
+import dev.brewkits.kmpworkmanager.workers.utils.BandwidthThrottle
 import dev.brewkits.kmpworkmanager.workers.utils.HttpClientProvider
 import dev.brewkits.kmpworkmanager.workers.utils.SecurityValidator
 import io.ktor.client.HttpClient
@@ -159,6 +160,9 @@ class ParallelHttpDownloadWorker(
         val downloadedAcrossChunks = atomic(0L)
         var lastReportTime = 0L
         val reportIntervalMs = 200L
+        // ONE throttle shared across every chunk's coroutine — a separate throttle per chunk
+        // would allow numChunks * maxBytesPerSecond in aggregate, defeating the limit.
+        val throttle = config.maxBytesPerSecond?.let { BandwidthThrottle(it) }
 
         val sem = Semaphore(permits = config.numChunks)
 
@@ -174,6 +178,7 @@ class ParallelHttpDownloadWorker(
                             chunkIndex = chunkIndex,
                             range = range,
                             partPath = partPaths[chunkIndex],
+                            throttle = throttle,
                             onBytes = { delta ->
                                 val newTotal = downloadedAcrossChunks.addAndGet(delta)
                                 // Throttled aggregate progress report. Monotonic time is acceptable
@@ -285,6 +290,7 @@ class ParallelHttpDownloadWorker(
         chunkIndex: Int,
         range: LongRange,
         partPath: Path,
+        throttle: BandwidthThrottle?,
         onBytes: (Long) -> Unit
     ) {
         val expectedSize = range.last - range.first + 1
@@ -333,6 +339,7 @@ class ParallelHttpDownloadWorker(
                     if (n > 0) {
                         buffered.write(buf, 0, n)
                         written += n
+                        throttle?.consume(n)
                         onBytes(n.toLong())
                     }
                 }
@@ -391,6 +398,7 @@ class ParallelHttpDownloadWorker(
         val totalBytes = response.contentLength() ?: -1L
         var downloaded = 0L
         var lastReport = 0L
+        val throttle = config.maxBytesPerSecond?.let { BandwidthThrottle(it) }
 
         withContext(AppDispatchers.IO) {
             fileSystem.sink(tempPath).use { rawSink: Sink ->
@@ -404,6 +412,7 @@ class ParallelHttpDownloadWorker(
                     if (n > 0) {
                         buffered.write(buf, 0, n)
                         downloaded += n
+                        throttle?.consume(n)
                         if (totalBytes > 0) {
                             val now = dev.brewkits.kmpworkmanager.utils.currentTimeMillis()
                             if (now - lastReport >= 200L || downloaded == totalBytes) {

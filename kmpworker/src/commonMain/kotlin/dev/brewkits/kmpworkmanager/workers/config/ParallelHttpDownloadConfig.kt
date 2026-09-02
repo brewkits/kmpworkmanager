@@ -28,6 +28,9 @@ import kotlinx.serialization.Serializable
  * @property checksumAlgorithm Algorithm for [expectedChecksum]. Default `SHA256`.
  * @property skipExisting When `true`, return `Success` immediately if [savePath] already
  *   exists. Cheaper equivalent of [DuplicatePolicy.SKIP] for the parallel worker.
+ * @property maxBytesPerSecond Optional cap on the AVERAGE **aggregate** transfer rate across
+ *   ALL chunks combined, in bytes per second — not per chunk. `null` (default) means
+ *   unlimited. See [HttpDownloadConfig.maxBytesPerSecond] for the token-bucket rationale.
  */
 @Serializable
 data class ParallelHttpDownloadConfig(
@@ -38,7 +41,8 @@ data class ParallelHttpDownloadConfig(
     val timeoutMs: Long = 600_000L,
     val expectedChecksum: String? = null,
     val checksumAlgorithm: ChecksumAlgorithm = ChecksumAlgorithm.SHA256,
-    val skipExisting: Boolean = false
+    val skipExisting: Boolean = false,
+    val maxBytesPerSecond: Long? = null
 ) {
     init {
         require(url.startsWith("http://") || url.startsWith("https://")) {
@@ -51,6 +55,9 @@ data class ParallelHttpDownloadConfig(
                 "connection budget reasonable."
         }
         require(timeoutMs > 0) { "Timeout must be positive" }
+        if (maxBytesPerSecond != null) {
+            require(maxBytesPerSecond > 0) { "maxBytesPerSecond must be positive when set, got $maxBytesPerSecond" }
+        }
         if (expectedChecksum != null) {
             require(expectedChecksum.isNotBlank()) {
                 "expectedChecksum must not be blank — pass null to disable verification"

@@ -13,6 +13,9 @@ import kotlinx.serialization.Serializable
  * @property headers Optional HTTP headers
  * @property fields Additional form fields to include
  * @property timeoutMs Upload timeout in milliseconds (default: 120000ms = 2 minutes)
+ * @property maxBytesPerSecond Optional cap on the AVERAGE upload rate, in bytes per second.
+ *   `null` (default) means unlimited. See [HttpDownloadConfig.maxBytesPerSecond] for the
+ *   full rationale — same token-bucket semantics, upload direction.
  */
 @Serializable
 data class HttpUploadConfig(
@@ -23,7 +26,8 @@ data class HttpUploadConfig(
     val mimeType: String? = null,
     val headers: Map<String, String>? = null,
     val fields: Map<String, String>? = null,
-    val timeoutMs: Long = 120000
+    val timeoutMs: Long = 120000,
+    val maxBytesPerSecond: Long? = null
 ) {
     init {
         require(url.startsWith("http://") || url.startsWith("https://")) {
@@ -37,6 +41,9 @@ data class HttpUploadConfig(
         }
         require(timeoutMs > 0) {
             "Timeout must be positive"
+        }
+        if (maxBytesPerSecond != null) {
+            require(maxBytesPerSecond > 0) { "maxBytesPerSecond must be positive when set, got $maxBytesPerSecond" }
         }
     }
 }
