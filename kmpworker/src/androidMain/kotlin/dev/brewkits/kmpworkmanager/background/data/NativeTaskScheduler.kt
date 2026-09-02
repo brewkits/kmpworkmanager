@@ -9,6 +9,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequest
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.PeriodicWorkRequest
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import dev.brewkits.kmpworkmanager.KmpWorkManagerRuntime
 import dev.brewkits.kmpworkmanager.background.domain.*
@@ -16,6 +17,8 @@ import dev.brewkits.kmpworkmanager.utils.LogTags
 import dev.brewkits.kmpworkmanager.utils.Logger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 import kotlin.time.Duration.Companion.milliseconds
@@ -696,6 +699,28 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
 
     override suspend fun clearExecutionHistory() {
         KmpWorkManagerRuntime.executionHistoryStore?.clear()
+    }
+
+    override fun observeTaskState(id: String): Flow<TaskState> =
+        workManager.getWorkInfosForUniqueWorkFlow(id).map { infos ->
+            if (infos.isEmpty()) return@map TaskState.Unknown
+            // ExistingPolicy.REPLACE can briefly leave WorkManager's own history holding
+            // both the just-superseded (terminal) WorkInfo and the freshly-enqueued one
+            // for the same unique name — prefer whichever entry is still active so a
+            // REPLACE doesn't look like the old attempt's terminal state.
+            val info = infos.firstOrNull { !it.state.isFinished } ?: infos.last()
+            info.state.toTaskState()
+        }
+
+    internal fun WorkInfo.State.toTaskState(): TaskState = when (this) {
+        // BLOCKED means "waiting on a WorkManager-level dependency" — this library never
+        // creates such dependencies itself (chains are custom-executed, not WorkManager
+        // work chains), but map it to Enqueued defensively rather than falling through.
+        WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED -> TaskState.Enqueued
+        WorkInfo.State.RUNNING -> TaskState.Running
+        WorkInfo.State.SUCCEEDED -> TaskState.Succeeded()
+        WorkInfo.State.FAILED -> TaskState.Failed()
+        WorkInfo.State.CANCELLED -> TaskState.Cancelled
     }
 
     private fun taskIdToRequestCode(id: String): Int = PendingIntentCodes.forTaskId(id)

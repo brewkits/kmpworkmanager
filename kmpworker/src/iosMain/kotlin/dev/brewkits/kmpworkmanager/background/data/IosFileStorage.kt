@@ -527,6 +527,20 @@ public class IosFileStorage(
     }
 
     /**
+     * True if [id] is currently sitting in the dynamic-task queue (dequeued only right
+     * before [DynamicTaskDispatcher] executes it, and re-enqueued on retry/backoff/
+     * constraint deferral). Used by [NativeTaskScheduler.observeTaskState] to distinguish
+     * "waiting for the master dispatcher to pick it up" from "already dequeued" for a
+     * dynamic-queue task — the latter is the closest signal available to "likely executing"
+     * that doesn't require a live registry (see that method's KDoc for the full caveat).
+     *
+     * O(N) on queue size (bounded by [MAX_QUEUE_SIZE]), same cost class as
+     * [getDynamicQueueConstraintSummary] — acceptable since this is a diagnostic/observability
+     * read, not called from a hot path.
+     */
+    internal suspend fun isTaskInDynamicQueue(id: String): Boolean = tasksQueue.getAllItems().contains(id)
+
+    /**
      * Get current tasks queue size.
      */
     suspend fun getTasksQueueSize(): Int {

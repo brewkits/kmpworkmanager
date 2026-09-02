@@ -25,50 +25,48 @@ Four features native WorkManager users expect, implemented on **both** platforms
 
 Still open from the same parity analysis, in rough priority order:
 
-- ⏳ **`observeTaskState(id): Flow<TaskState>`** — live state stream, replacing
-  poll-`getExecutionHistory()`. **Design investigation (2026-09-02) found this is larger than
-  the note above suggests — treat as its own milestone, not a quick win, for the same reason
-  `ExistingPolicy.APPEND` below is flagged that way.**
+- ✅ **`observeTaskState(id): Flow<TaskState>`** — shipped 2026-09-02, following exactly the
+  phased shape the design investigation above recommended: Android fully live via
+  `getWorkInfosForUniqueWorkFlow`, iOS's `Enqueued`/`Running`/terminal states from existing
+  persisted signals (no new registry retrofitted into the four executors), `Running` on iOS
+  documented as best-effort rather than guaranteed.
 
-  Android side is straightforward and low-risk: `getWorkInfosForUniqueWorkFlow(id)` maps
-  directly to the `id` this library already uses as WorkManager's unique work name — no new
-  plumbing needed, `WorkInfo.State` maps cleanly to a `TaskState` sealed type
-  (`ENQUEUED`/`BLOCKED` → `Enqueued`, `RUNNING` → `Running`, `SUCCEEDED`/`FAILED`/`CANCELLED` →
-  their `TaskState` equivalents). When `enqueueUniqueWork`'s REPLACE policy leaves more than
-  one `WorkInfo` in the returned list (old generation not yet pruned), prefer any non-terminal
-  entry over a terminal one.
+  **Android**: `NativeTaskScheduler.observeTaskState` wraps `getWorkInfosForUniqueWorkFlow(id)`
+  directly — precise and live, the same durable tracking WorkManager itself uses.
+  `WorkInfo.State` maps to `TaskState` via an exhaustive `when` (no `else`, so a future
+  `androidx.work` state addition is a compile error here, not a silent gap):
+  `ENQUEUED`/`BLOCKED` → `Enqueued`, `RUNNING` → `Running`, `SUCCEEDED`/`FAILED`/`CANCELLED` →
+  their equivalents. Emits `Unknown` immediately for an `id` with no `WorkInfo` at all.
 
-  iOS is the hard part, for two independent reasons:
-  1. **Three task shapes, three different observability primitives, no existing unification.**
-     A dedicated-Info.plist-identifier task's pending/running status is only knowable via
-     `BGTaskScheduler.getPendingTaskRequestsWithCompletionHandler` (async, completion-handler
-     based — see `NativeTaskScheduler.getPendingMasterDispatcherInfo` for the
-     `suspendCancellableCoroutine` pattern this would need). A dynamic-queue task's status is
-     knowable via `IosFileStorage`'s `tasksQueue`/metadata. A chain's status is knowable via
-     the chain queue/definition store. `observeTaskState(id)` must correctly disambiguate which
-     of the three `id` belongs to before it can answer — get this wrong and it silently reports
-     the wrong state instead of failing loudly.
-  2. **"Running" has no durable signal to read.** Metadata for a task that's merely queued
-     looks identical to metadata for one mid-execution — both simply "exist." The queue-vs-not
-     heuristic (dequeued but metadata still present ⇒ likely running) is a reasonable
-     approximation for the dynamic queue specifically, but a fully accurate answer needs a live
-     `StateFlow` registry updated from inside `ChainExecutor`/`SingleTaskExecutor`/
-     `DynamicTaskDispatcher`/`IosBackgroundTaskHandler` at each transition point — the same four
-     files this session's constraint-deferral and metadata-field bugs both came from. Retrofitting
-     live state tracking into all four correctly, without reintroducing a bug of that kind,
-     deserves dedicated implementation + review time, not a bolt-on at the end of an unrelated
-     session.
+  **iOS**: `computeIosTaskState` (`IosTaskStateSupport.kt`) resolves a snapshot with this
+  precedence: (1) chain namespace — `IosFileStorage`'s chain definition store + queue, plus
+  `ChainJobRegistry.isActive` for the one precise "running right now" signal iOS has; (2)
+  standalone task namespace — split by whether `id` has a dedicated Info.plist identifier
+  (checked via `BGTaskScheduler`'s pending-requests list) or routes through the dynamic queue
+  (checked via the new `IosFileStorage.isTaskInDynamicQueue`); (3) execution history as the
+  final fallback once nothing is live/queued. `NativeTaskScheduler.observeTaskState` polls this
+  snapshot every 2s (`OBSERVE_TASK_STATE_POLL_INTERVAL_MS`) since iOS has no OS-level push
+  signal to react to instead, and completes the `Flow` once a terminal state is reached.
+  **Known limitation, not a bug**: `cancel(id)` deletes task metadata outright without writing
+  an execution-history record, so a cancelled task's state becomes indistinguishable from one
+  that never existed (`Unknown`, not `Cancelled`) — this is the existing `cancel()` contract,
+  documented rather than changed to avoid widening scope further.
 
-  Suggested shape for whoever picks this up: ship Android fully first (it's genuinely safe and
-  small), land iOS's `Enqueued`/`Succeeded`/`Failed`/`Cancelled`/`Unknown` states using existing
-  persisted signals (no new registry) and document `Running` as a known gap, THEN add the
-  `StateFlow` registry as a separate follow-up once the simpler cases are proven out. Doing all
-  of iOS in one shot is the version most likely to hide a subtle bug.
+  Covered by `computeIosTaskState`'s dedicated pure-function test suite
+  (`V360ComputeIosTaskStateTest`, 16 cases covering precedence including the deliberate
+  chain-vs-task id-collision rule and live-state-overrides-stale-history), an iOS integration
+  test on the real `NativeTaskScheduler.observeTaskState` override (`V360ObserveTaskStateIosTest`),
+  and an Android equivalent (`V360ObserveTaskStateAndroidTest`) covering both the state mapping
+  and a real enqueue-then-observe round trip. Has a no-op default (`flowOf(TaskState.Unknown)`)
+  on the interface for the same source-compatibility reason `cancelByTag`/`cancelByWorkerClass`
+  already established.
 - ⏳ **`WorkQuery`-style batch query** — filter pending/running tasks by state/tag/worker.
-  Read-only on both platforms; iOS needs a scan across queue + metadata + active chains — the
-  same three-task-shape unification problem `observeTaskState` above needs, so solving one
-  well likely gives most of what the other needs too. Sequence after `observeTaskState`, not
-  in parallel with it.
+  Read-only on both platforms. The three-task-shape unification `observeTaskState` needed is
+  now solved (`computeIosTaskState`'s precedence logic) — this can reuse it directly rather
+  than needing its own scan-and-disambiguate logic: enumerate every known id (chain queue +
+  task metadata directories + `findTaskIdsByWorkerOrTag`'s existing scan, which already covers
+  both namespaces for `cancelByTag`) and run each through `computeIosTaskState`/
+  `observeTaskState`. Filtering by tag/worker can reuse `findTaskIdsByWorkerOrTag` as-is.
 - ⏳ **`ExistingPolicy.APPEND`** — append steps to a chain that is already queued or
   running. Android maps to `ExistingWorkPolicy.APPEND`/`APPEND_OR_REPLACE` directly; iOS
   needs real design work, and **an earlier analysis of this got it wrong in a way worth

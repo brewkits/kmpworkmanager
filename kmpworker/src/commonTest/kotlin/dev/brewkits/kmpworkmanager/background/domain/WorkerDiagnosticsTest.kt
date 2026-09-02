@@ -139,62 +139,55 @@ class WorkerDiagnosticsTest {
     @Test
     fun testTaskStatusDetail_Running() {
         val taskStatus = TaskStatusDetail(
-            id = "task-123",
-            name = "SyncWorker",
-            state = TaskState.RUNNING,
-            scheduledAt = 1000L,
-            startedAt = 1100L,
-            completedAt = null,
-            attempts = 1,
+            taskId = "task-123",
+            workerClassName = "SyncWorker",
+            state = "RUNNING",
+            retryCount = 0,
+            lastExecutionTime = 1100L,
             lastError = null
         )
 
-        assertEquals("task-123", taskStatus.id)
-        assertEquals("SyncWorker", taskStatus.name)
-        assertEquals(TaskState.RUNNING, taskStatus.state)
-        assertNotNull(taskStatus.startedAt)
-        assertNull(taskStatus.completedAt)
-        assertEquals(1, taskStatus.attempts)
+        assertEquals("task-123", taskStatus.taskId)
+        assertEquals("SyncWorker", taskStatus.workerClassName)
+        assertEquals("RUNNING", taskStatus.state)
+        assertNotNull(taskStatus.lastExecutionTime)
+        assertEquals(0, taskStatus.retryCount)
     }
 
     @Test
     fun testTaskStatusDetail_Failed() {
         val taskStatus = TaskStatusDetail(
-            id = "task-456",
-            name = "UploadWorker",
-            state = TaskState.FAILED,
-            scheduledAt = 1000L,
-            startedAt = 1100L,
-            completedAt = 1500L,
-            attempts = 3,
+            taskId = "task-456",
+            workerClassName = "UploadWorker",
+            state = "FAILED",
+            retryCount = 3,
+            lastExecutionTime = 1500L,
             lastError = "Network timeout"
         )
 
-        assertEquals(TaskState.FAILED, taskStatus.state)
-        assertEquals(3, taskStatus.attempts, "Should have 3 retry attempts")
+        assertEquals("FAILED", taskStatus.state)
+        assertEquals(3, taskStatus.retryCount, "Should have 3 retry attempts")
         assertEquals("Network timeout", taskStatus.lastError)
-        assertNotNull(taskStatus.completedAt)
+        assertNotNull(taskStatus.lastExecutionTime)
     }
 
     @Test
     fun testTaskStatusDetail_Succeeded() {
+        // "COMPLETED" per WorkerDiagnostics.TaskStatusDetail's own KDoc vocabulary
+        // (PENDING, RUNNING, COMPLETED, FAILED) — state is a plain String, not a closed
+        // enum, so this is documentation convention rather than a compiler-enforced set.
         val taskStatus = TaskStatusDetail(
-            id = "task-789",
-            name = "DatabaseWorker",
-            state = TaskState.SUCCEEDED,
-            scheduledAt = 1000L,
-            startedAt = 1100L,
-            completedAt = 1200L,
-            attempts = 1,
+            taskId = "task-789",
+            workerClassName = "DatabaseWorker",
+            state = "COMPLETED",
+            retryCount = 0,
+            lastExecutionTime = 1200L,
             lastError = null
         )
 
-        assertEquals(TaskState.SUCCEEDED, taskStatus.state)
+        assertEquals("COMPLETED", taskStatus.state)
         assertNull(taskStatus.lastError)
-        assertEquals(1, taskStatus.attempts)
-
-        val duration = taskStatus.completedAt!! - taskStatus.startedAt!!
-        assertEquals(100L, duration, "Task took 100ms")
+        assertEquals(0, taskStatus.retryCount)
     }
 
     @Test
@@ -241,13 +234,11 @@ class WorkerDiagnosticsTest {
     @Test
     fun testDiagnosticsAPI_GetTaskStatus_Found() = kotlinx.coroutines.runBlocking {
         val taskDetail = TaskStatusDetail(
-            id = "test-task",
-            name = "TestWorker",
-            state = TaskState.RUNNING,
-            scheduledAt = 1000L,
-            startedAt = 1100L,
-            completedAt = null,
-            attempts = 1,
+            taskId = "test-task",
+            workerClassName = "TestWorker",
+            state = "RUNNING",
+            retryCount = 0,
+            lastExecutionTime = 1100L,
             lastError = null
         )
 
@@ -258,8 +249,8 @@ class WorkerDiagnosticsTest {
         val result = diagnostics.getTaskStatus("test-task")
 
         assertNotNull(result)
-        assertEquals("test-task", result.id)
-        assertEquals(TaskState.RUNNING, result.state)
+        assertEquals("test-task", result.taskId)
+        assertEquals("RUNNING", result.state)
     }
 
     @Test
@@ -297,13 +288,11 @@ class WorkerDiagnosticsTest {
             ),
             mockTaskStatus = mapOf(
                 "blocked-task" to TaskStatusDetail(
-                    id = "blocked-task",
-                    name = "NetworkWorker",
-                    state = TaskState.BLOCKED,
-                    scheduledAt = 0L,
-                    startedAt = null,
-                    completedAt = null,
-                    attempts = 0,
+                    taskId = "blocked-task",
+                    workerClassName = "NetworkWorker",
+                    state = "PENDING",
+                    retryCount = 0,
+                    lastExecutionTime = null,
                     lastError = null
                 )
             )
@@ -321,7 +310,7 @@ class WorkerDiagnosticsTest {
         if (!systemHealth.networkAvailable) blockers.add("No network connection")
         if (systemHealth.isStorageLow) blockers.add("Low storage")
         if (systemHealth.isLowPowerMode) blockers.add("Low power mode enabled")
-        if (taskStatus?.state == TaskState.BLOCKED) blockers.add("Task is blocked")
+        if (taskStatus?.state == "PENDING") blockers.add("Task is blocked")
 
         // Should identify multiple issues
         assertTrue(blockers.size >= 3, "Should identify multiple blockers: $blockers")
@@ -360,29 +349,3 @@ class WorkerDiagnosticsTest {
         println("Diagnostics performance: ${queries * 2} queries in ${duration}ms")
     }
 }
-
-/**
- * Task states for diagnostics
- */
-enum class TaskState {
-    SCHEDULED,
-    BLOCKED,
-    RUNNING,
-    SUCCEEDED,
-    FAILED,
-    CANCELLED
-}
-
-/**
- * Task status detail for diagnostics
- */
-data class TaskStatusDetail(
-    val id: String,
-    val name: String,
-    val state: TaskState,
-    val scheduledAt: Long,
-    val startedAt: Long?,
-    val completedAt: Long?,
-    val attempts: Int,
-    val lastError: String?
-)

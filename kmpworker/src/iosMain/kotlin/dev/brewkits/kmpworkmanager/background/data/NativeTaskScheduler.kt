@@ -14,6 +14,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.encodeToString
@@ -94,6 +95,16 @@ public class NativeTaskScheduler(
         const val CHAIN_EXECUTOR_IDENTIFIER = "kmp_chain_executor_task"
         const val MASTER_DISPATCHER_IDENTIFIER = "kmp_master_dispatcher_task"
         const val APPLE_TO_UNIX_EPOCH_OFFSET_SECONDS = 978307200.0
+
+        /**
+         * Poll interval for [observeTaskState]'s emulated live stream. iOS has no
+         * OS-level push signal for "task state changed" to observe instead — see that
+         * method's KDoc. 2s balances "feels reasonably live to a UI observer" against not
+         * spinning needlessly for a caller that holds a collector open a long time; a
+         * BGTaskScheduler-driven task usually isn't going to transition faster than that
+         * anyway (opportunistic execution, not real-time by nature).
+         */
+        const val OBSERVE_TASK_STATE_POLL_INTERVAL_MS = 2_000L
 
         /**
          * True when running inside a unit-test binary (.kexe), Xcode XCTest harness, or
@@ -1484,5 +1495,29 @@ public class NativeTaskScheduler(
 
     override suspend fun clearExecutionHistory() {
         KmpWorkManagerRuntime.executionHistoryStore?.clear()
+    }
+
+    override fun observeTaskState(id: String): Flow<TaskState> = kotlinx.coroutines.flow.flow {
+        // Polling, not push: no OS-level "state changed" callback exists to push from, and
+        // this deliberately avoids wiring a live registry into ChainExecutor/
+        // SingleTaskExecutor/DynamicTaskDispatcher/IosBackgroundTaskHandler — see this
+        // method's KDoc on BackgroundTaskScheduler for the full reasoning. A terminal state
+        // (Succeeded/Failed/Cancelled) ends the poll loop — those never change again for a
+        // given id — everything else keeps polling until the collector cancels.
+        while (true) {
+            val state = computeIosTaskState(
+                id = id,
+                fileStorage = fileStorage,
+                permittedTaskIds = permittedTaskIds,
+                isChainActive = { ChainJobRegistry.isActive(it) },
+                isTaskPending = { isTaskPending(it) },
+                executionHistory = { KmpWorkManagerRuntime.executionHistoryStore?.getRecords() ?: emptyList() }
+            )
+            emit(state)
+            when (state) {
+                is TaskState.Succeeded, is TaskState.Failed, is TaskState.Cancelled -> return@flow
+                else -> delay(OBSERVE_TASK_STATE_POLL_INTERVAL_MS)
+            }
+        }
     }
 }

@@ -140,6 +140,18 @@ Closes out Flutter parity Group 2 (`kmpworker-http`), the last unbuilt item from
   Independent of `Constraints.requiresUnmeteredNetwork` (a Wi-Fi-only gate, not a rate limit)
   and of `maxBytes` (a size ceiling, not a rate one).
 
+- **`BackgroundTaskScheduler.observeTaskState(id): Flow<TaskState>`** — a live-ish state
+  stream for a task or chain, replacing poll-`getExecutionHistory()` for "is this thing
+  running yet" questions. `TaskState` is `Enqueued`/`Running`/`Succeeded`/`Failed`/`Cancelled`/
+  `Unknown`. Android wraps `WorkManager.getWorkInfosForUniqueWorkFlow` directly — precise and
+  live. iOS has no OS-level "is this executing right now" API, so it's inferred from this
+  library's own persisted task/chain metadata, execution history, and (for chains)
+  `ChainJobRegistry`'s live active-job map, polled every 2s; `Running` there is a best-effort
+  inference, not a guarantee — see the KDoc for the exact precedence rules and a known
+  limitation (a cancelled task's state becomes `Unknown`, not `Cancelled`, once `cancel()`
+  deletes its metadata). Has a no-op default (`Unknown`) for source compatibility with
+  existing third-party `BackgroundTaskScheduler` implementations, same as `cancelByTag`.
+
 ## [3.5.0] - 2026-09-02
 
 Jetpack WorkManager parity pass: four features that native WorkManager users expect and
