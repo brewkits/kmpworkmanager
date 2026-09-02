@@ -1520,4 +1520,19 @@ public class NativeTaskScheduler(
             }
         }
     }
+
+    override suspend fun queryTasks(
+        tags: Set<String>,
+        workerClassNames: Set<String>,
+        states: Set<TaskState.Kind>
+    ): List<dev.brewkits.kmpworkmanager.background.domain.QueriedTask> = queryIosTasks(
+        fileStorage = fileStorage,
+        permittedTaskIds = permittedTaskIds,
+        tags = tags,
+        workerClassNames = workerClassNames,
+        states = states,
+        isChainActive = { ChainJobRegistry.isActive(it) },
+        isTaskPending = { isTaskPending(it) },
+        executionHistory = { KmpWorkManagerRuntime.executionHistoryStore?.getRecords() ?: emptyList() }
+    )
 }

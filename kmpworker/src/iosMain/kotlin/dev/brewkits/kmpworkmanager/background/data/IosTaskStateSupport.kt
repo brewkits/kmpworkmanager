@@ -2,7 +2,9 @@ package dev.brewkits.kmpworkmanager.background.data
 
 import dev.brewkits.kmpworkmanager.background.domain.ExecutionRecord
 import dev.brewkits.kmpworkmanager.background.domain.ExecutionStatus
+import dev.brewkits.kmpworkmanager.background.domain.QueriedTask
 import dev.brewkits.kmpworkmanager.background.domain.TaskState
+import dev.brewkits.kmpworkmanager.background.domain.kind
 
 /**
  * Computes a [TaskState] snapshot for [id] on iOS, given the three independent sources of
@@ -83,4 +85,86 @@ internal suspend fun computeIosTaskState(
         ExecutionStatus.TIMEOUT -> TaskState.Failed(latest.errorMessage ?: "Timed out")
         ExecutionStatus.SKIPPED -> TaskState.Cancelled
     }
+}
+
+/**
+ * `queryTasks`'s implementation on iOS: enumerates every candidate id the library currently
+ * knows about (from any source — queued/executing chains, standalone task metadata, or
+ * execution history for something already terminal), computes each one's [TaskState] via
+ * [computeIosTaskState] for consistency with `observeTaskState`, and applies [tags]/
+ * [workerClassNames]/[states] as an AND-across-axes, OR-within-axis filter (see
+ * `BackgroundTaskScheduler.queryTasks`'s KDoc for the exact semantics).
+ *
+ * **Known limitation**: a chain/task that has already reached a terminal state has its
+ * definition/metadata deleted from disk (chains: on completion in `ChainExecutor.executeChain`;
+ * standalone tasks: in `handleOneTimeResult`/`handleOneTimeTaskResult`) — at that point there is
+ * no persisted record of its tags or worker class name left to filter by, only
+ * [ExecutionRecord] (which carries neither). A terminal id is therefore excluded by a non-empty
+ * [tags] or [workerClassNames] filter even if it would have matched while live — passing both
+ * empty (only filtering by [states], or no filter at all) is unaffected by this.
+ */
+internal suspend fun queryIosTasks(
+    fileStorage: IosFileStorage,
+    permittedTaskIds: Set<String>,
+    tags: Set<String>,
+    workerClassNames: Set<String>,
+    states: Set<TaskState.Kind>,
+    isChainActive: suspend (String) -> Boolean,
+    isTaskPending: suspend (String) -> Boolean,
+    executionHistory: suspend () -> List<ExecutionRecord>
+): List<QueriedTask> {
+    // Fetch once, reuse for every candidate — computeIosTaskState only needs this on the
+    // (relatively rare) path where neither live chain nor task state was found, but building
+    // the candidate set below already needs it to catch terminal-only ids, so there is no
+    // separate cost to sharing it.
+    val history = executionHistory()
+    val cachedHistory: suspend () -> List<ExecutionRecord> = { history }
+
+    val candidateIds = buildSet {
+        addAll(fileStorage.listChainDefinitionIds())
+        addAll(fileStorage.getActiveChainIds())
+        addAll(fileStorage.listOneTimeTaskIdsDecoded())
+        addAll(fileStorage.listPeriodicTaskIds())
+        history.mapTo(this) { it.chainId }
+    }
+
+    return candidateIds.mapNotNull { id ->
+        if (!idMatchesQueryFilters(id, fileStorage, tags, workerClassNames)) return@mapNotNull null
+        val state = computeIosTaskState(id, fileStorage, permittedTaskIds, isChainActive, isTaskPending, cachedHistory)
+        if (states.isNotEmpty() && state.kind !in states) return@mapNotNull null
+        QueriedTask(id, state)
+    }
+}
+
+/**
+ * True if [id] — whether a chain or a standalone task — carries at least one of [tags] AND
+ * involves at least one of [workerClassNames] (each an OR-within-axis, AND-across-axes match,
+ * mirroring [queryIosTasks]'s overall semantics). An empty set for either parameter means "no
+ * filter on that axis". Returns `false` for an id whose live definition/metadata is already
+ * gone (see [queryIosTasks]'s KDoc on the terminal-id limitation) UNLESS both filters are empty,
+ * in which case there is nothing to check against and every id trivially matches.
+ */
+private suspend fun idMatchesQueryFilters(
+    id: String,
+    fileStorage: IosFileStorage,
+    tags: Set<String>,
+    workerClassNames: Set<String>
+): Boolean {
+    if (tags.isEmpty() && workerClassNames.isEmpty()) return true
+
+    val chainSteps = fileStorage.loadChainDefinition(id)?.flatten()
+    if (chainSteps != null) {
+        return (tags.isEmpty() || chainSteps.any { task -> task.tags.any { it in tags } }) &&
+            (workerClassNames.isEmpty() || chainSteps.any { it.workerClassName in workerClassNames })
+    }
+
+    val meta = fileStorage.loadTaskMetadata(id, periodic = false) ?: fileStorage.loadTaskMetadata(id, periodic = true)
+    if (meta != null) {
+        val taskTags = meta[DynamicTaskDispatcher.META_TAGS]?.split(',')?.toSet() ?: emptySet()
+        val workerClassName = meta["workerClassName"]
+        return (tags.isEmpty() || taskTags.any { it in tags }) &&
+            (workerClassNames.isEmpty() || workerClassName in workerClassNames)
+    }
+
+    return false
 }

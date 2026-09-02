@@ -43,4 +43,32 @@ sealed class TaskState {
      * as one that was never scheduled.
      */
     object Unknown : TaskState()
+
+    /**
+     * The subset of [TaskState] that identifies *which* state without the payload
+     * ([Succeeded]/[Failed] carry an optional message) — what
+     * [BackgroundTaskScheduler.queryTasks]'s `states` filter matches against, since
+     * filtering by "give me the Failed ones" shouldn't require guessing or wildcarding an
+     * error message.
+     */
+    enum class Kind { ENQUEUED, RUNNING, SUCCEEDED, FAILED, CANCELLED, UNKNOWN }
 }
+
+/** [TaskState.Kind] this [TaskState] belongs to. See [TaskState.Kind]'s KDoc for why this exists. */
+val TaskState.kind: TaskState.Kind
+    get() = when (this) {
+        is TaskState.Enqueued -> TaskState.Kind.ENQUEUED
+        is TaskState.Running -> TaskState.Kind.RUNNING
+        is TaskState.Succeeded -> TaskState.Kind.SUCCEEDED
+        is TaskState.Failed -> TaskState.Kind.FAILED
+        is TaskState.Cancelled -> TaskState.Kind.CANCELLED
+        is TaskState.Unknown -> TaskState.Kind.UNKNOWN
+    }
+
+/**
+ * One [id] and its current [state], as returned by [BackgroundTaskScheduler.queryTasks].
+ *
+ * `id` is the same string passed to `enqueue`/`enqueueChain` (or the auto-generated chain id
+ * if none was given) — the same identifier [BackgroundTaskScheduler.observeTaskState] takes.
+ */
+data class QueriedTask(val id: String, val state: TaskState)

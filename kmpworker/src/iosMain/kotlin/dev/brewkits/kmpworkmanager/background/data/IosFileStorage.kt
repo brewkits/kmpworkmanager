@@ -1431,9 +1431,62 @@ public class IosFileStorage(
      * **Consumption**: The returned Sequence is single-use (backed by a stateful
      * OS enumerator). Do not iterate it more than once.
      */
-    fun listTaskIds(): Sequence<String> {
+    fun listTaskIds(): Sequence<String> = listJsonFileIds(tasksDirURL, decode = false)
+
+    /**
+     * List all one-time task IDs that have saved metadata, **decoded** back to the original
+     * id (unlike [listTaskIds], which returns the raw on-disk filename for historical
+     * compatibility with its existing caller). Used by [computeIosTaskState]/`queryTasks`,
+     * which need the real id to report back to the caller, not its on-disk encoding.
+     */
+    internal fun listOneTimeTaskIdsDecoded(): Sequence<String> = listJsonFileIds(tasksDirURL, decode = true)
+
+    /**
+     * List all periodic task IDs that have saved metadata, decoded. See
+     * [listOneTimeTaskIdsDecoded] for why this is a separate function from [listTaskIds]
+     * rather than a `periodic` parameter on it.
+     */
+    internal fun listPeriodicTaskIds(): Sequence<String> = listJsonFileIds(periodicDirURL, decode = true)
+
+    /**
+     * List all chain IDs that have a saved chain **definition** on disk — a broader set than
+     * [getActiveChainIds] (which only returns chains still sitting in the execution queue):
+     * a chain that has been dequeued for execution (see [ChainExecutor.executeChain]'s
+     * `dequeueChain()` call) still has its definition on disk right up until it completes, so
+     * this is the set [computeIosTaskState] needs to catch a currently-EXECUTING chain, not
+     * just a queued one.
+     *
+     * [chainsDirURL] also holds `<encodedId>_progress.json` files (a different artifact) —
+     * the `_progress` suffix is stripped from the still-**encoded** filename before decoding,
+     * since decoding first could (in principle) produce a false match against a chain id that
+     * legitimately ends in the literal text `_progress`.
+     */
+    internal fun listChainDefinitionIds(): Sequence<String> =
+        listJsonFileIds(chainsDirURL, decode = false)
+            .filterNot { it.endsWith("_progress") }
+            .map { it.decodeFromPathComponent() }
+
+    /**
+     * Shared implementation backing [listTaskIds]/[listPeriodicTaskIds]/[listChainDefinitionIds].
+     *
+     * Returns a lazy [Sequence] over `.json` file names (extension stripped) directly inside
+     * [dir], so callers can stream each entry without materialising the full list in memory.
+     * On a device with 50 000 task files the old `List<String>` approach allocates ~4 MB just
+     * for ID strings; a `Sequence` allocates O(1) — one `NSURL` at a time from the
+     * `NSDirectoryEnumerator`.
+     *
+     * The enumerator is depth-1 (shallow) so subdirectories are never traversed.
+     *
+     * @param decode Whether to reverse [encodeAsPathComponent] on each file name before
+     *   returning it — `false` when the caller needs to do its own suffix-stripping on the
+     *   still-encoded form first (see [listChainDefinitionIds]).
+     *
+     * **Consumption**: The returned Sequence is single-use (backed by a stateful OS
+     * enumerator). Do not iterate it more than once.
+     */
+    private fun listJsonFileIds(dir: NSURL, decode: Boolean): Sequence<String> {
         val enumerator = fileManager.enumeratorAtURL(
-            tasksDirURL,
+            dir,
             includingPropertiesForKeys = null,
             options = NSDirectoryEnumerationSkipsSubdirectoryDescendants or
                       NSDirectoryEnumerationSkipsHiddenFiles,
@@ -1444,7 +1497,10 @@ public class IosFileStorage(
             while (true) {
                 val next = enumerator.nextObject() as? NSURL ?: return@generateSequence null
                 val name = next.lastPathComponent ?: continue
-                if (name.endsWith(".json")) return@generateSequence name.removeSuffix(".json")
+                if (name.endsWith(".json")) {
+                    val stripped = name.removeSuffix(".json")
+                    return@generateSequence if (decode) stripped.decodeFromPathComponent() else stripped
+                }
             }
             @Suppress("UNREACHABLE_CODE")
             null

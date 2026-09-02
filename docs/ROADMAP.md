@@ -60,13 +60,50 @@ Still open from the same parity analysis, in rough priority order:
   and a real enqueue-then-observe round trip. Has a no-op default (`flowOf(TaskState.Unknown)`)
   on the interface for the same source-compatibility reason `cancelByTag`/`cancelByWorkerClass`
   already established.
-- ⏳ **`WorkQuery`-style batch query** — filter pending/running tasks by state/tag/worker.
-  Read-only on both platforms. The three-task-shape unification `observeTaskState` needed is
-  now solved (`computeIosTaskState`'s precedence logic) — this can reuse it directly rather
-  than needing its own scan-and-disambiguate logic: enumerate every known id (chain queue +
-  task metadata directories + `findTaskIdsByWorkerOrTag`'s existing scan, which already covers
-  both namespaces for `cancelByTag`) and run each through `computeIosTaskState`/
-  `observeTaskState`. Filtering by tag/worker can reuse `findTaskIdsByWorkerOrTag` as-is.
+- ✅ **`WorkQuery`-style batch query** — shipped 2026-09-02 as
+  `BackgroundTaskScheduler.queryTasks(tags, workerClassNames, states): List<QueriedTask>`.
+  Same AND-across-axes/OR-within-axis semantics as `androidx.work.WorkQuery` (checked against
+  its actual source: it only supports ids/uniqueWorkNames/tags/states, no workerClassName axis
+  natively — see below for how Android gets one anyway).
+
+  **Android**: `workManager.getWorkInfosByTag(TAG_KMP_TASK)` in one call (every WorkRequest
+  this library creates carries that tag), then all three filters applied in-memory against
+  each `WorkInfo`'s own tag set — cheaper than round-tripping through `WorkQuery` per filter
+  combination, and it's how `workerClassNames` becomes filterable at all: every WorkRequest
+  already carries a `"worker-<name>"` tag (the same one `cancelByWorkerClass` uses), so
+  filtering by tag-membership gives worker-class filtering for free. One catch found and
+  fixed while building this: a chain step's own `"id-<uuid>"` tag is a random per-step UUID
+  (see `createWorkRequest`), not the chain's caller-facing id, and `WorkInfo` exposes no other
+  way to recover which chain a step belongs to (`chainId` lives only in `inputData`, which
+  `WorkInfo` doesn't expose) — so a **new** `"chain-<chainId>"` tag was added alongside the
+  existing ones purely so `queryTasks` can group a chain's steps back under its real id.
+
+  **iOS**: `queryIosTasks` (`IosTaskStateSupport.kt`) enumerates every candidate id from all
+  known sources — `listChainDefinitionIds()` (new: chain **definitions** on disk, broader than
+  the execution queue alone, since a currently-executing chain has been dequeued but its
+  definition still exists) + `getActiveChainIds()` + `listOneTimeTaskIdsDecoded()`/
+  `listPeriodicTaskIds()` (new, decoded variants of the existing `listTaskIds()` — see below)
+  + every id present in execution history (catches a terminal id with no live state left) —
+  then runs each through `computeIosTaskState` for state (same logic `observeTaskState` uses)
+  and a matching tag/workerClassName check against `loadChainDefinition`/`loadTaskMetadata`.
+  **Known limitation, documented rather than solved**: once a chain/task reaches a terminal
+  state its definition/metadata is deleted from disk (existing behavior, not new), so a
+  terminal id survives only in `ExecutionRecord` — which carries neither tags nor worker class
+  name — meaning a non-empty `tags`/`workerClassNames` filter can never match a terminal id,
+  only a `states`-only filter (or no filter) can find it.
+
+  **Found and fixed en route**: `listTaskIds()`'s existing filenames were never decoded via
+  [`decodeFromPathComponent`] before being returned — harmless today only because
+  `checkAndExecuteMissedExactAlarms` (its one caller) re-encodes via `loadTaskMetadata`, and
+  encoding a value that's already encoding-safe is a no-op; a task id containing a literal `%`
+  or `/` would have silently failed to resolve. Left `listTaskIds()`'s public contract
+  unchanged (no behavior change for its existing caller) and added properly-decoding
+  `listOneTimeTaskIdsDecoded()`/`listPeriodicTaskIds()` as new, separate internal functions for
+  `queryTasks` to use instead of touching that caller's behavior in this change.
+
+  Covered by `V360QueryTasksAndroidTest` (8 cases) and `V360QueryIosTasksTest` (11 cases,
+  including the terminal-id-loses-filterability limitation and the executing-chain-still-has-
+  a-definition case).
 - ⏳ **`ExistingPolicy.APPEND`** — append steps to a chain that is already queued or
   running. Android maps to `ExistingWorkPolicy.APPEND`/`APPEND_OR_REPLACE` directly; iOS
   needs real design work, and **an earlier analysis of this got it wrong in a way worth

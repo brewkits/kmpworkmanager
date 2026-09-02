@@ -149,4 +149,37 @@ interface BackgroundTaskScheduler {
      * is added. Real schedulers override it.
      */
     fun observeTaskState(id: String): Flow<TaskState> = flowOf(TaskState.Unknown)
+
+    /**
+     * Batch-queries every currently-tracked task and chain, filtered by [tags],
+     * [workerClassNames], and [states] — a `WorkQuery`-style read, matching WorkManager's
+     * own `WorkQuery` convention: each of the three parameters is **AND**-ed together, while
+     * multiple values *within* one parameter are **OR**-ed (e.g. `tags = setOf("a", "b")`
+     * matches anything tagged `a` OR `b`, `workerClassNames = setOf(X, Y)` matches either).
+     * An empty set for a parameter means "no filter on that axis" — passing all three empty
+     * returns everything the library currently tracks.
+     *
+     * A chain matches [tags]/[workerClassNames] if **any** of its steps does — mirrors
+     * [cancelByTag]/[cancelByWorkerClass]'s existing "cancel the whole chain if any step
+     * matches" semantics, for the same reason: a caller thinks in terms of "does this chain
+     * involve X", not "does step 3 specifically involve X".
+     *
+     * Read-only — unlike [cancelByTag]/[cancelByWorkerClass], this never mutates anything.
+     *
+     * **Coverage**: reflects only what the platform still remembers, exactly like
+     * [observeTaskState] — Android via `WorkManager`'s own retention, iOS via this library's
+     * persisted metadata/execution history. A task whose history has aged out is absent
+     * from the results entirely, not present with [TaskState.Unknown] (unlike
+     * [observeTaskState], which is asked about one specific id and must answer something).
+     *
+     * Has a no-op default (empty list) for the same source-compatibility reason as
+     * [cancelByTag] — a third-party/test implementation of this interface compiled against
+     * an older library version won't break when this method is added. Real schedulers
+     * override it.
+     */
+    suspend fun queryTasks(
+        tags: Set<String> = emptySet(),
+        workerClassNames: Set<String> = emptySet(),
+        states: Set<TaskState.Kind> = emptySet()
+    ): List<QueriedTask> = emptyList()
 }

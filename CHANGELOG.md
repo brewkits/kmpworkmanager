@@ -152,6 +152,22 @@ Closes out Flutter parity Group 2 (`kmpworker-http`), the last unbuilt item from
   deletes its metadata). Has a no-op default (`Unknown`) for source compatibility with
   existing third-party `BackgroundTaskScheduler` implementations, same as `cancelByTag`.
 
+- **`BackgroundTaskScheduler.queryTasks(tags, workerClassNames, states): List<QueriedTask>`**
+  — a `WorkQuery`-style batch read, same AND-across-axes/OR-within-axis semantics as
+  `androidx.work.WorkQuery`. Android does one `getWorkInfosByTag(TAG_KMP_TASK)` call and
+  filters in-memory against each `WorkInfo`'s tags — including a new `worker-<name>` tag
+  reuse that gives `workerClassNames` filtering even though real `WorkQuery` has no such axis
+  natively, and a new `chain-<chainId>` tag added specifically so a chain's steps (each
+  carrying only a random per-step id tag before this) can be grouped back under the chain's
+  real id. iOS enumerates every known id (chain definitions, the dynamic queue, standalone
+  task metadata, and execution history for anything already terminal) and reuses
+  `observeTaskState`'s own `computeIosTaskState` for each one's state. **Known limitation**:
+  once a task/chain reaches a terminal state, its tags/worker class name are no longer
+  persisted anywhere (only `ExecutionRecord` survives, which carries neither) — a non-empty
+  `tags`/`workerClassNames` filter therefore cannot match a terminal id, only a `states`-only
+  filter can find it. Has a no-op default (empty list) for the same source-compatibility
+  reason as `observeTaskState`.
+
 ## [3.5.0] - 2026-09-02
 
 Jetpack WorkManager parity pass: four features that native WorkManager users expect and
