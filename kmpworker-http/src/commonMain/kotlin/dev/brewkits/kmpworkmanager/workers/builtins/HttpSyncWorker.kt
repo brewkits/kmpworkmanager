@@ -70,7 +70,7 @@ class HttpSyncWorker(
             WorkerResult.Success(
                 message = "Sync complete",
                 data = buildJsonObject {
-                    put("url", config.url)
+                    put("url", SecurityValidator.sanitizedURL(config.url))
                     put("status", response.status.value)
                 }
             )

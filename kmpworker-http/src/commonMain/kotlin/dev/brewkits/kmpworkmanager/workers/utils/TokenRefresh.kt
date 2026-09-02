@@ -7,16 +7,19 @@ import io.ktor.client.request.header
 import io.ktor.client.request.request
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
-import io.ktor.client.statement.bodyAsText
+import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.ContentType
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
+import io.ktor.utils.io.readAvailable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonPrimitive
+import okio.Buffer
+import okio.IOException
 
 private const val TAG = "TokenRefresh"
 
@@ -74,7 +77,7 @@ private suspend fun refreshToken(client: HttpClient, config: TokenRefreshConfig)
             Logger.w(TAG, "Refresh endpoint returned ${response.status.value} — not retrying original request")
             return null
         }
-        val json = Json.parseToJsonElement(response.bodyAsText())
+        val json = Json.parseToJsonElement(readBoundedBody(response, SecurityValidator.MAX_RESPONSE_BODY_SIZE.toLong()))
         // Blank counts as "no usable token" — an empty access_token would otherwise send
         // "Authorization: Bearer " on retry, a request the server will reject anyway but
         // that masks the real failure (a malformed/incomplete refresh response) behind a
@@ -84,6 +87,32 @@ private suspend fun refreshToken(client: HttpClient, config: TokenRefreshConfig)
         Logger.e(TAG, "Token refresh call to ${SecurityValidator.sanitizedURL(config.refreshUrl)} failed", e)
         null
     }
+}
+
+/**
+ * Reads [response]'s body through a bounded channel loop instead of [bodyAsText] — a
+ * misbehaving or compromised refresh endpoint returning an unbounded body must not be
+ * allowed to buffer arbitrarily large amounts of RAM. Mirrors the accumulate-and-throw
+ * pattern in `HttpDownloadWorker`'s streaming loop (checking bytes actually read rather
+ * than trusting `Content-Length`, which a malicious server can lie about or omit).
+ */
+private suspend fun readBoundedBody(response: HttpResponse, maxBytes: Long): String {
+    val channel = response.bodyAsChannel()
+    val chunk = ByteArray(8192)
+    val accumulated = Buffer()
+    var total = 0L
+    while (!channel.isClosedForRead) {
+        val bytesRead = channel.readAvailable(chunk)
+        if (bytesRead == -1) break
+        if (bytesRead > 0) {
+            total += bytesRead
+            if (total > maxBytes) {
+                throw IOException("Token refresh response too large: exceeds limit of $maxBytes bytes")
+            }
+            accumulated.write(chunk, 0, bytesRead)
+        }
+    }
+    return accumulated.readUtf8()
 }
 
 /**

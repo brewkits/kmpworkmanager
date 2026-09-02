@@ -140,6 +140,13 @@ class ParallelHttpDownloadWorker(
         val acceptsRanges = probe?.headers?.get(HttpHeaders.AcceptRanges)
             ?.equals("bytes", ignoreCase = true) == true
 
+        if (totalBytes > SecurityValidator.MAX_RESPONSE_BODY_SIZE.toLong()) {
+            return WorkerResult.Failure(
+                "Response too large: ${SecurityValidator.formatByteSize(totalBytes)} exceeds limit of " +
+                    SecurityValidator.formatByteSize(SecurityValidator.MAX_RESPONSE_BODY_SIZE.toLong())
+            )
+        }
+
         if (totalBytes <= 0 || !acceptsRanges || config.numChunks == 1) {
             Logger.i(
                 "ParallelHttpDownloadWorker",
@@ -337,8 +344,14 @@ class ParallelHttpDownloadWorker(
                     val n = channel.readAvailable(buf, 0, buf.size)
                     if (n == -1) break
                     if (n > 0) {
-                        buffered.write(buf, 0, n)
                         written += n
+                        if (written > expectedSize) {
+                            throw IOException(
+                                "Chunk $chunkIndex exceeded expected size ($expectedSize bytes) — " +
+                                    "server may have ignored the Range header"
+                            )
+                        }
+                        buffered.write(buf, 0, n)
                         throttle?.consume(n)
                         onBytes(n.toLong())
                     }
@@ -396,6 +409,7 @@ class ParallelHttpDownloadWorker(
         }
 
         val totalBytes = response.contentLength() ?: -1L
+        val effectiveMaxBytes = SecurityValidator.MAX_RESPONSE_BODY_SIZE.toLong()
         var downloaded = 0L
         var lastReport = 0L
         val throttle = config.maxBytesPerSecond?.let { BandwidthThrottle(it) }
@@ -410,8 +424,14 @@ class ParallelHttpDownloadWorker(
                     val n = channel.readAvailable(buf, 0, buf.size)
                     if (n == -1) break
                     if (n > 0) {
-                        buffered.write(buf, 0, n)
                         downloaded += n
+                        if (downloaded > effectiveMaxBytes) {
+                            throw IOException(
+                                "Response too large: ${SecurityValidator.formatByteSize(downloaded)} exceeds " +
+                                    "limit of ${SecurityValidator.formatByteSize(effectiveMaxBytes)}"
+                            )
+                        }
+                        buffered.write(buf, 0, n)
                         throttle?.consume(n)
                         if (totalBytes > 0) {
                             val now = dev.brewkits.kmpworkmanager.utils.currentTimeMillis()

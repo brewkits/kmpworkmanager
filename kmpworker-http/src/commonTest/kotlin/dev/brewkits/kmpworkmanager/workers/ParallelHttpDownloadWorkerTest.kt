@@ -351,7 +351,7 @@ class ParallelHttpDownloadWorkerTest {
      * vs. near-instant if each chunk got its own 400 B/s budget.
      */
     @Test
-    fun `maxBytesPerSecond bounds the aggregate rate across all chunks, not per chunk`() = runTest {
+    fun `maxBytesPerSecond bounds the aggregate rate across all chunks not per chunk`() = runTest {
         val payload = ByteArray(200) { it.toByte() } // 4 chunks × 50 bytes
         val (engine, _) = rangeServer(payload)
 
