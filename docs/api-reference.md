@@ -694,38 +694,28 @@ Constraints define the conditions under which a task can run.
 
 ```kotlin
 data class Constraints(
-    // Network
     val requiresNetwork: Boolean = false,
-    val networkType: NetworkType = NetworkType.CONNECTED,
     val requiresUnmeteredNetwork: Boolean = false,
-
-    // Battery
     val requiresCharging: Boolean = false,
-    val requiresBatteryNotLow: Boolean = false,
-
-    // Storage
-    val requiresStorageNotLow: Boolean = false,
-
-    // Device State
-    val requiresDeviceIdle: Boolean = false,
     val allowWhileIdle: Boolean = false,
-
-    // Task Properties
+    val qos: Qos = Qos.Background,
     val isHeavyTask: Boolean = false,
-    val expedited: Boolean = false,
-
-    // Retry Policy
     val backoffPolicy: BackoffPolicy = BackoffPolicy.EXPONENTIAL,
-    val backoffDelayMs: Long = 10_000,
+    val backoffDelayMs: Long = 30_000,
     val maxRetries: Int = -1, // N → N+1 total runs; -1 = platform default. One-time & chains only.
-
-    // Existing Work Policy
-    val existingWorkPolicy: ExistingWorkPolicy = ExistingWorkPolicy.KEEP,
-
-    // iOS Quality of Service
-    val qos: QualityOfService = QualityOfService.DEFAULT
+    val systemConstraints: Set<SystemConstraint> = emptySet(),
+    val exactAlarmIOSBehavior: ExactAlarmIOSBehavior = ExactAlarmIOSBehavior.SHOW_NOTIFICATION,
+    val extras: Map<String, String> = emptyMap()
 )
 ```
+
+> **Claim vs. reality**: an earlier revision of this reference showed a `Constraints` shape
+> with `networkType`, `requiresBatteryNotLow`, `requiresStorageNotLow`, `requiresDeviceIdle`,
+> `expedited`, and `existingWorkPolicy` as fields. None of these exist — they predate a
+> refactor that replaced most of them with the `SystemConstraint` enum below and moved
+> `ExistingPolicy` to its own `enqueue()`/`enqueueChain()` parameter. `expedited` was replaced
+> by `TaskPriority` (`CRITICAL`/`HIGH` map to Android's `setExpedited()`; see [TaskPriority](#taskpriority)).
+> The block above is the actual, current shape (`Contracts.kt`).
 
 ### Network Constraints
 
@@ -740,29 +730,15 @@ Whether the task requires network connectivity.
 ---
 
 ```kotlin
-networkType: NetworkType = NetworkType.CONNECTED
-```
-
-Type of network required. Options:
-
-- `NetworkType.NOT_REQUIRED` - No network needed
-- `NetworkType.CONNECTED` - Any network connection
-- `NetworkType.UNMETERED` - WiFi or unlimited data (Android only)
-- `NetworkType.NOT_ROAMING` - Non-roaming network (Android only)
-- `NetworkType.METERED` - Cellular data allowed (Android only)
-- `NetworkType.TEMPORARILY_UNMETERED` - Temporarily free network (Android only)
-
-**Platforms:** Android (full support), iOS (only CONNECTED/NOT_REQUIRED)
-
----
-
-```kotlin
 requiresUnmeteredNetwork: Boolean = false
 ```
 
-Shortcut for requiring WiFi (same as `networkType = NetworkType.UNMETERED`).
+Requires Wi-Fi (unmetered) rather than any network. There is no separate `NetworkType` enum —
+this boolean is the only network-type axis in `Constraints`.
 
-**Platforms:** Android only
+**Platforms:** ✅ Android, ✅ iOS — enforced for standalone tasks and chain steps alike
+(iOS: `StandaloneConstraintGuard`/`ChainExecutor`, checked at dispatch time since
+`BGTaskScheduler` has no native Wi-Fi-only flag).
 
 ---
 
@@ -774,41 +750,33 @@ requiresCharging: Boolean = false
 
 Whether the device must be charging.
 
-**Platforms:** Android, iOS
+**Platforms:** ✅ Android, ⚠️ iOS — honored unconditionally (OS-level flag) for a task with a
+static Info.plist identifier, and for the dynamic queue when **every** currently-pending
+dynamic task requires charging. For a queue mixing charging and non-charging tasks, enforced
+only if the host app has separately opted in to `UIDevice.batteryMonitoringEnabled` — the
+library never toggles that flag itself. See `docs/ROADMAP.md` for the tracked gap.
 
 ---
 
 ```kotlin
-requiresBatteryNotLow: Boolean = false
+systemConstraints: Set<SystemConstraint> = emptySet()
 ```
 
-Whether the battery level must be above the low threshold.
-
-**Platforms:** Android, iOS
-
----
-
-### Storage Constraints
+Replaces the removed `requiresBatteryNotLow`/`requiresStorageNotLow`/`requiresDeviceIdle`
+boolean fields with an explicit set:
 
 ```kotlin
-requiresStorageNotLow: Boolean = false
+enum class SystemConstraint {
+    REQUIRE_BATTERY_NOT_LOW,  // ✅ Android, ✅ iOS (via Low Power Mode / NSProcessInfo)
+    ALLOW_LOW_BATTERY,        // ✅ Android, ✅ iOS — overrides REQUIRE_BATTERY_NOT_LOW for that task
+    ALLOW_LOW_STORAGE,        // ✅ Android, ❌ iOS — no storage-pressure API on iOS
+    DEVICE_IDLE               // ✅ Android, ❌ iOS — no Doze-equivalent on iOS
+}
 ```
 
-Whether the device must have sufficient storage available.
-
-**Platforms:** Android only
-
----
-
-### Device State Constraints
-
-```kotlin
-requiresDeviceIdle: Boolean = false
-```
-
-Whether the device must be idle (screen off, not recently used).
-
-**Platforms:** Android only
+`ALLOW_LOW_STORAGE`/`DEVICE_IDLE` are iOS-`❌` because there is genuinely no OS primitive to
+implement them against, not because they're merely unwired — see `docs/constraints-triggers.md`
+for the full platform matrix.
 
 ---
 
@@ -818,7 +786,7 @@ allowWhileIdle: Boolean = false
 
 Whether the task can run while the device is in Doze mode.
 
-**Platforms:** Android only
+**Platforms:** Android only — no Doze-equivalent on iOS to bypass.
 
 ---
 
@@ -837,13 +805,17 @@ Whether this is a long-running task (>10 minutes).
 
 ---
 
+Task priority (`TaskRequest.priority: TaskPriority`, not a `Constraints` field — chain steps
+only, standalone `enqueue()` has no priority parameter) determines Android expediting:
+
 ```kotlin
-expedited: Boolean = false
+enum class TaskPriority { CRITICAL, HIGH, NORMAL, LOW }
 ```
 
-Whether the task should be expedited (run as soon as possible).
-
-**Platforms:** Android only (uses expedited WorkManager jobs)
+`CRITICAL`/`HIGH` are expedited via `setExpedited()` (subject to delay/heavy/charging/unmetered
+checks); `NORMAL`/`LOW` (the default) are not. iOS has no expedited-queue primitive; priority
+only affects iOS dynamic-queue sort order. **Platforms:** Android (expediting), iOS (sort order
+only).
 
 ---
 
@@ -858,15 +830,18 @@ Retry strategy when a task fails. Options:
 - `BackoffPolicy.EXPONENTIAL` - Exponential backoff (10s, 20s, 40s, 80s, ...)
 - `BackoffPolicy.LINEAR` - Linear backoff (10s, 20s, 30s, 40s, ...)
 
-**Platforms:** Android, iOS
+**Platforms:** ✅ Android, ✅ iOS — iOS honors this for standalone-task retry timing when
+explicitly set (the 30s/EXPONENTIAL default preserves the pre-3.6.0 "retry on next
+opportunistic wake" behavior for callers who never touch these fields).
 
 ---
 
 ```kotlin
-backoffDelayMs: Long = 10_000
+backoffDelayMs: Long = 30_000
 ```
 
-Initial backoff delay in milliseconds (default: 10 seconds).
+Initial backoff delay in milliseconds (default: 30 seconds — note this differs from the
+`10_000` shown in some older examples in this doc).
 
 **Platforms:** Android, iOS
 
@@ -886,36 +861,28 @@ single tasks, 3 whole-chain retries).
 
 ---
 
-### Existing Work Policy
+### Existing Policy
 
-```kotlin
-existingWorkPolicy: ExistingWorkPolicy = ExistingWorkPolicy.KEEP
-```
-
-What to do when a task with the same ID already exists. Options:
-
-- `ExistingWorkPolicy.REPLACE` - Cancel existing and schedule new task
-- `ExistingWorkPolicy.KEEP` - Keep existing task, ignore new request
-- `ExistingWorkPolicy.APPEND` - Queue new task after existing one
-- `ExistingWorkPolicy.APPEND_OR_REPLACE` - Append if existing is running, replace otherwise
-
-**Platforms:** Android (full support), iOS (only REPLACE/KEEP)
+`ExistingPolicy` is **not** a `Constraints` field — it's a separate parameter on
+`enqueue()`/`enqueueChain()`/`TaskChain.withId()`. See [`ExistingPolicy`](#existingpolicy)
+further down for the full enum and platform support (`KEEP`/`REPLACE`/`UPDATE` — no `APPEND`).
 
 ---
 
 ### iOS Quality of Service
 
 ```kotlin
-qos: QualityOfService = QualityOfService.DEFAULT
+qos: Qos = Qos.Background
 ```
 
-iOS priority hint for task execution. Options:
+iOS priority hint for task execution:
 
-- `QualityOfService.HIGH` - User-initiated priority
-- `QualityOfService.DEFAULT` - Default priority
-- `QualityOfService.LOW` - Background priority
+```kotlin
+enum class Qos { Utility, Background, UserInitiated, UserInteractive }
+```
 
-**Platforms:** iOS only
+**Platforms:** iOS only — Android has no equivalent per-task QoS knob (`isHeavyTask`/priority
+cover the closest analogues there).
 
 ---
 
@@ -961,6 +928,8 @@ fun withId(
 - `policy: ExistingPolicy` - How to handle if a chain with this ID already exists
   - `ExistingPolicy.KEEP` - Skip if chain already running
   - `ExistingPolicy.REPLACE` - Cancel old chain and start new one
+  - `ExistingPolicy.UPDATE` (v3.5.0+) - Degrades to `REPLACE` for chains (no timer anchor to
+    preserve, unlike a periodic task)
 
 **Returns:** `TaskChain` - New chain instance with the specified ID and policy
 
@@ -1181,48 +1150,45 @@ enum class BackoffPolicy {
 
 ---
 
-### ExistingWorkPolicy
+### ExistingPolicy
 
-Policy for handling existing tasks with the same ID.
+Policy for handling an existing task/chain with the same ID. Parameter to
+`enqueue()`/`enqueueChain()`/`TaskChain.withId()` — **not** a `Constraints` field.
 
 ```kotlin
-enum class ExistingWorkPolicy {
-    REPLACE,            // Cancel existing and schedule new task
-    KEEP,              // Keep existing task, ignore new request
-    APPEND,            // Queue new task after existing one
-    APPEND_OR_REPLACE  // Append if running, replace otherwise
+enum class ExistingPolicy {
+    KEEP,     // Keep existing, ignore the new request
+    REPLACE,  // Cancel existing, schedule new
+    UPDATE    // (v3.5.0+) Update a periodic task's constraints/input without resetting its
+              // interval timer. Degrades to REPLACE for one-time tasks and chains.
 }
 ```
 
----
+**Platforms:** ✅ Android, ✅ iOS — full parity, all three values.
 
-### NetworkType
-
-Network requirement for tasks.
-
-```kotlin
-enum class NetworkType {
-    NOT_REQUIRED,           // No network needed
-    CONNECTED,              // Any network connection
-    UNMETERED,              // WiFi or unlimited data
-    NOT_ROAMING,            // Non-roaming network
-    METERED,                // Cellular data allowed
-    TEMPORARILY_UNMETERED   // Temporarily free network
-}
-```
+`APPEND`/`APPEND_OR_REPLACE` do **not** exist on this enum. Appending steps to an
+already-queued-or-running chain is a real, tracked, unimplemented gap — see
+`docs/ROADMAP.md`'s `ExistingPolicy.APPEND` entry for why it's deliberately deferred rather
+than a quick addition.
 
 ---
 
-### QualityOfService (iOS)
+### NetworkType (does not exist)
 
-Priority hint for iOS tasks.
+There is no `NetworkType` enum in the current contract — an earlier draft of this doc showed
+one. Network requirements are two independent booleans on `Constraints`:
+`requiresNetwork`/`requiresUnmeteredNetwork`. See [Network Constraints](#network-constraints)
+above.
+
+---
+
+### Qos (iOS)
+
+Priority hint for iOS tasks — the real type is `Qos`, not `QualityOfService`, and it is
+currently a no-op on both platforms (see [Constraints](#constraints) above for detail).
 
 ```kotlin
-enum class QualityOfService {
-    HIGH,       // User-initiated priority
-    DEFAULT,    // Default priority
-    LOW         // Background priority
-}
+enum class Qos { Utility, Background, UserInitiated, UserInteractive }
 ```
 
 ---

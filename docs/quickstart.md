@@ -282,7 +282,7 @@ suspend fun uploadFile() {
         workerClassName = "UploadWorker",
         constraints = Constraints(
             requiresNetwork = true,
-            networkType = NetworkType.UNMETERED, // WiFi only
+            requiresUnmeteredNetwork = true, // WiFi only
             backoffPolicy = BackoffPolicy.EXPONENTIAL,
             backoffDelayMs = 10_000 // Retry after 10 seconds
         )

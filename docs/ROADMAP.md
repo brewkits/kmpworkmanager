@@ -131,6 +131,20 @@ Still open from the same parity analysis, in rough priority order:
   milestone, not a quick win. (The `when` over `ExistingPolicy` in iOS `enqueueChain` is
   deliberately exhaustive so adding this forces a decision there rather than silently
   falling through to the KEEP branch.)
+
+  **Decision (2026-09-02): deliberately not implemented this session.** Evaluated whether to
+  build it after `observeTaskState`/`queryTasks` landed cleanly; concluded the risk/reward is
+  unfavorable right now for two reasons. First, real-world need is narrow — `APPEND` covers a
+  specific "queue onto an already-running sequential pipeline" pattern (outbox-style upload
+  queues, sequential log shipping); `KEEP`/`REPLACE`/`UPDATE` (shipped v3.5.0) already cover
+  the large majority of real usage, including everything in this repo's own demo app. Second,
+  `ChainExecutor` has proven fragile under scrutiny this session alone — two subtle bugs
+  surfaced from touching code merely *adjacent* to it (the constraint-deferral attempt-budget
+  bug and the `windowLatest`/tags/deadline-loss-on-retry bug, both above). APPEND requires
+  restructuring its core execution model (re-read-per-step instead of read-once) plus getting
+  the finishing-chain race and progress-index renumbering right — exactly the kind of change
+  likely to introduce a THIRD subtle bug in this file if rushed. Revisit as its own dedicated
+  milestone with real design + review time, not as a same-session add-on.
 - 💭 **`setNextScheduleTimeOverride()`** — **not feasible on iOS.** BGTaskScheduler offers
   no way to override a registered task's next run; only cancel + reschedule, which is
   what `cancel()` + `enqueue()` already do. Android-only, so it fails the
@@ -186,8 +200,21 @@ just unwired. Landed in the "Ultra 1+2+3" pass:
 - ✅ **`docs/constraints-triggers.md` referenced a pre-refactor `Constraints` shape** —
   `networkType`, `requiresBatteryNotLow`, `requiresStorageNotLow`, `requiresDeviceIdle`,
   `expedited`, `existingWorkPolicy` as a `Constraints` field — none of which exist in the
-  current contract (superseded by `SystemConstraint` and a separate `ExistingPolicy` param).
-  Corrected 2026-09-02 (Exact section + Platform Support Matrix).
+  current contract (superseded by `SystemConstraint`, `TaskRequest.priority`, and a separate
+  `ExistingPolicy` param). First pass (2026-09-02, earlier) only fixed the Exact trigger
+  section + the summary Platform Support Matrix, incorrectly marked ✅ here at the time —
+  the per-field prose sections above that table (`### Network Constraints` through
+  `### iOS Quality of Service`, roughly 450 lines) were still fully stale, plus the
+  `existingWorkPolicy`/`APPEND` misinformation covered separately below. **Actually completed
+  2026-09-02 (second pass)**, discovered while investigating whether `ExistingPolicy.APPEND`
+  was worth implementing — the investigation surfaced this doc actively claiming `APPEND`
+  already worked via a nonexistent `Constraints(existingWorkPolicy = ...)`, which led to
+  auditing the rest of the file and finding it was far more extensively stale than the first
+  pass's claim suggested. Also found and fixed the same pre-refactor patterns in
+  `docs/api-reference.md` (its entire `Constraints`/`NetworkType`/`QualityOfService`/
+  `ExistingWorkPolicy` reference sections), `docs/BUILTIN_WORKERS_GUIDE.md`,
+  `docs/platform-setup.md`, `docs/task-chains.md` (9 occurrences), and `docs/ios-migration.md`.
+  `docs/quickstart.md` had one occurrence, also fixed.
 - ✅ **`docs/ios-best-practices.md` had the SAME pre-refactor-shape staleness** — its "Limited
   Constraints"/"Unsupported Constraints" code samples (§4 and "Pitfall #3") showed
   `requiresBatteryNotLow`/`requiresStorageNotLow` as direct `Constraints` fields and claimed

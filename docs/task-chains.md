@@ -93,7 +93,7 @@ scheduler
             workerClassName = "DownloadWorker",
             constraints = Constraints(
                 requiresNetwork = true,
-                networkType = NetworkType.UNMETERED // WiFi only
+                requiresUnmeteredNetwork = true // WiFi only
             )
         )
     )
@@ -102,7 +102,7 @@ scheduler
             workerClassName = "ProcessWorker",
             constraints = Constraints(
                 requiresCharging = true,
-                requiresBatteryNotLow = true
+                systemConstraints = setOf(SystemConstraint.REQUIRE_BATTERY_NOT_LOW)
             )
         )
     )
@@ -159,14 +159,14 @@ scheduler
             workerClassName = "DownloadImagesWorker",
             constraints = Constraints(
                 requiresNetwork = true,
-                networkType = NetworkType.UNMETERED
+                requiresUnmeteredNetwork = true
             )
         ),
         TaskRequest(
             workerClassName = "DownloadVideosWorker",
             constraints = Constraints(
                 requiresNetwork = true,
-                networkType = NetworkType.UNMETERED,
+                requiresUnmeteredNetwork = true,
                 requiresCharging = true // Videos need charging
             )
         ),
@@ -285,7 +285,7 @@ suspend fun updateMLModel() {
                 workerClassName = "DownloadMLModelWorker",
                 constraints = Constraints(
                     requiresNetwork = true,
-                    networkType = NetworkType.UNMETERED,
+                    requiresUnmeteredNetwork = true,
                     requiresCharging = true
                 )
             )
@@ -296,7 +296,7 @@ suspend fun updateMLModel() {
                 constraints = Constraints(
                     isHeavyTask = true, // Long-running task
                     requiresCharging = true,
-                    requiresBatteryNotLow = true
+                    systemConstraints = setOf(SystemConstraint.REQUIRE_BATTERY_NOT_LOW)
                 )
             )
         )
@@ -350,7 +350,7 @@ suspend fun syncAllData() {
                 workerClassName = "SyncMediaWorker",
                 constraints = Constraints(
                     requiresNetwork = true,
-                    networkType = NetworkType.UNMETERED
+                    requiresUnmeteredNetwork = true
                 )
             )
         ))
@@ -388,7 +388,7 @@ suspend fun processVideo(videoId: String) {
                 input = videoId,
                 constraints = Constraints(
                     requiresNetwork = true,
-                    networkType = NetworkType.UNMETERED
+                    requiresUnmeteredNetwork = true
                 )
             )
         )
@@ -434,7 +434,7 @@ suspend fun processVideo(videoId: String) {
                 input = videoId,
                 constraints = Constraints(
                     requiresNetwork = true,
-                    networkType = NetworkType.UNMETERED
+                    requiresUnmeteredNetwork = true
                 )
             )
         )
@@ -453,10 +453,10 @@ suspend fun migrateDatabase() {
     scheduler
         .beginWith(
             TaskRequest(
-                workerClassName = "BackupDatabaseWorker",
-                constraints = Constraints(
-                    requiresStorageNotLow = true
-                )
+                // No direct way to REQUIRE storage-not-low — SystemConstraint only has
+                // ALLOW_LOW_STORAGE (opposite polarity). Check available space inside the
+                // worker itself if this backup genuinely can't tolerate low storage.
+                workerClassName = "BackupDatabaseWorker"
             )
         )
         .then(

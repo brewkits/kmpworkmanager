@@ -117,7 +117,7 @@ scheduler.enqueue(
     constraints = Constraints(
         requiresCharging = true,
         requiresNetwork = true,
-        requiresBatteryNotLow = true
+        systemConstraints = setOf(SystemConstraint.REQUIRE_BATTERY_NOT_LOW)
     )
 )
 ```
@@ -304,7 +304,7 @@ scheduler.enqueue(
     workerClassName = "DataSyncWorker",
     constraints = Constraints(
         requiresNetwork = true,
-        requiresBatteryNotLow = true
+        systemConstraints = setOf(SystemConstraint.REQUIRE_BATTERY_NOT_LOW)
     )
 )
 ```
@@ -447,7 +447,7 @@ scheduler.enqueue(
     workerClassName = "CleanupWorker",
     constraints = Constraints(
         requiresCharging = true,
-        requiresDeviceIdle = true
+        systemConstraints = setOf(SystemConstraint.DEVICE_IDLE) // Android only — no iOS equivalent
     )
 )
 ```

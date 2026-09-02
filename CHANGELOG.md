@@ -168,6 +168,34 @@ Closes out Flutter parity Group 2 (`kmpworker-http`), the last unbuilt item from
   filter can find it. Has a no-op default (empty list) for the same source-compatibility
   reason as `observeTaskState`.
 
+### Fixed
+
+- **Multiple docs actively described a pre-refactor `Constraints`/`ExistingPolicy` shape as
+  current**, discovered while evaluating whether `ExistingPolicy.APPEND` (see below) was
+  worth implementing: `docs/api-reference.md` and `docs/constraints-triggers.md` both showed
+  a fictional `ExistingWorkPolicy` enum with `APPEND`/`APPEND_OR_REPLACE` and a nonexistent
+  `Constraints.existingWorkPolicy` field — `Constraints(existingWorkPolicy = ...)` does not
+  compile, and the real `ExistingPolicy` enum (`KEEP`/`REPLACE`/`UPDATE`) was missing
+  entirely from both. The same pre-refactor shape (`networkType`/`NetworkType`,
+  `requiresBatteryNotLow`, `requiresStorageNotLow`, `requiresDeviceIdle`, `expedited` as a
+  `Constraints` field, `QualityOfService`) was scattered across `docs/api-reference.md`'s
+  full `Constraints` reference section, `docs/BUILTIN_WORKERS_GUIDE.md`,
+  `docs/platform-setup.md`, `docs/task-chains.md` (9 occurrences), `docs/ios-migration.md`,
+  and `docs/quickstart.md` — all corrected to the real `SystemConstraint` enum,
+  `TaskRequest.priority`, and `Qos` types. An earlier pass in this same release cycle had
+  already partially fixed `docs/constraints-triggers.md` (its Exact-trigger section and
+  summary Platform Support Matrix) and incorrectly marked the whole file's Constraints
+  section done — the per-field prose sections above that table were still fully stale.
+- **`ExistingPolicy.APPEND` evaluated and deliberately deferred, not implemented.** Real-world
+  need is narrow (`KEEP`/`REPLACE`/`UPDATE` already cover the vast majority of use cases,
+  including everything in this repo's own demo app) and `ChainExecutor` has proven fragile
+  under scrutiny this release alone (two subtle bugs found from touching merely-adjacent
+  code, both above) — implementing `APPEND` requires restructuring its core execution model
+  (re-read-per-step instead of read-once) plus getting a finishing-chain race and
+  progress-index renumbering right, exactly the shape of change likely to introduce a third
+  subtle bug if rushed. See `docs/ROADMAP.md` for the full reasoning; tracked as its own
+  future milestone.
+
 ## [3.5.0] - 2026-09-02
 
 Jetpack WorkManager parity pass: four features that native WorkManager users expect and

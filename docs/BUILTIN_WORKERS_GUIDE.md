@@ -323,7 +323,8 @@ scheduler.enqueue(
     inputJson = inputJson,
     constraints = Constraints(
         requiresCharging = true,
-        requiresDeviceIdle = true
+        // DEVICE_IDLE has no iOS equivalent (Android-only) — see docs/constraints-triggers.md
+        systemConstraints = setOf(SystemConstraint.DEVICE_IDLE)
     )
 )
 ```
@@ -513,7 +514,7 @@ For heavy operations, require charging:
 ```kotlin
 constraints = Constraints(
     requiresCharging = true,
-    requiresDeviceIdle = true // iOS only
+    systemConstraints = setOf(SystemConstraint.DEVICE_IDLE) // Android only — no iOS equivalent
 )
 ```
 

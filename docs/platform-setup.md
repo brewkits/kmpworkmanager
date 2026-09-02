@@ -236,17 +236,15 @@ This uses `KmpHeavyWorker` which runs as a foreground service.
 
 #### Expedited Work
 
-For high-priority tasks that need to run ASAP:
+`expedited` is **not** a `Constraints` field. Expediting on Android is driven by
+`TaskRequest.priority` instead — `CRITICAL`/`HIGH` map to `setExpedited()` (subject to
+delay/heavy/charging/unmetered checks); this is chain-step-only (`TaskRequest`), since plain
+`enqueue()` has no priority parameter:
 
 ```kotlin
-scheduler.enqueue(
-    id = "urgent-sync",
-    trigger = TaskTrigger.OneTime(),
-    workerClassName = "SyncWorker",
-    constraints = Constraints(
-        expedited = true
-    )
-)
+scheduler.beginWith(
+    TaskRequest(workerClassName = "SyncWorker", priority = TaskPriority.CRITICAL)
+).enqueue(id = "urgent-sync")
 ```
 
 #### ContentUri Triggers
@@ -552,7 +550,9 @@ scheduler.enqueue(
 
 #### Quality of Service (QoS)
 
-Control task priority on iOS:
+`Constraints.qos` accepts an iOS priority hint, but is currently a **no-op on both
+platforms** — nothing reads it to influence scheduling yet (see
+`docs/constraints-triggers.md`). Use `TaskRequest.priority`/`isHeavyTask` for real effect:
 
 ```kotlin
 scheduler.enqueue(
@@ -560,7 +560,7 @@ scheduler.enqueue(
     trigger = TaskTrigger.Periodic(15_MINUTES),
     workerClassName = "SyncWorker",
     constraints = Constraints(
-        qos = QualityOfService.HIGH // User-initiated priority
+        qos = Qos.UserInitiated // Accepted, but currently has no effect
     )
 )
 ```
@@ -886,7 +886,7 @@ IosBackgroundTaskHandler.shared.handleSingleTask(
 
 ### Android
 
-1. **Use `expedited = true` for urgent tasks** (< 10 minutes)
+1. **Use `TaskRequest.priority = TaskPriority.CRITICAL`/`HIGH` for urgent chain steps** (< 10 minutes) — `expedited` is not a real `Constraints` field
 2. **Use `isHeavyTask = true` for long tasks** (> 10 minutes)
 3. **Always handle `Result.retry()` for transient failures**
 4. **Request permissions before scheduling tasks**
