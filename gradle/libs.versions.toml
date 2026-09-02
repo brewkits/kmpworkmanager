@@ -15,7 +15,7 @@ junit = "4.13.2"
 kotlin = "2.1.21"
 
 koin = "4.0.0"
-kotest = "5.8.0"
+kotest = "6.2.4"
 kotlinCompileTesting = "0.6.0"
 kotlinCompileTestingKsp = "0.6.0"
 kotlinpoet = "1.16.0"
