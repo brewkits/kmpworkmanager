@@ -709,7 +709,7 @@ For examples of how to use built-in workers, please refer to the main demo appli
 
 For questions or issues:
 - GitHub: https://github.com/brewkits/kmpworkmanager
-- Email: vietnguyentuan@gmail.com
+- Security vulnerabilities: see [SECURITY.md](../SECURITY.md)
 
 ---
 

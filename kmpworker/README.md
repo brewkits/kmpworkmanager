@@ -563,4 +563,4 @@ It helps other developers discover this project.
 
 Made with ❤️ by **Nguyễn Tuấn Việt** at **Brewkits**
 
-**Support**: datacenter111@gmail.com • **Community**: [GitHub Issues](https://github.com/brewkits/kmpworkmanager/issues)
+**Support**: [GitHub Issues](https://github.com/brewkits/kmpworkmanager/issues) • **Security**: see [SECURITY.md](https://github.com/brewkits/kmpworkmanager/blob/main/SECURITY.md)

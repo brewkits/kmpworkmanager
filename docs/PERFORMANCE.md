@@ -1,5 +1,14 @@
 # Performance Benchmarks
 
+> **⚠️ Not re-verified for the current release.** The tables below were recorded at
+> v2.3.1/v2.4.0 (the CI commands they reference — `*PerformanceTest*`, `pitest` — don't
+> match any test or job that exists in this repo today). They document *methodology* and
+> rough expectations, not a current-version performance commitment. Treat exact figures as
+> historical reference, not as a guarantee for the current release. See
+> [`kmpworker/src/androidUnitTest/.../NativeTaskSchedulerBenchmarkTest.kt`](../kmpworker/src/androidUnitTest/kotlin/dev/brewkits/kmpworkmanager/background/data/NativeTaskSchedulerBenchmarkTest.kt)
+> and [`kmpworker/src/iosTest/.../QueuePerformanceBenchmark.kt`](../kmpworker/src/iosTest/kotlin/dev/brewkits/kmpworkmanager/QueuePerformanceBenchmark.kt)
+> for the benchmarks that actually run today.
+
 Real-world performance metrics for KMP WorkManager v2.4.0.
 
 ---

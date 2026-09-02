@@ -7,6 +7,8 @@ We welcome contributions to KMP WorkManager! Whether it's fixing a bug, improvin
 ### 1. Report Bugs or Suggest Features
 Open an issue on our [GitHub tracker](https://github.com/brewkits/kmpworkmanager/issues). Please include platform details (Android/iOS version) and a minimal way to reproduce the issue.
 
+**Found a security vulnerability?** Do not open a public issue — see [SECURITY.md](SECURITY.md) for the private reporting process.
+
 ### 2. Development Setup
 - **JDK 17+**
 - **Android Studio Hedgehog+**
@@ -23,6 +25,18 @@ cd kmpworkmanager
 2. **Commit**: Use [Conventional Commits](https://www.conventionalcommits.org/) (e.g., `feat: add battery guard`).
 3. **Test**: Run `./gradlew :kmpworker:allTests` before pushing. We aim for 100% coverage on critical scheduling paths.
 4. **PR**: Open a Pull Request. Ensure your code follows the [Kotlin Coding Conventions](https://kotlinlang.org/docs/coding-conventions.html).
+
+---
+
+## 🔒 Public API Stability
+
+`kmpworker` and `kmpworker-http` use [Kotlin's binary-compatibility-validator](https://github.com/Kotlin/binary-compatibility-validator) to catch accidental public API changes. If your change touches a public class/function/property in either module:
+
+1. Run `./gradlew apiDump` to regenerate the `.api` snapshot.
+2. Commit the updated `.api` file alongside your change.
+3. If the change removes or alters an existing public API, explain why in the PR — deleting or breaking a public signature is a breaking change and needs a version-bump/deprecation discussion, not a silent merge.
+
+`./gradlew apiCheck` runs in CI and fails the build if the `.api` snapshot is out of date — this catches unintentional API drift before merge, not just intentional ones.
 
 ---
 
@@ -43,6 +57,6 @@ If you touch persisted state (File Storage, SharedPreferences), please add an in
 
 ---
 
-**Questions?** Email vietnguyentuan@gmail.com or open a discussion.
+**Questions?** Open a [GitHub discussion](https://github.com/brewkits/kmpworkmanager/discussions) or issue.
 
-**Last Updated:** April 2026
+**Last Updated:** September 2026

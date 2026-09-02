@@ -2,14 +2,13 @@
 
 ## Supported Versions
 
-Security updates are provided for the latest major version. We recommend always using the latest stable release.
+Security updates are provided for the latest minor version. We recommend always using the latest stable release.
 
 | Version | Supported | Status |
 |---------|-----------|--------|
-| 2.3.x   | ✅ Yes    | Current (SSRF protected) |
-| 2.2.x   | ⚠️ Limited | Critical fixes only |
-| 2.1.x   | ❌ No      | Upgrade required |
-| < 2.0.0 | ❌ No      | Deprecated |
+| 3.4.x   | ✅ Yes    | Current |
+| 3.3.x   | ⚠️ Limited | Critical fixes only |
+| < 3.3.0 | ❌ No      | Upgrade required |
 
 ---
 
@@ -19,7 +18,7 @@ Security updates are provided for the latest major version. We recommend always 
 
 ### How to Report
 
-Email: **datacenter111@gmail.com**
+Use [GitHub Security Advisories](https://github.com/brewkits/kmpworkmanager/security/advisories/new) — go to the repo's **Security** tab → **Report a vulnerability**. This opens a private advisory visible only to maintainers until a fix is ready.
 
 Include:
 - Clear description of the vulnerability
@@ -188,7 +187,7 @@ url = "http://api.com/login" // ⚠️ Unencrypted
 ./gradlew dependencyCheckAnalyze
 
 # Keep KMP WorkManager updated
-implementation("dev.brewkits:kmpworkmanager:2.4.3") // ✅ Latest
+implementation("dev.brewkits:kmpworkmanager:3.4.0") // ✅ Latest
 ```
 
 **DON'T:**
@@ -361,6 +360,27 @@ Before deploying to production:
 
 ## Security Audit Results
 
+### v3.4.0 Security Review
+
+**Date:** September 2026
+
+An internal review of the HTTP built-in workers (`kmpworker-http`) found and fixed 3 issues,
+and flagged 1 as unverified:
+
+| Finding | File | Fix |
+|---------|------|-----|
+| Unbounded response body read before JSON parse | `TokenRefresh.kt` (token-refresh flow) | Now reads through a bounded channel loop and aborts once `MAX_RESPONSE_BODY_SIZE` (50MB) is exceeded, instead of buffering the full body unconditionally. |
+| Raw URL (with query string) written into persisted execution history | `HttpSyncWorker.kt` | Now uses `SecurityValidator.sanitizedURL()` before persisting, matching `HttpRequestWorker`. |
+| No response-size cap on parallel/chunked downloads | `ParallelHttpDownloadWorker.kt` | Added the same `effectiveMaxBytes` check used by `HttpDownloadWorker` to both the chunked and sequential-fallback code paths. |
+
+**Unverified — not fixed:** whether the iOS Darwin/NSURLSession engine layer independently
+follows a redirect before Ktor's own `followRedirects = false` + `installSecureRedirectFollowing()`
+interceptor ever sees it. This could not be confirmed from source inspection alone; it needs a
+real integration test against a redirecting endpoint before being treated as a confirmed gap.
+Tracked in [`docs/ROADMAP.md`](./ROADMAP.md).
+
+---
+
 ### v2.3.1 Security Assessment
 
 **Date:** February 2026
@@ -399,6 +419,12 @@ Before deploying to production:
 
 ## Changelog
 
+### v3.4.0 (September 2026)
+- ✅ Fixed unbounded response-body read in token-refresh flow (`TokenRefresh.kt`)
+- ✅ Fixed raw URL leaking into execution history in `HttpSyncWorker`
+- ✅ Added response-size cap to `ParallelHttpDownloadWorker` (chunked + sequential paths)
+- 🔄 Flagged: iOS redirect-handling at the Darwin/NSURLSession layer is unverified
+
 ### v2.3.1 (February 2026)
 - ✅ Added comprehensive SSRF protection
 - ✅ Added 50+ security tests
@@ -413,6 +439,6 @@ Before deploying to production:
 
 ---
 
-**Last Updated:** February 16, 2026
-**Version:** 2.3.2
-**Maintainer:** Nguyễn Tuấn Việt (datacenter111@gmail.com)
+**Last Updated:** September 2026
+**Version:** 3.4.0
+**Maintainer:** Nguyễn Tuấn Việt — report vulnerabilities via [GitHub Security Advisories](https://github.com/brewkits/kmpworkmanager/security/advisories/new), not email.

@@ -1,5 +1,12 @@
 # 📊 KMP WorkManager Coverage Report (v2.4.3)
 
+> **⚠️ Not re-verified for the current release.** The numbers below were recorded at
+> v2.4.3; no `koverReport`/verify configuration reproducing them exists in this repo, so
+> they could not be regenerated as part of this review. Kover now enforces a **measured**
+> minimum LINE coverage floor per module (`kmpworker`: 60%, `kmpworker-http`: 70% — see
+> each module's `build.gradle.kts`), which is the current, reproducible number to trust.
+> Run `./gradlew :kmpworker:koverXmlReport` for a fresh measurement.
+
 This document serves as the official quality assurance record for the **v2.4.3** release. It combines automated metrics from **JetBrains Kover** (JVM/Common/Android) and manual verification for **Kotlin/Native** (iOS).
 
 ## 🏆 Quality Highlights

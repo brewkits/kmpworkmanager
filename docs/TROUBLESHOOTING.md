@@ -481,7 +481,7 @@ If your issue isn't covered here:
    - Use issue template
 
 5. **Security Issues:**
-   - Email: datacenter111@gmail.com
+   - Use [GitHub Security Advisories](https://github.com/brewkits/kmpworkmanager/security/advisories/new) — see [SECURITY.md](../SECURITY.md)
    - **Do not** post publicly
 
 ---
