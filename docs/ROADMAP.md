@@ -26,12 +26,49 @@ Four features native WorkManager users expect, implemented on **both** platforms
 Still open from the same parity analysis, in rough priority order:
 
 - ⏳ **`observeTaskState(id): Flow<TaskState>`** — live state stream, replacing
-  poll-`getExecutionHistory()`. Android: wrap `getWorkInfosForUniqueWorkFlow` (note:
-  WorkManager indexes by UUID, so this must go through the unique-name API, not
-  `getWorkInfoByIdFlow`). iOS: a `StateFlow` registry updated by `ChainExecutor` /
-  `SingleTaskExecutor` transitions.
+  poll-`getExecutionHistory()`. **Design investigation (2026-09-02) found this is larger than
+  the note above suggests — treat as its own milestone, not a quick win, for the same reason
+  `ExistingPolicy.APPEND` below is flagged that way.**
+
+  Android side is straightforward and low-risk: `getWorkInfosForUniqueWorkFlow(id)` maps
+  directly to the `id` this library already uses as WorkManager's unique work name — no new
+  plumbing needed, `WorkInfo.State` maps cleanly to a `TaskState` sealed type
+  (`ENQUEUED`/`BLOCKED` → `Enqueued`, `RUNNING` → `Running`, `SUCCEEDED`/`FAILED`/`CANCELLED` →
+  their `TaskState` equivalents). When `enqueueUniqueWork`'s REPLACE policy leaves more than
+  one `WorkInfo` in the returned list (old generation not yet pruned), prefer any non-terminal
+  entry over a terminal one.
+
+  iOS is the hard part, for two independent reasons:
+  1. **Three task shapes, three different observability primitives, no existing unification.**
+     A dedicated-Info.plist-identifier task's pending/running status is only knowable via
+     `BGTaskScheduler.getPendingTaskRequestsWithCompletionHandler` (async, completion-handler
+     based — see `NativeTaskScheduler.getPendingMasterDispatcherInfo` for the
+     `suspendCancellableCoroutine` pattern this would need). A dynamic-queue task's status is
+     knowable via `IosFileStorage`'s `tasksQueue`/metadata. A chain's status is knowable via
+     the chain queue/definition store. `observeTaskState(id)` must correctly disambiguate which
+     of the three `id` belongs to before it can answer — get this wrong and it silently reports
+     the wrong state instead of failing loudly.
+  2. **"Running" has no durable signal to read.** Metadata for a task that's merely queued
+     looks identical to metadata for one mid-execution — both simply "exist." The queue-vs-not
+     heuristic (dequeued but metadata still present ⇒ likely running) is a reasonable
+     approximation for the dynamic queue specifically, but a fully accurate answer needs a live
+     `StateFlow` registry updated from inside `ChainExecutor`/`SingleTaskExecutor`/
+     `DynamicTaskDispatcher`/`IosBackgroundTaskHandler` at each transition point — the same four
+     files this session's constraint-deferral and metadata-field bugs both came from. Retrofitting
+     live state tracking into all four correctly, without reintroducing a bug of that kind,
+     deserves dedicated implementation + review time, not a bolt-on at the end of an unrelated
+     session.
+
+  Suggested shape for whoever picks this up: ship Android fully first (it's genuinely safe and
+  small), land iOS's `Enqueued`/`Succeeded`/`Failed`/`Cancelled`/`Unknown` states using existing
+  persisted signals (no new registry) and document `Running` as a known gap, THEN add the
+  `StateFlow` registry as a separate follow-up once the simpler cases are proven out. Doing all
+  of iOS in one shot is the version most likely to hide a subtle bug.
 - ⏳ **`WorkQuery`-style batch query** — filter pending/running tasks by state/tag/worker.
-  Read-only on both platforms; iOS needs a scan across queue + metadata + active chains.
+  Read-only on both platforms; iOS needs a scan across queue + metadata + active chains — the
+  same three-task-shape unification problem `observeTaskState` above needs, so solving one
+  well likely gives most of what the other needs too. Sequence after `observeTaskState`, not
+  in parallel with it.
 - ⏳ **`ExistingPolicy.APPEND`** — append steps to a chain that is already queued or
   running. Android maps to `ExistingWorkPolicy.APPEND`/`APPEND_OR_REPLACE` directly; iOS
   needs real design work, and **an earlier analysis of this got it wrong in a way worth
@@ -154,33 +191,27 @@ only** — no shared-code motive at all — still pick this library over the
 platform's raw API? "Shared code" is worth nothing to that team, so the pitch
 has to come from somewhere else.
 
-- ⏳ **Flutter parity Group 2 — token refresh on 401 + HMAC request signing**
-  ([#81](https://github.com/brewkits/kmpworkmanager/issues/81)). Pitch: WorkManager/BGTaskScheduler give you
-  primitives; this ships a tested implementation of the auth-refresh and
-  request-signing logic most teams under-build (or skip) themselves. Promoted
-  out of the deferred v2.6 #6 slot below — see that entry for the full spec,
-  now superseded by #81 as the tracking issue.
-- ⏳ **Android FGS-type diagnosability** ([#82](https://github.com/brewkits/kmpworkmanager/issues/82)).
-  Pitch: on iOS, `@Worker(bgTaskId=…)` + the KSP-generated `BgTaskIdProvider`
-  already `require()`-crashes loudly at `KmpWorkManager.initialize()` if a
-  `bgTaskId` is missing from `Info.plist` — Android has no equivalent
-  registration-time hook for a missing/mismatched `android:foregroundServiceType`.
-  `KmpHeavyWorker.doWork()` already catches and logs the `setForeground()`
-  exception (see `KmpHeavyWorker.kt`), but the message names only what the
-  worker *declared*, not what the manifest actually has, and on API 29-33
-  a mismatch doesn't throw at all (`ForegroundServiceTypeException` is
-  API 34+) — a real silent-failure window on those OS versions. #82
-  originally proposed a Gradle plugin generating/validating manifest entries
-  from `@Worker` annotations at build time; investigation found `@Worker` is
-  `SOURCE`-retention (invisible to a Gradle plugin without a new KSP→Gradle
-  pipeline) and `foregroundServiceType` is a computed `open val`, not a
-  literal KSP can resolve — so static analysis can't reliably cover this.
-  Revised to reading the actual merged manifest via
-  `PackageManager.getServiceInfo()` inside `doWork()`: enrich the existing
-  exception log with the manifest's declared type, and add a proactive
-  `Logger.w` on API 29-33 where nothing throws today. No new module,
-  diagnostics-only (never fails a worker on its own). See #82 for the
-  corrected scope.
+- ✅ **Flutter parity Group 2 — token refresh on 401 + HMAC request signing**
+  ([#81](https://github.com/brewkits/kmpworkmanager/issues/81)) — shipped (`218e245`), this entry was just
+  stale. `HmacRequestSigning.kt`/`TokenRefresh.kt` in `kmpworker-http` implement both to spec
+  (see the v2.6 #6 entry below for the original spec — both now ✅ there too), wired into
+  `HttpRequestWorker`. Token refresh retries the original request **exactly once** on a 401 —
+  a still-401 retry, a failed refresh call, or a refresh response missing the configured
+  `tokenResponsePath` all pass through as the final result rather than looping. HMAC signing is
+  a pure function (no Ktor dependency), applied last so it covers the final outgoing request
+  after every other header/body mutation. **Scope note**: currently wired into
+  `HttpRequestWorker` only, not `HttpDownloadWorker`/`HttpUploadWorker`/`HttpSyncWorker`/the
+  parallel variants — `TokenRefresh.kt`'s own KDoc names these as future adopters, so this
+  looks like a deliberate phase-1 scope, not an oversight, but hasn't been confirmed as
+  permanent scope. Covered by `HttpRequestSigningAndTokenRefreshTest`,
+  `HmacRequestSigningTest`, `TokenRefreshTest`.
+- ✅ **Android FGS-type diagnosability** ([#82](https://github.com/brewkits/kmpworkmanager/issues/82)) —
+  shipped (`f6cab53`), this entry was just stale. `KmpHeavyWorker.readManifestForegroundServiceType()`
+  reads the actual merged manifest via `PackageManager.getServiceInfo()`, enriches the existing
+  `SecurityException`/`IllegalStateException` diagnostic logs with the manifest's declared type
+  bitmask, and proactively warns on API 29-33 (where a mismatch doesn't throw at all —
+  `ForegroundServiceTypeException` is API 34+). Diagnostics-only, never fails a worker on its
+  own. Covered by `KmpHeavyWorkerManifestDiagnosticsTest`.
 
 Both selected over other v2.6/v3.0 candidates (per-task QoS profiles, threat
 model docs, `ChainExecutor` state machine, `wasmJs` target) specifically
@@ -498,18 +529,13 @@ Promoted out of v2.6 and rescoped after [discussion #66](https://github.com/brew
 See [v3.3 — DI-agnostic init](#v33--di-agnostic-init-koin-removal) below.
 
 ### 6. Flutter parity — Group 2 built-in workers
-- ⏳ **HMAC-SHA256 request signing** (`request_signing.dart` parity) —
-  canonical format `METHOD\nURL\nBODY\nTIMESTAMP` → HMAC-SHA256 → header
-  `X-Signature` + optional `X-Timestamp`. Configurable secret key (min
-  16 chars), header name, prefix (`sha256=` for GitHub webhook style),
-  `signBody` and `includeTimestamp` flags.
-- ⏳ **Token refresh on 401** (`token_refresh_config.dart` parity) — when a
-  request returns 401, POST a configurable refresh endpoint, extract the new
-  token via dot-notation key (`auth.access_token`), retry the original
-  request. Mirrors the Flutter config 1-to-1.
-- ⏳ **Bandwidth throttling** — token-bucket on download/upload bytes-per-second.
-  Less critical than the others; Android already exposes
-  `Constraints.requiresUnmeteredNetwork` for the "Wi-Fi only" axis.
+- ✅ **HMAC-SHA256 request signing** (`request_signing.dart` parity) — shipped, see #81 above.
+- ✅ **Token refresh on 401** (`token_refresh_config.dart` parity) — shipped, see #81 above.
+- ⏳ **Bandwidth throttling** — token-bucket on download/upload bytes-per-second. Still not
+  built (checked 2026-09-02 — `ParallelHttpDownloadWorker`'s only "throttl-" hit is progress
+  *reporting* cadence, unrelated to actual transfer rate limiting). Less critical than the
+  others; Android already exposes `Constraints.requiresUnmeteredNetwork` for the "Wi-Fi only"
+  axis.
 
 ### 7. iOS ZIP compression via zlib cinterop — ✅ shipped in 3.2.0
 - ✅ `FileCompressionWorker.ios.kt` rewritten with a real PKZIP/DEFLATE writer backed by
