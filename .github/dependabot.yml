@@ -50,6 +50,23 @@ updates:
       # AGP majors break Gradle compatibility — handle manually.
       - dependency-name: "com.android.tools.build:gradle"
         update-types: [ "version-update:semver-major" ]
+      # Any KMP library publishes .klib artifacts stamped with the Kotlin/Native ABI
+      # version of the compiler that built them. A release built with a NEWER Kotlin than
+      # this project's pinned 2.1.21 fails to link with
+      # "KLIB resolver: … incompatible ABI version" — no matter how small the semver bump
+      # looks. Observed on kotlinx-coroutines 1.11.0 (#53), Koin 4.2.1 (#54) and
+      # androidx-lifecycle 2.10.0 (#55, which reached main and broke the iOS demo build
+      # before being reverted).
+      #
+      # These therefore move with the Kotlin toolchain, manually, not on their own:
+      - dependency-name: "org.jetbrains.kotlinx:kotlinx-coroutines*"
+        update-types: [ "version-update:semver-major", "version-update:semver-minor" ]
+      - dependency-name: "org.jetbrains.androidx.lifecycle:*"
+        update-types: [ "version-update:semver-major", "version-update:semver-minor" ]
+      - dependency-name: "org.jetbrains.compose*"
+        update-types: [ "version-update:semver-major", "version-update:semver-minor" ]
+      - dependency-name: "io.insert-koin:*"
+        update-types: [ "version-update:semver-major", "version-update:semver-minor" ]
 
   # GitHub Actions used by .github/workflows/*.yml
   - package-ecosystem: "github-actions"

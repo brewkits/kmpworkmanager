@@ -202,6 +202,13 @@ jobs:
         run: ./gradlew :composeApp:assembleDebug
       - name: iOS framework link (release, simulator-arm64)
         run: ./gradlew :kmpworker:linkReleaseFrameworkIosSimulatorArm64
+      # Compiles the DEMO APP for iOS, not just the library framework. Without this,
+      # nothing in CI ever type-checks composeApp against a Kotlin/Native target: an
+      # androidx-lifecycle 2.10.0 bump passed every job here and still broke the iOS
+      # demo build with a klib ABI mismatch, because `assembleDebug` is Android-only
+      # and `linkReleaseFramework…` covers :kmpworker alone.
+      - name: iOS demo app compile (simulator-arm64)
+        run: ./gradlew :composeApp:compileKotlinIosSimulatorArm64
       - name: Upload demo artifacts
         if: always()
         uses: actions/upload-artifact@v4
