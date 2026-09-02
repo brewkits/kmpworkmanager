@@ -3,6 +3,7 @@ package dev.brewkits.kmpworkmanager.background.data
 import android.content.Context
 import android.os.BatteryManager
 import androidx.work.CoroutineWorker
+import androidx.work.Data
 import androidx.work.WorkerParameters
 import dev.brewkits.kmpworkmanager.KmpWorkManagerAndroid
 import dev.brewkits.kmpworkmanager.KmpWorkManagerRuntime
@@ -12,6 +13,8 @@ import dev.brewkits.kmpworkmanager.utils.LogTags
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 
 /**
  * Base class for [KmpWorker] and [KmpHeavyWorker].
@@ -101,6 +104,41 @@ abstract class BaseKmpWorker : CoroutineWorker {
 
     protected abstract suspend fun performWork(workerClassName: String, inputJson: String?): WorkerResult
 
+    /**
+     * Serialises a worker's [WorkerResult.Success.data] into the output [Data] that
+     * WorkManager hands to the next chain step (see [NativeTaskScheduler.KEY_STEP_OUTPUT]).
+     *
+     * Returns [Data.EMPTY] when there is nothing to forward, or when the payload exceeds
+     * WorkManager's Data budget. **Oversized output is dropped, not spilled to disk:** the
+     * overflow-file mechanism used for *input* is keyed to a task id that can be cleaned up
+     * on cancel, whereas an output file would have no owner if the successor never runs.
+     * Dropping degrades InputMerger to "no data forwarded" — the successor still executes
+     * with its own input — instead of failing a step that actually succeeded.
+     */
+    private fun buildStepOutputData(data: JsonObject?): Data {
+        if (data == null || data.isEmpty()) return Data.EMPTY
+        return try {
+            val encoded = Json.encodeToString(JsonObject.serializer(), data)
+            // WorkManager rejects Data over 10 KB at build time; stay under the same 8 KB
+            // threshold the input path uses so a chain can't fail on the return trip.
+            if (encoded.encodeToByteArray().size > NativeTaskScheduler.OVERFLOW_THRESHOLD_BYTES) {
+                Logger.w(
+                    LogTags.WORKER,
+                    "$workerLogTag output too large to forward to the next chain step " +
+                        "(${encoded.encodeToByteArray().size} bytes > ${NativeTaskScheduler.OVERFLOW_THRESHOLD_BYTES}). " +
+                        "InputMerger will see no data. Pass large payloads by reference (file path / row id) instead."
+                )
+                Data.EMPTY
+            } else {
+                Data.Builder().putString(NativeTaskScheduler.KEY_STEP_OUTPUT, encoded).build()
+            }
+        } catch (e: Exception) {
+            // Never fail a successful worker because its output could not be serialised.
+            Logger.w(LogTags.WORKER, "$workerLogTag failed to serialise output for InputMerger: ${e.message}")
+            Data.EMPTY
+        }
+    }
+
     protected suspend fun doWorkInternal(): Result {
         val workerClassName = inputData.getString("workerClassName")
             ?: return Result.failure()
@@ -128,7 +166,58 @@ abstract class BaseKmpWorker : CoroutineWorker {
         )
 
         try {
-            val inputJson = resolveInputJson()
+            val resolvedInputJson = resolveInputJson()
+
+            // InputMerger (P1-D): when this step opted in via TaskRequest.mergeOutputFromPreviousStep,
+            // the prerequisite step's WorkerResult.Success.data has been carried here by
+            // WorkManager's default OverwritingInputMerger under KEY_STEP_OUTPUT. Merge it into
+            // the task's own inputJson using the shared ChainInputMerger so the result is
+            // byte-identical to what iOS's ChainExecutor produces for the same pair of values.
+            //
+            // Absent output (previous worker returned data = null, or this is the first step)
+            // leaves inputJson untouched rather than blanking it.
+            val inputJson = if (inputData.getBoolean(NativeTaskScheduler.KEY_MERGE_PREVIOUS_OUTPUT, false)) {
+                val previousOutputRaw = inputData.getString(NativeTaskScheduler.KEY_STEP_OUTPUT)
+                val previousOutput = ChainInputMerger.parseObjectOrEmpty(previousOutputRaw)
+                if (previousOutput.isEmpty()) {
+                    Logger.d(
+                        LogTags.WORKER,
+                        "$workerLogTag mergeOutputFromPreviousStep=true but previous step produced no output — using original input"
+                    )
+                    resolvedInputJson
+                } else {
+                    ChainInputMerger.merge(resolvedInputJson, JsonObject(previousOutput)).also {
+                        Logger.d(
+                            LogTags.WORKER,
+                            "$workerLogTag merged ${previousOutput.size} field(s) from previous step into input"
+                        )
+                    }
+                }
+            } else {
+                resolvedInputJson
+            }
+
+            // Deadline guard (P1-C): skip stale tasks before they execute.
+            // Result.success() (not failure) avoids WorkManager retry loops —
+            // a deadline miss is not a worker error; the task is intentionally discarded.
+            val deadlineMs = inputData.getLong(NativeTaskScheduler.KEY_DEADLINE_MS, -1L)
+                .takeIf { it > 0L }
+            if (deadlineMs != null && System.currentTimeMillis() > deadlineMs) {
+                Logger.w(
+                    LogTags.WORKER,
+                    "⏰ $workerLogTag SKIPPED: $workerClassName deadline exceeded " +
+                        "(deadline=${deadlineMs}ms, now=${System.currentTimeMillis()}ms)"
+                )
+                TaskEventManager.emit(
+                    TaskCompletionEvent(
+                        taskName = workerClassName,
+                        success = false,
+                        message = "Deadline exceeded — task skipped"
+                    )
+                )
+                historyStatus = ExecutionStatus.SKIPPED
+                return Result.success()  // Don't retry; the deadline window is gone
+            }
 
             if (checkBatteryGuard()) {
                 isRetrying = true
@@ -164,7 +253,14 @@ abstract class BaseKmpWorker : CoroutineWorker {
                         )
                     )
                     historyStatus = ExecutionStatus.SUCCESS
-                    return Result.success()
+                    // InputMerger (P1-D): publish this worker's output so the NEXT chain step can
+                    // consume it. WorkManager's default OverwritingInputMerger copies a
+                    // prerequisite's output Data into its successor's input Data, which is the
+                    // only channel available here — a Worker cannot address the next node directly.
+                    // Emitted unconditionally on success (not gated on the *next* step's opt-in,
+                    // which this worker cannot see); the successor ignores it unless it set
+                    // mergeOutputFromPreviousStep. Standalone tasks simply have no successor.
+                    return Result.success(buildStepOutputData(result.data))
                 }
                 is WorkerResult.Failure -> {
                     Logger.w(LogTags.WORKER, "$workerLogTag failure: $workerClassName — ${result.message}")

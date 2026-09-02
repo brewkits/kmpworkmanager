@@ -5,9 +5,49 @@ All notable changes to KMP WorkManager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.4.0] - 2026-09-01
+## [3.5.0] - 2026-09-02
+
+Jetpack WorkManager parity pass: four features that native WorkManager users expect and
+had no equivalent here, implemented on **both** platforms rather than Android-only.
 
 ### Added
+
+- **`TaskRequest.tags` + `scheduler.cancelByTag(tag)` / `cancelByWorkerClass(name)`** —
+  group cancellation. Tags are business-context labels independent of worker class, so a
+  single call can cancel a mixed set of workers (`cancelByTag("user-123")`). Both APIs match
+  standalone tasks *and* chain steps on both platforms; `enqueue()` gained a `tags` parameter
+  so standalone tasks are reachable too. Tags are validated at construction (non-blank, no
+  commas, ≤100 chars) because an unstorable tag would make cancellation silently no-op.
+  **Not supported for `TaskTrigger.Exact` on Android** (AlarmManager is not tag-indexed) —
+  a warning is logged rather than failing silently.
+- **`TaskRequest.deadlineMs` + `enqueue(deadlineMs = …)`** — a task that has not started by
+  its deadline is skipped instead of executed, so a delayed run cannot write stale data.
+  Enforced at execution time on both platforms (Android `BaseKmpWorker`, iOS
+  `DynamicTaskDispatcher` and `ChainExecutor`). A miss is recorded as
+  `ExecutionStatus.SKIPPED` and never retried — retrying cannot un-miss a deadline. On iOS
+  this finally gives `TaskTrigger.Windowed.latest` real teeth: it now defaults to the
+  deadline, where previously BGTaskScheduler could only log that it was unenforceable.
+  Deliberately ignored for periodic tasks (a deadline on a recurring task is a delayed
+  cancel, not a deadline) — a warning is logged.
+- **`TaskRequest.mergeOutputFromPreviousStep`** — the InputMerger. A chain step can opt in to
+  receiving the previous step's `WorkerResult.Success.data` merged into its own `inputJson`,
+  removing the need for an external store to pass data along a
+  `download → validate → upload` pipeline. Overwriting-merge semantics (previous step wins on
+  key collision), matching WorkManager's default `OverwritingInputMerger`, with one shared
+  implementation (`ChainInputMerger`) used by both platforms so the behaviour cannot drift.
+- **`ExistingPolicy.UPDATE`** — updates a periodic task's constraints/input **without**
+  resetting its interval timer. Maps to `ExistingPeriodicWorkPolicy.UPDATE` on Android; on
+  iOS the existing `anchoredStartMs` is preserved so drift correction keeps the original
+  cadence. Degrades to `REPLACE` for one-time tasks and chains, which have no timer anchor.
+
+### Changed
+
+- `BackgroundTaskScheduler.enqueue()` gained `tags` and `deadlineMs` parameters (both
+  defaulted). **Source-compatible for callers**; classes that *override* `enqueue` must add
+  the two parameters. `cancelByTag`/`cancelByWorkerClass` ship with no-op default
+  implementations specifically so existing custom schedulers and test doubles keep compiling.
+- `FakeBackgroundTaskScheduler` (test utility) now records `tags`, `deadlineMs`,
+  `cancelledTags` and `cancelledWorkerClasses` so tests can assert on the new APIs.
 
 - **`kmpworkmanager-http`: HMAC-SHA256 request signing + token refresh on 401.**
   `HttpRequestConfig` gains optional `hmacSigning: HmacSigningConfig` (canonical string

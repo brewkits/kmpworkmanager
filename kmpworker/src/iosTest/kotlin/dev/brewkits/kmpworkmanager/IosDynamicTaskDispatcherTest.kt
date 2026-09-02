@@ -38,9 +38,11 @@ class IosDynamicTaskDispatcherTest {
     }
 
     private fun makeSchedulerStub(): BackgroundTaskScheduler = object : BackgroundTaskScheduler {
-        override suspend fun enqueue(id: String, trigger: TaskTrigger, workerClassName: String, constraints: Constraints, inputJson: String?, policy: ExistingPolicy) = ScheduleResult.ACCEPTED
+        override suspend fun enqueue(id: String, trigger: TaskTrigger, workerClassName: String, constraints: Constraints, inputJson: String?, policy: ExistingPolicy, tags: Set<String>, deadlineMs: Long?) = ScheduleResult.ACCEPTED
         override fun cancel(id: String) {}
         override fun cancelAll() {}
+        override fun cancelByTag(tag: String) {}
+        override fun cancelByWorkerClass(workerClassName: String) {}
         override fun beginWith(task: TaskRequest): TaskChain = throw UnsupportedOperationException()
         override fun beginWith(tasks: List<TaskRequest>): TaskChain = throw UnsupportedOperationException()
         override suspend fun enqueueChain(chain: TaskChain, id: String?, policy: ExistingPolicy) {}

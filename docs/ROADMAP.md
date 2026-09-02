@@ -7,6 +7,65 @@ Status legend: ✅ done · 🚧 in progress · ⏳ planned · 💭 idea / unsche
 
 ---
 
+## v3.5.0 — Jetpack WorkManager parity — ✅ shipped
+
+Four features native WorkManager users expect, implemented on **both** platforms:
+
+- ✅ **Task tags + group cancellation** — `TaskRequest.tags`, `enqueue(tags = …)`,
+  `cancelByTag()`, `cancelByWorkerClass()`. Covers standalone tasks and chain steps.
+  Not available for `TaskTrigger.Exact` on Android (AlarmManager is not tag-indexed).
+- ✅ **Per-task deadlines** — `TaskRequest.deadlineMs` / `enqueue(deadlineMs = …)`.
+  A task past its deadline is skipped, not run, and never retried. Gives
+  `TaskTrigger.Windowed.latest` real enforcement on iOS for the first time.
+- ✅ **Chain InputMerger** — `TaskRequest.mergeOutputFromPreviousStep`. Overwriting-merge
+  semantics matching WorkManager's `OverwritingInputMerger`, via one shared
+  `ChainInputMerger` so the two engines cannot drift.
+- ✅ **`ExistingPolicy.UPDATE`** — update a periodic task's constraints/input without
+  resetting its interval timer.
+
+Still open from the same parity analysis, in rough priority order:
+
+- ⏳ **`observeTaskState(id): Flow<TaskState>`** — live state stream, replacing
+  poll-`getExecutionHistory()`. Android: wrap `getWorkInfosForUniqueWorkFlow` (note:
+  WorkManager indexes by UUID, so this must go through the unique-name API, not
+  `getWorkInfoByIdFlow`). iOS: a `StateFlow` registry updated by `ChainExecutor` /
+  `SingleTaskExecutor` transitions.
+- ⏳ **`WorkQuery`-style batch query** — filter pending/running tasks by state/tag/worker.
+  Read-only on both platforms; iOS needs a scan across queue + metadata + active chains.
+- ⏳ **`ExistingPolicy.APPEND`** — append steps to a chain that is already queued or
+  running. Android maps to `ExistingWorkPolicy.APPEND`/`APPEND_OR_REPLACE` directly; iOS
+  needs real design work, and **an earlier analysis of this got it wrong in a way worth
+  recording**:
+
+  > *Claim:* "`ChainExecutor` re-reads `loadChainDefinition()` fresh from disk before each
+  > step, so appending to the end is race-free."
+  >
+  > *Reality (verified in code):* `executeChain` calls `loadChainDefinition` **once**
+  > (~line 748) and then iterates the resulting in-memory list (~line 925) — both inside
+  > the same function. Nothing re-reads the definition per step.
+
+  Consequences the design must handle, none of which the "just append" approach covers:
+  - Appending to a **running** chain writes to disk that the in-flight executor never
+    re-reads, so the new steps are silently dropped for that invocation.
+  - `executeChain` **deletes the chain definition on completion** (~line 1153), so
+    appending to a chain that just finished writes into a file about to vanish, or
+    resurrects a deleted one, depending on timing.
+  - `ChainProgress` records completed-step indices; appending must not renumber existing
+    steps or a resumed chain will re-run or skip work.
+
+  A workable shape is probably: re-read the definition at the top of each step iteration
+  under the chain's existing lock, plus an explicit rule for "append to a chain that is
+  finishing" (reject, or convert to a new chain). Not a small change — treat it as its own
+  milestone, not a quick win. (The `when` over `ExistingPolicy` in iOS `enqueueChain` is
+  deliberately exhaustive so adding this forces a decision there rather than silently
+  falling through to the KEEP branch.)
+- 💭 **`setNextScheduleTimeOverride()`** — **not feasible on iOS.** BGTaskScheduler offers
+  no way to override a registered task's next run; only cancel + reschedule, which is
+  what `cancel()` + `enqueue()` already do. Android-only, so it fails the
+  "both platforms or it isn't parity" bar below.
+
+---
+
 ## Next up (post-3.3.1) — the "irreplaceable, even for native-only teams" bar
 
 **Theme:** every milestone through 3.3.1 below made the library more correct or

@@ -20,9 +20,9 @@
 ```kotlin
 // build.gradle.kts
 commonMain.dependencies {
-    implementation("dev.brewkits:kmpworkmanager:3.3.0")          // core engine (no Ktor)
+    implementation("dev.brewkits:kmpworkmanager:3.5.0")          // core engine (no Ktor)
     // Optional — only if you use the built-in HTTP workers (Http*/ParallelHttp*).
-    implementation("dev.brewkits:kmpworkmanager-http:3.3.0")     // Ktor 3 HTTP workers
+    implementation("dev.brewkits:kmpworkmanager-http:3.5.0")     // Ktor 3 HTTP workers
 }
 ```
 
@@ -178,6 +178,65 @@ scheduler.beginWith(TaskRequest("DownloadWorker", inputJson = """{"url":"$fileUr
     .enqueue()
 ```
 
+### Pass data between chain steps
+
+Set `mergeOutputFromPreviousStep = true` and a step receives the previous step's
+`WorkerResult.Success.data` merged into its own `inputJson` — no external store needed.
+On a key collision the previous step's value wins, matching WorkManager's default
+`OverwritingInputMerger`. Both platforms behave identically.
+
+```kotlin
+scheduler.beginWith(TaskRequest("DownloadWorker", inputJson = """{"url":"$fileUrl"}"""))
+    // DownloadWorker returns Success(data = {"filePath": "/tmp/x.zip"})
+    .then(TaskRequest("ValidateWorker", mergeOutputFromPreviousStep = true))  // sees filePath
+    .then(TaskRequest("UploadWorker", mergeOutputFromPreviousStep = true))    // sees filePath
+    .enqueue()
+```
+
+### Cancel a group of tasks
+
+Tags are business-context labels, independent of worker class — one call cancels a mixed
+set of workers. Works for standalone tasks and chain steps alike.
+
+```kotlin
+scheduler.enqueue(
+    id = "sync-profile",
+    trigger = TaskTrigger.OneTime(),
+    workerClassName = "SyncWorker",
+    tags = setOf("user-123"),
+)
+scheduler.beginWith(TaskRequest("UploadWorker", tags = setOf("user-123"))).enqueue()
+
+// Cancels both, whatever worker they use:
+scheduler.cancelByTag("user-123")
+
+// Or cancel every task of one worker type:
+scheduler.cancelByWorkerClass("SyncWorker")
+```
+
+> `cancelByTag` does not cover `TaskTrigger.Exact` on Android — exact alarms run through
+> `AlarmManager`, which is not tag-indexed. Cancel those by id.
+
+### Skip work that has gone stale
+
+`deadlineMs` marks the point after which running the task is worse than not running it.
+A task that has not started by then is skipped (recorded as `ExecutionStatus.SKIPPED`)
+and never retried — retrying cannot un-miss a deadline. A skipped step does not abort the
+rest of its chain.
+
+```kotlin
+scheduler.enqueue(
+    id = "pre-flight-sync",
+    trigger = TaskTrigger.OneTime(),
+    workerClassName = "SyncWorker",
+    deadlineMs = departureTimeMs,  // pointless to sync after the flight leaves
+)
+```
+
+This is what finally makes `TaskTrigger.Windowed(earliest, latest)` enforceable on iOS:
+`latest` is now honoured as a deadline at execution time, where BGTaskScheduler itself
+offers no ceiling.
+
 ---
 
 ## Why KMP WorkManager?
@@ -208,6 +267,20 @@ and no recovery mechanism for incomplete work. Getting it wrong means your tasks
 | `ContentUri(uri)` | WorkManager ContentUriTrigger | — | Android only |
 
 ---
+
+## What's new in v3.5.0
+
+**Jetpack WorkManager parity.** Four features native WorkManager users expect, now on both
+platforms: **task tags + group cancellation** (`cancelByTag` / `cancelByWorkerClass`),
+**per-task deadlines** (`deadlineMs` — skip rather than run stale work), the **chain
+InputMerger** (`mergeOutputFromPreviousStep` — pass a step's output into the next step's
+input), and **`ExistingPolicy.UPDATE`** (change a periodic task's constraints without
+resetting its interval timer). See the sections above for usage.
+
+Adding `cancelByTag`/`cancelByWorkerClass` to `BackgroundTaskScheduler` is source-compatible
+— both ship with no-op default implementations so existing custom schedulers and test doubles
+keep compiling. Classes that *override* `enqueue()` must add the new `tags` and `deadlineMs`
+parameters.
 
 ## What's new in v3.2.0
 
