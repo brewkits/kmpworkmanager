@@ -74,19 +74,23 @@ just unwired. Landed in the "Ultra 1+2+3" pass:
   `isNetworkCellular()` before dispatch in both `DynamicTaskDispatcher` and
   `IosBackgroundTaskHandler`, deferring — never abandoning — the task while the constraint
   stays unmet (see the "constraint deferral" note below for the follow-up this uncovered).
-- ⏳ **`requiresCharging` unchecked for dynamic-queue standalone iOS tasks** — was only honored
+- ✅ **`requiresCharging` unchecked for dynamic-queue standalone iOS tasks** — was only honored
   for tasks with a static Info.plist identifier + `isHeavyTask=true`; the Master Dispatcher
-  path hardcoded `requiresExternalPower = false`. Partially fixed via the same
-  `StandaloneConstraintGuard` used for `requiresUnmeteredNetwork`, but its charging check
-  (`defaultIsNotCharging()`) only fires if the host app has already opted in to
-  `UIDevice.batteryMonitoringEnabled` — same opt-in pattern `ChainExecutor`'s battery guard
-  uses, but it means the check is a no-op for the majority of host apps, which don't turn that
-  on. **Still not done**: (a) an unconditional read (e.g. via `NSProcessInfo` the way
-  `REQUIRE_BATTERY_NOT_LOW` does, rather than requiring host opt-in) so this actually enforces
-  for apps that never touch `batteryMonitoringEnabled`; (b) holding the OS-level
-  `BGProcessingTaskRequest.requiresExternalPower` flag itself for an all-charging-required
-  queue (the `allRequireCharging` aggregate this would need was scoped out as non-blocking) —
-  see the constraint-deferral note below.
+  path hardcoded `requiresExternalPower = false`. Fixed at the OS level: when every task
+  pending in the dynamic queue requires charging, `DynamicQueueConstraintSummary
+  .allRequireCharging` holds `requiresExternalPower = true` on the Master Dispatcher's
+  `BGProcessingTaskRequest` (mirroring the pre-existing `allRequireNetwork` pattern) — the OS
+  itself won't wake the process until the device is plugged in, no host opt-in needed. The
+  app-level fallback (`StandaloneConstraintGuard`'s `defaultIsNotCharging()`, for the case
+  where charging tasks are mixed with non-charging ones in the same queue) still only fires if
+  the host has opted in to `UIDevice.batteryMonitoringEnabled` — **still not done**: there is no
+  unconditional replacement for that opt-in. Unlike `REQUIRE_BATTERY_NOT_LOW`, which reads Low
+  Power Mode via `NSProcessInfo` (a genuinely global, always-available signal), Apple exposes
+  charging *state* only via `UIDevice.batteryState`, which returns `.unknown` unless monitoring
+  is enabled — there is no `NSProcessInfo`-equivalent for this. Toggling
+  `batteryMonitoringEnabled` from inside the library was considered and rejected (see
+  `ChainExecutor`'s battery-guard KDoc): it would race the host's own UI thread and could break
+  the host's own battery-state observers.
 - ✅ **`Constraints.backoffPolicy`/`backoffDelayMs` had zero effect on iOS** — a retry just
   waited for the next opportunistic BGTask wake, with no LINEAR/EXPONENTIAL delay computation.
   Fixed: `nextRetryEarliestMs` is computed and persisted, dispatch is skipped until it passes,
@@ -112,26 +116,32 @@ just unwired. Landed in the "Ultra 1+2+3" pass:
   `expedited`, `existingWorkPolicy` as a `Constraints` field — none of which exist in the
   current contract (superseded by `SystemConstraint` and a separate `ExistingPolicy` param).
   Corrected 2026-09-02 (Exact section + Platform Support Matrix).
-- 📝 **`docs/ios-best-practices.md` has the SAME pre-refactor-shape staleness, not yet
-  touched** — e.g. its "Limited Constraints"/"Unsupported Constraints" code samples (§4 and
-  "Pitfall #3") show `requiresBatteryNotLow`/`requiresStorageNotLow` as direct `Constraints`
-  fields and claim `requiresCharging`/`REQUIRE_BATTERY_NOT_LOW` are unconditionally "ignored on
-  iOS" — both now false after the 2026-09-02 parity pass above (the pre-refactor fields don't
-  exist at all; `requiresCharging` and `REQUIRE_BATTERY_NOT_LOW` are enforced, the former with
-  the `batteryMonitoringEnabled` opt-in caveat noted above). Needs the same doc pass
-  `constraints-triggers.md` already got.
+- ✅ **`docs/ios-best-practices.md` had the SAME pre-refactor-shape staleness** — its "Limited
+  Constraints"/"Unsupported Constraints" code samples (§4 and "Pitfall #3") showed
+  `requiresBatteryNotLow`/`requiresStorageNotLow` as direct `Constraints` fields and claimed
+  `requiresCharging`/`REQUIRE_BATTERY_NOT_LOW` were unconditionally "ignored on iOS" — both
+  false after the 2026-09-02 parity pass above. Corrected 2026-09-02, including the
+  `BGProcessingTask` time-limit table row, which said "~60 seconds" against
+  `docs/IOS_BGTASK_LIMITS.md`'s authoritative "several minutes (typically 1–10 min)".
 
-**Follow-up uncovered by the above (2026-09-02, not done):** a constraint deferral (unlike a
-backoff floor) carries no `nextRetryEarliestMs`, so `rescheduleMasterDispatcher()` still
-requests `earliestBeginDate = now` for it — the dispatcher wakes immediately, finds the
-constraint still unmet, defers again, and re-requests itself, repeating for as long as the
-constraint stays unmet (e.g. the whole length of a commute for a Wi-Fi-only task). This is
-strictly better than the pre-fix behavior (which "solved" the churn by deleting the task after
-5 wakes), so it's not blocking, but it does burn BGTask quota. `requiresCharging` has a real
-OS-level fix available — `BGProcessingTaskRequest.requiresExternalPower`, held off by the OS
-itself rather than by repeated wakes — via the `allRequireCharging` aggregate noted above.
-`requiresUnmeteredNetwork` has no OS-level equivalent (BGTaskScheduler has no Wi-Fi-only flag),
-so that half of this gap has no cheaper fix than periodic wakes.
+**Follow-up uncovered by the above (2026-09-02):** a constraint deferral (unlike a backoff
+floor) carries no `nextRetryEarliestMs`, so `rescheduleMasterDispatcher()` requests
+`earliestBeginDate = now` for it — the dispatcher wakes immediately, finds the constraint still
+unmet, defers again, and re-requests itself, repeating for as long as the constraint stays
+unmet. This is strictly better than the pre-fix behavior (which "solved" the churn by deleting
+the task after 5 wakes), but it does burn BGTask quota while it lasts.
+
+- ✅ **`requiresCharging` half fixed**, as a side effect of `allRequireCharging` above: when
+  every pending task requires charging, `requiresExternalPower = true` at the OS level means
+  the process isn't woken at all until the device is plugged in — the wake-defer-rewake cycle
+  described above simply can't happen for an all-charging queue. It can still happen for a
+  **mixed** queue (some tasks need charging, others don't) — the OS-level flag can only be
+  all-or-nothing across the whole shared Master Dispatcher request, so a charging-required task
+  sharing a queue with a non-charging one still relies on the opt-in-gated app-level check and
+  still churns while unmet.
+- ⏳ **`requiresUnmeteredNetwork` half still open** — BGTaskScheduler has no Wi-Fi-only flag at
+  all, at any granularity, so there is no OS-level fix available the way there was for charging.
+  This half has no cheaper fix than periodic wakes.
 
 ---
 

@@ -446,6 +446,18 @@ public class NativeTaskScheduler(
         val taskMetadata = buildMap {
             put("workerClassName", workerClassName)
             put("inputJson", inputJson ?: "")
+            // Mirrors schedulePeriodicTask's own metadata write below. Without these three,
+            // a one-time task's isHeavyTask/requiresNetwork/requiresCharging are permanently
+            // unrecoverable from disk — getDynamicQueueConstraintSummary() undercounts them
+            // as light/unconstrained (they were simply absent from every metadata read), and
+            // worse, a dedicated-identifier task's FIRST retry (which round-trips through
+            // reconstructConstraintsFromMetadata → scheduler.enqueue → createBackgroundTaskRequest)
+            // would silently see isHeavyTask=false and downgrade a BGProcessingTaskRequest
+            // (minutes of budget) to a BGAppRefreshTaskRequest (~30s hard ceiling) for every
+            // subsequent attempt.
+            put("requiresNetwork", "${constraints.requiresNetwork}")
+            put("requiresCharging", "${constraints.requiresCharging}")
+            put("isHeavyTask", "${constraints.isHeavyTask}")
             // Persist an explicit retry ceiling so the single-task retry loop
             // (DynamicTaskDispatcher.handleOneTimeResult) can honor Constraints.maxRetries.
             // Stored only when set (>= 0); absence means "use the platform default", matching
@@ -654,14 +666,15 @@ public class NativeTaskScheduler(
      */
     private data class PendingMasterDispatcherInfo(
         val earliestBeginDate: NSDate?,
-        val requiresNetwork: Boolean
+        val requiresNetwork: Boolean,
+        val requiresCharging: Boolean
     )
 
     /**
      * Returns a snapshot of the currently-pending Master Dispatcher request (date +
-     * requiresNetworkConnectivity), or null if none is pending.
+     * requiresNetworkConnectivity + requiresExternalPower), or null if none is pending.
      * Used to avoid pushing back the dispatcher when a later-dated dynamic task is enqueued,
-     * and to detect when the aggregate queue profile now requires a different network flag.
+     * and to detect when the aggregate queue profile now requires a different constraint flag.
      */
     private suspend fun getPendingMasterDispatcherInfo(): PendingMasterDispatcherInfo? {
         if (NSBundle.mainBundle.bundleIdentifier == null) return null
@@ -673,7 +686,8 @@ public class NativeTaskScheduler(
                     val info = master?.let {
                         PendingMasterDispatcherInfo(
                             earliestBeginDate = it.earliestBeginDate,
-                            requiresNetwork = it.requiresNetworkConnectivity
+                            requiresNetwork = it.requiresNetworkConnectivity,
+                            requiresCharging = it.requiresExternalPower
                         )
                     }
                     continuation.resume(info)
@@ -738,19 +752,25 @@ public class NativeTaskScheduler(
                 // Tracked as follow-up scope in issue #79.
                 val summary = fileStorage.getDynamicQueueConstraintSummary()
                 val desiredRequiresNetwork = summary.allRequireNetwork
+                // See DynamicQueueConstraintSummary.allRequireCharging: when every pending
+                // dynamic task requires charging, hold requiresExternalPower at the OS level
+                // instead of relying solely on StandaloneConstraintGuard's opt-in-gated runtime
+                // check — the OS then won't even wake the process until the device is plugged in.
+                val desiredRequiresCharging = summary.allRequireCharging
 
                 val existing = getPendingMasterDispatcherInfo()
                 val existingDate = existing?.earliestBeginDate
                 val proposedIsNotEarlier = existingDate != null && proposedDate != null &&
                     proposedDate.timeIntervalSinceDate(existingDate) >= 0
-                val networkFlagUnchanged = existing != null && existing.requiresNetwork == desiredRequiresNetwork
+                val constraintsUnchanged = existing != null &&
+                    existing.requiresNetwork == desiredRequiresNetwork &&
+                    existing.requiresCharging == desiredRequiresCharging
 
                 // Only reschedule the Master Dispatcher if the proposed date is earlier than the
-                // currently-pending one, OR the aggregate queue profile now needs a different
-                // requiresNetworkConnectivity value. Submitting a later date (with no flag
-                // change) would silently replace an earlier pending request, delaying tasks
-                // already waiting.
-                if (existing != null && proposedIsNotEarlier && networkFlagUnchanged) {
+                // currently-pending one, OR the aggregate queue profile now needs different
+                // constraint flags. Submitting a later date (with no flag change) would silently
+                // replace an earlier pending request, delaying tasks already waiting.
+                if (existing != null && proposedIsNotEarlier && constraintsUnchanged) {
                     Logger.d(LogTags.SCHEDULER,
                         "Master Dispatcher already scheduled earlier with matching constraints — keeping existing schedule for '$id'")
                     return ScheduleResult.ACCEPTED
@@ -766,10 +786,11 @@ public class NativeTaskScheduler(
                     else -> proposedDate
                 }
 
-                Logger.d(LogTags.SCHEDULER, "Master Dispatcher: BGProcessingTaskRequest (requiresNetwork=$desiredRequiresNetwork)")
+                Logger.d(LogTags.SCHEDULER, "Master Dispatcher: BGProcessingTaskRequest " +
+                    "(requiresNetwork=$desiredRequiresNetwork, requiresCharging=$desiredRequiresCharging)")
                 val masterRequest = BGProcessingTaskRequest(MASTER_DISPATCHER_IDENTIFIER).apply {
                     requiresNetworkConnectivity = desiredRequiresNetwork
-                    requiresExternalPower = false
+                    requiresExternalPower = desiredRequiresCharging
                     this.earliestBeginDate = earliestBeginDate
                 }
 

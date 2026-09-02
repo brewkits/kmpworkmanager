@@ -831,7 +831,7 @@ Constraints(qos = QualityOfService.HIGH)
 |------------|---------|-----|-------|
 | requiresNetwork | ✅ | ✅ | Full support |
 | requiresUnmeteredNetwork | ✅ | ✅ | iOS: enforced for chain steps and standalone tasks alike |
-| requiresCharging | ✅ | ⚠️ | iOS: honored unconditionally for tasks with a static Info.plist identifier + `isHeavyTask=true` (OS-level flag). For every other standalone/chain task, enforced only if the host app has opted in to `UIDevice.batteryMonitoringEnabled` — the library never toggles that flag itself. Hosts that don't opt in see this constraint silently unenforced — tracked gap, see `docs/ROADMAP.md` |
+| requiresCharging | ✅ | ⚠️ | iOS: honored unconditionally (OS-level flag) for tasks with a static Info.plist identifier + `isHeavyTask=true`, and for dynamic-queue tasks when **every** task currently pending in the queue requires charging. For a queue mixing charging and non-charging tasks, enforced only if the host app has opted in to `UIDevice.batteryMonitoringEnabled` — the library never toggles that flag itself. Hosts that don't opt in see the mixed-queue case silently unenforced — tracked gap, see `docs/ROADMAP.md` |
 | `systemConstraints`: `REQUIRE_BATTERY_NOT_LOW` / `ALLOW_LOW_BATTERY` | ✅ | ✅ | iOS: via `NSProcessInfo.processInfo().lowPowerModeEnabled`, for both chain steps and standalone tasks |
 | `systemConstraints`: `ALLOW_LOW_STORAGE` | ✅ | ❌ | iOS has no storage-pressure constraint API — structurally not supported |
 | `systemConstraints`: `DEVICE_IDLE` | ✅ | ❌ | iOS has no Doze-equivalent — structurally not supported |

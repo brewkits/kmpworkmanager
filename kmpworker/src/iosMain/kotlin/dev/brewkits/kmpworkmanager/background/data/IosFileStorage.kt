@@ -50,6 +50,7 @@ internal data class DynamicQueueConstraintSummary(
     val pendingCount: Int,
     val heavyCount: Int,
     val networkRequiredCount: Int,
+    val chargingRequiredCount: Int,
     /**
      * Earliest epoch-ms the master dispatcher should be re-requested, derived from pending
      * tasks' backoff floors ([DynamicTaskDispatcher.META_NEXT_RETRY_EARLIEST_MS]).
@@ -67,6 +68,15 @@ internal data class DynamicQueueConstraintSummary(
 
     /** True when every pending task requires network connectivity. */
     val allRequireNetwork: Boolean get() = pendingCount > 0 && networkRequiredCount == pendingCount
+
+    /**
+     * True when every pending task requires charging. Lets the master dispatcher's
+     * `BGProcessingTaskRequest.requiresExternalPower` be set at the OS level — the OS then
+     * simply won't wake the process at all until the device is plugged in, which is strictly
+     * better than our own opt-in-gated `UIDevice.batteryMonitoringEnabled` runtime check
+     * ([StandaloneConstraintGuard]): no host opt-in needed, and no wasted wake+defer cycle.
+     */
+    val allRequireCharging: Boolean get() = pendingCount > 0 && chargingRequiredCount == pendingCount
 }
 
 /**
@@ -558,6 +568,7 @@ public class IosFileStorage(
         val ids = tasksQueue.getAllItems()
         var heavyCount = 0
         var networkCount = 0
+        var chargingCount = 0
         var minFloorMs: Long? = null
         var everyPendingHasFloor = ids.isNotEmpty()
         for (id in ids) {
@@ -565,6 +576,7 @@ public class IosFileStorage(
             val meta = loadTaskMetadata(id, periodic = false) ?: loadTaskMetadata(id, periodic = true)
             if (meta?.get("isHeavyTask") == "true") heavyCount++
             if (meta?.get("requiresNetwork") == "true") networkCount++
+            if (meta?.get("requiresCharging") == "true") chargingCount++
 
             val floorMs = meta?.get(DynamicTaskDispatcher.META_NEXT_RETRY_EARLIEST_MS)?.toLongOrNull()
             if (floorMs == null) {
@@ -577,6 +589,7 @@ public class IosFileStorage(
             pendingCount = ids.size,
             heavyCount = heavyCount,
             networkRequiredCount = networkCount,
+            chargingRequiredCount = chargingCount,
             earliestBackoffFloorMs = if (everyPendingHasFloor) minFloorMs else null
         )
     }

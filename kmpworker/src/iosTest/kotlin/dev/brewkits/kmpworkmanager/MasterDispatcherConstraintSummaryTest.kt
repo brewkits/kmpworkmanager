@@ -3,6 +3,7 @@
 package dev.brewkits.kmpworkmanager
 
 import dev.brewkits.kmpworkmanager.background.data.*
+import dev.brewkits.kmpworkmanager.background.domain.*
 import kotlinx.coroutines.test.runTest
 import platform.Foundation.*
 import kotlin.test.*
@@ -212,5 +213,78 @@ class MasterDispatcherConstraintSummaryTest {
         )
 
         assertEquals(1000L, storage.getDynamicQueueConstraintSummary().earliestBackoffFloorMs)
+    }
+
+    // ==================== allRequireCharging ====================
+
+    private fun chargingMetaFor(requiresCharging: Boolean): Map<String, String> = mapOf(
+        "workerClassName" to "EchoWorker",
+        "requiresNetwork" to "false",
+        "requiresCharging" to "$requiresCharging",
+        "isHeavyTask" to "false"
+    )
+
+    @Test
+    fun `queue of only charging-required tasks is reported allRequireCharging`() = runTest {
+        val storage = makeStorage("all-charging")
+
+        storage.enqueueTask("charge-1")
+        storage.saveTaskMetadata("charge-1", chargingMetaFor(requiresCharging = true), periodic = false)
+        storage.enqueueTask("charge-2")
+        storage.saveTaskMetadata("charge-2", chargingMetaFor(requiresCharging = true), periodic = false)
+
+        assertTrue(storage.getDynamicQueueConstraintSummary().allRequireCharging)
+    }
+
+    @Test
+    fun `mixed charging requirements are not reported as allRequireCharging`() = runTest {
+        val storage = makeStorage("mixed-charging")
+
+        storage.enqueueTask("charge-1")
+        storage.saveTaskMetadata("charge-1", chargingMetaFor(requiresCharging = true), periodic = false)
+        storage.enqueueTask("no-charge-1")
+        storage.saveTaskMetadata("no-charge-1", chargingMetaFor(requiresCharging = false), periodic = false)
+
+        assertFalse(
+            storage.getDynamicQueueConstraintSummary().allRequireCharging,
+            "requiresExternalPower=true at the OS level would wrongly block the non-charging task too"
+        )
+    }
+
+    @Test
+    fun `empty queue is not reported allRequireCharging`() = runTest {
+        val storage = makeStorage("empty-charging")
+
+        assertFalse(storage.getDynamicQueueConstraintSummary().allRequireCharging)
+    }
+
+    /**
+     * Regression net for the bug this aggregate work uncovered: [NativeTaskScheduler]'s
+     * `scheduleOneTimeTask` never wrote `requiresNetwork`/`requiresCharging`/`isHeavyTask` into
+     * a ONE-TIME task's persisted metadata (only `schedulePeriodicTask` did), so
+     * `getDynamicQueueConstraintSummary()` silently undercounted every one-time dynamic task as
+     * light/unconstrained regardless of what its caller actually requested. This test goes
+     * through the REAL production `enqueue()` path — not `saveTaskMetadata` directly like the
+     * tests above — to prove the aggregate now sees a real one-time task's charging requirement.
+     */
+    @Test
+    fun `a real one-time task enqueued via the scheduler is counted in allRequireCharging`() = runTest {
+        val storage = makeStorage("real-one-time-charging")
+        val scheduler = NativeTaskScheduler(fileStorage = storage)
+
+        scheduler.enqueue(
+            id = "real-charging-task",
+            trigger = TaskTrigger.OneTime(0L),
+            workerClassName = "TestWorker",
+            constraints = Constraints(requiresCharging = true)
+        )
+
+        val summary = storage.getDynamicQueueConstraintSummary()
+        assertEquals(1, summary.pendingCount)
+        assertTrue(
+            summary.allRequireCharging,
+            "A real one-time task's requiresCharging=true must survive into persisted metadata, " +
+                "not just an in-memory Constraints object the aggregate never sees"
+        )
     }
 }

@@ -29,6 +29,15 @@ documented as platform-impossible — they were simply unwired.
   opportunistic wake" behavior, so no existing caller's timing silently changes). LINEAR scales
   the base delay by attempt number, EXPONENTIAL doubles it, both capped at 1 hour — mirroring
   WorkManager's own backoff math.
+- **iOS: `DynamicQueueConstraintSummary.allRequireCharging`** — when every task pending in the
+  dynamic queue requires charging, the shared Master Dispatcher's `BGProcessingTaskRequest` now
+  sets `requiresExternalPower = true` at the OS level (mirroring the existing
+  `allRequireNetwork`/`requiresNetworkConnectivity` pattern), in both places that submit that
+  request (`NativeTaskScheduler`'s enqueue-time path and `DynamicTaskDispatcher`'s
+  re-schedule-after-batch path). This is strictly better than relying solely on
+  `StandaloneConstraintGuard`'s runtime check, which only fires if the host app has separately
+  opted in to `UIDevice.batteryMonitoringEnabled` — the OS-level flag needs no such opt-in, and
+  means the process isn't woken at all until the device is actually plugged in.
 
 ### Fixed
 
@@ -64,6 +73,23 @@ documented as platform-impossible — they were simply unwired.
   wired to the shared `IosFileStorage` at all — only task/chain/progress metadata
   (`loadTaskMetadata`) is. `docs/IOS_APP_GROUP_STORAGE.md` and the `initialize()` KDoc now say
   so explicitly.
+- **iOS: a one-time task's `requiresNetwork`/`requiresCharging`/`isHeavyTask` are now actually
+  persisted to disk.** `NativeTaskScheduler.scheduleOneTimeTask` never wrote these three fields
+  into a one-time task's metadata (only `schedulePeriodicTask` did) — a pre-existing bug, not
+  introduced this pass, just surfaced while wiring the charging aggregate below. The most
+  severe consequence: a dedicated-Info.plist-identifier **heavy** task's first retry silently
+  read `isHeavyTask` back as `false` (the key was simply absent) and downgraded every
+  subsequent re-submission from `BGProcessingTaskRequest` (minutes of budget) to
+  `BGAppRefreshTaskRequest` (~30s hard ceiling) — regardless of what the caller originally
+  requested.
+- **`docs/ios-best-practices.md` had the same pre-refactor-`Constraints`-shape staleness as
+  `constraints-triggers.md`** — its "Limited Constraints"/"Unsupported Constraints" sections
+  and Pitfall #3 showed `requiresBatteryNotLow`/`requiresStorageNotLow` as direct `Constraints`
+  fields (neither exists) and claimed `requiresCharging`/`REQUIRE_BATTERY_NOT_LOW` are
+  unconditionally ignored on iOS (both are enforced now, the former with the
+  `batteryMonitoringEnabled` opt-in caveat noted above). Also fixed a wrong `BGProcessingTask`
+  time-limit ("~60 seconds" vs. the authoritative "several minutes" in
+  `docs/IOS_BGTASK_LIMITS.md`).
 
 ### Changed
 

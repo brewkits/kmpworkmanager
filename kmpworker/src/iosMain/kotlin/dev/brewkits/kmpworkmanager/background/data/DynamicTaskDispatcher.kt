@@ -455,6 +455,10 @@ public class DynamicTaskDispatcher(
         // yet with the current batch executor's per-task timeout budget.
         val summary = fileStorage.getDynamicQueueConstraintSummary()
         val requiresNetwork = summary.allRequireNetwork
+        // See DynamicQueueConstraintSummary.allRequireCharging: holds the OS-level flag when
+        // every pending task needs charging, instead of relying solely on the opt-in-gated
+        // StandaloneConstraintGuard runtime check.
+        val requiresCharging = summary.allRequireCharging
 
         // If every pending task is still within its backoff window, honor the earliest of
         // those floors instead of NSDate() (now) — otherwise the dispatcher wakes
@@ -472,11 +476,13 @@ public class DynamicTaskDispatcher(
             val errorPtr = alloc<ObjCObjectVar<NSError?>>()
             val request = BGProcessingTaskRequest("kmp_master_dispatcher_task").apply {
                 this.earliestBeginDate = earliestBeginDate
-                // Individual task network constraints are checked by each worker.
-                // Only require network here when EVERY pending task needs it — otherwise
-                // false lets non-network tasks run opportunistically even without
-                // connectivity; workers that need network return Failure and remain queued.
+                // Individual task network/charging constraints are checked by each worker
+                // (StandaloneConstraintGuard) as a fallback. Only require these here at the
+                // OS level when EVERY pending task needs them — otherwise false lets
+                // non-constrained tasks run opportunistically even without connectivity/power;
+                // workers that need it return Failure and remain queued.
                 requiresNetworkConnectivity = requiresNetwork
+                requiresExternalPower = requiresCharging
             }
 
             val ok = BGTaskScheduler.sharedScheduler.submitTaskRequest(request, errorPtr.ptr)
