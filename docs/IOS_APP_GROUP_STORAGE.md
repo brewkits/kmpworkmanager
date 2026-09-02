@@ -1,4 +1,4 @@
-# iOS App Group storage (v3.6.0+)
+# iOS App Group storage (v3.4.0+)
 
 `KmpWorkManager.initialize(appGroupIdentifier = ...)` roots the library's task/chain/progress
 storage in a shared App Group container instead of the app's private Application Support

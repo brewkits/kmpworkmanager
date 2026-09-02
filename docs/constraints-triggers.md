@@ -649,7 +649,7 @@ Constraints(
 ```
 
 **Platform Support:** ✅ Android, ✅ iOS — iOS honors this for standalone-task retry timing
-**only when explicitly set**: the 30s/EXPONENTIAL default preserves the pre-3.6.0 "retry on
+**only when explicitly set**: the 30s/EXPONENTIAL default preserves the pre-3.4.0 "retry on
 the next opportunistic BGTask wake" behavior for callers who never touch these fields, rather
 than silently changing every existing caller's retry timing.
 
@@ -731,7 +731,7 @@ What to do when a task or chain with the same ID already exists.
 **Options:**
 - `ExistingPolicy.KEEP` — keep existing, ignore the new request
 - `ExistingPolicy.REPLACE` — cancel existing, schedule new
-- `ExistingPolicy.UPDATE` (v3.5.0+) — update a periodic task's constraints/input **without**
+- `ExistingPolicy.UPDATE` (v3.4.0+) — update a periodic task's constraints/input **without**
   resetting its interval timer. Degrades to `REPLACE` for one-time tasks and chains, which
   have no timer anchor to preserve.
 

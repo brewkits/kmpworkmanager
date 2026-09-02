@@ -96,7 +96,7 @@ TaskEventBus.events
     }
 ```
 
-## Uploads (v3.6.0+)
+## Uploads (v3.4.0+)
 
 `IosBackgroundUploadWorker` is the upload counterpart — same daemon-managed lifecycle,
 same `AppDelegate` hook, same async-completion-via-`TaskEventBus` contract as the
@@ -129,7 +129,7 @@ Uploads share the same `sessionIdentifier` conventions and the same
 `sharedContainerIdentifier` App Group option as downloads (see below) — one background
 session identifier can multiplex both directions safely.
 
-## App Group sharing (v3.6.0+)
+## App Group sharing (v3.4.0+)
 
 Both `IosBackgroundDownloadConfig` and `IosBackgroundUploadConfig` accept a
 `sharedContainerIdentifier` (an App Group id, `group.<bundleId>...`). Setting it

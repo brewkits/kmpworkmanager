@@ -10,7 +10,7 @@ import kotlin.test.*
 
 /**
  * Regression net for a bug introduced alongside the standalone constraint guard
- * ([StandaloneConstraintGuard], [V360StandaloneConstraintGuardTest]): the guard's first
+ * ([StandaloneConstraintGuard], [V340StandaloneConstraintGuardTest]): the guard's first
  * implementation routed an unmet constraint (e.g. `requiresUnmeteredNetwork` while on
  * cellular) through the SAME retry path used for a real worker failure —
  * [DynamicTaskDispatcher.handleOneTimeResult] / [IosBackgroundTaskHandler.handleOneTimeTaskResult] —
@@ -24,7 +24,7 @@ import kotlin.test.*
  * Fix: a constraint deferral re-queues/re-submits WITHOUT touching the attempt counter,
  * mirroring how the backoff guard already re-queues without executing.
  */
-class V360ConstraintDeferralNoAttemptBurnTest {
+class V340ConstraintDeferralNoAttemptBurnTest {
 
     private fun makeTempDir(tag: String): NSURL {
         val base = NSTemporaryDirectory()
@@ -277,7 +277,7 @@ class V360ConstraintDeferralNoAttemptBurnTest {
 
     /**
      * Regression net for [reconstructConstraintsFromMetadata] carrying `maxRetries` forward
-     * (see [V360StandaloneConstraintGuardTest]'s round-trip test) actually taking effect: the
+     * (see [V340StandaloneConstraintGuardTest]'s round-trip test) actually taking effect: the
      * dedicated-identifier retry path must honor a caller's custom `Constraints.maxRetries`,
      * not just the platform [IosBackgroundTaskHandler.DEFAULT_ATTEMPT_CAP].
      */

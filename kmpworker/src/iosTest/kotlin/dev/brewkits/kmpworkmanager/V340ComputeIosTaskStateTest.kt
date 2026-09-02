@@ -15,9 +15,9 @@ import kotlin.test.*
  * this exercises the precedence logic in isolation, without a real `BGTaskScheduler` or
  * `ChainJobRegistry`.
  *
- * Naming convention: `VXYZ...Test` per CLAUDE.md — 3.6.0's.
+ * Naming convention: `VXYZ...Test` per CLAUDE.md — 3.4.0's.
  */
-class V360ComputeIosTaskStateTest {
+class V340ComputeIosTaskStateTest {
 
     private fun makeTempDir(tag: String): NSURL {
         val base = NSTemporaryDirectory()

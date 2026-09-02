@@ -13,7 +13,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Regression coverage for the 3.6.0 App Group storage seam:
+ * Regression coverage for the 3.4.0 App Group storage seam:
  * `KmpWorkManager.initialize(appGroupIdentifier = ...)`.
  *
  * **Do not touch `backgroundTaskScheduler` from this class** — see `V330KoinFreeInitTest`'s
@@ -28,7 +28,7 @@ import kotlin.test.assertTrue
  * reliably returns `nil` for any identifier in this environment, which is exactly the
  * fail-fast path these tests pin.
  */
-class V360AppGroupInitTest {
+class V340AppGroupInitTest {
 
     private class NoopWorker : IosWorker {
         override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult =

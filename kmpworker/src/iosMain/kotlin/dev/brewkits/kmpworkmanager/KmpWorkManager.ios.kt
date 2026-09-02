@@ -36,7 +36,7 @@ internal class IosServiceRegistry(
 ) {
     /**
      * Resolved once, shared by every store below. `null` (the default) keeps every store on
-     * its own default `IosFileStorage()` — unchanged from pre-3.6.0 behavior. When
+     * its own default `IosFileStorage()` — unchanged from pre-3.4.0 behavior. When
      * [appGroupIdentifier] is set, this is a single [IosFileStorage] rooted at the App
      * Group's shared container, so a Widget/Share Extension using the same identifier can
      * read the same files. Resolving eagerly (not `by lazy`) means a misconfigured App Group
@@ -203,7 +203,7 @@ object KmpWorkManager {
      *
      *   Fails fast with [IllegalArgumentException] if the App Group entitlement is missing or
      *   the identifier doesn't match Xcode's configured App Group — see the thrown message
-     *   for the exact fix. Left `null` (the default), behavior is unchanged from pre-3.6.0:
+     *   for the exact fix. Left `null` (the default), behavior is unchanged from pre-3.4.0:
      *   private Application Support storage, as before.
      */
     fun initialize(

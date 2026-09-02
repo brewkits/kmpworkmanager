@@ -87,7 +87,7 @@ internal object BackgroundDownloadStateStore {
         val savePath: String,
         val workerName: String,
         val createdAtMs: Long,
-        // Defaults preserve backward compatibility: an entry written by a pre-3.6.0 version
+        // Defaults preserve backward compatibility: an entry written by a pre-3.4.0 version
         // (download-only) decodes here as TransferType.DOWNLOAD with sourcePath = null.
         val transferType: TransferType = TransferType.DOWNLOAD,
         /** Source file path for an upload; unused (null) for a download. */

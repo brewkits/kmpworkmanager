@@ -25,11 +25,11 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /**
- * Regression coverage for the 3.6.0 Background URLSession upload variant — the counterpart
+ * Regression coverage for the 3.4.0 Background URLSession upload variant — the counterpart
  * to [BackgroundDownloadStateStoreTest] for uploads, plus the `TransferType`/`sourcePath`
  * additions to [BackgroundDownloadStateStore.Entry].
  */
-class V360BackgroundUploadTest {
+class V340BackgroundUploadTest {
 
     private val testRunId: String = "test-${kotlin.random.Random.nextInt(0, 1_000_000)}"
 
@@ -47,7 +47,7 @@ class V360BackgroundUploadTest {
 
     @Test
     fun `Entry defaults transferType to DOWNLOAD for backward compatibility`() {
-        // A pre-3.6.0 caller never set transferType/sourcePath — must decode as before.
+        // A pre-3.4.0 caller never set transferType/sourcePath — must decode as before.
         val entry = BackgroundDownloadStateStore.Entry(
             sessionIdentifier = "$testRunId-legacy",
             taskIdentifier = 1L,
@@ -80,7 +80,7 @@ class V360BackgroundUploadTest {
 
     @Test
     fun `pre-3_6_0 JSON without transferType or sourcePath decodes as a legacy download entry`() {
-        // Simulates a state file written by a pre-3.6.0 build — proves the schema-evolution
+        // Simulates a state file written by a pre-3.4.0 build — proves the schema-evolution
         // guarantee the class KDoc promises (ignoreUnknownKeys / additive fields only).
         val json = Json { ignoreUnknownKeys = true }
         val legacyJson = """

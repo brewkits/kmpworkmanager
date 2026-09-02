@@ -11,12 +11,12 @@ import kotlin.test.*
 
 /**
  * Integration coverage for `NativeTaskScheduler.observeTaskState` itself — the actual
- * `Flow`-returning override, as opposed to `V360ComputeIosTaskStateTest`'s pure-function
+ * `Flow`-returning override, as opposed to `V340ComputeIosTaskStateTest`'s pure-function
  * coverage of the snapshot logic it wraps.
  *
- * Naming convention: `VXYZ...Test` per CLAUDE.md — 3.6.0's.
+ * Naming convention: `VXYZ...Test` per CLAUDE.md — 3.4.0's.
  */
-class V360ObserveTaskStateIosTest {
+class V340ObserveTaskStateIosTest {
 
     private fun makeTempDir(tag: String): NSURL {
         val base = NSTemporaryDirectory()

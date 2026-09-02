@@ -14,16 +14,16 @@ import org.robolectric.annotation.Config
 import kotlin.test.*
 
 /**
- * Covers `NativeTaskScheduler.observeTaskState` (new in 3.6.0) — the Android side wraps
+ * Covers `NativeTaskScheduler.observeTaskState` (new in 3.4.0) — the Android side wraps
  * `WorkManager.getWorkInfosForUniqueWorkFlow(id)` directly, so this is mostly a mapping/
  * plumbing test rather than a deep integration one: WorkManager's own test suite already
  * covers `WorkInfo` state transitions exhaustively.
  *
- * Naming convention: `VXYZ...Test` per CLAUDE.md — 3.6.0's.
+ * Naming convention: `VXYZ...Test` per CLAUDE.md — 3.4.0's.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33])
-class V360ObserveTaskStateAndroidTest {
+class V340ObserveTaskStateAndroidTest {
 
     private lateinit var context: Context
     private lateinit var scheduler: NativeTaskScheduler

@@ -10,13 +10,13 @@ import kotlin.test.*
 
 /**
  * Unit coverage for [queryIosTasks] — the `WorkQuery`-style batch read backing
- * `NativeTaskScheduler.queryTasks` on iOS. Mirrors `V360ComputeIosTaskStateTest`'s approach:
+ * `NativeTaskScheduler.queryTasks` on iOS. Mirrors `V340ComputeIosTaskStateTest`'s approach:
  * every OS-level dependency is injected, so this exercises the enumeration + filter logic in
  * isolation.
  *
- * Naming convention: `VXYZ...Test` per CLAUDE.md — 3.6.0's.
+ * Naming convention: `VXYZ...Test` per CLAUDE.md — 3.4.0's.
  */
-class V360QueryIosTasksTest {
+class V340QueryIosTasksTest {
 
     private fun makeTempDir(tag: String): NSURL {
         val base = NSTemporaryDirectory()

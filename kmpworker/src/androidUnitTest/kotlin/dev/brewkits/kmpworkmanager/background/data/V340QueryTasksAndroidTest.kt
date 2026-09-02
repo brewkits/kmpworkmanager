@@ -15,13 +15,13 @@ import org.robolectric.annotation.Config
 import kotlin.test.*
 
 /**
- * Covers `NativeTaskScheduler.queryTasks` — the `WorkQuery`-style batch read added in 3.6.0.
+ * Covers `NativeTaskScheduler.queryTasks` — the `WorkQuery`-style batch read added in 3.4.0.
  *
- * Naming convention: `VXYZ...Test` per CLAUDE.md — 3.6.0's.
+ * Naming convention: `VXYZ...Test` per CLAUDE.md — 3.4.0's.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33])
-class V360QueryTasksAndroidTest {
+class V340QueryTasksAndroidTest {
 
     private lateinit var context: Context
     private lateinit var scheduler: NativeTaskScheduler

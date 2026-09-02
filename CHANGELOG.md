@@ -5,13 +5,42 @@ All notable changes to KMP WorkManager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.4.0] - 2026-09-02
 
-Second Android/iOS parity pass: six constraint-handling gaps closed, none previously
-documented as platform-impossible — they were simply unwired.
+WorkManager parity pass (task tags, deadlines, InputMerger, `ExistingPolicy.UPDATE`),
+a second Android/iOS constraint-parity pass (six more gaps closed), extensions to two
+previously-shipped "Ultra" iOS features, two new `WorkQuery`-style batch APIs
+(`observeTaskState`/`queryTasks`), and a documentation accuracy sweep.
 
 ### Added
 
+- **`TaskRequest.tags` + `scheduler.cancelByTag(tag)` / `cancelByWorkerClass(name)`** —
+  group cancellation. Tags are business-context labels independent of worker class, so a
+  single call can cancel a mixed set of workers (`cancelByTag("user-123")`). Both APIs match
+  standalone tasks *and* chain steps on both platforms; `enqueue()` gained a `tags` parameter
+  so standalone tasks are reachable too. Tags are validated at construction (non-blank, no
+  commas, ≤100 chars) because an unstorable tag would make cancellation silently no-op.
+  **Not supported for `TaskTrigger.Exact` on Android** (AlarmManager is not tag-indexed) —
+  a warning is logged rather than failing silently.
+- **`TaskRequest.deadlineMs` + `enqueue(deadlineMs = …)`** — a task that has not started by
+  its deadline is skipped instead of executed, so a delayed run cannot write stale data.
+  Enforced at execution time on both platforms (Android `BaseKmpWorker`, iOS
+  `DynamicTaskDispatcher` and `ChainExecutor`). A miss is recorded as
+  `ExecutionStatus.SKIPPED` and never retried — retrying cannot un-miss a deadline. On iOS
+  this finally gives `TaskTrigger.Windowed.latest` real teeth: it now defaults to the
+  deadline, where previously BGTaskScheduler could only log that it was unenforceable.
+  Deliberately ignored for periodic tasks (a deadline on a recurring task is a delayed
+  cancel, not a deadline) — a warning is logged.
+- **`TaskRequest.mergeOutputFromPreviousStep`** — the InputMerger. A chain step can opt in to
+  receiving the previous step's `WorkerResult.Success.data` merged into its own `inputJson`,
+  removing the need for an external store to pass data along a
+  `download → validate → upload` pipeline. Overwriting-merge semantics (previous step wins on
+  key collision), matching WorkManager's default `OverwritingInputMerger`, with one shared
+  implementation (`ChainInputMerger`) used by both platforms so the behaviour cannot drift.
+- **`ExistingPolicy.UPDATE`** — updates a periodic task's constraints/input **without**
+  resetting its interval timer. Maps to `ExistingPeriodicWorkPolicy.UPDATE` on Android; on
+  iOS the existing `anchoredStartMs` is preserved so drift correction keeps the original
+  cadence. Degrades to `REPLACE` for one-time tasks and chains, which have no timer anchor.
 - **iOS: `requiresUnmeteredNetwork` and `requiresCharging` now enforced for standalone tasks**
   — previously only chain steps (`ChainExecutor`) checked these; a plain `enqueue()` task
   ignored them entirely. Now checked at dispatch time in `DynamicTaskDispatcher` and in the
@@ -39,60 +68,31 @@ documented as platform-impossible — they were simply unwired.
   opted in to `UIDevice.batteryMonitoringEnabled` — the OS-level flag needs no such opt-in, and
   means the process isn't woken at all until the device is actually plugged in.
 
-### Fixed
-
-- **iOS: an unmet standalone-task constraint no longer burns retry budget.** The first cut of
-  the `requiresUnmeteredNetwork`/`requiresCharging`/`REQUIRE_BATTERY_NOT_LOW` guard above routed
-  a deferred task through the same path as a real worker failure, incrementing the attempt
-  counter — so a Wi-Fi-only task stuck on cellular for `DEFAULT_ATTEMPT_CAP` (5) opportunistic
-  wakes (e.g. a commute) would be silently deleted, having never run once. A constraint
-  deferral now re-queues/re-submits without touching the attempt counter, matching the existing
-  backoff-guard pattern and Android WorkManager's own contract (unmet constraints leave work
-  enqueued, they don't consume retries).
-- **iOS: the dynamic-task master dispatcher now honors the backoff floor when re-requesting
-  itself.** Previously `rescheduleMasterDispatcher()` always requested `earliestBeginDate =
-  now`, so a task in a multi-minute/hour backoff window caused the dispatcher to wake
-  immediately, find nothing runnable, and re-request itself again — repeating for the whole
-  backoff duration and burning BGTask quota. It now requests the earliest of all pending tasks'
-  backoff floors when every pending task is still backed off (falling back to "now" the moment
-  any task is actually ready).
-- **iOS: a dedicated-Info.plist-identifier task's `Constraints.maxRetries` no longer resets to
-  the platform default after its first retry.** `reconstructConstraintsFromMetadata` — used to
-  rebuild `Constraints` for `scheduler.enqueue()` re-submission — omitted `maxRetries`, so the
-  fresh metadata written on re-submit silently dropped the caller's custom cap in favor of
-  `DEFAULT_ATTEMPT_CAP` (5) from the second attempt onward.
-- **iOS: a dedicated-Info.plist-identifier one-time task's `windowLatest`/tags/deadline no
-  longer vanish on the first retry or constraint deferral.** Re-submitting via
-  `scheduler.enqueue(trigger = TaskTrigger.OneTime(...))` rebuilds metadata from scratch
-  (`scheduleOneTimeTask`'s `buildMap`, which has no parameter for any of these three fields);
-  `handleOneTimeTaskResult` now explicitly carries them forward from the pre-re-submit
-  metadata. Previously a Windowed task lost its deadline enforcement permanently after its very
-  first retry.
-- **Docs: removed a false claim that App Group storage (`appGroupIdentifier`) makes execution
-  history readable from an extension.** `IosEventStore`/`IosExecutionHistoryStore` are not
-  wired to the shared `IosFileStorage` at all — only task/chain/progress metadata
-  (`loadTaskMetadata`) is. `docs/IOS_APP_GROUP_STORAGE.md` and the `initialize()` KDoc now say
-  so explicitly.
-- **iOS: a one-time task's `requiresNetwork`/`requiresCharging`/`isHeavyTask` are now actually
-  persisted to disk.** `NativeTaskScheduler.scheduleOneTimeTask` never wrote these three fields
-  into a one-time task's metadata (only `schedulePeriodicTask` did) — a pre-existing bug, not
-  introduced this pass, just surfaced while wiring the charging aggregate below. The most
-  severe consequence: a dedicated-Info.plist-identifier **heavy** task's first retry silently
-  read `isHeavyTask` back as `false` (the key was simply absent) and downgraded every
-  subsequent re-submission from `BGProcessingTaskRequest` (minutes of budget) to
-  `BGAppRefreshTaskRequest` (~30s hard ceiling) — regardless of what the caller originally
-  requested.
-- **`docs/ios-best-practices.md` had the same pre-refactor-`Constraints`-shape staleness as
-  `constraints-triggers.md`** — its "Limited Constraints"/"Unsupported Constraints" sections
-  and Pitfall #3 showed `requiresBatteryNotLow`/`requiresStorageNotLow` as direct `Constraints`
-  fields (neither exists) and claimed `requiresCharging`/`REQUIRE_BATTERY_NOT_LOW` are
-  unconditionally ignored on iOS (both are enforced now, the former with the
-  `batteryMonitoringEnabled` opt-in caveat noted above). Also fixed a wrong `BGProcessingTask`
-  time-limit ("~60 seconds" vs. the authoritative "several minutes" in
-  `docs/IOS_BGTASK_LIMITS.md`).
-
 ### Changed
 
+- `BackgroundTaskScheduler.enqueue()` gained `tags` and `deadlineMs` parameters (both
+  defaulted). **Source-compatible for callers**; classes that *override* `enqueue` must add
+  the two parameters. `cancelByTag`/`cancelByWorkerClass` ship with no-op default
+  implementations specifically so existing custom schedulers and test doubles keep compiling.
+- `FakeBackgroundTaskScheduler` (test utility) now records `tags`, `deadlineMs`,
+  `cancelledTags` and `cancelledWorkerClasses` so tests can assert on the new APIs.
+
+- **`kmpworkmanager-http`: HMAC-SHA256 request signing + token refresh on 401.**
+  `HttpRequestConfig` gains optional `hmacSigning: HmacSigningConfig` (canonical string
+  `METHOD\nURL\nBODY\nTIMESTAMP`, via Okio's `ByteString.hmacSha256()`) and
+  `tokenRefresh: TokenRefreshConfig` (dot-notation JSON path extraction from the refresh
+  response, one-shot retry on 401, SSRF-validated at both the caller and inside
+  `TokenRefresh.refreshToken()` itself so any future caller of `TokenRefreshConfig` stays
+  protected). Fixes [#81](https://github.com/brewkits/kmpworkmanager/issues/81).
+- **iOS: the master dispatcher now derives `requiresNetworkConnectivity` from the actual
+  pending-task queue** instead of a static value, via a new
+  `IosFileStorage.getDynamicQueueConstraintSummary()` O(N) scan. Only relaxes the
+  constraint when *every* pending task is network-independent; the dispatcher itself stays
+  `BGProcessingTaskRequest` always (an earlier draft that switched to
+  `BGAppRefreshTaskRequest` for all-light queues was reverted before merge — that request
+  type's hard ~30s ceiling has no safety margin against a full-length task). See
+  [discussion #78](https://github.com/brewkits/kmpworkmanager/discussions/78) /
+  [#79](https://github.com/brewkits/kmpworkmanager/issues/79).
 - **Android: `setExpedited()` now gated on `TaskPriority`** — `CRITICAL`/`HIGH` chain steps are
   expedited as documented in `TaskPriority.kt`; `NORMAL`/`LOW` steps (the default) and every
   standalone `enqueue()` task (which has no priority parameter) are not. Previously every
@@ -170,95 +170,6 @@ Closes out Flutter parity Group 2 (`kmpworker-http`), the last unbuilt item from
 
 ### Fixed
 
-- **Multiple docs actively described a pre-refactor `Constraints`/`ExistingPolicy` shape as
-  current**, discovered while evaluating whether `ExistingPolicy.APPEND` (see below) was
-  worth implementing: `docs/api-reference.md` and `docs/constraints-triggers.md` both showed
-  a fictional `ExistingWorkPolicy` enum with `APPEND`/`APPEND_OR_REPLACE` and a nonexistent
-  `Constraints.existingWorkPolicy` field — `Constraints(existingWorkPolicy = ...)` does not
-  compile, and the real `ExistingPolicy` enum (`KEEP`/`REPLACE`/`UPDATE`) was missing
-  entirely from both. The same pre-refactor shape (`networkType`/`NetworkType`,
-  `requiresBatteryNotLow`, `requiresStorageNotLow`, `requiresDeviceIdle`, `expedited` as a
-  `Constraints` field, `QualityOfService`) was scattered across `docs/api-reference.md`'s
-  full `Constraints` reference section, `docs/BUILTIN_WORKERS_GUIDE.md`,
-  `docs/platform-setup.md`, `docs/task-chains.md` (9 occurrences), `docs/ios-migration.md`,
-  and `docs/quickstart.md` — all corrected to the real `SystemConstraint` enum,
-  `TaskRequest.priority`, and `Qos` types. An earlier pass in this same release cycle had
-  already partially fixed `docs/constraints-triggers.md` (its Exact-trigger section and
-  summary Platform Support Matrix) and incorrectly marked the whole file's Constraints
-  section done — the per-field prose sections above that table were still fully stale.
-- **`ExistingPolicy.APPEND` evaluated and deliberately deferred, not implemented.** Real-world
-  need is narrow (`KEEP`/`REPLACE`/`UPDATE` already cover the vast majority of use cases,
-  including everything in this repo's own demo app) and `ChainExecutor` has proven fragile
-  under scrutiny this release alone (two subtle bugs found from touching merely-adjacent
-  code, both above) — implementing `APPEND` requires restructuring its core execution model
-  (re-read-per-step instead of read-once) plus getting a finishing-chain race and
-  progress-index renumbering right, exactly the shape of change likely to introduce a third
-  subtle bug if rushed. See `docs/ROADMAP.md` for the full reasoning; tracked as its own
-  future milestone.
-
-## [3.5.0] - 2026-09-02
-
-Jetpack WorkManager parity pass: four features that native WorkManager users expect and
-had no equivalent here, implemented on **both** platforms rather than Android-only.
-
-### Added
-
-- **`TaskRequest.tags` + `scheduler.cancelByTag(tag)` / `cancelByWorkerClass(name)`** —
-  group cancellation. Tags are business-context labels independent of worker class, so a
-  single call can cancel a mixed set of workers (`cancelByTag("user-123")`). Both APIs match
-  standalone tasks *and* chain steps on both platforms; `enqueue()` gained a `tags` parameter
-  so standalone tasks are reachable too. Tags are validated at construction (non-blank, no
-  commas, ≤100 chars) because an unstorable tag would make cancellation silently no-op.
-  **Not supported for `TaskTrigger.Exact` on Android** (AlarmManager is not tag-indexed) —
-  a warning is logged rather than failing silently.
-- **`TaskRequest.deadlineMs` + `enqueue(deadlineMs = …)`** — a task that has not started by
-  its deadline is skipped instead of executed, so a delayed run cannot write stale data.
-  Enforced at execution time on both platforms (Android `BaseKmpWorker`, iOS
-  `DynamicTaskDispatcher` and `ChainExecutor`). A miss is recorded as
-  `ExecutionStatus.SKIPPED` and never retried — retrying cannot un-miss a deadline. On iOS
-  this finally gives `TaskTrigger.Windowed.latest` real teeth: it now defaults to the
-  deadline, where previously BGTaskScheduler could only log that it was unenforceable.
-  Deliberately ignored for periodic tasks (a deadline on a recurring task is a delayed
-  cancel, not a deadline) — a warning is logged.
-- **`TaskRequest.mergeOutputFromPreviousStep`** — the InputMerger. A chain step can opt in to
-  receiving the previous step's `WorkerResult.Success.data` merged into its own `inputJson`,
-  removing the need for an external store to pass data along a
-  `download → validate → upload` pipeline. Overwriting-merge semantics (previous step wins on
-  key collision), matching WorkManager's default `OverwritingInputMerger`, with one shared
-  implementation (`ChainInputMerger`) used by both platforms so the behaviour cannot drift.
-- **`ExistingPolicy.UPDATE`** — updates a periodic task's constraints/input **without**
-  resetting its interval timer. Maps to `ExistingPeriodicWorkPolicy.UPDATE` on Android; on
-  iOS the existing `anchoredStartMs` is preserved so drift correction keeps the original
-  cadence. Degrades to `REPLACE` for one-time tasks and chains, which have no timer anchor.
-
-### Changed
-
-- `BackgroundTaskScheduler.enqueue()` gained `tags` and `deadlineMs` parameters (both
-  defaulted). **Source-compatible for callers**; classes that *override* `enqueue` must add
-  the two parameters. `cancelByTag`/`cancelByWorkerClass` ship with no-op default
-  implementations specifically so existing custom schedulers and test doubles keep compiling.
-- `FakeBackgroundTaskScheduler` (test utility) now records `tags`, `deadlineMs`,
-  `cancelledTags` and `cancelledWorkerClasses` so tests can assert on the new APIs.
-
-- **`kmpworkmanager-http`: HMAC-SHA256 request signing + token refresh on 401.**
-  `HttpRequestConfig` gains optional `hmacSigning: HmacSigningConfig` (canonical string
-  `METHOD\nURL\nBODY\nTIMESTAMP`, via Okio's `ByteString.hmacSha256()`) and
-  `tokenRefresh: TokenRefreshConfig` (dot-notation JSON path extraction from the refresh
-  response, one-shot retry on 401, SSRF-validated at both the caller and inside
-  `TokenRefresh.refreshToken()` itself so any future caller of `TokenRefreshConfig` stays
-  protected). Fixes [#81](https://github.com/brewkits/kmpworkmanager/issues/81).
-- **iOS: the master dispatcher now derives `requiresNetworkConnectivity` from the actual
-  pending-task queue** instead of a static value, via a new
-  `IosFileStorage.getDynamicQueueConstraintSummary()` O(N) scan. Only relaxes the
-  constraint when *every* pending task is network-independent; the dispatcher itself stays
-  `BGProcessingTaskRequest` always (an earlier draft that switched to
-  `BGAppRefreshTaskRequest` for all-light queues was reverted before merge — that request
-  type's hard ~30s ceiling has no safety margin against a full-length task). See
-  [discussion #78](https://github.com/brewkits/kmpworkmanager/discussions/78) /
-  [#79](https://github.com/brewkits/kmpworkmanager/issues/79).
-
-### Fixed
-
 - **Android: `KmpHeavyWorker` now diagnoses `foregroundServiceType` manifest mismatches**
   that previously failed silently. On API 29-33 (below the API 34 `ForegroundServiceTypeException`
   cliff) a worker/manifest type mismatch didn't throw — the FGS just silently started with
@@ -288,6 +199,80 @@ had no equivalent here, implemented on **both** platforms rather than Android-on
   `ExecutionRecord.failedStep` on Android was previously always `0` on failure; it now
   reports the real 0-based step index that failed (still `0` for standalone tasks). See
   [#87](https://github.com/brewkits/kmpworkmanager/pull/87).
+- **iOS: an unmet standalone-task constraint no longer burns retry budget.** The first cut of
+  the `requiresUnmeteredNetwork`/`requiresCharging`/`REQUIRE_BATTERY_NOT_LOW` guard above routed
+  a deferred task through the same path as a real worker failure, incrementing the attempt
+  counter — so a Wi-Fi-only task stuck on cellular for `DEFAULT_ATTEMPT_CAP` (5) opportunistic
+  wakes (e.g. a commute) would be silently deleted, having never run once. A constraint
+  deferral now re-queues/re-submits without touching the attempt counter, matching the existing
+  backoff-guard pattern and Android WorkManager's own contract (unmet constraints leave work
+  enqueued, they don't consume retries).
+- **iOS: the dynamic-task master dispatcher now honors the backoff floor when re-requesting
+  itself.** Previously `rescheduleMasterDispatcher()` always requested `earliestBeginDate =
+  now`, so a task in a multi-minute/hour backoff window caused the dispatcher to wake
+  immediately, find nothing runnable, and re-request itself again — repeating for the whole
+  backoff duration and burning BGTask quota. It now requests the earliest of all pending tasks'
+  backoff floors when every pending task is still backed off (falling back to "now" the moment
+  any task is actually ready).
+- **iOS: a dedicated-Info.plist-identifier task's `Constraints.maxRetries` no longer resets to
+  the platform default after its first retry.** `reconstructConstraintsFromMetadata` — used to
+  rebuild `Constraints` for `scheduler.enqueue()` re-submission — omitted `maxRetries`, so the
+  fresh metadata written on re-submit silently dropped the caller's custom cap in favor of
+  `DEFAULT_ATTEMPT_CAP` (5) from the second attempt onward.
+- **iOS: a dedicated-Info.plist-identifier one-time task's `windowLatest`/tags/deadline no
+  longer vanish on the first retry or constraint deferral.** Re-submitting via
+  `scheduler.enqueue(trigger = TaskTrigger.OneTime(...))` rebuilds metadata from scratch
+  (`scheduleOneTimeTask`'s `buildMap`, which has no parameter for any of these three fields);
+  `handleOneTimeTaskResult` now explicitly carries them forward from the pre-re-submit
+  metadata. Previously a Windowed task lost its deadline enforcement permanently after its very
+  first retry.
+- **Docs: removed a false claim that App Group storage (`appGroupIdentifier`) makes execution
+  history readable from an extension.** `IosEventStore`/`IosExecutionHistoryStore` are not
+  wired to the shared `IosFileStorage` at all — only task/chain/progress metadata
+  (`loadTaskMetadata`) is. `docs/IOS_APP_GROUP_STORAGE.md` and the `initialize()` KDoc now say
+  so explicitly.
+- **iOS: a one-time task's `requiresNetwork`/`requiresCharging`/`isHeavyTask` are now actually
+  persisted to disk.** `NativeTaskScheduler.scheduleOneTimeTask` never wrote these three fields
+  into a one-time task's metadata (only `schedulePeriodicTask` did) — a pre-existing bug, not
+  introduced this pass, just surfaced while wiring the charging aggregate below. The most
+  severe consequence: a dedicated-Info.plist-identifier **heavy** task's first retry silently
+  read `isHeavyTask` back as `false` (the key was simply absent) and downgraded every
+  subsequent re-submission from `BGProcessingTaskRequest` (minutes of budget) to
+  `BGAppRefreshTaskRequest` (~30s hard ceiling) — regardless of what the caller originally
+  requested.
+- **`docs/ios-best-practices.md` had the same pre-refactor-`Constraints`-shape staleness as
+  `constraints-triggers.md`** — its "Limited Constraints"/"Unsupported Constraints" sections
+  and Pitfall #3 showed `requiresBatteryNotLow`/`requiresStorageNotLow` as direct `Constraints`
+  fields (neither exists) and claimed `requiresCharging`/`REQUIRE_BATTERY_NOT_LOW` are
+  unconditionally ignored on iOS (both are enforced now, the former with the
+  `batteryMonitoringEnabled` opt-in caveat noted above). Also fixed a wrong `BGProcessingTask`
+  time-limit ("~60 seconds" vs. the authoritative "several minutes" in
+  `docs/IOS_BGTASK_LIMITS.md`).
+- **Multiple docs actively described a pre-refactor `Constraints`/`ExistingPolicy` shape as
+  current**, discovered while evaluating whether `ExistingPolicy.APPEND` (see below) was
+  worth implementing: `docs/api-reference.md` and `docs/constraints-triggers.md` both showed
+  a fictional `ExistingWorkPolicy` enum with `APPEND`/`APPEND_OR_REPLACE` and a nonexistent
+  `Constraints.existingWorkPolicy` field — `Constraints(existingWorkPolicy = ...)` does not
+  compile, and the real `ExistingPolicy` enum (`KEEP`/`REPLACE`/`UPDATE`) was missing
+  entirely from both. The same pre-refactor shape (`networkType`/`NetworkType`,
+  `requiresBatteryNotLow`, `requiresStorageNotLow`, `requiresDeviceIdle`, `expedited` as a
+  `Constraints` field, `QualityOfService`) was scattered across `docs/api-reference.md`'s
+  full `Constraints` reference section, `docs/BUILTIN_WORKERS_GUIDE.md`,
+  `docs/platform-setup.md`, `docs/task-chains.md` (9 occurrences), `docs/ios-migration.md`,
+  and `docs/quickstart.md` — all corrected to the real `SystemConstraint` enum,
+  `TaskRequest.priority`, and `Qos` types. An earlier pass in this same release cycle had
+  already partially fixed `docs/constraints-triggers.md` (its Exact-trigger section and
+  summary Platform Support Matrix) and incorrectly marked the whole file's Constraints
+  section done — the per-field prose sections above that table were still fully stale.
+- **`ExistingPolicy.APPEND` evaluated and deliberately deferred, not implemented.** Real-world
+  need is narrow (`KEEP`/`REPLACE`/`UPDATE` already cover the vast majority of use cases,
+  including everything in this repo's own demo app) and `ChainExecutor` has proven fragile
+  under scrutiny this release alone (two subtle bugs found from touching merely-adjacent
+  code, both above) — implementing `APPEND` requires restructuring its core execution model
+  (re-read-per-step instead of read-once) plus getting a finishing-chain race and
+  progress-index renumbering right, exactly the shape of change likely to introduce a third
+  subtle bug if rushed. See `docs/ROADMAP.md` for the full reasoning; tracked as its own
+  future milestone.
 
 ## [3.3.1] - 2026-08-09
 

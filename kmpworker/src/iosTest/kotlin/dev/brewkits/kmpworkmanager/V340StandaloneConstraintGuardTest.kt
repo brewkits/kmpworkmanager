@@ -9,14 +9,14 @@ import platform.Foundation.*
 import kotlin.test.*
 
 /**
- * Regression tests for the standalone-task constraint parity gaps closed in 3.6.0:
+ * Regression tests for the standalone-task constraint parity gaps closed in 3.4.0:
  * `requiresUnmeteredNetwork` and `SystemConstraint.REQUIRE_BATTERY_NOT_LOW`/`ALLOW_LOW_BATTERY`
  * were previously enforced only inside `ChainExecutor` (chain steps), never for a plain
  * `enqueue()` task; `Constraints.backoffPolicy`/`backoffDelayMs` had no effect on iOS at all.
  *
- * Naming convention: `VXYZBugFixesTest` per CLAUDE.md, one file per release — this is 3.6.0's.
+ * Naming convention: `VXYZBugFixesTest` per CLAUDE.md, one file per release — this is 3.4.0's.
  */
-class V360StandaloneConstraintGuardTest {
+class V340StandaloneConstraintGuardTest {
 
     private fun makeTempDir(tag: String): NSURL {
         val base = NSTemporaryDirectory()

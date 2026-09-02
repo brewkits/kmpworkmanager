@@ -831,7 +831,7 @@ Retry strategy when a task fails. Options:
 - `BackoffPolicy.LINEAR` - Linear backoff (10s, 20s, 30s, 40s, ...)
 
 **Platforms:** ✅ Android, ✅ iOS — iOS honors this for standalone-task retry timing when
-explicitly set (the 30s/EXPONENTIAL default preserves the pre-3.6.0 "retry on next
+explicitly set (the 30s/EXPONENTIAL default preserves the pre-3.4.0 "retry on next
 opportunistic wake" behavior for callers who never touch these fields).
 
 ---
@@ -928,7 +928,7 @@ fun withId(
 - `policy: ExistingPolicy` - How to handle if a chain with this ID already exists
   - `ExistingPolicy.KEEP` - Skip if chain already running
   - `ExistingPolicy.REPLACE` - Cancel old chain and start new one
-  - `ExistingPolicy.UPDATE` (v3.5.0+) - Degrades to `REPLACE` for chains (no timer anchor to
+  - `ExistingPolicy.UPDATE` (v3.4.0+) - Degrades to `REPLACE` for chains (no timer anchor to
     preserve, unlike a periodic task)
 
 **Returns:** `TaskChain` - New chain instance with the specified ID and policy
@@ -1159,7 +1159,7 @@ Policy for handling an existing task/chain with the same ID. Parameter to
 enum class ExistingPolicy {
     KEEP,     // Keep existing, ignore the new request
     REPLACE,  // Cancel existing, schedule new
-    UPDATE    // (v3.5.0+) Update a periodic task's constraints/input without resetting its
+    UPDATE    // (v3.4.0+) Update a periodic task's constraints/input without resetting its
               // interval timer. Degrades to REPLACE for one-time tasks and chains.
 }
 ```

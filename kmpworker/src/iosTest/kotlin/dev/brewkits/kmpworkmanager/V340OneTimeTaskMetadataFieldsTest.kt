@@ -22,7 +22,7 @@ import kotlin.test.*
  * `BGProcessingTaskRequest` (minutes of budget) to `BGAppRefreshTaskRequest` (~30s hard ceiling)
  * for every subsequent attempt, regardless of what the caller originally requested.
  */
-class V360OneTimeTaskMetadataFieldsTest {
+class V340OneTimeTaskMetadataFieldsTest {
 
     private fun makeTempDir(tag: String): NSURL {
         val base = NSTemporaryDirectory()

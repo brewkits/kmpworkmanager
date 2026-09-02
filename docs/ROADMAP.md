@@ -7,7 +7,7 @@ Status legend: ✅ done · 🚧 in progress · ⏳ planned · 💭 idea / unsche
 
 ---
 
-## v3.5.0 — Jetpack WorkManager parity — ✅ shipped
+## v3.4.0 — Jetpack WorkManager parity — ✅ shipped
 
 Four features native WorkManager users expect, implemented on **both** platforms:
 
@@ -53,10 +53,10 @@ Still open from the same parity analysis, in rough priority order:
   documented rather than changed to avoid widening scope further.
 
   Covered by `computeIosTaskState`'s dedicated pure-function test suite
-  (`V360ComputeIosTaskStateTest`, 16 cases covering precedence including the deliberate
+  (`V340ComputeIosTaskStateTest`, 16 cases covering precedence including the deliberate
   chain-vs-task id-collision rule and live-state-overrides-stale-history), an iOS integration
-  test on the real `NativeTaskScheduler.observeTaskState` override (`V360ObserveTaskStateIosTest`),
-  and an Android equivalent (`V360ObserveTaskStateAndroidTest`) covering both the state mapping
+  test on the real `NativeTaskScheduler.observeTaskState` override (`V340ObserveTaskStateIosTest`),
+  and an Android equivalent (`V340ObserveTaskStateAndroidTest`) covering both the state mapping
   and a real enqueue-then-observe round trip. Has a no-op default (`flowOf(TaskState.Unknown)`)
   on the interface for the same source-compatibility reason `cancelByTag`/`cancelByWorkerClass`
   already established.
@@ -101,7 +101,7 @@ Still open from the same parity analysis, in rough priority order:
   `listOneTimeTaskIdsDecoded()`/`listPeriodicTaskIds()` as new, separate internal functions for
   `queryTasks` to use instead of touching that caller's behavior in this change.
 
-  Covered by `V360QueryTasksAndroidTest` (8 cases) and `V360QueryIosTasksTest` (11 cases,
+  Covered by `V340QueryTasksAndroidTest` (8 cases) and `V340QueryIosTasksTest` (11 cases,
   including the terminal-id-loses-filterability limitation and the executing-chain-still-has-
   a-definition case).
 - ⏳ **`ExistingPolicy.APPEND`** — append steps to a chain that is already queued or
@@ -136,7 +136,7 @@ Still open from the same parity analysis, in rough priority order:
   build it after `observeTaskState`/`queryTasks` landed cleanly; concluded the risk/reward is
   unfavorable right now for two reasons. First, real-world need is narrow — `APPEND` covers a
   specific "queue onto an already-running sequential pipeline" pattern (outbox-style upload
-  queues, sequential log shipping); `KEEP`/`REPLACE`/`UPDATE` (shipped v3.5.0) already cover
+  queues, sequential log shipping); `KEEP`/`REPLACE`/`UPDATE` (shipped v3.4.0) already cover
   the large majority of real usage, including everything in this repo's own demo app. Second,
   `ChainExecutor` has proven fragile under scrutiny this session alone — two subtle bugs
   surfaced from touching code merely *adjacent* to it (the constraint-deferral attempt-budget
@@ -554,7 +554,7 @@ v2.6 polishes the rough edges that surface during on-call.
   (see §1 below), which isn't GA yet — don't build against this bridge expecting it to survive
   process death.
 
-### 3b. App Group storage — ✅ read-only sharing shipped in 3.6.0, live sync not started
+### 3b. App Group storage — ✅ read-only sharing shipped in 3.4.0, live sync not started
 - ✅ `KmpWorkManager.initialize(appGroupIdentifier = ...)` threads one shared `IosFileStorage`
   (rooted at the App Group container) through `ChainExecutor`/`DynamicTaskDispatcher`/
   `NativeTaskScheduler`. Fails fast with `IllegalArgumentException` on a missing/misconfigured
@@ -573,7 +573,7 @@ v2.6 polishes the rough edges that surface during on-call.
   tracking) is not wired to `appGroupIdentifier` — it always writes to the main app's private
   Application Support directory. Combining this with the App Group storage above (so an
   extension could see pending/complete background transfers, not just scheduled tasks) is
-  future work, not done in 3.6.0.
+  future work, not done in 3.4.0.
 
 ### 4. Per-task QoS profiles
 - ⏳ Introduce `TaskQoSProfile` enum:

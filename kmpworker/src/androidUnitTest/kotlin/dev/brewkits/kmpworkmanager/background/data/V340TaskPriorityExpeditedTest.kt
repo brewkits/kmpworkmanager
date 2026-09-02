@@ -12,16 +12,16 @@ import org.robolectric.annotation.Config
 import kotlin.test.*
 
 /**
- * Regression test for the `TaskPriority` no-op gap closed in 3.6.0: `TaskPriority.kt`'s KDoc
+ * Regression test for the `TaskPriority` no-op gap closed in 3.4.0: `TaskPriority.kt`'s KDoc
  * documents `CRITICAL`/`HIGH` -> `setExpedited()`, `NORMAL`/`LOW` -> standard work, but
  * `buildOneTimeWorkRequest` used to call `setExpedited()` unconditionally (subject only to
  * delay/heavy/charging/unmetered checks), never reading `task?.priority` at all.
  *
- * Naming convention: `VXYZBugFixesTest` per CLAUDE.md — this is 3.6.0's.
+ * Naming convention: `VXYZBugFixesTest` per CLAUDE.md — this is 3.4.0's.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33])
-class V360TaskPriorityExpeditedTest {
+class V340TaskPriorityExpeditedTest {
 
     private lateinit var context: Context
     private lateinit var scheduler: NativeTaskScheduler
