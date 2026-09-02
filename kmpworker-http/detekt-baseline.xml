@@ -1,0 +1,68 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>CyclomaticComplexMethod:HttpDownloadWorker.kt$HttpDownloadWorker$private suspend fun downloadFile( client: HttpClient, config: HttpDownloadConfig, env: WorkerEnvironment ): WorkerResult</ID>
+    <ID>CyclomaticComplexMethod:ParallelHttpDownloadWorker.kt$ParallelHttpDownloadWorker$private suspend fun doDownload( config: ParallelHttpDownloadConfig, env: WorkerEnvironment ): WorkerResult</ID>
+    <ID>CyclomaticComplexMethod:ParallelHttpDownloadWorker.kt$ParallelHttpDownloadWorker$private suspend fun downloadSequential( config: ParallelHttpDownloadConfig, savePath: Path, env: WorkerEnvironment ): WorkerResult</ID>
+    <ID>MaxLineLength:HttpDownloadWorker.kt$HttpDownloadWorker$Logger.w("HttpDownloadWorker", "Failed to delete partial after checksum mismatch: $partialPath", e)</ID>
+    <ID>MaxLineLength:HttpRequestWorker.kt$HttpRequestWorker$Logger.e("HttpRequestWorker", "Invalid or unsafe refresh URL: ${SecurityValidator.sanitizedURL(refresh.refreshUrl)}")</ID>
+    <ID>MaxLineLength:HttpRequestWorker.kt$HttpRequestWorker$Logger.i("HttpRequestWorker", "Executing ${config.httpMethod} request to ${SecurityValidator.sanitizedURL(config.url)}")</ID>
+    <ID>MaxLineLength:HttpRequestWorker.kt$HttpRequestWorker$val sendsBody = config.httpMethod in setOf(WorkerHttpMethod.PUT, WorkerHttpMethod.PATCH, WorkerHttpMethod.POST)</ID>
+    <ID>MaxLineLength:HttpUploadWorker.kt$HttpUploadWorker.&lt;no name provided&gt;$channel.writeStringUtf8("Content-Disposition: form-data; name=\"${config.fileFieldName}\"; filename=\"${filePath.name}\"\r\n")</ID>
+    <ID>MaxLineLength:HttpUploadWorker.kt$HttpUploadWorker.&lt;no name provided&gt;$env.progressListener?.onProgressUpdate(WorkerProgress((bytesUploaded * 100 / fileSize).toInt(), "Uploading"))</ID>
+    <ID>MaxLineLength:HttpUploadWorker.kt$HttpUploadWorker.&lt;no name provided&gt;$override val contentType: ContentType = ContentType.MultiPart.FormData.withParameter("boundary", boundary)</ID>
+    <ID>NestedBlockDepth:HttpDownloadWorker.kt$HttpDownloadWorker$private suspend fun downloadFile( client: HttpClient, config: HttpDownloadConfig, env: WorkerEnvironment ): WorkerResult</ID>
+    <ID>NestedBlockDepth:ParallelHttpDownloadWorker.kt$ParallelHttpDownloadWorker$private suspend fun doDownload( config: ParallelHttpDownloadConfig, env: WorkerEnvironment ): WorkerResult</ID>
+    <ID>ThrowsCount:HttpDownloadWorker.kt$HttpDownloadWorker$private suspend fun downloadFile( client: HttpClient, config: HttpDownloadConfig, env: WorkerEnvironment ): WorkerResult</ID>
+    <ID>ThrowsCount:ParallelHttpDownloadWorker.kt$ParallelHttpDownloadWorker$private suspend fun downloadOneChunk( config: ParallelHttpDownloadConfig, chunkIndex: Int, range: LongRange, partPath: Path, throttle: BandwidthThrottle?, onBytes: (Long) -&gt; Unit )</ID>
+    <ID>TooGenericExceptionCaught:HttpDownloadWorker.kt$HttpDownloadWorker$cleanup: Exception</ID>
+    <ID>TooGenericExceptionCaught:HttpDownloadWorker.kt$HttpDownloadWorker$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:HttpRequestWorker.kt$HttpRequestWorker$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:HttpSyncWorker.kt$HttpSyncWorker$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:HttpUploadWorker.kt$HttpUploadWorker$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:ParallelHttpDownloadWorker.kt$ParallelHttpDownloadWorker$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:ParallelHttpUploadWorker.kt$ParallelHttpUploadWorker$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:TokenRefresh.kt$e: Exception</ID>
+    <ID>UseCheckOrError:ParallelHttpUploadWorker.kt$ParallelHttpUploadWorker$throw IllegalStateException( "Size unknown for ${file.filePath} — refusing to upload (cannot enforce size limit)" )</ID>
+    <ID>UseCheckOrError:SecureRedirectFollowing.kt$throw IllegalStateException( "Redirect to unsafe URL blocked: ${SecurityValidator.sanitizedURL(location)}" )</ID>
+    <ID>WildcardImport:HttpClientProvider.android.kt$import io.ktor.client.*</ID>
+    <ID>WildcardImport:HttpClientProvider.android.kt$import io.ktor.client.engine.okhttp.*</ID>
+    <ID>WildcardImport:HttpClientProvider.android.kt$import io.ktor.client.plugins.*</ID>
+    <ID>WildcardImport:HttpClientProvider.android.kt$import io.ktor.client.plugins.compression.*</ID>
+    <ID>WildcardImport:HttpClientProvider.android.kt$import io.ktor.client.plugins.contentnegotiation.*</ID>
+    <ID>WildcardImport:HttpClientProvider.android.kt$import io.ktor.client.request.*</ID>
+    <ID>WildcardImport:HttpClientProvider.android.kt$import io.ktor.serialization.kotlinx.json.*</ID>
+    <ID>WildcardImport:HttpClientProvider.ios.kt$import io.ktor.client.*</ID>
+    <ID>WildcardImport:HttpClientProvider.ios.kt$import io.ktor.client.engine.darwin.*</ID>
+    <ID>WildcardImport:HttpClientProvider.ios.kt$import io.ktor.client.plugins.*</ID>
+    <ID>WildcardImport:HttpClientProvider.ios.kt$import io.ktor.client.plugins.compression.*</ID>
+    <ID>WildcardImport:HttpClientProvider.ios.kt$import io.ktor.client.plugins.contentnegotiation.*</ID>
+    <ID>WildcardImport:HttpClientProvider.ios.kt$import io.ktor.serialization.kotlinx.json.*</ID>
+    <ID>WildcardImport:HttpClientProvider.ios.kt$import platform.Foundation.*</ID>
+    <ID>WildcardImport:HttpClientProvider.kt$import io.ktor.client.*</ID>
+    <ID>WildcardImport:HttpDownloadWorker.kt$import io.ktor.client.*</ID>
+    <ID>WildcardImport:HttpDownloadWorker.kt$import io.ktor.client.plugins.*</ID>
+    <ID>WildcardImport:HttpDownloadWorker.kt$import io.ktor.client.request.*</ID>
+    <ID>WildcardImport:HttpDownloadWorker.kt$import io.ktor.client.statement.*</ID>
+    <ID>WildcardImport:HttpDownloadWorker.kt$import io.ktor.http.*</ID>
+    <ID>WildcardImport:HttpDownloadWorker.kt$import io.ktor.utils.io.*</ID>
+    <ID>WildcardImport:HttpRequestWorker.kt$import io.ktor.client.*</ID>
+    <ID>WildcardImport:HttpRequestWorker.kt$import io.ktor.client.plugins.*</ID>
+    <ID>WildcardImport:HttpRequestWorker.kt$import io.ktor.client.request.*</ID>
+    <ID>WildcardImport:HttpRequestWorker.kt$import io.ktor.client.statement.*</ID>
+    <ID>WildcardImport:HttpRequestWorker.kt$import io.ktor.http.*</ID>
+    <ID>WildcardImport:HttpSyncWorker.kt$import io.ktor.client.*</ID>
+    <ID>WildcardImport:HttpSyncWorker.kt$import io.ktor.client.request.*</ID>
+    <ID>WildcardImport:HttpSyncWorker.kt$import io.ktor.client.statement.*</ID>
+    <ID>WildcardImport:HttpSyncWorker.kt$import io.ktor.http.*</ID>
+    <ID>WildcardImport:HttpUploadWorker.kt$import dev.brewkits.kmpworkmanager.background.domain.*</ID>
+    <ID>WildcardImport:HttpUploadWorker.kt$import io.ktor.client.*</ID>
+    <ID>WildcardImport:HttpUploadWorker.kt$import io.ktor.client.request.*</ID>
+    <ID>WildcardImport:HttpUploadWorker.kt$import io.ktor.client.statement.*</ID>
+    <ID>WildcardImport:HttpUploadWorker.kt$import io.ktor.http.*</ID>
+    <ID>WildcardImport:HttpUploadWorker.kt$import io.ktor.utils.io.*</ID>
+    <ID>WildcardImport:HttpUploadWorker.kt$import kotlinx.coroutines.*</ID>
+    <ID>WildcardImport:ParallelHttpDownloadWorker.kt$import io.ktor.utils.io.*</ID>
+  </CurrentIssues>
+</SmellBaseline>

@@ -4,6 +4,7 @@ import org.gradle.api.publish.maven.tasks.AbstractPublishToMaven
 
 plugins {
     kotlin("jvm")
+    alias(libs.plugins.detekt)
     id("maven-publish")
     id("signing")
 }

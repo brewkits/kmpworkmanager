@@ -1,0 +1,320 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>ComplexCondition:KmpHeavyWorker.kt$KmpHeavyWorker$manifestFgsType != null &amp;&amp; manifestFgsType != 0 &amp;&amp; (manifestFgsType and foregroundServiceType) == 0 &amp;&amp; Build.VERSION.SDK_INT in Build.VERSION_CODES.Q until Build.VERSION_CODES.UPSIDE_DOWN_CAKE</ID>
+    <ID>ComplexCondition:SecurityValidator.kt$SecurityValidator$hostname == "169.254.169.254" || // AWS / GCP / Azure instance metadata hostname == "fd00:ec2::254" || // AWS IPv6 metadata hostname == "100.100.100.200" || // Alibaba Cloud ECS metadata hostname == "metadata.google.internal"</ID>
+    <ID>ComplexCondition:SecurityValidator.kt$SecurityValidator$hostname.contains("0x", ignoreCase = true) &amp;&amp; hostname.all { it.isDigit() || it == '.' || it.lowercaseChar() in 'a'..'f' || it.lowercaseChar() == 'x' }</ID>
+    <ID>CyclomaticComplexMethod:AlarmBootReceiver.kt$AlarmBootReceiver$final override fun onReceive(context: Context, intent: Intent)</ID>
+    <ID>CyclomaticComplexMethod:AppendOnlyQueue.kt$AppendOnlyQueue$private fun countTotalLines(url: NSURL): Int</ID>
+    <ID>CyclomaticComplexMethod:AppendOnlyQueue.kt$AppendOnlyQueue$private fun migrateFromTextToBinary()</ID>
+    <ID>CyclomaticComplexMethod:AppendOnlyQueue.kt$AppendOnlyQueue$private fun streamCompactionToFile(srcUrl: NSURL, dstUrl: NSURL, headIndex: Int): Int</ID>
+    <ID>CyclomaticComplexMethod:BaseKmpWorker.kt$BaseKmpWorker$protected suspend fun doWorkInternal(): Result</ID>
+    <ID>CyclomaticComplexMethod:ChainExecutor.kt$ChainExecutor$private suspend fun executeChain(chainId: String): Boolean</ID>
+    <ID>CyclomaticComplexMethod:ChainExecutor.kt$ChainExecutor$private suspend fun executeTask( task: TaskRequest, chainId: String? = null, stepIndex: Int? = null, retryCount: Int = 0 ): WorkerResult</ID>
+    <ID>CyclomaticComplexMethod:ChainExecutor.kt$ChainExecutor$suspend fun executeChainsInBatch( maxChains: Int = 3, totalTimeoutMs: Long = chainTimeout, deadlineEpochMs: Long? = null ): Int</ID>
+    <ID>CyclomaticComplexMethod:DynamicTaskDispatcher.kt$DynamicTaskDispatcher$private suspend fun handleOneTimeResult( taskId: String, meta: IosBackgroundTaskHandler.TaskMeta, result: WorkerResult )</ID>
+    <ID>CyclomaticComplexMethod:DynamicTaskDispatcher.kt$DynamicTaskDispatcher$suspend fun executePendingTasks( scheduler: BackgroundTaskScheduler, budgetMs: Long = DEFAULT_BUDGET_MS ): Int</ID>
+    <ID>CyclomaticComplexMethod:FileCompressionWorker.android.kt$internal actual suspend fun platformCompress(config: FileCompressionConfig): WorkerResult</ID>
+    <ID>CyclomaticComplexMethod:FileCompressionWorker.ios.kt$@OptIn(ExperimentalForeignApi::class) private fun compressToPkZip( inputPath: String, outputPath: String, level: CompressionLevel, excludePatterns: List&lt;String&gt;? ): Long</ID>
+    <ID>CyclomaticComplexMethod:IosBackgroundTaskHandler.kt$IosBackgroundTaskHandler$internal suspend fun handleOneTimeTaskResult( taskId: String, meta: TaskMeta, result: WorkerResult, scheduler: NativeTaskScheduler, isConstraintDeferral: Boolean = false )</ID>
+    <ID>CyclomaticComplexMethod:IosTaskStateSupport.kt$internal suspend fun computeIosTaskState( id: String, fileStorage: IosFileStorage, permittedTaskIds: Set&lt;String&gt;, isChainActive: suspend (String) -&gt; Boolean, isTaskPending: suspend (String) -&gt; Boolean, executionHistory: suspend () -&gt; List&lt;ExecutionRecord&gt; ): TaskState</ID>
+    <ID>CyclomaticComplexMethod:NativeTaskScheduler.kt$NativeTaskScheduler$@OptIn(AndroidOnly::class) override suspend fun enqueue( id: String, trigger: TaskTrigger, workerClassName: String, constraints: Constraints, inputJson: String?, policy: ExistingPolicy, tags: Set&lt;String&gt;, deadlineMs: Long? ): ScheduleResult</ID>
+    <ID>CyclomaticComplexMethod:NativeTaskScheduler.kt$NativeTaskScheduler$override suspend fun enqueue( id: String, trigger: TaskTrigger, workerClassName: String, constraints: Constraints, inputJson: String?, policy: ExistingPolicy, tags: Set&lt;String&gt;, deadlineMs: Long? ): ScheduleResult</ID>
+    <ID>CyclomaticComplexMethod:NativeTaskScheduler.kt$NativeTaskScheduler$override suspend fun enqueueChain(chain: TaskChain, id: String?, policy: ExistingPolicy)</ID>
+    <ID>CyclomaticComplexMethod:NativeTaskScheduler.kt$NativeTaskScheduler$private suspend fun schedulePeriodicTask( id: String, trigger: TaskTrigger.Periodic, workerClassName: String, constraints: Constraints, inputJson: String?, policy: ExistingPolicy, tags: Set&lt;String&gt; = emptySet() ): ScheduleResult</ID>
+    <ID>CyclomaticComplexMethod:NativeTaskScheduler.kt$NativeTaskScheduler$private suspend fun submitTaskRequest(request: BGTaskRequest, taskDescription: String): ScheduleResult</ID>
+    <ID>CyclomaticComplexMethod:SecurityValidator.kt$SecurityValidator$private fun isPrivateIPv4(hostname: String): Boolean</ID>
+    <ID>CyclomaticComplexMethod:StorageMigration.kt$StorageMigration$@Suppress("UNCHECKED_CAST") suspend fun migrate(): MigrationResult</ID>
+    <ID>EmptyFunctionBlock:NativeTaskScheduler.kt$NativeTaskScheduler${}</ID>
+    <ID>InstanceOfCheckForException:BaseKmpWorker.kt$BaseKmpWorker$e is ClassNotFoundException</ID>
+    <ID>InstanceOfCheckForException:BaseKmpWorker.kt$BaseKmpWorker$e is InstantiationException</ID>
+    <ID>InstanceOfCheckForException:BaseKmpWorker.kt$BaseKmpWorker$e is java.lang.reflect.InvocationTargetException</ID>
+    <ID>InstanceOfCheckForException:BaseKmpWorker.kt$BaseKmpWorker$e is kotlinx.serialization.SerializationException</ID>
+    <ID>InstanceOfCheckForException:IosFileStorage.kt$IosFileStorage$e is kotlinx.coroutines.CancellationException</ID>
+    <ID>LargeClass:AppendOnlyQueue.kt$AppendOnlyQueue</ID>
+    <ID>LargeClass:ChainExecutor.kt$ChainExecutor</ID>
+    <ID>LargeClass:IosFileStorage.kt$IosFileStorage</ID>
+    <ID>LargeClass:NativeTaskScheduler.kt$NativeTaskScheduler : BackgroundTaskScheduler</ID>
+    <ID>LoopWithTooManyJumpStatements:AppendOnlyQueue.kt$AppendOnlyQueue$while</ID>
+    <ID>LoopWithTooManyJumpStatements:ChainExecutor.kt$ChainExecutor$for</ID>
+    <ID>LoopWithTooManyJumpStatements:DynamicTaskDispatcher.kt$DynamicTaskDispatcher$while</ID>
+    <ID>LoopWithTooManyJumpStatements:OverflowFileRegistry.kt$OverflowFileRegistry$for</ID>
+    <ID>MatchingDeclarationName:KmpWorkManagerRuntime.kt$KmpWorkManagerRuntimeContainer</ID>
+    <ID>MaxLineLength:AlarmBootReceiver.kt$AlarmBootReceiver$Logger.d(LogTags.ALARM, "Alarm input JSON overflow during reboot — spilled to file: ${tempFile.name}")</ID>
+    <ID>MaxLineLength:AlarmBootReceiver.kt$AlarmBootReceiver$Logger.e(LogTags.ALARM, "Failed to spill reboot alarm JSON to file — using inline (danger of crash)", e)</ID>
+    <ID>MaxLineLength:AndroidEventStore.kt$AndroidEventStore$Logger.d(LogTags.SCHEDULER, "AndroidEventStore: Cleanup removed ${allEvents.size - finalEvents.size} events")</ID>
+    <ID>MaxLineLength:AndroidEventStore.kt$AndroidEventStore$Logger.d(LogTags.SCHEDULER, "AndroidEventStore: Cleanup triggered by time (${timeSinceLastCleanup}ms since last cleanup)")</ID>
+    <ID>MaxLineLength:AndroidEventStore.kt$AndroidEventStore$Logger.d(LogTags.SCHEDULER, "AndroidEventStore: Retrieved ${unconsumed.size} unconsumed events ($totalLines total lines)")</ID>
+    <ID>MaxLineLength:AndroidEventStore.kt$AndroidEventStore$Logger.e(LogTags.SCHEDULER, "AndroidEventStore: disk critically low ($usableSpace bytes), skipping save")</ID>
+    <ID>MaxLineLength:AndroidEventStore.kt$AndroidEventStore$Logger.w(LogTags.SCHEDULER, "AndroidEventStore: Failed to parse event, skipping: ${e.message}")</ID>
+    <ID>MaxLineLength:AppendOnlyQueue.kt$AppendOnlyQueue$Logger.e(LogTags.QUEUE, "CRC mismatch! Expected: ${expectedCrc.toString(16)}, Actual: ${actualCrc.toString(16)}")</ID>
+    <ID>MaxLineLength:AppendOnlyQueue.kt$AppendOnlyQueue$Logger.w(LogTags.QUEUE, "Failed to open file for line counting: ${errorPtr.value?.localizedDescription}")</ID>
+    <ID>MaxLineLength:AppendOnlyQueue.kt$AppendOnlyQueue$Logger.w(LogTags.QUEUE, "Queue corruption detected during dequeue. Truncating at offset $corruptionOffset...")</ID>
+    <ID>MaxLineLength:AppendOnlyQueue.kt$AppendOnlyQueue$fileManager.createDirectoryAtPath(path, withIntermediateDirectories = true, attributes = attributes, error = errorPtr.ptr)</ID>
+    <ID>MaxLineLength:AppendOnlyQueue.kt$AppendOnlyQueue$fileManager.createDirectoryAtPath(path, withIntermediateDirectories = true, attributes = null, error = errorPtr.ptr)</ID>
+    <ID>MaxLineLength:AppendOnlyQueue.kt$AppendOnlyQueue$throw IllegalStateException("Failed to replace queue file atomically: ${error?.localizedDescription}")</ID>
+    <ID>MaxLineLength:AppendOnlyQueue.kt$AppendOnlyQueue$throw IllegalStateException("Failed to replace queue file: ${error?.localizedDescription}")</ID>
+    <ID>MaxLineLength:AppendOnlyQueue.kt$AppendOnlyQueue$val attributes = mapOf&lt;Any?, Any?&gt;(NSFileProtectionKey to NSFileProtectionCompleteUntilFirstUserAuthentication)</ID>
+    <ID>MaxLineLength:AppendOnlyQueue.kt$AppendOnlyQueue$val compactedPath = compactedQueueURL.path ?: throw IllegalStateException("Compacted file path is null")</ID>
+    <ID>MaxLineLength:AppendOnlyQueue.kt$AppendOnlyQueue$val fallbackOk = fileManager.createDirectoryAtPath(path, withIntermediateDirectories = true, attributes = null, error = null)</ID>
+    <ID>MaxLineLength:AppendOnlyQueue.kt$AppendOnlyQueue$val success = fileManager.moveItemAtPath(compactedPath, toPath = queuePath, error = errorPtr.ptr)</ID>
+    <ID>MaxLineLength:BaseKmpWorker.kt$BaseKmpWorker$"$workerLogTag mergeOutputFromPreviousStep=true but previous step produced no output — using original input"</ID>
+    <ID>MaxLineLength:BaseKmpWorker.kt$BaseKmpWorker$"$workerLogTag retry cap reached for $workerClassName (cap=$cap, attempt=$runAttemptCount). Marking as permanent failure."</ID>
+    <ID>MaxLineLength:BaseKmpWorker.kt$BaseKmpWorker$"(${encoded.encodeToByteArray().size} bytes &gt; ${NativeTaskScheduler.OVERFLOW_THRESHOLD_BYTES}). "</ID>
+    <ID>MaxLineLength:BaseKmpWorker.kt$BaseKmpWorker$"(maxRetries=$maxRetries, runAttemptCount=$runAttemptCount). Marking as permanent failure."</ID>
+    <ID>MaxLineLength:BaseKmpWorker.kt$BaseKmpWorker$Logger.e(LogTags.WORKER, "$workerLogTag ${if (isPermanentFailure) "permanent failure" else "crashed"}: $workerClassName", e)</ID>
+    <ID>MaxLineLength:ChainExecutor.kt$ChainExecutor$"(${progress.getCompletionPercentage()}% complete, ${progress.completedSteps.size}/${steps.size} steps done)"</ID>
+    <ID>MaxLineLength:ChainExecutor.kt$ChainExecutor$"(delayMs=${result.delayMs}, attemptCap=${result.attemptCap}, attempt=$retryCount, ${duration}ms)"</ID>
+    <ID>MaxLineLength:ChainExecutor.kt$ChainExecutor$"Chain $chainId has exceeded max retries (${progress.retryCount}/${progress.maxRetries}). Abandoning."</ID>
+    <ID>MaxLineLength:ChainExecutor.kt$ChainExecutor$"Chain $chainId step ${index + 1}: per-step attemptCap ($perStepCap) reached after "</ID>
+    <ID>MaxLineLength:ChainExecutor.kt$ChainExecutor$"Chain $chainId step ${index + 1}: permanent failure (Failure(shouldRetry=false)). "</ID>
+    <ID>MaxLineLength:ChainExecutor.kt$ChainExecutor$"⚠️ Chain $chainId progress was corrupt and deleted. All tasks are idempotent — safe to restart from beginning."</ID>
+    <ID>MaxLineLength:ChainExecutor.kt$ChainExecutor$Logger.d(LogTags.CHAIN, "No cleanup history - using base budget (${(baseFactor * 100).toInt()}%): ${baseBudget}ms${if (isLowPower) " [Low Power Mode]" else ""}")</ID>
+    <ID>MaxLineLength:ChainExecutor.kt$ChainExecutor$Logger.d(LogTags.CHAIN, "Removed chain $chainId from active set (Remaining active: ${activeChains.size})")</ID>
+    <ID>MaxLineLength:ChainExecutor.kt$ChainExecutor$Logger.d(LogTags.CHAIN, "Skipping already completed step ${index + 1}/${steps.size} for chain $chainId")</ID>
+    <ID>MaxLineLength:ChainExecutor.kt$ChainExecutor$Logger.e(LogTags.CHAIN, "⏱️ Task ${task.workerClassName} timed out after ${duration}ms (limit: ${taskTimeout}ms)")</ID>
+    <ID>MaxLineLength:ChainExecutor.kt$ChainExecutor$Logger.i(LogTags.CHAIN, "Absolute deadline provided: ${remaining}ms remaining (deadline epoch: $deadlineEpochMs)")</ID>
+    <ID>MaxLineLength:ChainExecutor.kt$ChainExecutor$Logger.i(LogTags.CHAIN, "Executing step ${index + 1}/${steps.size} for chain $chainId (${step.size} tasks)")</ID>
+    <ID>MaxLineLength:ChainExecutor.kt$ChainExecutor$Logger.w(LogTags.CHAIN, "No continuation callback provided — remaining chains will not be scheduled. Pass onContinuationNeeded to ChainExecutor to enable automatic BGTask continuation.")</ID>
+    <ID>MaxLineLength:ChainExecutor.kt$ChainExecutor$Logger.w(LogTags.CHAIN, "Step $stepIndex had ${results.count { !it.success }} failed task(s) out of ${tasks.size}")</ID>
+    <ID>MaxLineLength:ChainExecutor.kt$ChainExecutor$Logger.w(LogTags.CHAIN, "⏱️ BGTask deadline already expired (conservativeTimeout=${conservativeTimeout}ms). No chains executed.")</ID>
+    <ID>MaxLineLength:ChainExecutor.kt$ChainExecutor$Logger.w(LogTags.CHAIN, "⏱️ Time-slicing: Insufficient time remaining (${remainingTime}ms &lt; ${minTimePerChain}ms), stopping early to preserve iOS credit score")</ID>
+    <ID>MaxLineLength:ChainExecutor.kt$ChainExecutor$Logger.w(LogTags.CHAIN, "⚠️ Stale active-chain lock for $chainId (age: ${ageMs}ms &gt; ${STALE_LOCK_TIMEOUT_MS}ms) — evicting and re-running")</ID>
+    <ID>MaxLineLength:ChainExecutor.kt$ChainExecutor$Logger.w(LogTags.CHAIN, "⚠️ Task ${task.workerClassName} used ${duration}ms / ${taskTimeout}ms (${percentage}%) - approaching timeout!")</ID>
+    <ID>MaxLineLength:ChainExecutor.kt$ChainExecutor$Logger.w(LogTags.CHAIN, "❌ Task ${task.workerClassName} failed: ${result.message} (${duration}ms)")</ID>
+    <ID>MaxLineLength:Contracts.kt$TaskTrigger.Periodic$"Ambiguous: runImmediately=false has no effect when initialDelayMs=${initialDelayMs}ms is already set. Use one or the other."</ID>
+    <ID>MaxLineLength:DynamicTaskDispatcher.kt$DynamicTaskDispatcher$Logger.i(LogTags.SCHEDULER, "$remainingInQueue dynamic task(s) remaining - rescheduling master dispatcher")</ID>
+    <ID>MaxLineLength:DynamicTaskDispatcher.kt$DynamicTaskDispatcher$val nextRetryEarliestMs = currentTimeMs() + computeBackoffDelayMs(backoffPolicy, backoffDelayMs, currentAttempt)</ID>
+    <ID>MaxLineLength:FileCompressionWorker.android.kt$message = "Compressed ${SecurityValidator.formatByteSize(originalSize)} to ${SecurityValidator.formatByteSize(compressedSize)} ($compressionRatio%)"</ID>
+    <ID>MaxLineLength:IosBackgroundTaskHandler.kt$IosBackgroundTaskHandler$Logger.i(LogTags.SCHEDULER, "Task '$taskId' re-submitted after constraint deferral (attempt count unchanged)")</ID>
+    <ID>MaxLineLength:IosEventStore.kt$IosEventStore$(content as NSString).writeToURL(safeUrl, atomically = true, encoding = NSUTF8StringEncoding, error = errorPtr.ptr)</ID>
+    <ID>MaxLineLength:IosEventStore.kt$IosEventStore$fileManager.createDirectoryAtURL(url, withIntermediateDirectories = true, attributes = null, error = null)</ID>
+    <ID>MaxLineLength:IosEventStore.kt$IosEventStore$val all = lines.mapNotNull&lt;String, StoredEvent&gt; { runCatching { json.decodeFromString&lt;StoredEvent&gt;(it) }.getOrNull() }</ID>
+    <ID>MaxLineLength:IosEventStore.kt$IosEventStore$val attributes = mapOf&lt;Any?, Any?&gt;(NSFileProtectionKey to NSFileProtectionCompleteUntilFirstUserAuthentication)</ID>
+    <ID>MaxLineLength:IosEventStore.kt$IosEventStore$val ok = fileManager.createDirectoryAtURL(url, withIntermediateDirectories = true, attributes = attributes, error = null)</ID>
+    <ID>MaxLineLength:IosExecutionHistoryStore.kt$IosExecutionHistoryStore$?:</ID>
+    <ID>MaxLineLength:IosExecutionHistoryStore.kt$IosExecutionHistoryStore$Logger.e(LogTags.SCHEDULER, "ExecutionHistory: disk critically low ($usableSpace bytes), skipping save")</ID>
+    <ID>MaxLineLength:IosExecutionHistoryStore.kt$IosExecutionHistoryStore$fileManager.createDirectoryAtURL(dir, withIntermediateDirectories = true, attributes = null, error = errorPtr.ptr)</ID>
+    <ID>MaxLineLength:IosFileCoordinator.kt$IosFileCoordinator$"⚠️ File coordination took ${duration}ms (half-threshold: ${timeoutMs / 2}ms) for ${url.lastPathComponent}"</ID>
+    <ID>MaxLineLength:IosFileCoordinator.kt$IosFileCoordinator$Logger.v(LogTags.CHAIN, "Test mode detected - skipping NSFileCoordinator (sync) for ${url.lastPathComponent}")</ID>
+    <ID>MaxLineLength:IosFileStorage.kt$IosFileStorage$"Buffered progress for ${progress.chainId} (${progress.getCompletionPercentage()}% complete, buffer size: ${progressBuffer.size})"</ID>
+    <ID>MaxLineLength:IosFileStorage.kt$IosFileStorage$"Emergency progress flush requested — thread: '${NSThread.currentThread.name}', isMain: ${NSThread.isMainThread}"</ID>
+    <ID>MaxLineLength:IosFileStorage.kt$IosFileStorage$Logger.d(LogTags.CHAIN, "Disk space OK: ${freeSpace / 1024 / 1024}MB available, ${requiredWithBuffer / 1024 / 1024}MB required")</ID>
+    <ID>MaxLineLength:IosFileStorage.kt$IosFileStorage$Logger.d(LogTags.CHAIN, "Disk space cache refreshed: ${fresh / 1024 / 1024}MB free (TTL ${DISK_SPACE_CACHE_TTL_MS / 1000}s)")</ID>
+    <ID>MaxLineLength:IosFileStorage.kt$IosFileStorage$Logger.d(LogTags.CHAIN, "Scheduled follow-up flush for ${progressBuffer.size} items buffered during previous flush")</ID>
+    <ID>MaxLineLength:IosFileStorage.kt$IosFileStorage$Logger.e(LogTags.CHAIN, "Insufficient disk space: ${freeMB}MB available, ${requiredMB}MB required (${bufferMB}MB buffer)")</ID>
+    <ID>MaxLineLength:IosFileStorage.kt$IosFileStorage$Logger.e(LogTags.CHAIN, "🩹 Self-healing: Corrupt chain definition detected for $id. Deleting corrupt file...", e)</ID>
+    <ID>MaxLineLength:IosFileStorage.kt$IosFileStorage$Logger.e(LogTags.CHAIN, "🩹 Self-healing: Corrupt chain progress detected for $chainId. Deleting corrupt file...", e)</ID>
+    <ID>MaxLineLength:IosFileStorage.kt$IosFileStorage$Logger.e(LogTags.SCHEDULER, "🩹 Self-healing: Corrupt $metadataType metadata detected for $id. Deleting corrupt file...", e)</ID>
+    <ID>MaxLineLength:IosFileStorage.kt$IosFileStorage$Logger.w(LogTags.CHAIN, "Cannot read filesystem attributes — baseDir has no path, skipping disk space check")</ID>
+    <ID>MaxLineLength:IosFileStorage.kt$IosFileStorage$Logger.w(LogTags.CHAIN, "Corrupt chain $id has been removed. It will need to be re-enqueued if still needed.")</ID>
+    <ID>MaxLineLength:IosFileStorage.kt$IosFileStorage$Logger.w(LogTags.CHAIN, "Progress flush cancelled! ${remainingToFlush.size} unwritten updates will be re-buffered.")</ID>
+    <ID>MaxLineLength:IosFileStorage.kt$IosFileStorage$Logger.w(LogTags.SCHEDULER, "Corrupt $metadataType metadata for $id has been removed. Task will need to be rescheduled.")</ID>
+    <ID>MaxLineLength:IosFileStorage.kt$IosFileStorage$fileManager.createDirectoryAtURL(url, withIntermediateDirectories = true, attributes = attributes, error = errorPtr.ptr)</ID>
+    <ID>MaxLineLength:IosFileStorage.kt$IosFileStorage$fileManager.createDirectoryAtURL(url, withIntermediateDirectories = true, attributes = null, error = errorPtr.ptr)</ID>
+    <ID>MaxLineLength:IosFileStorage.kt$IosFileStorage$throw IllegalStateException("Failed to create directory: ${errorPtr.value?.localizedDescription ?: "Unknown error"}")</ID>
+    <ID>MaxLineLength:IosFileStorage.kt$IosFileStorage$val attributes = mapOf&lt;Any?, Any?&gt;(NSFileProtectionKey to NSFileProtectionCompleteUntilFirstUserAuthentication)</ID>
+    <ID>MaxLineLength:IosFileStorage.kt$IosFileStorage$val fallbackOk = fileManager.createDirectoryAtURL(url, withIntermediateDirectories = true, attributes = null, error = null)</ID>
+    <ID>MaxLineLength:IosFileStorage.kt$IosFileStorage$val overdueMsg = if (hoursSinceLastMaintenance == Int.MAX_VALUE) "never run" else "$hoursSinceLastMaintenance hours"</ID>
+    <ID>MaxLineLength:IosFileStorage.kt$IosFileStorage$val remaining = if (queueSizeCounter.value == UNINITIALIZED_COUNTER) "unknown" else queueSizeCounter.value.toString()</ID>
+    <ID>MaxLineLength:IosFileStorage.kt$IosFileStorage$val remaining = if (tasksQueueSizeCounter.value == UNINITIALIZED_COUNTER) "unknown" else tasksQueueSizeCounter.value.toString()</ID>
+    <ID>MaxLineLength:KmpHeavyWorker.kt$KmpHeavyWorker$Logger.d(LogTags.WORKER, "Could not read manifest foregroundServiceType (non-fatal, diagnostics only): ${e.message}")</ID>
+    <ID>MaxLineLength:KmpHeavyWorker.kt$KmpHeavyWorker$val notificationManager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager</ID>
+    <ID>MaxLineLength:NativeTaskScheduler.kt$@file:OptIn(dev.brewkits.kmpworkmanager.background.domain.AndroidOnly::class)</ID>
+    <ID>MaxLineLength:NativeTaskScheduler.kt$NativeTaskScheduler$"Flex: ${effectiveFlexMs}ms, EffectiveInitialDelay: ${effectiveInitialDelayMs}ms, runImmediately: ${trigger.runImmediately}"</ID>
+    <ID>MaxLineLength:NativeTaskScheduler.kt$NativeTaskScheduler$"If this is deadline-critical (e.g. pre-flight sync), use TaskTrigger.Exact with ExactAlarmIOSBehavior instead."</ID>
+    <ID>MaxLineLength:NativeTaskScheduler.kt$NativeTaskScheduler$"Master Dispatcher already scheduled earlier with matching constraints — keeping existing schedule for '$id'"</ID>
+    <ID>MaxLineLength:NativeTaskScheduler.kt$NativeTaskScheduler$Logger.d(LogTags.CHAIN, "Added chain $chainId to execution queue. Queue size: ${fileStorage.getQueueSize()}")</ID>
+    <ID>MaxLineLength:NativeTaskScheduler.kt$NativeTaskScheduler$Logger.e(LogTags.SCHEDULER, "Migration did not complete within 5s — isTestMode=$isTestMode, forceWaitMigration=$forceWaitMigration. Rejecting enqueue for '$id'")</ID>
+    <ID>MaxLineLength:NativeTaskScheduler.kt$NativeTaskScheduler$Logger.e(LogTags.SCHEDULER, "Simulator fallback failed: singleTaskExecutor not provided to NativeTaskScheduler")</ID>
+    <ID>MaxLineLength:NativeTaskScheduler.kt$NativeTaskScheduler$Logger.i(LogTags.SCHEDULER, "Enqueue request - ID: '$id', Trigger: ${trigger::class.simpleName}, Policy: $policy")</ID>
+    <ID>MaxLineLength:NativeTaskScheduler.kt$NativeTaskScheduler$Logger.i(LogTags.SCHEDULER, "UPDATE policy for task '$id': cancelling pending BGTask, preserving timer anchor")</ID>
+    <ID>MaxLineLength:NativeTaskScheduler.kt$NativeTaskScheduler$Logger.w(LogTags.SCHEDULER, "Low Power Mode is active — BGTask request for $taskDescription rejected by OS policy")</ID>
+    <ID>MaxLineLength:NativeTaskScheduler.kt$NativeTaskScheduler$Logger.w(LogTags.SCHEDULER, "Task '$id' metadata exists but not pending (stale). Cleaning up and rescheduling.")</ID>
+    <ID>MaxLineLength:NativeTaskScheduler.kt$NativeTaskScheduler$internal</ID>
+    <ID>MaxLineLength:NativeTaskScheduler.kt$NativeTaskScheduler$is TaskTrigger.ContentUri -&gt; scheduleContentUriWork(id, trigger, workerClassName, constraints, inputJson, policy, taskMeta)</ID>
+    <ID>MaxLineLength:NativeTaskScheduler.kt$NativeTaskScheduler$is TaskTrigger.Exact -&gt; (trigger.atEpochMillis - (NSDate().timeIntervalSince1970 * 1000).toLong()).coerceAtLeast(0L)</ID>
+    <ID>MaxLineLength:NativeTaskScheduler.kt$NativeTaskScheduler$is TaskTrigger.OneTime -&gt; scheduleOneTimeTask(id, trigger, workerClassName, constraints, inputJson, policy, tags, deadlineMs)</ID>
+    <ID>MaxLineLength:NativeTaskScheduler.kt$NativeTaskScheduler$is TaskTrigger.OneTime -&gt; scheduleOneTimeWork(id, trigger, workerClassName, constraints, inputJson, policy, taskMeta)</ID>
+    <ID>MaxLineLength:NativeTaskScheduler.kt$NativeTaskScheduler$is TaskTrigger.Periodic -&gt; schedulePeriodicTask(id, trigger, workerClassName, constraints, inputJson, policy, tags)</ID>
+    <ID>MaxLineLength:NativeTaskScheduler.kt$NativeTaskScheduler$is TaskTrigger.Periodic -&gt; schedulePeriodicWork(id, trigger, workerClassName, constraints, inputJson, policy, taskMeta)</ID>
+    <ID>MaxLineLength:NativeTaskScheduler.kt$NativeTaskScheduler$is TaskTrigger.Windowed -&gt; (trigger.earliest - (NSDate().timeIntervalSince1970 * 1000).toLong()).coerceAtLeast(0L)</ID>
+    <ID>MaxLineLength:NativeTaskScheduler.kt$NativeTaskScheduler$is TaskTrigger.Windowed -&gt; scheduleWindowedTask(id, trigger, workerClassName, constraints, inputJson, policy, tags, deadlineMs)</ID>
+    <ID>MaxLineLength:NativeTaskScheduler.kt$NativeTaskScheduler$override suspend</ID>
+    <ID>MaxLineLength:NativeTaskScheduler.kt$NativeTaskScheduler$throw IllegalArgumentException("Periodic task input too large (&gt; 8KB). WorkManager reuses Data, so disk spill is unsafe.")</ID>
+    <ID>MaxLineLength:NativeTaskScheduler.kt$NativeTaskScheduler$val canSchedule = if (android.os.Build.VERSION.SDK_INT &gt;= android.os.Build.VERSION_CODES.S) alarmManager.canScheduleExactAlarms() else true</ID>
+    <ID>MaxLineLength:NativeTaskScheduler.kt$NativeTaskScheduler.Companion$Logger.i(LogTags.SCHEDULER, "Cleaned up $deleted zombie overflow file(s), freed ${freed / 1024}KB")</ID>
+    <ID>MaxLineLength:OverflowFileRegistry.kt$OverflowFileRegistry$Logger.i(LogTags.ALARM, "OverflowFileRegistry: migrated $migrated legacy entrie(s) to file-backed storage")</ID>
+    <ID>MaxLineLength:OverflowFileRegistry.kt$OverflowFileRegistry$Logger.w(LogTags.ALARM, "OverflowFileRegistry: legacy migration failed (non-fatal, janitor sweep remains): ${e.message}", e)</ID>
+    <ID>MaxLineLength:SecurityValidator.kt$SecurityValidator$val expanded = if (hostname.contains("::")) expandIPv6(hostname) ?: return true else hostname // Reject if expansion fails</ID>
+    <ID>MaxLineLength:StorageMigration.kt$StorageMigration$"Migration completed: $queueItemsMigrated queue items, ${result.chainsMigrated} chain definitions, ${result.metadataMigrated} metadata items"</ID>
+    <ID>MaxLineLength:StorageMigration.kt$StorageMigration$Logger.w(LogTags.SCHEDULER, "Queue size mismatch after migration: expected ${queue.size}, got $queueSize")</ID>
+    <ID>NestedBlockDepth:AlarmBootReceiver.kt$AlarmBootReceiver$final override fun onReceive(context: Context, intent: Intent)</ID>
+    <ID>NestedBlockDepth:AppendOnlyQueue.kt$AppendOnlyQueue$private fun readSingleLine(fileHandle: NSFileHandle): String?</ID>
+    <ID>NestedBlockDepth:BaseKmpWorker.kt$BaseKmpWorker$protected suspend fun doWorkInternal(): Result</ID>
+    <ID>NestedBlockDepth:DynamicTaskDispatcher.kt$DynamicTaskDispatcher$suspend fun executePendingTasks( scheduler: BackgroundTaskScheduler, budgetMs: Long = DEFAULT_BUDGET_MS ): Int</ID>
+    <ID>NestedBlockDepth:IosBackgroundTaskHandler.kt$IosBackgroundTaskHandler$internal suspend fun handleOneTimeTaskResult( taskId: String, meta: TaskMeta, result: WorkerResult, scheduler: NativeTaskScheduler, isConstraintDeferral: Boolean = false )</ID>
+    <ID>NestedBlockDepth:IosFileStorage.kt$IosFileStorage$private suspend fun flushProgressBuffer()</ID>
+    <ID>NestedBlockDepth:IosLineReader.kt$internal fun streamLinesFromPath(path: String, block: (String) -&gt; Unit)</ID>
+    <ID>NestedBlockDepth:NativeTaskScheduler.kt$NativeTaskScheduler$@OptIn(AndroidOnly::class) private fun scheduleExactAlarm( id: String, trigger: TaskTrigger.Exact, workerClassName: String, constraints: Constraints, inputJson: String?, policy: ExistingPolicy ): ScheduleResult</ID>
+    <ID>NestedBlockDepth:NativeTaskScheduler.kt$NativeTaskScheduler$private suspend fun submitTaskRequest(request: BGTaskRequest, taskDescription: String): ScheduleResult</ID>
+    <ID>NestedBlockDepth:SecurityValidator.kt$SecurityValidator$private fun extractHostname(url: String): String?</ID>
+    <ID>NestedBlockDepth:StorageMigration.kt$StorageMigration$@Suppress("UNCHECKED_CAST") suspend fun migrate(): MigrationResult</ID>
+    <ID>NewLineAtEndOfFile:TaskIds.kt$dev.brewkits.kmpworkmanager.background.data.TaskIds.kt</ID>
+    <ID>SwallowedException:AlarmStore.kt$AlarmStore$e: Exception</ID>
+    <ID>SwallowedException:AndroidEventStore.kt$AndroidEventStore$e: Exception</ID>
+    <ID>SwallowedException:AndroidExecutionHistoryStore.kt$AndroidExecutionHistoryStore$e: Exception</ID>
+    <ID>SwallowedException:AppendOnlyQueue.kt$AppendOnlyQueue$e: Exception</ID>
+    <ID>SwallowedException:BaseAlarmReceiver.kt$BaseAlarmReceiver$e: TimeoutCancellationException</ID>
+    <ID>SwallowedException:IosLineReader.kt$e: Exception</ID>
+    <ID>SwallowedException:IosWorkerDiagnostics.kt$e: Exception</ID>
+    <ID>SwallowedException:NativeTaskScheduler.kt$NativeTaskScheduler$e: Exception</ID>
+    <ID>SwallowedException:NativeTaskScheduler.kt$NativeTaskScheduler$e: IllegalArgumentException</ID>
+    <ID>SwallowedException:SecurityValidator.kt$SecurityValidator$e: Exception</ID>
+    <ID>ThrowsCount:AppendOnlyQueue.kt$AppendOnlyQueue$private fun migrateFromTextToBinary()</ID>
+    <ID>ThrowsCount:AppendOnlyQueue.kt$AppendOnlyQueue$private fun readSingleRecordWithValidation(fileHandle: NSFileHandle): String?</ID>
+    <ID>ThrowsCount:AppendOnlyQueue.kt$AppendOnlyQueue$private fun streamCompactionToFile(srcUrl: NSURL, dstUrl: NSURL, headIndex: Int): Int</ID>
+    <ID>ThrowsCount:AppendOnlyQueue.kt$AppendOnlyQueue$private suspend fun compactQueue()</ID>
+    <ID>ThrowsCount:FileCompressionWorker.ios.kt$@OptIn(ExperimentalForeignApi::class) private fun compressToPkZip( inputPath: String, outputPath: String, level: CompressionLevel, excludePatterns: List&lt;String&gt;? ): Long</ID>
+    <ID>ThrowsCount:IosFileCoordinator.kt$IosFileCoordinator$internal fun &lt;T&gt; coordinateBlocking( url: NSURL, write: Boolean, timeoutMs: Long, block: (NSURL) -&gt; T ): T</ID>
+    <ID>TooGenericExceptionCaught:AlarmBootReceiver.kt$AlarmBootReceiver$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:AlarmReceiver.kt$AlarmReceiver$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:AlarmStore.kt$AlarmStore$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:AndroidEventStore.kt$AndroidEventStore$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:AndroidExecutionHistoryStore.kt$AndroidExecutionHistoryStore$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:AppendOnlyQueue.kt$AppendOnlyQueue$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:BackgroundDownloadStateStore.kt$BackgroundDownloadStateStore$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:BaseAlarmReceiver.kt$BaseAlarmReceiver$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:BaseKmpWorker.kt$BaseKmpWorker$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:ChainExecutor.kt$ChainExecutor$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:ChainExecutor.kt$ChainExecutor$e: Throwable</ID>
+    <ID>TooGenericExceptionCaught:ChainExecutor.kt$ChainExecutor$re: Exception</ID>
+    <ID>TooGenericExceptionCaught:DynamicTaskDispatcher.kt$DynamicTaskDispatcher$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:EventSyncManager.kt$EventSyncManager$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:FileCompressionWorker.android.kt$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:FileCompressionWorker.ios.kt$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:FileCompressionWorker.kt$FileCompressionWorker$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:IosBackgroundDownloadWorker.kt$IosBackgroundDownloadWorker$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:IosBackgroundTaskHandler.kt$IosBackgroundTaskHandler$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:IosBackgroundUploadWorker.kt$IosBackgroundUploadWorker$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:IosBackgroundUrlSessionManager.kt$IosBackgroundUrlSessionManagerDelegate$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:IosEventStore.kt$IosEventStore$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:IosFileCoordinator.kt$IosFileCoordinator$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:IosFileStorage.kt$IosFileStorage$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:IosLineReader.kt$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:IosNetworkStateProvider.kt$DefaultIosNetworkStateProvider$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:IosWorkerDiagnostics.kt$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:KmpHeavyWorker.kt$KmpHeavyWorker$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:KmpWorkManager.android.kt$KmpWorkManagerAndroid$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:NativeTaskScheduler.kt$NativeTaskScheduler$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:NativeTaskScheduler.kt$NativeTaskScheduler.Companion$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:OverflowFileRegistry.kt$OverflowFileRegistry$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:QueueIndex.kt$QueueIndex$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:SecurityValidator.kt$SecurityValidator$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:SingleTaskExecutor.kt$SingleTaskExecutor$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:StorageMigration.kt$StorageMigration$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:TaskEventManager.kt$TaskEventManager$busError: Exception</ID>
+    <ID>TooGenericExceptionCaught:TaskEventManager.kt$TaskEventManager$e: Exception</ID>
+    <ID>TooManyFunctions:AppendOnlyQueue.kt$AppendOnlyQueue</ID>
+    <ID>TooManyFunctions:BackgroundTaskScheduler.kt$BackgroundTaskScheduler</ID>
+    <ID>TooManyFunctions:ChainExecutor.kt$ChainExecutor</ID>
+    <ID>TooManyFunctions:ChainProgress.kt$ChainProgress</ID>
+    <ID>TooManyFunctions:IosEventStore.kt$IosEventStore : EventStore</ID>
+    <ID>TooManyFunctions:IosFileStorage.kt$IosFileStorage</ID>
+    <ID>TooManyFunctions:KmpWorkManagerRuntime.kt$KmpWorkManagerRuntimeContainer</ID>
+    <ID>TooManyFunctions:NativeTaskScheduler.kt$NativeTaskScheduler : BackgroundTaskScheduler</ID>
+    <ID>TooManyFunctions:SecurityValidator.kt$SecurityValidator</ID>
+    <ID>UnusedParameter:NativeTaskScheduler.kt$NativeTaskScheduler$constraints: Constraints</ID>
+    <ID>UnusedPrivateMember:AppendOnlyQueue.kt$AppendOnlyQueue$private fun getQueueSizeInternal(): Int</ID>
+    <ID>UnusedPrivateMember:IosEventStore.kt$private fun NSURL.safeAppend(component: String): NSURL</ID>
+    <ID>UnusedPrivateProperty:AppendOnlyQueue.kt$AppendOnlyQueue$// Maximum queue size to prevent unbounded growth private val MAX_QUEUE_SIZE = 10_000</ID>
+    <ID>UnusedPrivateProperty:AppendOnlyQueue.kt$AppendOnlyQueue$private val formatMutex = Mutex()</ID>
+    <ID>UnusedPrivateProperty:AppendOnlyQueue.kt$AppendOnlyQueue.Companion$private const val HEAD_POINTER_FILENAME = "head_pointer.txt"</ID>
+    <ID>UnusedPrivateProperty:AppendOnlyQueue.kt$AppendOnlyQueue.Companion$private const val QUEUE_FILENAME = "queue.jsonl"</ID>
+    <ID>UnusedPrivateProperty:ChainExecutor.kt$ChainExecutor$iteration</ID>
+    <ID>UnusedPrivateProperty:FileCompressionWorker.ios.kt$val compressedStart = localHeaderSize</ID>
+    <ID>UnusedPrivateProperty:IosFileStorage.kt$IosFileStorage$// Protects coordinated tasksQueue operations private val tasksQueueMutex = Mutex()</ID>
+    <ID>UnusedPrivateProperty:IosFileStorage.kt$IosFileStorage.Companion$private const val QUEUE_FILE_NAME = "queue.jsonl"</ID>
+    <ID>UnusedPrivateProperty:IosLiveActivityBridge.ios.kt$IosLiveActivityBridge$private val TAG = "IosLiveActivityBridge"</ID>
+    <ID>UseCheckOrError:AndroidEventStore.kt$AndroidEventStore$throw IllegalStateException("Failed to rename temp file to events file")</ID>
+    <ID>UseCheckOrError:AppendOnlyQueue.kt$AppendOnlyQueue$throw IllegalStateException( "Failed to create binary queue file: ${writeErrorPtr.value?.localizedDescription}" )</ID>
+    <ID>UseCheckOrError:AppendOnlyQueue.kt$AppendOnlyQueue$throw IllegalStateException( "Failed to open legacy queue for reading: ${readErrorPtr.value?.localizedDescription}" )</ID>
+    <ID>UseCheckOrError:AppendOnlyQueue.kt$AppendOnlyQueue$throw IllegalStateException( "Streaming compaction: cannot open dst for write: ${errorPtr.value?.localizedDescription}" )</ID>
+    <ID>UseCheckOrError:AppendOnlyQueue.kt$AppendOnlyQueue$throw IllegalStateException( "Streaming compaction: cannot open src for read: ${errorPtr.value?.localizedDescription}" )</ID>
+    <ID>UseCheckOrError:AppendOnlyQueue.kt$AppendOnlyQueue$throw IllegalStateException("AppendOnlyQueue: failed to create directory: $path")</ID>
+    <ID>UseCheckOrError:AppendOnlyQueue.kt$AppendOnlyQueue$throw IllegalStateException("Compacted file path is null")</ID>
+    <ID>UseCheckOrError:AppendOnlyQueue.kt$AppendOnlyQueue$throw IllegalStateException("Compaction dst path is null")</ID>
+    <ID>UseCheckOrError:AppendOnlyQueue.kt$AppendOnlyQueue$throw IllegalStateException("Failed to open file for writing: ${errorPtr.value?.localizedDescription}")</ID>
+    <ID>UseCheckOrError:AppendOnlyQueue.kt$AppendOnlyQueue$throw IllegalStateException("Failed to open queue file: ${errorPtr.value?.localizedDescription}")</ID>
+    <ID>UseCheckOrError:AppendOnlyQueue.kt$AppendOnlyQueue$throw IllegalStateException("Failed to rename queue file: ${errorPtr.value?.localizedDescription}")</ID>
+    <ID>UseCheckOrError:AppendOnlyQueue.kt$AppendOnlyQueue$throw IllegalStateException("Failed to replace queue file atomically: ${error?.localizedDescription}")</ID>
+    <ID>UseCheckOrError:AppendOnlyQueue.kt$AppendOnlyQueue$throw IllegalStateException("Failed to replace queue file: ${error?.localizedDescription}")</ID>
+    <ID>UseCheckOrError:AppendOnlyQueue.kt$AppendOnlyQueue$throw IllegalStateException("Failed to write head pointer: ${errorPtr.value?.localizedDescription}")</ID>
+    <ID>UseCheckOrError:AppendOnlyQueue.kt$AppendOnlyQueue$throw IllegalStateException("File path is null")</ID>
+    <ID>UseCheckOrError:AppendOnlyQueue.kt$AppendOnlyQueue$throw IllegalStateException("Head pointer path is null")</ID>
+    <ID>UseCheckOrError:AppendOnlyQueue.kt$AppendOnlyQueue$throw IllegalStateException("Queue file path is null")</ID>
+    <ID>UseCheckOrError:AppendOnlyQueue.kt$AppendOnlyQueue$throw IllegalStateException("Queue path is null")</ID>
+    <ID>UseCheckOrError:AppendOnlyQueue.kt$throw IllegalStateException("Failed to construct URL: base='$path' component='$component'")</ID>
+    <ID>UseCheckOrError:ChainExecutor.kt$ChainExecutor$throw IllegalStateException("ChainExecutor is closed and cannot be used")</ID>
+    <ID>UseCheckOrError:IosEventStore.kt$IosEventStore$throw IllegalStateException("Could not locate Application Support directory")</ID>
+    <ID>UseCheckOrError:IosEventStore.kt$IosEventStore$throw IllegalStateException("Failed to construct events directory URL")</ID>
+    <ID>UseCheckOrError:IosEventStore.kt$IosEventStore$throw IllegalStateException("Failed to construct events.jsonl URL")</ID>
+    <ID>UseCheckOrError:IosEventStore.kt$throw IllegalStateException("Failed URL build")</ID>
+    <ID>UseCheckOrError:IosExecutionHistoryStore.kt$IosExecutionHistoryStore$throw IllegalStateException("Could not locate Application Support directory")</ID>
+    <ID>UseCheckOrError:IosExecutionHistoryStore.kt$IosExecutionHistoryStore$throw IllegalStateException("History directory path is null")</ID>
+    <ID>UseCheckOrError:IosExecutionHistoryStore.kt$IosExecutionHistoryStore$throw IllegalStateException("URLByAppendingPathComponent returned null constructing history directory URL")</ID>
+    <ID>UseCheckOrError:IosExecutionHistoryStore.kt$IosExecutionHistoryStore$throw IllegalStateException("URLByAppendingPathComponent returned null constructing history.jsonl URL")</ID>
+    <ID>UseCheckOrError:IosFileCoordinator.kt$IosFileCoordinator$throw IllegalStateException("File coordination callback did not execute for ${url.path}")</ID>
+    <ID>UseCheckOrError:IosFileStorage.kt$IosFileStorage$throw IllegalStateException("Chain size exceeds limit")</ID>
+    <ID>UseCheckOrError:IosFileStorage.kt$IosFileStorage$throw IllegalStateException("Could not locate Application Support directory")</ID>
+    <ID>UseCheckOrError:IosFileStorage.kt$IosFileStorage$throw IllegalStateException("Failed to create directory: ${errorPtr.value?.localizedDescription ?: "Unknown error"}")</ID>
+    <ID>UseCheckOrError:IosFileStorage.kt$IosFileStorage$throw IllegalStateException("Failed to write file: ${errorPtr.value?.localizedDescription}")</ID>
+    <ID>UseCheckOrError:IosFileStorage.kt$IosFileStorage$throw IllegalStateException("Queue size limit exceeded")</ID>
+    <ID>UseCheckOrError:IosFileStorage.kt$IosFileStorage$throw IllegalStateException("Tasks queue size limit exceeded")</ID>
+    <ID>UseCheckOrError:IosFileStorage.kt$IosFileStorage$throw IllegalStateException("test-induced flush failure (V250CloseFinallyTest)")</ID>
+    <ID>UseCheckOrError:IosFileStorage.kt$throw IllegalStateException("Failed to construct URL: base='$path' component='$component'")</ID>
+    <ID>UseCheckOrError:KmpWorkManager.android.kt$KmpWorkManagerAndroid$throw IllegalStateException("KmpWorkManager already initialized")</ID>
+    <ID>UseCheckOrError:NativeTaskScheduler.kt$NativeTaskScheduler$throw IllegalStateException("KmpWorkManager: storage migration timed out after 5s. Chain not enqueued.")</ID>
+    <ID>UseRequire:NativeTaskScheduler.kt$NativeTaskScheduler$throw IllegalArgumentException("Periodic task input too large (&gt; 8KB). WorkManager reuses Data, so disk spill is unsafe.")</ID>
+    <ID>VariableNaming:AppendOnlyQueue.kt$AppendOnlyQueue$// File-size-based compaction trigger (v2.5 — QA review action item). // // The ratio-based trigger above breaks down in two scenarios: // 1. Enqueue-heavy: 5 000 items enqueued, only 50 dequeued — ratio is 1 %, no compact, // file keeps growing. Reviewer flagged this as a real production risk (long-running // sync apps). // 2. Bursty: 200 items dequeued (compaction fires, head reset to 0), then another // 9 000 items enqueued without dequeue — file is 5+ MB even though head=0. // // The file-size trigger fires when the queue file exceeds 5 MB AND any item has been // processed (so there's actually slack to reclaim). Compaction itself only removes // processed items, so this is a no-op when head=0; the value is in lowering the ratio // threshold so we don't have to wait for 80 % to clear before reclaiming space. private val MAX_QUEUE_FILE_SIZE_BYTES: ULong = 5UL * 1024UL * 1024UL // 5 MB</ID>
+    <ID>VariableNaming:AppendOnlyQueue.kt$AppendOnlyQueue$// Maximum queue size to prevent unbounded growth private val MAX_QUEUE_SIZE = 10_000</ID>
+    <ID>VariableNaming:AppendOnlyQueue.kt$AppendOnlyQueue$// Ratio-based compaction trigger: fire when 80%+ items are processed AND there are // at least 100 processed items to reclaim. Good for steady-state dequeue workloads. private val COMPACTION_THRESHOLD = 0.8</ID>
+    <ID>VariableNaming:AppendOnlyQueue.kt$AppendOnlyQueue$private val FILE_SIZE_COMPACTION_RATIO = 0.2 // 20 % processed is enough when file is large</ID>
+    <ID>VariableNaming:FileCompressionWorker.ios.kt$val CHUNK = 65536</ID>
+    <ID>VariableNaming:IosLiveActivityBridge.ios.kt$IosLiveActivityBridge$private val TAG = "IosLiveActivityBridge"</ID>
+    <ID>WildcardImport:AppendOnlyQueue.kt$import kotlinx.cinterop.*</ID>
+    <ID>WildcardImport:AppendOnlyQueue.kt$import platform.Foundation.*</ID>
+    <ID>WildcardImport:BaseKmpWorker.kt$import dev.brewkits.kmpworkmanager.background.domain.*</ID>
+    <ID>WildcardImport:CRC32Platform.ios.kt$import kotlinx.cinterop.*</ID>
+    <ID>WildcardImport:ChainExecutor.kt$import kotlinx.cinterop.*</ID>
+    <ID>WildcardImport:ChainExecutor.kt$import kotlinx.coroutines.*</ID>
+    <ID>WildcardImport:ChainExecutor.kt$import platform.Foundation.*</ID>
+    <ID>WildcardImport:DynamicTaskDispatcher.kt$import kotlinx.coroutines.*</ID>
+    <ID>WildcardImport:FileCompressionWorker.ios.kt$import kotlinx.cinterop.*</ID>
+    <ID>WildcardImport:FileCompressionWorker.ios.kt$import platform.posix.*</ID>
+    <ID>WildcardImport:FileCompressionWorker.ios.kt$import platform.zlib.*</ID>
+    <ID>WildcardImport:IosBackgroundTaskHandler.kt$import platform.Foundation.*</ID>
+    <ID>WildcardImport:IosEventStore.kt$import kotlinx.cinterop.*</ID>
+    <ID>WildcardImport:IosEventStore.kt$import platform.Foundation.*</ID>
+    <ID>WildcardImport:IosExecutionHistoryStore.kt$import kotlinx.cinterop.*</ID>
+    <ID>WildcardImport:IosExecutionHistoryStore.kt$import platform.Foundation.*</ID>
+    <ID>WildcardImport:IosFileCoordinator.kt$import kotlinx.cinterop.*</ID>
+    <ID>WildcardImport:IosFileCoordinator.kt$import platform.Foundation.*</ID>
+    <ID>WildcardImport:IosFileStorage.kt$import kotlinx.cinterop.*</ID>
+    <ID>WildcardImport:IosFileStorage.kt$import platform.Foundation.*</ID>
+    <ID>WildcardImport:IosFileStorage.kt$import platform.darwin.*</ID>
+    <ID>WildcardImport:IosLineReader.kt$import platform.Foundation.*</ID>
+    <ID>WildcardImport:IosLiveActivityBridge.ios.kt$import kotlinx.coroutines.*</ID>
+    <ID>WildcardImport:IosWorkerDiagnostics.kt$import kotlinx.cinterop.*</ID>
+    <ID>WildcardImport:KmpHeavyWorker.kt$import dev.brewkits.kmpworkmanager.background.domain.*</ID>
+    <ID>WildcardImport:KmpWorker.kt$import dev.brewkits.kmpworkmanager.background.domain.*</ID>
+    <ID>WildcardImport:NativeTaskScheduler.kt$import dev.brewkits.kmpworkmanager.background.domain.*</ID>
+    <ID>WildcardImport:NativeTaskScheduler.kt$import kotlinx.cinterop.*</ID>
+    <ID>WildcardImport:NativeTaskScheduler.kt$import platform.Foundation.*</ID>
+    <ID>WildcardImport:QueueIndex.kt$import kotlinx.cinterop.*</ID>
+    <ID>WildcardImport:QueueIndex.kt$import platform.Foundation.*</ID>
+    <ID>WildcardImport:SingleTaskExecutor.kt$import dev.brewkits.kmpworkmanager.background.domain.*</ID>
+    <ID>WildcardImport:SingleTaskExecutor.kt$import kotlinx.coroutines.*</ID>
+  </CurrentIssues>
+</SmellBaseline>

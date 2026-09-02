@@ -1,0 +1,22 @@
+build:
+  maxIssues: 0
+
+config:
+  validation: true
+  warningsAsErrors: false
+
+# First-pass adoption: rely on detekt's own sensible defaults (buildUponDefaultConfig=true
+# in each module's `detekt {}` block) plus a per-module baseline capturing pre-existing
+# findings, rather than hand-picking every rule here. Rules can be tightened over time as
+# the baseline shrinks.
+style:
+  MagicNumber:
+    active: false # this codebase uses many named timeouts/sizes as raw literals with comments explaining them
+  ReturnCount:
+    active: false # early-return guard clauses are the dominant style in this codebase (see worker doWork() methods)
+
+complexity:
+  LongMethod:
+    active: false # several worker doWork()/downloadFile() methods are long by necessity (streaming + resume + checksum logic); tracked via existing code review, not a lint gate
+  LongParameterList:
+    active: false # data-class configs (TaskChain, Constraints) intentionally take many named parameters

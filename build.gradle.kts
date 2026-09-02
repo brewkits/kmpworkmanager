@@ -7,6 +7,33 @@ plugins {
     alias(libs.plugins.composeCompiler) apply false
     alias(libs.plugins.kotlinMultiplatform) apply false
     alias(libs.plugins.kover) apply false
+    alias(libs.plugins.binaryCompatibilityValidator) apply false
+    alias(libs.plugins.detekt) apply false
+}
+
+// Shared detekt config for every module that applies the plugin (kmpworker,
+// kmpworker-http, kmpworker-ksp, kmpworker-annotations) — avoids repeating the same
+// config{}/baseline{} block in each module's build.gradle.kts. Each module still applies
+// `alias(libs.plugins.detekt)` itself since there's no buildSrc/convention-plugin layer
+// in this repo (4 modules doesn't justify introducing one).
+subprojects {
+    plugins.withId("io.gitlab.arturbosch.detekt") {
+        extensions.configure<io.gitlab.arturbosch.detekt.extensions.DetektExtension> {
+            buildUponDefaultConfig = true
+            config.setFrom(rootProject.files("config/detekt/detekt.yml"))
+            baseline = file("detekt-baseline.xml")
+            // detekt's default task only looks at src/main/kotlin — this repo mixes plain
+            // JVM modules (kmpworker-ksp) with Kotlin Multiplatform modules (commonMain/
+            // androidMain/iosMain). Listing every possible source dir here is harmless for
+            // modules missing some of them (nonexistent dirs just contribute nothing).
+            source.setFrom(
+                "src/main/kotlin",
+                "src/commonMain/kotlin",
+                "src/androidMain/kotlin",
+                "src/iosMain/kotlin"
+            )
+        }
+    }
 }
 
 // Pin Kotlin stdlib to the version matching the Kotlin Gradle plugin.

@@ -5,6 +5,7 @@ import org.gradle.api.publish.maven.tasks.AbstractPublishToMaven
 plugins {
     kotlin("multiplatform")
     id("com.android.library")
+    alias(libs.plugins.detekt)
     id("maven-publish")
     id("signing")
 }

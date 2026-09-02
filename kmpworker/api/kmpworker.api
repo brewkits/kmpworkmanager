@@ -1,0 +1,1882 @@
+public final class dev/brewkits/kmpworkmanager/KmpWorkManager {
+	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/KmpWorkManager;
+	public final fun getInstance ()Ldev/brewkits/kmpworkmanager/KmpWorkManagerInstance;
+	public final fun initialize (Landroid/content/Context;Ldev/brewkits/kmpworkmanager/background/domain/WorkerFactory;Ldev/brewkits/kmpworkmanager/KmpWorkManagerConfig;)V
+	public static synthetic fun initialize$default (Ldev/brewkits/kmpworkmanager/KmpWorkManager;Landroid/content/Context;Ldev/brewkits/kmpworkmanager/background/domain/WorkerFactory;Ldev/brewkits/kmpworkmanager/KmpWorkManagerConfig;ILjava/lang/Object;)V
+	public final fun isInitialized ()Z
+	public final fun shutdown ()V
+}
+
+public final class dev/brewkits/kmpworkmanager/KmpWorkManagerConfig {
+	public fun <init> ()V
+	public fun <init> (Ldev/brewkits/kmpworkmanager/utils/Logger$Level;Ldev/brewkits/kmpworkmanager/utils/CustomLogger;JLjava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook;I)V
+	public synthetic fun <init> (Ldev/brewkits/kmpworkmanager/utils/Logger$Level;Ldev/brewkits/kmpworkmanager/utils/CustomLogger;JLjava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook;IILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ldev/brewkits/kmpworkmanager/utils/Logger$Level;
+	public final fun component2 ()Ldev/brewkits/kmpworkmanager/utils/CustomLogger;
+	public final fun component3 ()J
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook;
+	public final fun component6 ()I
+	public final fun copy (Ldev/brewkits/kmpworkmanager/utils/Logger$Level;Ldev/brewkits/kmpworkmanager/utils/CustomLogger;JLjava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook;I)Ldev/brewkits/kmpworkmanager/KmpWorkManagerConfig;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/KmpWorkManagerConfig;Ldev/brewkits/kmpworkmanager/utils/Logger$Level;Ldev/brewkits/kmpworkmanager/utils/CustomLogger;JLjava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook;IILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/KmpWorkManagerConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAndroidForegroundNotificationTitle ()Ljava/lang/String;
+	public final fun getCustomLogger ()Ldev/brewkits/kmpworkmanager/utils/CustomLogger;
+	public final fun getLogLevel ()Ldev/brewkits/kmpworkmanager/utils/Logger$Level;
+	public final fun getMinBatteryLevelPercent ()I
+	public final fun getMinFreeDiskSpaceBytes ()J
+	public final fun getTelemetryHook ()Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/brewkits/kmpworkmanager/KmpWorkManagerInstance {
+	public final fun clearExecutionHistory (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun getBackgroundTaskScheduler ()Ldev/brewkits/kmpworkmanager/background/domain/BackgroundTaskScheduler;
+	public final fun getEventStore ()Ldev/brewkits/kmpworkmanager/persistence/EventStore;
+	public final fun getExecutionHistory (ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun getExecutionHistory$default (Ldev/brewkits/kmpworkmanager/KmpWorkManagerInstance;ILkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public final fun getWorkerFactory ()Ldev/brewkits/kmpworkmanager/background/domain/WorkerFactory;
+}
+
+public abstract class dev/brewkits/kmpworkmanager/background/data/AlarmBootReceiver : android/content/BroadcastReceiver {
+	public fun <init> ()V
+	public abstract fun getAlarmReceiverClass ()Ljava/lang/Class;
+	public final fun onReceive (Landroid/content/Context;Landroid/content/Intent;)V
+}
+
+public abstract class dev/brewkits/kmpworkmanager/background/data/AlarmReceiver : android/content/BroadcastReceiver {
+	public static final field Companion Ldev/brewkits/kmpworkmanager/background/data/AlarmReceiver$Companion;
+	public static final field EXTRA_INPUT_JSON Ljava/lang/String;
+	public static final field EXTRA_INPUT_JSON_FILE Ljava/lang/String;
+	public static final field EXTRA_TASK_ID Ljava/lang/String;
+	public static final field EXTRA_WORKER_CLASS Ljava/lang/String;
+	public static final field NOTIFICATION_CHANNEL_ID Ljava/lang/String;
+	public static final field NOTIFICATION_CHANNEL_NAME Ljava/lang/String;
+	public fun <init> ()V
+	protected fun handleAlarm (Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Landroid/content/BroadcastReceiver$PendingResult;)V
+	public fun handleAlarm (Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Landroid/content/BroadcastReceiver$PendingResult;Ljava/lang/String;)V
+	public final fun onReceive (Landroid/content/Context;Landroid/content/Intent;)V
+}
+
+public final class dev/brewkits/kmpworkmanager/background/data/AlarmReceiver$Companion {
+	public final fun createNotificationChannel (Landroid/content/Context;)V
+}
+
+public abstract class dev/brewkits/kmpworkmanager/background/data/BaseAlarmReceiver : dev/brewkits/kmpworkmanager/background/data/AlarmReceiver {
+	public static final field Companion Ldev/brewkits/kmpworkmanager/background/data/BaseAlarmReceiver$Companion;
+	public static final field DEFAULT_WORK_TIMEOUT_MS J
+	public fun <init> ()V
+	public abstract fun doAlarmWork (Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	protected fun getWorkTimeoutMs ()J
+	public final fun handleAlarm (Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Landroid/content/BroadcastReceiver$PendingResult;Ljava/lang/String;)V
+}
+
+public final class dev/brewkits/kmpworkmanager/background/data/BaseAlarmReceiver$Companion {
+}
+
+public abstract class dev/brewkits/kmpworkmanager/background/data/BaseKmpWorker : androidx/work/CoroutineWorker {
+	public static final field Companion Ldev/brewkits/kmpworkmanager/background/data/BaseKmpWorker$Companion;
+	public fun <init> (Landroid/content/Context;Landroidx/work/WorkerParameters;)V
+	public fun <init> (Landroid/content/Context;Landroidx/work/WorkerParameters;Ldev/brewkits/kmpworkmanager/background/domain/AndroidWorkerFactory;)V
+	protected final fun checkBatteryGuard ()Z
+	protected final fun doWorkInternal (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	protected final fun getKmpWorkerFactory ()Ldev/brewkits/kmpworkmanager/background/domain/AndroidWorkerFactory;
+	protected final fun getOverflowInputFile ()Ljava/io/File;
+	protected fun getWorkerLogTag ()Ljava/lang/String;
+	protected abstract fun performWork (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	protected final fun resolveInputJson (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	protected final fun setOverflowInputFile (Ljava/io/File;)V
+}
+
+public final class dev/brewkits/kmpworkmanager/background/data/BaseKmpWorker$Companion {
+	public final fun getConfigNotificationTitle ()Ljava/lang/String;
+	public final fun setConfigNotificationTitle (Ljava/lang/String;)V
+}
+
+public class dev/brewkits/kmpworkmanager/background/data/KmpHeavyWorker : dev/brewkits/kmpworkmanager/background/data/BaseKmpWorker {
+	public static final field Companion Ldev/brewkits/kmpworkmanager/background/data/KmpHeavyWorker$Companion;
+	public static final field FGS_CAMERA I
+	public static final field FGS_CONNECTED_DEVICE I
+	public static final field FGS_DATA_SYNC I
+	public static final field FGS_LOCATION I
+	public static final field FGS_MEDIA_PLAYBACK I
+	public static final field FGS_MEDIA_PROCESSING I
+	public fun <init> (Landroid/content/Context;Landroidx/work/WorkerParameters;)V
+	public fun <init> (Landroid/content/Context;Landroidx/work/WorkerParameters;Ldev/brewkits/kmpworkmanager/background/domain/AndroidWorkerFactory;)V
+	public fun doWork (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun getForegroundInfo (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	protected fun getForegroundServiceType ()I
+	protected fun getWorkerLogTag ()Ljava/lang/String;
+	protected fun performWork (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/data/KmpHeavyWorker$Companion {
+}
+
+public final class dev/brewkits/kmpworkmanager/background/data/KmpWorker : dev/brewkits/kmpworkmanager/background/data/BaseKmpWorker {
+	public static final field Companion Ldev/brewkits/kmpworkmanager/background/data/KmpWorker$Companion;
+	public fun <init> (Landroid/content/Context;Landroidx/work/WorkerParameters;)V
+	public fun <init> (Landroid/content/Context;Landroidx/work/WorkerParameters;Ldev/brewkits/kmpworkmanager/background/domain/AndroidWorkerFactory;)V
+	public fun doWork (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun getForegroundInfo (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/data/KmpWorker$Companion {
+}
+
+public final class dev/brewkits/kmpworkmanager/background/data/KmpWorkerFactory : androidx/work/WorkerFactory {
+	public fun <init> (Ldev/brewkits/kmpworkmanager/background/domain/AndroidWorkerFactory;)V
+	public fun createWorker (Landroid/content/Context;Ljava/lang/String;Landroidx/work/WorkerParameters;)Landroidx/work/ListenableWorker;
+}
+
+public class dev/brewkits/kmpworkmanager/background/data/NativeTaskScheduler : dev/brewkits/kmpworkmanager/background/domain/BackgroundTaskScheduler {
+	public static final field Companion Ldev/brewkits/kmpworkmanager/background/data/NativeTaskScheduler$Companion;
+	public static final field KEY_CHAIN_ID Ljava/lang/String;
+	public static final field KEY_DEADLINE_MS Ljava/lang/String;
+	public static final field KEY_INPUT_JSON_FILE Ljava/lang/String;
+	public static final field KEY_MAX_RETRIES Ljava/lang/String;
+	public static final field KEY_MERGE_PREVIOUS_OUTPUT Ljava/lang/String;
+	public static final field KEY_STEP_INDEX Ljava/lang/String;
+	public static final field KEY_STEP_OUTPUT Ljava/lang/String;
+	public static final field KEY_TOTAL_STEPS Ljava/lang/String;
+	public static final field TAG_KMP_TASK Ljava/lang/String;
+	public fun <init> (Landroid/content/Context;)V
+	public fun beginWith (Ldev/brewkits/kmpworkmanager/background/domain/TaskRequest;)Ldev/brewkits/kmpworkmanager/background/domain/TaskChain;
+	public fun beginWith (Ljava/util/List;)Ldev/brewkits/kmpworkmanager/background/domain/TaskChain;
+	public fun cancel (Ljava/lang/String;)V
+	public fun cancelAll ()V
+	public fun cancelByTag (Ljava/lang/String;)V
+	public fun cancelByWorkerClass (Ljava/lang/String;)V
+	public fun clearExecutionHistory (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun enqueue (Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/TaskTrigger;Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/Constraints;Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/ExistingPolicy;Ljava/util/Set;Ljava/lang/Long;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun enqueueChain (Ldev/brewkits/kmpworkmanager/background/domain/TaskChain;Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/ExistingPolicy;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun flushPendingProgress ()V
+	protected fun getAlarmReceiverClass ()Ljava/lang/Class;
+	public fun getExecutionHistory (ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun observeTaskState (Ljava/lang/String;)Lkotlinx/coroutines/flow/Flow;
+	public fun queryTasks (Ljava/util/Set;Ljava/util/Set;Ljava/util/Set;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/data/NativeTaskScheduler$Companion {
+	public final fun cleanupZombieInputFiles (Landroid/content/Context;)V
+}
+
+public final class dev/brewkits/kmpworkmanager/background/data/TaskIds {
+	public static final field EXACT_REMINDER Ljava/lang/String;
+	public static final field HEAVY_TASK_1 Ljava/lang/String;
+	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/background/data/TaskIds;
+	public static final field ONE_TIME_UPLOAD Ljava/lang/String;
+	public static final field PERIODIC_SYNC_TASK Ljava/lang/String;
+}
+
+public abstract interface annotation class dev/brewkits/kmpworkmanager/background/domain/AndroidOnly : java/lang/annotation/Annotation {
+}
+
+public abstract interface class dev/brewkits/kmpworkmanager/background/domain/AndroidWorker : dev/brewkits/kmpworkmanager/background/domain/Worker {
+	public abstract fun doWork (Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/WorkerEnvironment;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/AndroidWorker$DefaultImpls {
+	public static fun close (Ldev/brewkits/kmpworkmanager/background/domain/AndroidWorker;)V
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/AndroidWorkerDiagnostics : dev/brewkits/kmpworkmanager/background/domain/WorkerDiagnostics {
+	public fun <init> (Landroid/content/Context;)V
+	public fun getSchedulerStatus (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun getSystemHealth (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun getTaskStatus (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public abstract interface class dev/brewkits/kmpworkmanager/background/domain/AndroidWorkerFactory : dev/brewkits/kmpworkmanager/background/domain/WorkerFactory {
+	public abstract fun createWorker (Ljava/lang/String;)Ldev/brewkits/kmpworkmanager/background/domain/AndroidWorker;
+}
+
+public abstract interface class dev/brewkits/kmpworkmanager/background/domain/BackgroundTaskScheduler {
+	public abstract fun beginWith (Ldev/brewkits/kmpworkmanager/background/domain/TaskRequest;)Ldev/brewkits/kmpworkmanager/background/domain/TaskChain;
+	public abstract fun beginWith (Ljava/util/List;)Ldev/brewkits/kmpworkmanager/background/domain/TaskChain;
+	public abstract fun cancel (Ljava/lang/String;)V
+	public abstract fun cancelAll ()V
+	public abstract fun cancelByTag (Ljava/lang/String;)V
+	public abstract fun cancelByWorkerClass (Ljava/lang/String;)V
+	public abstract fun clearExecutionHistory (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun enqueue (Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/TaskTrigger;Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/Constraints;Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/ExistingPolicy;Ljava/util/Set;Ljava/lang/Long;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun enqueueChain (Ldev/brewkits/kmpworkmanager/background/domain/TaskChain;Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/ExistingPolicy;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun flushPendingProgress ()V
+	public abstract fun getExecutionHistory (ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun observeTaskState (Ljava/lang/String;)Lkotlinx/coroutines/flow/Flow;
+	public abstract fun queryTasks (Ljava/util/Set;Ljava/util/Set;Ljava/util/Set;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/BackgroundTaskScheduler$DefaultImpls {
+	public static fun cancelByTag (Ldev/brewkits/kmpworkmanager/background/domain/BackgroundTaskScheduler;Ljava/lang/String;)V
+	public static fun cancelByWorkerClass (Ldev/brewkits/kmpworkmanager/background/domain/BackgroundTaskScheduler;Ljava/lang/String;)V
+	public static synthetic fun enqueue$default (Ldev/brewkits/kmpworkmanager/background/domain/BackgroundTaskScheduler;Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/TaskTrigger;Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/Constraints;Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/ExistingPolicy;Ljava/util/Set;Ljava/lang/Long;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static synthetic fun enqueueChain$default (Ldev/brewkits/kmpworkmanager/background/domain/BackgroundTaskScheduler;Ldev/brewkits/kmpworkmanager/background/domain/TaskChain;Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/ExistingPolicy;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static synthetic fun getExecutionHistory$default (Ldev/brewkits/kmpworkmanager/background/domain/BackgroundTaskScheduler;ILkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static fun observeTaskState (Ldev/brewkits/kmpworkmanager/background/domain/BackgroundTaskScheduler;Ljava/lang/String;)Lkotlinx/coroutines/flow/Flow;
+	public static fun queryTasks (Ldev/brewkits/kmpworkmanager/background/domain/BackgroundTaskScheduler;Ljava/util/Set;Ljava/util/Set;Ljava/util/Set;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun queryTasks$default (Ldev/brewkits/kmpworkmanager/background/domain/BackgroundTaskScheduler;Ljava/util/Set;Ljava/util/Set;Ljava/util/Set;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/BackgroundTaskSchedulerExtKt {
+	public static final fun enqueueOneTime (Ldev/brewkits/kmpworkmanager/background/domain/BackgroundTaskScheduler;Ljava/lang/String;Ljava/lang/String;JLdev/brewkits/kmpworkmanager/background/domain/Constraints;Ldev/brewkits/kmpworkmanager/background/domain/ExistingPolicy;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun enqueueOneTime$default (Ldev/brewkits/kmpworkmanager/background/domain/BackgroundTaskScheduler;Ljava/lang/String;Ljava/lang/String;JLdev/brewkits/kmpworkmanager/background/domain/Constraints;Ldev/brewkits/kmpworkmanager/background/domain/ExistingPolicy;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static final fun enqueuePeriodic (Ldev/brewkits/kmpworkmanager/background/domain/BackgroundTaskScheduler;Ljava/lang/String;Ljava/lang/String;JLdev/brewkits/kmpworkmanager/background/domain/Constraints;Ldev/brewkits/kmpworkmanager/background/domain/ExistingPolicy;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun enqueuePeriodic$default (Ldev/brewkits/kmpworkmanager/background/domain/BackgroundTaskScheduler;Ljava/lang/String;Ljava/lang/String;JLdev/brewkits/kmpworkmanager/background/domain/Constraints;Ldev/brewkits/kmpworkmanager/background/domain/ExistingPolicy;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/BackoffPolicy : java/lang/Enum {
+	public static final field EXPONENTIAL Ldev/brewkits/kmpworkmanager/background/domain/BackoffPolicy;
+	public static final field LINEAR Ldev/brewkits/kmpworkmanager/background/domain/BackoffPolicy;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/brewkits/kmpworkmanager/background/domain/BackoffPolicy;
+	public static fun values ()[Ldev/brewkits/kmpworkmanager/background/domain/BackoffPolicy;
+}
+
+public abstract interface class dev/brewkits/kmpworkmanager/background/domain/BgTaskIdProvider {
+	public abstract fun getRequiredBgTaskIds ()Ljava/util/Set;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/Constraints {
+	public static final field Companion Ldev/brewkits/kmpworkmanager/background/domain/Constraints$Companion;
+	public fun <init> ()V
+	public fun <init> (ZZZZLdev/brewkits/kmpworkmanager/background/domain/Qos;ZLdev/brewkits/kmpworkmanager/background/domain/BackoffPolicy;JILjava/util/Set;Ldev/brewkits/kmpworkmanager/background/domain/ExactAlarmIOSBehavior;Ljava/util/Map;)V
+	public synthetic fun <init> (ZZZZLdev/brewkits/kmpworkmanager/background/domain/Qos;ZLdev/brewkits/kmpworkmanager/background/domain/BackoffPolicy;JILjava/util/Set;Ldev/brewkits/kmpworkmanager/background/domain/ExactAlarmIOSBehavior;Ljava/util/Map;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Z
+	public final fun component10 ()Ljava/util/Set;
+	public final fun component11 ()Ldev/brewkits/kmpworkmanager/background/domain/ExactAlarmIOSBehavior;
+	public final fun component12 ()Ljava/util/Map;
+	public final fun component2 ()Z
+	public final fun component3 ()Z
+	public final fun component4 ()Z
+	public final fun component5 ()Ldev/brewkits/kmpworkmanager/background/domain/Qos;
+	public final fun component6 ()Z
+	public final fun component7 ()Ldev/brewkits/kmpworkmanager/background/domain/BackoffPolicy;
+	public final fun component8 ()J
+	public final fun component9 ()I
+	public final fun copy (ZZZZLdev/brewkits/kmpworkmanager/background/domain/Qos;ZLdev/brewkits/kmpworkmanager/background/domain/BackoffPolicy;JILjava/util/Set;Ldev/brewkits/kmpworkmanager/background/domain/ExactAlarmIOSBehavior;Ljava/util/Map;)Ldev/brewkits/kmpworkmanager/background/domain/Constraints;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/background/domain/Constraints;ZZZZLdev/brewkits/kmpworkmanager/background/domain/Qos;ZLdev/brewkits/kmpworkmanager/background/domain/BackoffPolicy;JILjava/util/Set;Ldev/brewkits/kmpworkmanager/background/domain/ExactAlarmIOSBehavior;Ljava/util/Map;ILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/background/domain/Constraints;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAllowWhileIdle ()Z
+	public final fun getBackoffDelayMs ()J
+	public final fun getBackoffPolicy ()Ldev/brewkits/kmpworkmanager/background/domain/BackoffPolicy;
+	public final fun getExactAlarmIOSBehavior ()Ldev/brewkits/kmpworkmanager/background/domain/ExactAlarmIOSBehavior;
+	public final fun getExtras ()Ljava/util/Map;
+	public final fun getMaxRetries ()I
+	public final fun getQos ()Ldev/brewkits/kmpworkmanager/background/domain/Qos;
+	public final fun getRequiresCharging ()Z
+	public final fun getRequiresNetwork ()Z
+	public final fun getRequiresUnmeteredNetwork ()Z
+	public final fun getSystemConstraints ()Ljava/util/Set;
+	public fun hashCode ()I
+	public final fun isHeavyTask ()Z
+	public fun toString ()Ljava/lang/String;
+}
+
+public synthetic class dev/brewkits/kmpworkmanager/background/domain/Constraints$$serializer : kotlinx/serialization/internal/GeneratedSerializer {
+	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/background/domain/Constraints$$serializer;
+	public final fun childSerializers ()[Lkotlinx/serialization/KSerializer;
+	public final fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ldev/brewkits/kmpworkmanager/background/domain/Constraints;
+	public synthetic fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ljava/lang/Object;
+	public final fun getDescriptor ()Lkotlinx/serialization/descriptors/SerialDescriptor;
+	public final fun serialize (Lkotlinx/serialization/encoding/Encoder;Ldev/brewkits/kmpworkmanager/background/domain/Constraints;)V
+	public synthetic fun serialize (Lkotlinx/serialization/encoding/Encoder;Ljava/lang/Object;)V
+	public fun typeParametersSerializers ()[Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/Constraints$Companion {
+	public final fun serializer ()Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/DelegatingWorkerFactory : dev/brewkits/kmpworkmanager/background/domain/WorkerFactory {
+	public fun <init> (Ljava/util/List;)V
+	public fun createWorker (Ljava/lang/String;)Ldev/brewkits/kmpworkmanager/background/domain/Worker;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/EventSyncManager {
+	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/background/domain/EventSyncManager;
+	public final fun clearOldEvents (Ldev/brewkits/kmpworkmanager/persistence/EventStore;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun syncEvents (Ldev/brewkits/kmpworkmanager/persistence/EventStore;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/ExactAlarmIOSBehavior : java/lang/Enum {
+	public static final field ATTEMPT_BACKGROUND_RUN Ldev/brewkits/kmpworkmanager/background/domain/ExactAlarmIOSBehavior;
+	public static final field SHOW_NOTIFICATION Ldev/brewkits/kmpworkmanager/background/domain/ExactAlarmIOSBehavior;
+	public static final field THROW_ERROR Ldev/brewkits/kmpworkmanager/background/domain/ExactAlarmIOSBehavior;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/brewkits/kmpworkmanager/background/domain/ExactAlarmIOSBehavior;
+	public static fun values ()[Ldev/brewkits/kmpworkmanager/background/domain/ExactAlarmIOSBehavior;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/ExecutionRecord {
+	public static final field Companion Ldev/brewkits/kmpworkmanager/background/domain/ExecutionRecord$Companion;
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/ExecutionStatus;JJJIILjava/lang/Integer;Ljava/lang/String;ILjava/lang/String;Ljava/util/List;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/ExecutionStatus;JJJIILjava/lang/Integer;Ljava/lang/String;ILjava/lang/String;Ljava/util/List;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component10 ()Ljava/lang/String;
+	public final fun component11 ()I
+	public final fun component12 ()Ljava/lang/String;
+	public final fun component13 ()Ljava/util/List;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ldev/brewkits/kmpworkmanager/background/domain/ExecutionStatus;
+	public final fun component4 ()J
+	public final fun component5 ()J
+	public final fun component6 ()J
+	public final fun component7 ()I
+	public final fun component8 ()I
+	public final fun component9 ()Ljava/lang/Integer;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/ExecutionStatus;JJJIILjava/lang/Integer;Ljava/lang/String;ILjava/lang/String;Ljava/util/List;)Ldev/brewkits/kmpworkmanager/background/domain/ExecutionRecord;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/background/domain/ExecutionRecord;Ljava/lang/String;Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/ExecutionStatus;JJJIILjava/lang/Integer;Ljava/lang/String;ILjava/lang/String;Ljava/util/List;ILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/background/domain/ExecutionRecord;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getChainId ()Ljava/lang/String;
+	public final fun getCompletedSteps ()I
+	public final fun getDurationMs ()J
+	public final fun getEndedAtMs ()J
+	public final fun getErrorMessage ()Ljava/lang/String;
+	public final fun getFailedStep ()Ljava/lang/Integer;
+	public final fun getId ()Ljava/lang/String;
+	public final fun getPlatform ()Ljava/lang/String;
+	public final fun getRetryCount ()I
+	public final fun getStartedAtMs ()J
+	public final fun getStatus ()Ldev/brewkits/kmpworkmanager/background/domain/ExecutionStatus;
+	public final fun getTotalSteps ()I
+	public final fun getWorkerClassNames ()Ljava/util/List;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public synthetic class dev/brewkits/kmpworkmanager/background/domain/ExecutionRecord$$serializer : kotlinx/serialization/internal/GeneratedSerializer {
+	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/background/domain/ExecutionRecord$$serializer;
+	public final fun childSerializers ()[Lkotlinx/serialization/KSerializer;
+	public final fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ldev/brewkits/kmpworkmanager/background/domain/ExecutionRecord;
+	public synthetic fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ljava/lang/Object;
+	public final fun getDescriptor ()Lkotlinx/serialization/descriptors/SerialDescriptor;
+	public final fun serialize (Lkotlinx/serialization/encoding/Encoder;Ldev/brewkits/kmpworkmanager/background/domain/ExecutionRecord;)V
+	public synthetic fun serialize (Lkotlinx/serialization/encoding/Encoder;Ljava/lang/Object;)V
+	public fun typeParametersSerializers ()[Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/ExecutionRecord$Companion {
+	public final fun serializer ()Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/ExecutionStatus : java/lang/Enum {
+	public static final field ABANDONED Ldev/brewkits/kmpworkmanager/background/domain/ExecutionStatus;
+	public static final field Companion Ldev/brewkits/kmpworkmanager/background/domain/ExecutionStatus$Companion;
+	public static final field FAILURE Ldev/brewkits/kmpworkmanager/background/domain/ExecutionStatus;
+	public static final field SKIPPED Ldev/brewkits/kmpworkmanager/background/domain/ExecutionStatus;
+	public static final field SUCCESS Ldev/brewkits/kmpworkmanager/background/domain/ExecutionStatus;
+	public static final field TIMEOUT Ldev/brewkits/kmpworkmanager/background/domain/ExecutionStatus;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/brewkits/kmpworkmanager/background/domain/ExecutionStatus;
+	public static fun values ()[Ldev/brewkits/kmpworkmanager/background/domain/ExecutionStatus;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/ExecutionStatus$Companion {
+	public final fun serializer ()Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/ExistingPolicy : java/lang/Enum {
+	public static final field KEEP Ldev/brewkits/kmpworkmanager/background/domain/ExistingPolicy;
+	public static final field REPLACE Ldev/brewkits/kmpworkmanager/background/domain/ExistingPolicy;
+	public static final field UPDATE Ldev/brewkits/kmpworkmanager/background/domain/ExistingPolicy;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/brewkits/kmpworkmanager/background/domain/ExistingPolicy;
+	public static fun values ()[Ldev/brewkits/kmpworkmanager/background/domain/ExistingPolicy;
+}
+
+public abstract interface annotation class dev/brewkits/kmpworkmanager/background/domain/InternalKmpWorkManagerApi : java/lang/annotation/Annotation {
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/IosLiveActivityBridge {
+	public static final field Companion Ldev/brewkits/kmpworkmanager/background/domain/IosLiveActivityBridge$Companion;
+	public final fun startObserving (Ljava/lang/String;Lkotlin/jvm/functions/Function1;)V
+	public final fun stopObserving (Ljava/lang/String;)V
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/IosLiveActivityBridge$Companion {
+	public final fun getShared ()Ldev/brewkits/kmpworkmanager/background/domain/IosLiveActivityBridge;
+}
+
+public abstract interface class dev/brewkits/kmpworkmanager/background/domain/ProgressListener {
+	public abstract fun onProgressUpdate (Ldev/brewkits/kmpworkmanager/background/domain/WorkerProgress;)V
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/Qos : java/lang/Enum {
+	public static final field Background Ldev/brewkits/kmpworkmanager/background/domain/Qos;
+	public static final field UserInitiated Ldev/brewkits/kmpworkmanager/background/domain/Qos;
+	public static final field UserInteractive Ldev/brewkits/kmpworkmanager/background/domain/Qos;
+	public static final field Utility Ldev/brewkits/kmpworkmanager/background/domain/Qos;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/brewkits/kmpworkmanager/background/domain/Qos;
+	public static fun values ()[Ldev/brewkits/kmpworkmanager/background/domain/Qos;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/QueriedTask {
+	public fun <init> (Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/TaskState;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ldev/brewkits/kmpworkmanager/background/domain/TaskState;
+	public final fun copy (Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/TaskState;)Ldev/brewkits/kmpworkmanager/background/domain/QueriedTask;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/background/domain/QueriedTask;Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/TaskState;ILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/background/domain/QueriedTask;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getId ()Ljava/lang/String;
+	public final fun getState ()Ldev/brewkits/kmpworkmanager/background/domain/TaskState;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/ScheduleResult : java/lang/Enum {
+	public static final field ACCEPTED Ldev/brewkits/kmpworkmanager/background/domain/ScheduleResult;
+	public static final field DEADLINE_ALREADY_PASSED Ldev/brewkits/kmpworkmanager/background/domain/ScheduleResult;
+	public static final field REJECTED_OS_POLICY Ldev/brewkits/kmpworkmanager/background/domain/ScheduleResult;
+	public static final field THROTTLED Ldev/brewkits/kmpworkmanager/background/domain/ScheduleResult;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/brewkits/kmpworkmanager/background/domain/ScheduleResult;
+	public static fun values ()[Ldev/brewkits/kmpworkmanager/background/domain/ScheduleResult;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/SchedulerStatus {
+	public fun <init> (ZIILjava/lang/String;J)V
+	public final fun component1 ()Z
+	public final fun component2 ()I
+	public final fun component3 ()I
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()J
+	public final fun copy (ZIILjava/lang/String;J)Ldev/brewkits/kmpworkmanager/background/domain/SchedulerStatus;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/background/domain/SchedulerStatus;ZIILjava/lang/String;JILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/background/domain/SchedulerStatus;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getPlatform ()Ljava/lang/String;
+	public final fun getQueueSize ()I
+	public final fun getTimestamp ()J
+	public final fun getTotalPendingTasks ()I
+	public fun hashCode ()I
+	public final fun isReady ()Z
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/SystemConstraint : java/lang/Enum {
+	public static final field ALLOW_LOW_BATTERY Ldev/brewkits/kmpworkmanager/background/domain/SystemConstraint;
+	public static final field ALLOW_LOW_STORAGE Ldev/brewkits/kmpworkmanager/background/domain/SystemConstraint;
+	public static final field Companion Ldev/brewkits/kmpworkmanager/background/domain/SystemConstraint$Companion;
+	public static final field DEVICE_IDLE Ldev/brewkits/kmpworkmanager/background/domain/SystemConstraint;
+	public static final field REQUIRE_BATTERY_NOT_LOW Ldev/brewkits/kmpworkmanager/background/domain/SystemConstraint;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/brewkits/kmpworkmanager/background/domain/SystemConstraint;
+	public static fun values ()[Ldev/brewkits/kmpworkmanager/background/domain/SystemConstraint;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/SystemConstraint$Companion {
+	public final fun serializer ()Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/SystemHealthReport {
+	public fun <init> (JIZZJZZZ)V
+	public final fun component1 ()J
+	public final fun component2 ()I
+	public final fun component3 ()Z
+	public final fun component4 ()Z
+	public final fun component5 ()J
+	public final fun component6 ()Z
+	public final fun component7 ()Z
+	public final fun component8 ()Z
+	public final fun copy (JIZZJZZZ)Ldev/brewkits/kmpworkmanager/background/domain/SystemHealthReport;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/background/domain/SystemHealthReport;JIZZJZZZILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/background/domain/SystemHealthReport;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getBatteryLevel ()I
+	public final fun getDeviceInDozeMode ()Z
+	public final fun getNetworkAvailable ()Z
+	public final fun getStorageAvailable ()J
+	public final fun getTimestamp ()J
+	public fun hashCode ()I
+	public final fun isCharging ()Z
+	public final fun isLowPowerMode ()Z
+	public final fun isStorageLow ()Z
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/TaskChain {
+	public fun <init> (Ldev/brewkits/kmpworkmanager/background/domain/BackgroundTaskScheduler;Ljava/util/List;)V
+	public final fun enqueue (Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/ExistingPolicy;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun enqueue$default (Ldev/brewkits/kmpworkmanager/background/domain/TaskChain;Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/ExistingPolicy;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public final fun then (Ldev/brewkits/kmpworkmanager/background/domain/TaskRequest;)Ldev/brewkits/kmpworkmanager/background/domain/TaskChain;
+	public final fun then (Ljava/util/List;)Ldev/brewkits/kmpworkmanager/background/domain/TaskChain;
+	public final fun withId (Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/ExistingPolicy;)Ldev/brewkits/kmpworkmanager/background/domain/TaskChain;
+	public static synthetic fun withId$default (Ldev/brewkits/kmpworkmanager/background/domain/TaskChain;Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/ExistingPolicy;ILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/background/domain/TaskChain;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/TaskCompletionEvent {
+	public static final field Companion Ldev/brewkits/kmpworkmanager/background/domain/TaskCompletionEvent$Companion;
+	public fun <init> (Ljava/lang/String;ZLjava/lang/String;Lkotlinx/serialization/json/JsonObject;)V
+	public synthetic fun <init> (Ljava/lang/String;ZLjava/lang/String;Lkotlinx/serialization/json/JsonObject;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Z
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Lkotlinx/serialization/json/JsonObject;
+	public final fun copy (Ljava/lang/String;ZLjava/lang/String;Lkotlinx/serialization/json/JsonObject;)Ldev/brewkits/kmpworkmanager/background/domain/TaskCompletionEvent;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/background/domain/TaskCompletionEvent;Ljava/lang/String;ZLjava/lang/String;Lkotlinx/serialization/json/JsonObject;ILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/background/domain/TaskCompletionEvent;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMessage ()Ljava/lang/String;
+	public final fun getOutputData ()Lkotlinx/serialization/json/JsonObject;
+	public final fun getSuccess ()Z
+	public final fun getTaskName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public synthetic class dev/brewkits/kmpworkmanager/background/domain/TaskCompletionEvent$$serializer : kotlinx/serialization/internal/GeneratedSerializer {
+	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/background/domain/TaskCompletionEvent$$serializer;
+	public final fun childSerializers ()[Lkotlinx/serialization/KSerializer;
+	public final fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ldev/brewkits/kmpworkmanager/background/domain/TaskCompletionEvent;
+	public synthetic fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ljava/lang/Object;
+	public final fun getDescriptor ()Lkotlinx/serialization/descriptors/SerialDescriptor;
+	public final fun serialize (Lkotlinx/serialization/encoding/Encoder;Ldev/brewkits/kmpworkmanager/background/domain/TaskCompletionEvent;)V
+	public synthetic fun serialize (Lkotlinx/serialization/encoding/Encoder;Ljava/lang/Object;)V
+	public fun typeParametersSerializers ()[Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/TaskCompletionEvent$Companion {
+	public final fun serializer ()Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/TaskEventBus {
+	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/background/domain/TaskEventBus;
+	public final fun emit (Ldev/brewkits/kmpworkmanager/background/domain/TaskCompletionEvent;)V
+	public final fun getEvents ()Lkotlinx/coroutines/flow/SharedFlow;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/TaskEventManager {
+	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/background/domain/TaskEventManager;
+	public final fun emit (Ldev/brewkits/kmpworkmanager/background/domain/TaskCompletionEvent;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun initialize (Ldev/brewkits/kmpworkmanager/persistence/EventStore;)V
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/TaskPriority : java/lang/Enum {
+	public static final field CRITICAL Ldev/brewkits/kmpworkmanager/background/domain/TaskPriority;
+	public static final field Companion Ldev/brewkits/kmpworkmanager/background/domain/TaskPriority$Companion;
+	public static final field HIGH Ldev/brewkits/kmpworkmanager/background/domain/TaskPriority;
+	public static final field LOW Ldev/brewkits/kmpworkmanager/background/domain/TaskPriority;
+	public static final field NORMAL Ldev/brewkits/kmpworkmanager/background/domain/TaskPriority;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/brewkits/kmpworkmanager/background/domain/TaskPriority;
+	public static fun values ()[Ldev/brewkits/kmpworkmanager/background/domain/TaskPriority;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/TaskPriority$Companion {
+	public final fun serializer ()Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/TaskProgressBus {
+	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/background/domain/TaskProgressBus;
+	public final fun clearThrottle (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun emit (Ldev/brewkits/kmpworkmanager/background/domain/TaskProgressEvent;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun getEvents ()Lkotlinx/coroutines/flow/SharedFlow;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/TaskProgressEvent {
+	public static final field Companion Ldev/brewkits/kmpworkmanager/background/domain/TaskProgressEvent$Companion;
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/WorkerProgress;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ldev/brewkits/kmpworkmanager/background/domain/WorkerProgress;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/WorkerProgress;)Ldev/brewkits/kmpworkmanager/background/domain/TaskProgressEvent;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/background/domain/TaskProgressEvent;Ljava/lang/String;Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/WorkerProgress;ILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/background/domain/TaskProgressEvent;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getProgress ()Ldev/brewkits/kmpworkmanager/background/domain/WorkerProgress;
+	public final fun getTaskId ()Ljava/lang/String;
+	public final fun getTaskName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public synthetic class dev/brewkits/kmpworkmanager/background/domain/TaskProgressEvent$$serializer : kotlinx/serialization/internal/GeneratedSerializer {
+	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/background/domain/TaskProgressEvent$$serializer;
+	public final fun childSerializers ()[Lkotlinx/serialization/KSerializer;
+	public final fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ldev/brewkits/kmpworkmanager/background/domain/TaskProgressEvent;
+	public synthetic fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ljava/lang/Object;
+	public final fun getDescriptor ()Lkotlinx/serialization/descriptors/SerialDescriptor;
+	public final fun serialize (Lkotlinx/serialization/encoding/Encoder;Ldev/brewkits/kmpworkmanager/background/domain/TaskProgressEvent;)V
+	public synthetic fun serialize (Lkotlinx/serialization/encoding/Encoder;Ljava/lang/Object;)V
+	public fun typeParametersSerializers ()[Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/TaskProgressEvent$Companion {
+	public final fun serializer ()Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/TaskRequest {
+	public static final field Companion Ldev/brewkits/kmpworkmanager/background/domain/TaskRequest$Companion;
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/Constraints;Ldev/brewkits/kmpworkmanager/background/domain/TaskPriority;ZLjava/util/Set;Ljava/lang/Long;Z)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/Constraints;Ldev/brewkits/kmpworkmanager/background/domain/TaskPriority;ZLjava/util/Set;Ljava/lang/Long;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ldev/brewkits/kmpworkmanager/background/domain/Constraints;
+	public final fun component4 ()Ldev/brewkits/kmpworkmanager/background/domain/TaskPriority;
+	public final fun component5 ()Z
+	public final fun component6 ()Ljava/util/Set;
+	public final fun component7 ()Ljava/lang/Long;
+	public final fun component8 ()Z
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/Constraints;Ldev/brewkits/kmpworkmanager/background/domain/TaskPriority;ZLjava/util/Set;Ljava/lang/Long;Z)Ldev/brewkits/kmpworkmanager/background/domain/TaskRequest;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/background/domain/TaskRequest;Ljava/lang/String;Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/Constraints;Ldev/brewkits/kmpworkmanager/background/domain/TaskPriority;ZLjava/util/Set;Ljava/lang/Long;ZILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/background/domain/TaskRequest;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getConstraints ()Ldev/brewkits/kmpworkmanager/background/domain/Constraints;
+	public final fun getDeadlineMs ()Ljava/lang/Long;
+	public final fun getInputJson ()Ljava/lang/String;
+	public final fun getMergeOutputFromPreviousStep ()Z
+	public final fun getPriority ()Ldev/brewkits/kmpworkmanager/background/domain/TaskPriority;
+	public final fun getTags ()Ljava/util/Set;
+	public final fun getWorkerClassName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun isIdempotent ()Z
+	public fun toString ()Ljava/lang/String;
+}
+
+public synthetic class dev/brewkits/kmpworkmanager/background/domain/TaskRequest$$serializer : kotlinx/serialization/internal/GeneratedSerializer {
+	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/background/domain/TaskRequest$$serializer;
+	public final fun childSerializers ()[Lkotlinx/serialization/KSerializer;
+	public final fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ldev/brewkits/kmpworkmanager/background/domain/TaskRequest;
+	public synthetic fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ljava/lang/Object;
+	public final fun getDescriptor ()Lkotlinx/serialization/descriptors/SerialDescriptor;
+	public final fun serialize (Lkotlinx/serialization/encoding/Encoder;Ldev/brewkits/kmpworkmanager/background/domain/TaskRequest;)V
+	public synthetic fun serialize (Lkotlinx/serialization/encoding/Encoder;Ljava/lang/Object;)V
+	public fun typeParametersSerializers ()[Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/TaskRequest$Companion {
+	public final fun serializer ()Lkotlinx/serialization/KSerializer;
+}
+
+public abstract class dev/brewkits/kmpworkmanager/background/domain/TaskState {
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/TaskState$Cancelled : dev/brewkits/kmpworkmanager/background/domain/TaskState {
+	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/background/domain/TaskState$Cancelled;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/TaskState$Enqueued : dev/brewkits/kmpworkmanager/background/domain/TaskState {
+	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/background/domain/TaskState$Enqueued;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/TaskState$Failed : dev/brewkits/kmpworkmanager/background/domain/TaskState {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Ldev/brewkits/kmpworkmanager/background/domain/TaskState$Failed;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/background/domain/TaskState$Failed;Ljava/lang/String;ILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/background/domain/TaskState$Failed;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMessage ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/TaskState$Kind : java/lang/Enum {
+	public static final field CANCELLED Ldev/brewkits/kmpworkmanager/background/domain/TaskState$Kind;
+	public static final field ENQUEUED Ldev/brewkits/kmpworkmanager/background/domain/TaskState$Kind;
+	public static final field FAILED Ldev/brewkits/kmpworkmanager/background/domain/TaskState$Kind;
+	public static final field RUNNING Ldev/brewkits/kmpworkmanager/background/domain/TaskState$Kind;
+	public static final field SUCCEEDED Ldev/brewkits/kmpworkmanager/background/domain/TaskState$Kind;
+	public static final field UNKNOWN Ldev/brewkits/kmpworkmanager/background/domain/TaskState$Kind;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/brewkits/kmpworkmanager/background/domain/TaskState$Kind;
+	public static fun values ()[Ldev/brewkits/kmpworkmanager/background/domain/TaskState$Kind;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/TaskState$Running : dev/brewkits/kmpworkmanager/background/domain/TaskState {
+	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/background/domain/TaskState$Running;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/TaskState$Succeeded : dev/brewkits/kmpworkmanager/background/domain/TaskState {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Ldev/brewkits/kmpworkmanager/background/domain/TaskState$Succeeded;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/background/domain/TaskState$Succeeded;Ljava/lang/String;ILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/background/domain/TaskState$Succeeded;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMessage ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/TaskState$Unknown : dev/brewkits/kmpworkmanager/background/domain/TaskState {
+	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/background/domain/TaskState$Unknown;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/TaskStateKt {
+	public static final fun getKind (Ldev/brewkits/kmpworkmanager/background/domain/TaskState;)Ldev/brewkits/kmpworkmanager/background/domain/TaskState$Kind;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/TaskStatusDetail {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Long;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()I
+	public final fun component5 ()Ljava/lang/Long;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Long;Ljava/lang/String;)Ldev/brewkits/kmpworkmanager/background/domain/TaskStatusDetail;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/background/domain/TaskStatusDetail;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Long;Ljava/lang/String;ILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/background/domain/TaskStatusDetail;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getLastError ()Ljava/lang/String;
+	public final fun getLastExecutionTime ()Ljava/lang/Long;
+	public final fun getRetryCount ()I
+	public final fun getState ()Ljava/lang/String;
+	public final fun getTaskId ()Ljava/lang/String;
+	public final fun getWorkerClassName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/brewkits/kmpworkmanager/background/domain/TaskTrigger {
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/TaskTrigger$ContentUri : dev/brewkits/kmpworkmanager/background/domain/TaskTrigger {
+	public fun <init> (Ljava/lang/String;Z)V
+	public synthetic fun <init> (Ljava/lang/String;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Z
+	public final fun copy (Ljava/lang/String;Z)Ldev/brewkits/kmpworkmanager/background/domain/TaskTrigger$ContentUri;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/background/domain/TaskTrigger$ContentUri;Ljava/lang/String;ZILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/background/domain/TaskTrigger$ContentUri;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getTriggerForDescendants ()Z
+	public final fun getUriString ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/TaskTrigger$Exact : dev/brewkits/kmpworkmanager/background/domain/TaskTrigger {
+	public fun <init> (J)V
+	public final fun component1 ()J
+	public final fun copy (J)Ldev/brewkits/kmpworkmanager/background/domain/TaskTrigger$Exact;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/background/domain/TaskTrigger$Exact;JILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/background/domain/TaskTrigger$Exact;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAtEpochMillis ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/TaskTrigger$OneTime : dev/brewkits/kmpworkmanager/background/domain/TaskTrigger {
+	public fun <init> ()V
+	public fun <init> (J)V
+	public synthetic fun <init> (JILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()J
+	public final fun copy (J)Ldev/brewkits/kmpworkmanager/background/domain/TaskTrigger$OneTime;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/background/domain/TaskTrigger$OneTime;JILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/background/domain/TaskTrigger$OneTime;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getInitialDelayMs ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/TaskTrigger$Periodic : dev/brewkits/kmpworkmanager/background/domain/TaskTrigger {
+	public static final field Companion Ldev/brewkits/kmpworkmanager/background/domain/TaskTrigger$Periodic$Companion;
+	public static final field MIN_INTERVAL_MS J
+	public fun <init> (JLjava/lang/Long;JZ)V
+	public synthetic fun <init> (JLjava/lang/Long;JZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()J
+	public final fun component2 ()Ljava/lang/Long;
+	public final fun component3 ()J
+	public final fun component4 ()Z
+	public final fun copy (JLjava/lang/Long;JZ)Ldev/brewkits/kmpworkmanager/background/domain/TaskTrigger$Periodic;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/background/domain/TaskTrigger$Periodic;JLjava/lang/Long;JZILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/background/domain/TaskTrigger$Periodic;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getFlexMs ()Ljava/lang/Long;
+	public final fun getInitialDelayMs ()J
+	public final fun getIntervalMs ()J
+	public final fun getRunImmediately ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/TaskTrigger$Periodic$Companion {
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/TaskTrigger$Windowed : dev/brewkits/kmpworkmanager/background/domain/TaskTrigger {
+	public fun <init> (JJ)V
+	public final fun component1 ()J
+	public final fun component2 ()J
+	public final fun copy (JJ)Ldev/brewkits/kmpworkmanager/background/domain/TaskTrigger$Windowed;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/background/domain/TaskTrigger$Windowed;JJILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/background/domain/TaskTrigger$Windowed;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getEarliest ()J
+	public final fun getLatest ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/TaskTriggerHelperKt {
+	public static final fun createConstraints ()Ldev/brewkits/kmpworkmanager/background/domain/Constraints;
+	public static final fun createTaskTriggerOneTime (J)Ldev/brewkits/kmpworkmanager/background/domain/TaskTrigger;
+	public static final fun createTaskTriggerOneTimeSeconds (D)Ldev/brewkits/kmpworkmanager/background/domain/TaskTrigger;
+	public static final fun createTaskTriggerPeriodic (JLjava/lang/Long;JZ)Ldev/brewkits/kmpworkmanager/background/domain/TaskTrigger;
+	public static synthetic fun createTaskTriggerPeriodic$default (JLjava/lang/Long;JZILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/background/domain/TaskTrigger;
+	public static final fun createTaskTriggerPeriodicSeconds (DDZ)Ldev/brewkits/kmpworkmanager/background/domain/TaskTrigger;
+	public static synthetic fun createTaskTriggerPeriodicSeconds$default (DDZILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/background/domain/TaskTrigger;
+}
+
+public abstract interface class dev/brewkits/kmpworkmanager/background/domain/TelemetryHook {
+	public abstract fun onChainCompleted (Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook$ChainCompletedEvent;)V
+	public abstract fun onChainFailed (Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook$ChainFailedEvent;)V
+	public abstract fun onChainSkipped (Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook$ChainSkippedEvent;)V
+	public abstract fun onTaskCompleted (Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook$TaskCompletedEvent;)V
+	public abstract fun onTaskFailed (Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook$TaskFailedEvent;)V
+	public abstract fun onTaskScheduled (Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook$TaskScheduledEvent;)V
+	public abstract fun onTaskStarted (Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook$TaskStartedEvent;)V
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/TelemetryHook$ChainCompletedEvent {
+	public fun <init> (Ljava/lang/String;ILjava/lang/String;J)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()I
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()J
+	public final fun copy (Ljava/lang/String;ILjava/lang/String;J)Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook$ChainCompletedEvent;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook$ChainCompletedEvent;Ljava/lang/String;ILjava/lang/String;JILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook$ChainCompletedEvent;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getChainId ()Ljava/lang/String;
+	public final fun getDurationMs ()J
+	public final fun getPlatform ()Ljava/lang/String;
+	public final fun getTotalSteps ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/TelemetryHook$ChainFailedEvent {
+	public fun <init> (Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;IZ)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()I
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()I
+	public final fun component6 ()Z
+	public final fun copy (Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;IZ)Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook$ChainFailedEvent;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook$ChainFailedEvent;Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;IZILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook$ChainFailedEvent;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getChainId ()Ljava/lang/String;
+	public final fun getError ()Ljava/lang/String;
+	public final fun getFailedStep ()I
+	public final fun getPlatform ()Ljava/lang/String;
+	public final fun getRetryCount ()I
+	public final fun getWillRetry ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/TelemetryHook$ChainSkippedEvent {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook$ChainSkippedEvent;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook$ChainSkippedEvent;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook$ChainSkippedEvent;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getChainId ()Ljava/lang/String;
+	public final fun getPlatform ()Ljava/lang/String;
+	public final fun getReason ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/TelemetryHook$DefaultImpls {
+	public static fun onChainCompleted (Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook;Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook$ChainCompletedEvent;)V
+	public static fun onChainFailed (Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook;Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook$ChainFailedEvent;)V
+	public static fun onChainSkipped (Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook;Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook$ChainSkippedEvent;)V
+	public static fun onTaskCompleted (Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook;Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook$TaskCompletedEvent;)V
+	public static fun onTaskFailed (Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook;Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook$TaskFailedEvent;)V
+	public static fun onTaskScheduled (Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook;Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook$TaskScheduledEvent;)V
+	public static fun onTaskStarted (Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook;Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook$TaskStartedEvent;)V
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/TelemetryHook$TaskCompletedEvent {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/String;ZJLjava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/String;ZJLjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/Integer;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Z
+	public final fun component6 ()J
+	public final fun component7 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/String;ZJLjava/lang/String;)Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook$TaskCompletedEvent;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook$TaskCompletedEvent;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/String;ZJLjava/lang/String;ILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook$TaskCompletedEvent;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getChainId ()Ljava/lang/String;
+	public final fun getDurationMs ()J
+	public final fun getErrorMessage ()Ljava/lang/String;
+	public final fun getPlatform ()Ljava/lang/String;
+	public final fun getStepIndex ()Ljava/lang/Integer;
+	public final fun getSuccess ()Z
+	public final fun getTaskName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/TelemetryHook$TaskFailedEvent {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/String;Ljava/lang/String;JI)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/String;Ljava/lang/String;JIILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/Integer;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()J
+	public final fun component7 ()I
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/String;Ljava/lang/String;JI)Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook$TaskFailedEvent;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook$TaskFailedEvent;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/String;Ljava/lang/String;JIILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook$TaskFailedEvent;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getChainId ()Ljava/lang/String;
+	public final fun getDurationMs ()J
+	public final fun getError ()Ljava/lang/String;
+	public final fun getPlatform ()Ljava/lang/String;
+	public final fun getRetryCount ()I
+	public final fun getStepIndex ()Ljava/lang/Integer;
+	public final fun getTaskName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/TelemetryHook$TaskScheduledEvent {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()J
+	public final fun component5 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;)Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook$TaskScheduledEvent;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook$TaskScheduledEvent;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;ILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook$TaskScheduledEvent;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getInitialDelayMs ()J
+	public final fun getPlatform ()Ljava/lang/String;
+	public final fun getTaskId ()Ljava/lang/String;
+	public final fun getTaskName ()Ljava/lang/String;
+	public final fun getTriggerType ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/TelemetryHook$TaskStartedEvent {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/String;J)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/String;JILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/Integer;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()J
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/String;J)Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook$TaskStartedEvent;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook$TaskStartedEvent;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/String;JILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/background/domain/TelemetryHook$TaskStartedEvent;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getChainId ()Ljava/lang/String;
+	public final fun getPlatform ()Ljava/lang/String;
+	public final fun getStartedAtMs ()J
+	public final fun getStepIndex ()Ljava/lang/Integer;
+	public final fun getTaskName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/brewkits/kmpworkmanager/background/domain/Worker {
+	public abstract fun close ()V
+	public abstract fun doWork (Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/WorkerEnvironment;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/Worker$DefaultImpls {
+	public static fun close (Ldev/brewkits/kmpworkmanager/background/domain/Worker;)V
+}
+
+public abstract interface class dev/brewkits/kmpworkmanager/background/domain/WorkerDiagnostics {
+	public abstract fun getSchedulerStatus (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun getSystemHealth (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun getTaskStatus (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/WorkerEnvironment {
+	public fun <init> ()V
+	public fun <init> (Ldev/brewkits/kmpworkmanager/background/domain/ProgressListener;Lkotlin/jvm/functions/Function0;)V
+	public synthetic fun <init> (Ldev/brewkits/kmpworkmanager/background/domain/ProgressListener;Lkotlin/jvm/functions/Function0;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getProgressListener ()Ldev/brewkits/kmpworkmanager/background/domain/ProgressListener;
+	public final fun isCancelled ()Lkotlin/jvm/functions/Function0;
+}
+
+public abstract interface class dev/brewkits/kmpworkmanager/background/domain/WorkerFactory {
+	public abstract fun createWorker (Ljava/lang/String;)Ldev/brewkits/kmpworkmanager/background/domain/Worker;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/WorkerProgress {
+	public static final field Companion Ldev/brewkits/kmpworkmanager/background/domain/WorkerProgress$Companion;
+	public fun <init> (ILjava/lang/String;Ljava/lang/Integer;Ljava/lang/Integer;)V
+	public synthetic fun <init> (ILjava/lang/String;Ljava/lang/Integer;Ljava/lang/Integer;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()I
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/Integer;
+	public final fun component4 ()Ljava/lang/Integer;
+	public final fun copy (ILjava/lang/String;Ljava/lang/Integer;Ljava/lang/Integer;)Ldev/brewkits/kmpworkmanager/background/domain/WorkerProgress;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/background/domain/WorkerProgress;ILjava/lang/String;Ljava/lang/Integer;Ljava/lang/Integer;ILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/background/domain/WorkerProgress;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCurrentStep ()Ljava/lang/Integer;
+	public final fun getMessage ()Ljava/lang/String;
+	public final fun getProgress ()I
+	public final fun getTotalSteps ()Ljava/lang/Integer;
+	public fun hashCode ()I
+	public final fun toDisplayString ()Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
+}
+
+public synthetic class dev/brewkits/kmpworkmanager/background/domain/WorkerProgress$$serializer : kotlinx/serialization/internal/GeneratedSerializer {
+	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/background/domain/WorkerProgress$$serializer;
+	public final fun childSerializers ()[Lkotlinx/serialization/KSerializer;
+	public final fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ldev/brewkits/kmpworkmanager/background/domain/WorkerProgress;
+	public synthetic fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ljava/lang/Object;
+	public final fun getDescriptor ()Lkotlinx/serialization/descriptors/SerialDescriptor;
+	public final fun serialize (Lkotlinx/serialization/encoding/Encoder;Ldev/brewkits/kmpworkmanager/background/domain/WorkerProgress;)V
+	public synthetic fun serialize (Lkotlinx/serialization/encoding/Encoder;Ljava/lang/Object;)V
+	public fun typeParametersSerializers ()[Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/WorkerProgress$Companion {
+	public final fun forStep (IILjava/lang/String;)Ldev/brewkits/kmpworkmanager/background/domain/WorkerProgress;
+	public static synthetic fun forStep$default (Ldev/brewkits/kmpworkmanager/background/domain/WorkerProgress$Companion;IILjava/lang/String;ILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/background/domain/WorkerProgress;
+	public final fun serializer ()Lkotlinx/serialization/KSerializer;
+}
+
+public abstract class dev/brewkits/kmpworkmanager/background/domain/WorkerResult {
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/WorkerResult$Failure : dev/brewkits/kmpworkmanager/background/domain/WorkerResult {
+	public fun <init> (Ljava/lang/String;Z)V
+	public synthetic fun <init> (Ljava/lang/String;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Z
+	public final fun copy (Ljava/lang/String;Z)Ldev/brewkits/kmpworkmanager/background/domain/WorkerResult$Failure;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/background/domain/WorkerResult$Failure;Ljava/lang/String;ZILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/background/domain/WorkerResult$Failure;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMessage ()Ljava/lang/String;
+	public final fun getShouldRetry ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/WorkerResult$Retry : dev/brewkits/kmpworkmanager/background/domain/WorkerResult {
+	public fun <init> (Ljava/lang/String;Ljava/lang/Long;Ljava/lang/Integer;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Long;Ljava/lang/Integer;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/Long;
+	public final fun component3 ()Ljava/lang/Integer;
+	public final fun copy (Ljava/lang/String;Ljava/lang/Long;Ljava/lang/Integer;)Ldev/brewkits/kmpworkmanager/background/domain/WorkerResult$Retry;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/background/domain/WorkerResult$Retry;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/Integer;ILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/background/domain/WorkerResult$Retry;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAttemptCap ()Ljava/lang/Integer;
+	public final fun getDelayMs ()Ljava/lang/Long;
+	public final fun getReason ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/brewkits/kmpworkmanager/background/domain/WorkerResult$Success : dev/brewkits/kmpworkmanager/background/domain/WorkerResult {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;Lkotlinx/serialization/json/JsonObject;)V
+	public synthetic fun <init> (Ljava/lang/String;Lkotlinx/serialization/json/JsonObject;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Lkotlinx/serialization/json/JsonObject;
+	public final fun copy (Ljava/lang/String;Lkotlinx/serialization/json/JsonObject;)Ldev/brewkits/kmpworkmanager/background/domain/WorkerResult$Success;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/background/domain/WorkerResult$Success;Ljava/lang/String;Lkotlinx/serialization/json/JsonObject;ILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/background/domain/WorkerResult$Success;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getData ()Lkotlinx/serialization/json/JsonObject;
+	public final fun getMessage ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/brewkits/kmpworkmanager/persistence/AndroidEventStore : dev/brewkits/kmpworkmanager/persistence/EventStore {
+	public fun <init> (Landroid/content/Context;Ldev/brewkits/kmpworkmanager/persistence/EventStoreConfig;)V
+	public synthetic fun <init> (Landroid/content/Context;Ldev/brewkits/kmpworkmanager/persistence/EventStoreConfig;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun clearAll (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun clearOldEvents (JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun getEventCount (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun getUnconsumedEvents (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun markEventConsumed (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun saveEvent (Ldev/brewkits/kmpworkmanager/background/domain/TaskCompletionEvent;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/brewkits/kmpworkmanager/persistence/AndroidExecutionHistoryStore : dev/brewkits/kmpworkmanager/persistence/ExecutionHistoryStore {
+	public fun <init> (Landroid/content/Context;)V
+	public fun clear (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun getRecords (ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun save (Ldev/brewkits/kmpworkmanager/background/domain/ExecutionRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public abstract interface class dev/brewkits/kmpworkmanager/persistence/EventStore {
+	public abstract fun clearAll (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun clearOldEvents (JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun getEventCount (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun getUnconsumedEvents (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun markEventConsumed (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun saveEvent (Ldev/brewkits/kmpworkmanager/background/domain/TaskCompletionEvent;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/brewkits/kmpworkmanager/persistence/EventStoreConfig {
+	public fun <init> ()V
+	public fun <init> (IJJZJJ)V
+	public synthetic fun <init> (IJJZJJILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()I
+	public final fun component2 ()J
+	public final fun component3 ()J
+	public final fun component4 ()Z
+	public final fun component5 ()J
+	public final fun component6 ()J
+	public final fun copy (IJJZJJ)Ldev/brewkits/kmpworkmanager/persistence/EventStoreConfig;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/persistence/EventStoreConfig;IJJZJJILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/persistence/EventStoreConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAutoCleanup ()Z
+	public final fun getCleanupFileSizeThresholdBytes ()J
+	public final fun getCleanupIntervalMs ()J
+	public final fun getConsumedEventRetentionMs ()J
+	public final fun getMaxEvents ()I
+	public final fun getUnconsumedEventRetentionMs ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/brewkits/kmpworkmanager/persistence/ExecutionHistoryStore {
+	public static final field Companion Ldev/brewkits/kmpworkmanager/persistence/ExecutionHistoryStore$Companion;
+	public static final field MAX_RECORDS I
+	public abstract fun clear (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun getRecords (ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun save (Ldev/brewkits/kmpworkmanager/background/domain/ExecutionRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/brewkits/kmpworkmanager/persistence/ExecutionHistoryStore$Companion {
+	public static final field MAX_RECORDS I
+}
+
+public final class dev/brewkits/kmpworkmanager/persistence/ExecutionHistoryStore$DefaultImpls {
+	public static synthetic fun getRecords$default (Ldev/brewkits/kmpworkmanager/persistence/ExecutionHistoryStore;ILkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+}
+
+public final class dev/brewkits/kmpworkmanager/persistence/StoredEvent {
+	public static final field Companion Ldev/brewkits/kmpworkmanager/persistence/StoredEvent$Companion;
+	public fun <init> (Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/TaskCompletionEvent;JZ)V
+	public synthetic fun <init> (Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/TaskCompletionEvent;JZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ldev/brewkits/kmpworkmanager/background/domain/TaskCompletionEvent;
+	public final fun component3 ()J
+	public final fun component4 ()Z
+	public final fun copy (Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/TaskCompletionEvent;JZ)Ldev/brewkits/kmpworkmanager/persistence/StoredEvent;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/persistence/StoredEvent;Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/TaskCompletionEvent;JZILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/persistence/StoredEvent;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getConsumed ()Z
+	public final fun getEvent ()Ldev/brewkits/kmpworkmanager/background/domain/TaskCompletionEvent;
+	public final fun getId ()Ljava/lang/String;
+	public final fun getTimestamp ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public synthetic class dev/brewkits/kmpworkmanager/persistence/StoredEvent$$serializer : kotlinx/serialization/internal/GeneratedSerializer {
+	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/persistence/StoredEvent$$serializer;
+	public final fun childSerializers ()[Lkotlinx/serialization/KSerializer;
+	public final fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ldev/brewkits/kmpworkmanager/persistence/StoredEvent;
+	public synthetic fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ljava/lang/Object;
+	public final fun getDescriptor ()Lkotlinx/serialization/descriptors/SerialDescriptor;
+	public final fun serialize (Lkotlinx/serialization/encoding/Encoder;Ldev/brewkits/kmpworkmanager/persistence/StoredEvent;)V
+	public synthetic fun serialize (Lkotlinx/serialization/encoding/Encoder;Ljava/lang/Object;)V
+	public fun typeParametersSerializers ()[Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/persistence/StoredEvent$Companion {
+	public final fun serializer ()Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/utils/AppDispatchers {
+	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/utils/AppDispatchers;
+	public final fun getIO ()Lkotlinx/coroutines/CoroutineDispatcher;
+}
+
+public final class dev/brewkits/kmpworkmanager/utils/CRC32 {
+	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/utils/CRC32;
+	public final fun calculate-OGnWXxg (Ljava/lang/String;)I
+	public final fun calculate-OGnWXxg ([B)I
+	public final fun verify-Qn1smSk (Ljava/lang/String;I)Z
+	public final fun verify-Qn1smSk ([BI)Z
+}
+
+public final class dev/brewkits/kmpworkmanager/utils/CRC32Kt {
+	public static final fun crc32 (Ljava/lang/String;)I
+	public static final fun crc32 ([B)I
+	public static final fun verifyCrc32-Qn1smSk (Ljava/lang/String;I)Z
+	public static final fun verifyCrc32-Qn1smSk ([BI)Z
+}
+
+public abstract interface class dev/brewkits/kmpworkmanager/utils/CustomLogger {
+	public abstract fun log (Ldev/brewkits/kmpworkmanager/utils/Logger$Level;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V
+}
+
+public final class dev/brewkits/kmpworkmanager/utils/LogTags {
+	public static final field ALARM Ljava/lang/String;
+	public static final field CHAIN Ljava/lang/String;
+	public static final field ERROR Ljava/lang/String;
+	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/utils/LogTags;
+	public static final field PERMISSION Ljava/lang/String;
+	public static final field PUSH Ljava/lang/String;
+	public static final field QUEUE Ljava/lang/String;
+	public static final field SCHEDULER Ljava/lang/String;
+	public static final field TAG_DEBUG Ljava/lang/String;
+	public static final field WORKER Ljava/lang/String;
+}
+
+public final class dev/brewkits/kmpworkmanager/utils/Logger {
+	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/utils/Logger;
+	public final fun d (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V
+	public static synthetic fun d$default (Ldev/brewkits/kmpworkmanager/utils/Logger;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;ILjava/lang/Object;)V
+	public final fun e (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V
+	public static synthetic fun e$default (Ldev/brewkits/kmpworkmanager/utils/Logger;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;ILjava/lang/Object;)V
+	public final fun i (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V
+	public static synthetic fun i$default (Ldev/brewkits/kmpworkmanager/utils/Logger;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;ILjava/lang/Object;)V
+	public final fun setCustomLogger (Ldev/brewkits/kmpworkmanager/utils/CustomLogger;)V
+	public final fun setMinLevel (Ldev/brewkits/kmpworkmanager/utils/Logger$Level;)V
+	public final fun v (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V
+	public static synthetic fun v$default (Ldev/brewkits/kmpworkmanager/utils/Logger;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;ILjava/lang/Object;)V
+	public final fun w (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V
+	public static synthetic fun w$default (Ldev/brewkits/kmpworkmanager/utils/Logger;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;ILjava/lang/Object;)V
+}
+
+public final class dev/brewkits/kmpworkmanager/utils/Logger$Level : java/lang/Enum {
+	public static final field DEBUG_LEVEL Ldev/brewkits/kmpworkmanager/utils/Logger$Level;
+	public static final field ERROR Ldev/brewkits/kmpworkmanager/utils/Logger$Level;
+	public static final field INFO Ldev/brewkits/kmpworkmanager/utils/Logger$Level;
+	public static final field VERBOSE Ldev/brewkits/kmpworkmanager/utils/Logger$Level;
+	public static final field WARN Ldev/brewkits/kmpworkmanager/utils/Logger$Level;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/brewkits/kmpworkmanager/utils/Logger$Level;
+	public static fun values ()[Ldev/brewkits/kmpworkmanager/utils/Logger$Level;
+}
+
+public final class dev/brewkits/kmpworkmanager/utils/PlatformFileSystemKt {
+	public static final fun getPlatformFileSystem ()Lokio/FileSystem;
+}
+
+public final class dev/brewkits/kmpworkmanager/utils/TimeUtils_androidKt {
+	public static final fun currentTimeMillis ()J
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/BuiltinWorkerRegistry : dev/brewkits/kmpworkmanager/background/domain/WorkerFactory {
+	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/workers/BuiltinWorkerRegistry;
+	public fun createWorker (Ljava/lang/String;)Ldev/brewkits/kmpworkmanager/background/domain/Worker;
+	public final fun listWorkers ()Ljava/util/List;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/CompositeWorkerFactory : dev/brewkits/kmpworkmanager/background/domain/WorkerFactory {
+	public fun <init> ([Ldev/brewkits/kmpworkmanager/background/domain/WorkerFactory;)V
+	public fun createWorker (Ljava/lang/String;)Ldev/brewkits/kmpworkmanager/background/domain/Worker;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/builtins/FileCompressionWorker : dev/brewkits/kmpworkmanager/background/domain/Worker {
+	public fun <init> ()V
+	public fun close ()V
+	public fun doWork (Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/WorkerEnvironment;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/config/ChecksumAlgorithm : java/lang/Enum {
+	public static final field Companion Ldev/brewkits/kmpworkmanager/workers/config/ChecksumAlgorithm$Companion;
+	public static final field MD5 Ldev/brewkits/kmpworkmanager/workers/config/ChecksumAlgorithm;
+	public static final field SHA1 Ldev/brewkits/kmpworkmanager/workers/config/ChecksumAlgorithm;
+	public static final field SHA256 Ldev/brewkits/kmpworkmanager/workers/config/ChecksumAlgorithm;
+	public static final field SHA512 Ldev/brewkits/kmpworkmanager/workers/config/ChecksumAlgorithm;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/brewkits/kmpworkmanager/workers/config/ChecksumAlgorithm;
+	public static fun values ()[Ldev/brewkits/kmpworkmanager/workers/config/ChecksumAlgorithm;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/config/ChecksumAlgorithm$Companion {
+	public final fun parse (Ljava/lang/String;)Ldev/brewkits/kmpworkmanager/workers/config/ChecksumAlgorithm;
+	public final fun serializer ()Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/config/CompressionLevel : java/lang/Enum {
+	public static final field Companion Ldev/brewkits/kmpworkmanager/workers/config/CompressionLevel$Companion;
+	public static final field HIGH Ldev/brewkits/kmpworkmanager/workers/config/CompressionLevel;
+	public static final field LOW Ldev/brewkits/kmpworkmanager/workers/config/CompressionLevel;
+	public static final field MEDIUM Ldev/brewkits/kmpworkmanager/workers/config/CompressionLevel;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/brewkits/kmpworkmanager/workers/config/CompressionLevel;
+	public static fun values ()[Ldev/brewkits/kmpworkmanager/workers/config/CompressionLevel;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/config/CompressionLevel$Companion {
+	public final fun fromString (Ljava/lang/String;)Ldev/brewkits/kmpworkmanager/workers/config/CompressionLevel;
+	public final fun serializer ()Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/config/DuplicatePolicy : java/lang/Enum {
+	public static final field Companion Ldev/brewkits/kmpworkmanager/workers/config/DuplicatePolicy$Companion;
+	public static final field OVERWRITE Ldev/brewkits/kmpworkmanager/workers/config/DuplicatePolicy;
+	public static final field RENAME Ldev/brewkits/kmpworkmanager/workers/config/DuplicatePolicy;
+	public static final field SKIP Ldev/brewkits/kmpworkmanager/workers/config/DuplicatePolicy;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/brewkits/kmpworkmanager/workers/config/DuplicatePolicy;
+	public static fun values ()[Ldev/brewkits/kmpworkmanager/workers/config/DuplicatePolicy;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/config/DuplicatePolicy$Companion {
+	public final fun serializer ()Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/config/FileCompressionConfig {
+	public static final field Companion Ldev/brewkits/kmpworkmanager/workers/config/FileCompressionConfig$Companion;
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;ZZ)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;ZZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/util/List;
+	public final fun component5 ()Z
+	public final fun component6 ()Z
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;ZZ)Ldev/brewkits/kmpworkmanager/workers/config/FileCompressionConfig;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/workers/config/FileCompressionConfig;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;ZZILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/workers/config/FileCompressionConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAllowIosUncompressedFallback ()Z
+	public final fun getCompressionLevel ()Ljava/lang/String;
+	public final fun getDeleteOriginal ()Z
+	public final fun getExcludePatterns ()Ljava/util/List;
+	public final fun getInputPath ()Ljava/lang/String;
+	public final fun getLevel ()Ldev/brewkits/kmpworkmanager/workers/config/CompressionLevel;
+	public final fun getOutputPath ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public synthetic class dev/brewkits/kmpworkmanager/workers/config/FileCompressionConfig$$serializer : kotlinx/serialization/internal/GeneratedSerializer {
+	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/workers/config/FileCompressionConfig$$serializer;
+	public final fun childSerializers ()[Lkotlinx/serialization/KSerializer;
+	public final fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ldev/brewkits/kmpworkmanager/workers/config/FileCompressionConfig;
+	public synthetic fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ljava/lang/Object;
+	public final fun getDescriptor ()Lkotlinx/serialization/descriptors/SerialDescriptor;
+	public final fun serialize (Lkotlinx/serialization/encoding/Encoder;Ldev/brewkits/kmpworkmanager/workers/config/FileCompressionConfig;)V
+	public synthetic fun serialize (Lkotlinx/serialization/encoding/Encoder;Ljava/lang/Object;)V
+	public fun typeParametersSerializers ()[Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/config/FileCompressionConfig$Companion {
+	public final fun serializer ()Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/config/HmacSigningConfig {
+	public static final field Companion Ldev/brewkits/kmpworkmanager/workers/config/HmacSigningConfig$Companion;
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ZZLjava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ZZLjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Z
+	public final fun component5 ()Z
+	public final fun component6 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ZZLjava/lang/String;)Ldev/brewkits/kmpworkmanager/workers/config/HmacSigningConfig;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/workers/config/HmacSigningConfig;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ZZLjava/lang/String;ILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/workers/config/HmacSigningConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getHeaderName ()Ljava/lang/String;
+	public final fun getIncludeTimestamp ()Z
+	public final fun getSecretKey ()Ljava/lang/String;
+	public final fun getSignBody ()Z
+	public final fun getSignaturePrefix ()Ljava/lang/String;
+	public final fun getTimestampHeaderName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public synthetic class dev/brewkits/kmpworkmanager/workers/config/HmacSigningConfig$$serializer : kotlinx/serialization/internal/GeneratedSerializer {
+	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/workers/config/HmacSigningConfig$$serializer;
+	public final fun childSerializers ()[Lkotlinx/serialization/KSerializer;
+	public final fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ldev/brewkits/kmpworkmanager/workers/config/HmacSigningConfig;
+	public synthetic fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ljava/lang/Object;
+	public final fun getDescriptor ()Lkotlinx/serialization/descriptors/SerialDescriptor;
+	public final fun serialize (Lkotlinx/serialization/encoding/Encoder;Ldev/brewkits/kmpworkmanager/workers/config/HmacSigningConfig;)V
+	public synthetic fun serialize (Lkotlinx/serialization/encoding/Encoder;Ljava/lang/Object;)V
+	public fun typeParametersSerializers ()[Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/config/HmacSigningConfig$Companion {
+	public final fun serializer ()Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/config/HttpDownloadConfig {
+	public static final field Companion Ldev/brewkits/kmpworkmanager/workers/config/HttpDownloadConfig$Companion;
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;JZLjava/lang/Long;Ljava/lang/String;Ldev/brewkits/kmpworkmanager/workers/config/ChecksumAlgorithm;Ldev/brewkits/kmpworkmanager/workers/config/DuplicatePolicy;Ljava/lang/Long;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;JZLjava/lang/Long;Ljava/lang/String;Ldev/brewkits/kmpworkmanager/workers/config/ChecksumAlgorithm;Ldev/brewkits/kmpworkmanager/workers/config/DuplicatePolicy;Ljava/lang/Long;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component10 ()Ljava/lang/Long;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/util/Map;
+	public final fun component4 ()J
+	public final fun component5 ()Z
+	public final fun component6 ()Ljava/lang/Long;
+	public final fun component7 ()Ljava/lang/String;
+	public final fun component8 ()Ldev/brewkits/kmpworkmanager/workers/config/ChecksumAlgorithm;
+	public final fun component9 ()Ldev/brewkits/kmpworkmanager/workers/config/DuplicatePolicy;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;JZLjava/lang/Long;Ljava/lang/String;Ldev/brewkits/kmpworkmanager/workers/config/ChecksumAlgorithm;Ldev/brewkits/kmpworkmanager/workers/config/DuplicatePolicy;Ljava/lang/Long;)Ldev/brewkits/kmpworkmanager/workers/config/HttpDownloadConfig;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/workers/config/HttpDownloadConfig;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;JZLjava/lang/Long;Ljava/lang/String;Ldev/brewkits/kmpworkmanager/workers/config/ChecksumAlgorithm;Ldev/brewkits/kmpworkmanager/workers/config/DuplicatePolicy;Ljava/lang/Long;ILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/workers/config/HttpDownloadConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getChecksumAlgorithm ()Ldev/brewkits/kmpworkmanager/workers/config/ChecksumAlgorithm;
+	public final fun getExpectedChecksum ()Ljava/lang/String;
+	public final fun getHeaders ()Ljava/util/Map;
+	public final fun getMaxBytes ()Ljava/lang/Long;
+	public final fun getMaxBytesPerSecond ()Ljava/lang/Long;
+	public final fun getOnDuplicate ()Ldev/brewkits/kmpworkmanager/workers/config/DuplicatePolicy;
+	public final fun getResumable ()Z
+	public final fun getSavePath ()Ljava/lang/String;
+	public final fun getTimeoutMs ()J
+	public final fun getUrl ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public synthetic class dev/brewkits/kmpworkmanager/workers/config/HttpDownloadConfig$$serializer : kotlinx/serialization/internal/GeneratedSerializer {
+	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/workers/config/HttpDownloadConfig$$serializer;
+	public final fun childSerializers ()[Lkotlinx/serialization/KSerializer;
+	public final fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ldev/brewkits/kmpworkmanager/workers/config/HttpDownloadConfig;
+	public synthetic fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ljava/lang/Object;
+	public final fun getDescriptor ()Lkotlinx/serialization/descriptors/SerialDescriptor;
+	public final fun serialize (Lkotlinx/serialization/encoding/Encoder;Ldev/brewkits/kmpworkmanager/workers/config/HttpDownloadConfig;)V
+	public synthetic fun serialize (Lkotlinx/serialization/encoding/Encoder;Ljava/lang/Object;)V
+	public fun typeParametersSerializers ()[Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/config/HttpDownloadConfig$Companion {
+	public final fun serializer ()Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/config/HttpMethod : java/lang/Enum {
+	public static final field Companion Ldev/brewkits/kmpworkmanager/workers/config/HttpMethod$Companion;
+	public static final field DELETE Ldev/brewkits/kmpworkmanager/workers/config/HttpMethod;
+	public static final field GET Ldev/brewkits/kmpworkmanager/workers/config/HttpMethod;
+	public static final field PATCH Ldev/brewkits/kmpworkmanager/workers/config/HttpMethod;
+	public static final field POST Ldev/brewkits/kmpworkmanager/workers/config/HttpMethod;
+	public static final field PUT Ldev/brewkits/kmpworkmanager/workers/config/HttpMethod;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/brewkits/kmpworkmanager/workers/config/HttpMethod;
+	public static fun values ()[Ldev/brewkits/kmpworkmanager/workers/config/HttpMethod;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/config/HttpMethod$Companion {
+	public final fun fromString (Ljava/lang/String;)Ldev/brewkits/kmpworkmanager/workers/config/HttpMethod;
+	public final fun serializer ()Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/config/HttpRequestConfig {
+	public static final field Companion Ldev/brewkits/kmpworkmanager/workers/config/HttpRequestConfig$Companion;
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ljava/lang/String;JLdev/brewkits/kmpworkmanager/workers/config/HmacSigningConfig;Ldev/brewkits/kmpworkmanager/workers/config/TokenRefreshConfig;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ljava/lang/String;JLdev/brewkits/kmpworkmanager/workers/config/HmacSigningConfig;Ldev/brewkits/kmpworkmanager/workers/config/TokenRefreshConfig;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/util/Map;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()J
+	public final fun component6 ()Ldev/brewkits/kmpworkmanager/workers/config/HmacSigningConfig;
+	public final fun component7 ()Ldev/brewkits/kmpworkmanager/workers/config/TokenRefreshConfig;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ljava/lang/String;JLdev/brewkits/kmpworkmanager/workers/config/HmacSigningConfig;Ldev/brewkits/kmpworkmanager/workers/config/TokenRefreshConfig;)Ldev/brewkits/kmpworkmanager/workers/config/HttpRequestConfig;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/workers/config/HttpRequestConfig;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ljava/lang/String;JLdev/brewkits/kmpworkmanager/workers/config/HmacSigningConfig;Ldev/brewkits/kmpworkmanager/workers/config/TokenRefreshConfig;ILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/workers/config/HttpRequestConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getBody ()Ljava/lang/String;
+	public final fun getHeaders ()Ljava/util/Map;
+	public final fun getHmacSigning ()Ldev/brewkits/kmpworkmanager/workers/config/HmacSigningConfig;
+	public final fun getHttpMethod ()Ldev/brewkits/kmpworkmanager/workers/config/HttpMethod;
+	public final fun getMethod ()Ljava/lang/String;
+	public final fun getTimeoutMs ()J
+	public final fun getTokenRefresh ()Ldev/brewkits/kmpworkmanager/workers/config/TokenRefreshConfig;
+	public final fun getUrl ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public synthetic class dev/brewkits/kmpworkmanager/workers/config/HttpRequestConfig$$serializer : kotlinx/serialization/internal/GeneratedSerializer {
+	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/workers/config/HttpRequestConfig$$serializer;
+	public final fun childSerializers ()[Lkotlinx/serialization/KSerializer;
+	public final fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ldev/brewkits/kmpworkmanager/workers/config/HttpRequestConfig;
+	public synthetic fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ljava/lang/Object;
+	public final fun getDescriptor ()Lkotlinx/serialization/descriptors/SerialDescriptor;
+	public final fun serialize (Lkotlinx/serialization/encoding/Encoder;Ldev/brewkits/kmpworkmanager/workers/config/HttpRequestConfig;)V
+	public synthetic fun serialize (Lkotlinx/serialization/encoding/Encoder;Ljava/lang/Object;)V
+	public fun typeParametersSerializers ()[Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/config/HttpRequestConfig$Companion {
+	public final fun serializer ()Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/config/HttpSyncConfig {
+	public static final field Companion Ldev/brewkits/kmpworkmanager/workers/config/HttpSyncConfig$Companion;
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Lkotlinx/serialization/json/JsonElement;J)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Lkotlinx/serialization/json/JsonElement;JILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/util/Map;
+	public final fun component4 ()Lkotlinx/serialization/json/JsonElement;
+	public final fun component5 ()J
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Lkotlinx/serialization/json/JsonElement;J)Ldev/brewkits/kmpworkmanager/workers/config/HttpSyncConfig;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/workers/config/HttpSyncConfig;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Lkotlinx/serialization/json/JsonElement;JILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/workers/config/HttpSyncConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getHeaders ()Ljava/util/Map;
+	public final fun getHttpMethod ()Ldev/brewkits/kmpworkmanager/workers/config/HttpMethod;
+	public final fun getMethod ()Ljava/lang/String;
+	public final fun getRequestBody ()Lkotlinx/serialization/json/JsonElement;
+	public final fun getTimeoutMs ()J
+	public final fun getUrl ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public synthetic class dev/brewkits/kmpworkmanager/workers/config/HttpSyncConfig$$serializer : kotlinx/serialization/internal/GeneratedSerializer {
+	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/workers/config/HttpSyncConfig$$serializer;
+	public final fun childSerializers ()[Lkotlinx/serialization/KSerializer;
+	public final fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ldev/brewkits/kmpworkmanager/workers/config/HttpSyncConfig;
+	public synthetic fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ljava/lang/Object;
+	public final fun getDescriptor ()Lkotlinx/serialization/descriptors/SerialDescriptor;
+	public final fun serialize (Lkotlinx/serialization/encoding/Encoder;Ldev/brewkits/kmpworkmanager/workers/config/HttpSyncConfig;)V
+	public synthetic fun serialize (Lkotlinx/serialization/encoding/Encoder;Ljava/lang/Object;)V
+	public fun typeParametersSerializers ()[Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/config/HttpSyncConfig$Companion {
+	public final fun serializer ()Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/config/HttpUploadConfig {
+	public static final field Companion Ldev/brewkits/kmpworkmanager/workers/config/HttpUploadConfig$Companion;
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ljava/util/Map;JLjava/lang/Long;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ljava/util/Map;JLjava/lang/Long;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/util/Map;
+	public final fun component7 ()Ljava/util/Map;
+	public final fun component8 ()J
+	public final fun component9 ()Ljava/lang/Long;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ljava/util/Map;JLjava/lang/Long;)Ldev/brewkits/kmpworkmanager/workers/config/HttpUploadConfig;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/workers/config/HttpUploadConfig;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ljava/util/Map;JLjava/lang/Long;ILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/workers/config/HttpUploadConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getFields ()Ljava/util/Map;
+	public final fun getFileFieldName ()Ljava/lang/String;
+	public final fun getFileName ()Ljava/lang/String;
+	public final fun getFilePath ()Ljava/lang/String;
+	public final fun getHeaders ()Ljava/util/Map;
+	public final fun getMaxBytesPerSecond ()Ljava/lang/Long;
+	public final fun getMimeType ()Ljava/lang/String;
+	public final fun getTimeoutMs ()J
+	public final fun getUrl ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public synthetic class dev/brewkits/kmpworkmanager/workers/config/HttpUploadConfig$$serializer : kotlinx/serialization/internal/GeneratedSerializer {
+	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/workers/config/HttpUploadConfig$$serializer;
+	public final fun childSerializers ()[Lkotlinx/serialization/KSerializer;
+	public final fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ldev/brewkits/kmpworkmanager/workers/config/HttpUploadConfig;
+	public synthetic fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ljava/lang/Object;
+	public final fun getDescriptor ()Lkotlinx/serialization/descriptors/SerialDescriptor;
+	public final fun serialize (Lkotlinx/serialization/encoding/Encoder;Ldev/brewkits/kmpworkmanager/workers/config/HttpUploadConfig;)V
+	public synthetic fun serialize (Lkotlinx/serialization/encoding/Encoder;Ljava/lang/Object;)V
+	public fun typeParametersSerializers ()[Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/config/HttpUploadConfig$Companion {
+	public final fun serializer ()Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/config/IosBackgroundDownloadConfig {
+	public static final field Companion Ldev/brewkits/kmpworkmanager/workers/config/IosBackgroundDownloadConfig$Companion;
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;ZLjava/lang/String;ZJ)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;ZLjava/lang/String;ZJILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/util/Map;
+	public final fun component5 ()Z
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Z
+	public final fun component8 ()J
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;ZLjava/lang/String;ZJ)Ldev/brewkits/kmpworkmanager/workers/config/IosBackgroundDownloadConfig;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/workers/config/IosBackgroundDownloadConfig;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;ZLjava/lang/String;ZJILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/workers/config/IosBackgroundDownloadConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAllowsCellularAccess ()Z
+	public final fun getHeaders ()Ljava/util/Map;
+	public final fun getSavePath ()Ljava/lang/String;
+	public final fun getSessionIdentifier ()Ljava/lang/String;
+	public final fun getSharedContainerIdentifier ()Ljava/lang/String;
+	public final fun getTimeoutMs ()J
+	public final fun getUrl ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun isDiscretionary ()Z
+	public fun toString ()Ljava/lang/String;
+}
+
+public synthetic class dev/brewkits/kmpworkmanager/workers/config/IosBackgroundDownloadConfig$$serializer : kotlinx/serialization/internal/GeneratedSerializer {
+	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/workers/config/IosBackgroundDownloadConfig$$serializer;
+	public final fun childSerializers ()[Lkotlinx/serialization/KSerializer;
+	public final fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ldev/brewkits/kmpworkmanager/workers/config/IosBackgroundDownloadConfig;
+	public synthetic fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ljava/lang/Object;
+	public final fun getDescriptor ()Lkotlinx/serialization/descriptors/SerialDescriptor;
+	public final fun serialize (Lkotlinx/serialization/encoding/Encoder;Ldev/brewkits/kmpworkmanager/workers/config/IosBackgroundDownloadConfig;)V
+	public synthetic fun serialize (Lkotlinx/serialization/encoding/Encoder;Ljava/lang/Object;)V
+	public fun typeParametersSerializers ()[Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/config/IosBackgroundDownloadConfig$Companion {
+	public final fun serializer ()Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/config/IosBackgroundUploadConfig {
+	public static final field Companion Ldev/brewkits/kmpworkmanager/workers/config/IosBackgroundUploadConfig$Companion;
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ljava/lang/String;Ljava/lang/String;ZJ)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ljava/lang/String;Ljava/lang/String;ZJILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/util/Map;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Z
+	public final fun component8 ()J
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ljava/lang/String;Ljava/lang/String;ZJ)Ldev/brewkits/kmpworkmanager/workers/config/IosBackgroundUploadConfig;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/workers/config/IosBackgroundUploadConfig;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ljava/lang/String;Ljava/lang/String;ZJILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/workers/config/IosBackgroundUploadConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAllowsCellularAccess ()Z
+	public final fun getFilePath ()Ljava/lang/String;
+	public final fun getHeaders ()Ljava/util/Map;
+	public final fun getHttpMethod ()Ljava/lang/String;
+	public final fun getSessionIdentifier ()Ljava/lang/String;
+	public final fun getSharedContainerIdentifier ()Ljava/lang/String;
+	public final fun getTimeoutMs ()J
+	public final fun getUrl ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public synthetic class dev/brewkits/kmpworkmanager/workers/config/IosBackgroundUploadConfig$$serializer : kotlinx/serialization/internal/GeneratedSerializer {
+	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/workers/config/IosBackgroundUploadConfig$$serializer;
+	public final fun childSerializers ()[Lkotlinx/serialization/KSerializer;
+	public final fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ldev/brewkits/kmpworkmanager/workers/config/IosBackgroundUploadConfig;
+	public synthetic fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ljava/lang/Object;
+	public final fun getDescriptor ()Lkotlinx/serialization/descriptors/SerialDescriptor;
+	public final fun serialize (Lkotlinx/serialization/encoding/Encoder;Ldev/brewkits/kmpworkmanager/workers/config/IosBackgroundUploadConfig;)V
+	public synthetic fun serialize (Lkotlinx/serialization/encoding/Encoder;Ljava/lang/Object;)V
+	public fun typeParametersSerializers ()[Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/config/IosBackgroundUploadConfig$Companion {
+	public final fun serializer ()Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/config/ParallelHttpDownloadConfig {
+	public static final field Companion Ldev/brewkits/kmpworkmanager/workers/config/ParallelHttpDownloadConfig$Companion;
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;ILjava/util/Map;JLjava/lang/String;Ldev/brewkits/kmpworkmanager/workers/config/ChecksumAlgorithm;ZLjava/lang/Long;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;ILjava/util/Map;JLjava/lang/String;Ldev/brewkits/kmpworkmanager/workers/config/ChecksumAlgorithm;ZLjava/lang/Long;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()I
+	public final fun component4 ()Ljava/util/Map;
+	public final fun component5 ()J
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Ldev/brewkits/kmpworkmanager/workers/config/ChecksumAlgorithm;
+	public final fun component8 ()Z
+	public final fun component9 ()Ljava/lang/Long;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;ILjava/util/Map;JLjava/lang/String;Ldev/brewkits/kmpworkmanager/workers/config/ChecksumAlgorithm;ZLjava/lang/Long;)Ldev/brewkits/kmpworkmanager/workers/config/ParallelHttpDownloadConfig;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/workers/config/ParallelHttpDownloadConfig;Ljava/lang/String;Ljava/lang/String;ILjava/util/Map;JLjava/lang/String;Ldev/brewkits/kmpworkmanager/workers/config/ChecksumAlgorithm;ZLjava/lang/Long;ILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/workers/config/ParallelHttpDownloadConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getChecksumAlgorithm ()Ldev/brewkits/kmpworkmanager/workers/config/ChecksumAlgorithm;
+	public final fun getExpectedChecksum ()Ljava/lang/String;
+	public final fun getHeaders ()Ljava/util/Map;
+	public final fun getMaxBytesPerSecond ()Ljava/lang/Long;
+	public final fun getNumChunks ()I
+	public final fun getSavePath ()Ljava/lang/String;
+	public final fun getSkipExisting ()Z
+	public final fun getTimeoutMs ()J
+	public final fun getUrl ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public synthetic class dev/brewkits/kmpworkmanager/workers/config/ParallelHttpDownloadConfig$$serializer : kotlinx/serialization/internal/GeneratedSerializer {
+	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/workers/config/ParallelHttpDownloadConfig$$serializer;
+	public final fun childSerializers ()[Lkotlinx/serialization/KSerializer;
+	public final fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ldev/brewkits/kmpworkmanager/workers/config/ParallelHttpDownloadConfig;
+	public synthetic fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ljava/lang/Object;
+	public final fun getDescriptor ()Lkotlinx/serialization/descriptors/SerialDescriptor;
+	public final fun serialize (Lkotlinx/serialization/encoding/Encoder;Ldev/brewkits/kmpworkmanager/workers/config/ParallelHttpDownloadConfig;)V
+	public synthetic fun serialize (Lkotlinx/serialization/encoding/Encoder;Ljava/lang/Object;)V
+	public fun typeParametersSerializers ()[Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/config/ParallelHttpDownloadConfig$Companion {
+	public final fun serializer ()Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/config/ParallelHttpUploadConfig {
+	public static final field Companion Ldev/brewkits/kmpworkmanager/workers/config/ParallelHttpUploadConfig$Companion;
+	public fun <init> (Ljava/lang/String;Ljava/util/List;Ljava/util/Map;Ljava/util/Map;IIJLjava/lang/Long;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/util/List;Ljava/util/Map;Ljava/util/Map;IIJLjava/lang/Long;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/util/List;
+	public final fun component3 ()Ljava/util/Map;
+	public final fun component4 ()Ljava/util/Map;
+	public final fun component5 ()I
+	public final fun component6 ()I
+	public final fun component7 ()J
+	public final fun component8 ()Ljava/lang/Long;
+	public final fun copy (Ljava/lang/String;Ljava/util/List;Ljava/util/Map;Ljava/util/Map;IIJLjava/lang/Long;)Ldev/brewkits/kmpworkmanager/workers/config/ParallelHttpUploadConfig;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/workers/config/ParallelHttpUploadConfig;Ljava/lang/String;Ljava/util/List;Ljava/util/Map;Ljava/util/Map;IIJLjava/lang/Long;ILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/workers/config/ParallelHttpUploadConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getFields ()Ljava/util/Map;
+	public final fun getFiles ()Ljava/util/List;
+	public final fun getHeaders ()Ljava/util/Map;
+	public final fun getMaxBytesPerSecond ()Ljava/lang/Long;
+	public final fun getMaxConcurrent ()I
+	public final fun getMaxRetries ()I
+	public final fun getTimeoutMs ()J
+	public final fun getUrl ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public synthetic class dev/brewkits/kmpworkmanager/workers/config/ParallelHttpUploadConfig$$serializer : kotlinx/serialization/internal/GeneratedSerializer {
+	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/workers/config/ParallelHttpUploadConfig$$serializer;
+	public final fun childSerializers ()[Lkotlinx/serialization/KSerializer;
+	public final fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ldev/brewkits/kmpworkmanager/workers/config/ParallelHttpUploadConfig;
+	public synthetic fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ljava/lang/Object;
+	public final fun getDescriptor ()Lkotlinx/serialization/descriptors/SerialDescriptor;
+	public final fun serialize (Lkotlinx/serialization/encoding/Encoder;Ldev/brewkits/kmpworkmanager/workers/config/ParallelHttpUploadConfig;)V
+	public synthetic fun serialize (Lkotlinx/serialization/encoding/Encoder;Ljava/lang/Object;)V
+	public fun typeParametersSerializers ()[Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/config/ParallelHttpUploadConfig$Companion {
+	public final fun serializer ()Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/config/ParallelUploadFile {
+	public static final field Companion Ldev/brewkits/kmpworkmanager/workers/config/ParallelUploadFile$Companion;
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/brewkits/kmpworkmanager/workers/config/ParallelUploadFile;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/workers/config/ParallelUploadFile;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/workers/config/ParallelUploadFile;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getFieldName ()Ljava/lang/String;
+	public final fun getFileName ()Ljava/lang/String;
+	public final fun getFilePath ()Ljava/lang/String;
+	public final fun getMimeType ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public synthetic class dev/brewkits/kmpworkmanager/workers/config/ParallelUploadFile$$serializer : kotlinx/serialization/internal/GeneratedSerializer {
+	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/workers/config/ParallelUploadFile$$serializer;
+	public final fun childSerializers ()[Lkotlinx/serialization/KSerializer;
+	public final fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ldev/brewkits/kmpworkmanager/workers/config/ParallelUploadFile;
+	public synthetic fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ljava/lang/Object;
+	public final fun getDescriptor ()Lkotlinx/serialization/descriptors/SerialDescriptor;
+	public final fun serialize (Lkotlinx/serialization/encoding/Encoder;Ldev/brewkits/kmpworkmanager/workers/config/ParallelUploadFile;)V
+	public synthetic fun serialize (Lkotlinx/serialization/encoding/Encoder;Ljava/lang/Object;)V
+	public fun typeParametersSerializers ()[Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/config/ParallelUploadFile$Companion {
+	public final fun serializer ()Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/config/ParallelUploadFileResult {
+	public static final field Companion Ldev/brewkits/kmpworkmanager/workers/config/ParallelUploadFileResult$Companion;
+	public fun <init> (Ljava/lang/String;ZLjava/lang/Integer;IJLjava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;ZLjava/lang/Integer;IJLjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Z
+	public final fun component3 ()Ljava/lang/Integer;
+	public final fun component4 ()I
+	public final fun component5 ()J
+	public final fun component6 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;ZLjava/lang/Integer;IJLjava/lang/String;)Ldev/brewkits/kmpworkmanager/workers/config/ParallelUploadFileResult;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/workers/config/ParallelUploadFileResult;Ljava/lang/String;ZLjava/lang/Integer;IJLjava/lang/String;ILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/workers/config/ParallelUploadFileResult;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAttempts ()I
+	public final fun getBytesSent ()J
+	public final fun getError ()Ljava/lang/String;
+	public final fun getFilePath ()Ljava/lang/String;
+	public final fun getStatusCode ()Ljava/lang/Integer;
+	public final fun getSuccess ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public synthetic class dev/brewkits/kmpworkmanager/workers/config/ParallelUploadFileResult$$serializer : kotlinx/serialization/internal/GeneratedSerializer {
+	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/workers/config/ParallelUploadFileResult$$serializer;
+	public final fun childSerializers ()[Lkotlinx/serialization/KSerializer;
+	public final fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ldev/brewkits/kmpworkmanager/workers/config/ParallelUploadFileResult;
+	public synthetic fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ljava/lang/Object;
+	public final fun getDescriptor ()Lkotlinx/serialization/descriptors/SerialDescriptor;
+	public final fun serialize (Lkotlinx/serialization/encoding/Encoder;Ldev/brewkits/kmpworkmanager/workers/config/ParallelUploadFileResult;)V
+	public synthetic fun serialize (Lkotlinx/serialization/encoding/Encoder;Ljava/lang/Object;)V
+	public fun typeParametersSerializers ()[Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/config/ParallelUploadFileResult$Companion {
+	public final fun serializer ()Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/config/TokenRefreshConfig {
+	public static final field Companion Ldev/brewkits/kmpworkmanager/workers/config/TokenRefreshConfig$Companion;
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/util/Map;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/brewkits/kmpworkmanager/workers/config/TokenRefreshConfig;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/workers/config/TokenRefreshConfig;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/workers/config/TokenRefreshConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAuthHeaderName ()Ljava/lang/String;
+	public final fun getAuthHeaderPrefix ()Ljava/lang/String;
+	public final fun getRefreshBody ()Ljava/lang/String;
+	public final fun getRefreshHeaders ()Ljava/util/Map;
+	public final fun getRefreshMethod ()Ljava/lang/String;
+	public final fun getRefreshUrl ()Ljava/lang/String;
+	public final fun getTokenResponsePath ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public synthetic class dev/brewkits/kmpworkmanager/workers/config/TokenRefreshConfig$$serializer : kotlinx/serialization/internal/GeneratedSerializer {
+	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/workers/config/TokenRefreshConfig$$serializer;
+	public final fun childSerializers ()[Lkotlinx/serialization/KSerializer;
+	public final fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ldev/brewkits/kmpworkmanager/workers/config/TokenRefreshConfig;
+	public synthetic fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ljava/lang/Object;
+	public final fun getDescriptor ()Lkotlinx/serialization/descriptors/SerialDescriptor;
+	public final fun serialize (Lkotlinx/serialization/encoding/Encoder;Ldev/brewkits/kmpworkmanager/workers/config/TokenRefreshConfig;)V
+	public synthetic fun serialize (Lkotlinx/serialization/encoding/Encoder;Ljava/lang/Object;)V
+	public fun typeParametersSerializers ()[Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/config/TokenRefreshConfig$Companion {
+	public final fun serializer ()Lkotlinx/serialization/KSerializer;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/utils/SecurityValidator {
+	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/workers/utils/SecurityValidator;
+	public static final field MAX_REQUEST_BODY_SIZE I
+	public static final field MAX_RESPONSE_BODY_SIZE I
+	public final fun formatByteSize (J)Ljava/lang/String;
+	public final fun sanitizeHeaders (Ljava/util/Map;)Ljava/util/Map;
+	public final fun sanitizedURL (Ljava/lang/String;)Ljava/lang/String;
+	public final fun truncateForLogging (Ljava/lang/String;I)Ljava/lang/String;
+	public static synthetic fun truncateForLogging$default (Ldev/brewkits/kmpworkmanager/workers/utils/SecurityValidator;Ljava/lang/String;IILjava/lang/Object;)Ljava/lang/String;
+	public final fun validateFilePath (Ljava/lang/String;)Z
+	public final fun validateRequestSize ([B)Z
+	public final fun validateResponseSize ([B)Z
+	public final fun validateURL (Ljava/lang/String;)Z
+}
+

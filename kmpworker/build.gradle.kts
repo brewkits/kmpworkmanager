@@ -6,12 +6,28 @@ plugins {
     alias(libs.plugins.androidLibrary)
     alias(libs.plugins.kotlinx.serialization)
     alias(libs.plugins.kover)
+    alias(libs.plugins.binaryCompatibilityValidator)
+    alias(libs.plugins.detekt)
     id("maven-publish")
     id("signing")
 }
 
 group = "dev.brewkits"
 version = (rootProject.findProperty("VERSION_NAME") as? String) ?: System.getenv("VERSION_NAME") ?: "0.0.0-SNAPSHOT"
+
+// Coverage floor for the JVM/Android side (Kover cannot instrument Kotlin/Native — iOS
+// coverage is not part of this number, see docs/COVERAGE.md). Measured LINE coverage at
+// the time this gate was added was 65.0% — the bound is set a few points below that so
+// normal iteration doesn't trip the gate, while still catching an actual regression.
+kover {
+    reports {
+        verify {
+            rule {
+                minBound(60, kotlinx.kover.gradle.plugin.dsl.CoverageUnit.LINE)
+            }
+        }
+    }
+}
 
 kotlin {
     androidTarget {

@@ -51,6 +51,33 @@ jobs:
           retention-days: 7
 
   # ───────────────────────────────────────────────────────────────────────────
+  # Static analysis (detekt) across all 4 publish modules. Runs on ubuntu — detekt
+  # needs no macOS toolchain — in parallel with common-tests rather than gating it.
+  # ───────────────────────────────────────────────────────────────────────────
+  static-analysis:
+    name: Static analysis (detekt)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - uses: gradle/actions/setup-gradle@v6
+      - run: chmod +x gradlew
+      - name: detekt
+        run: >-
+          ./gradlew :kmpworker:detekt :kmpworker-http:detekt
+          :kmpworker-ksp:detekt :kmpworker-annotations:detekt
+      - name: Upload detekt reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: detekt-reports
+          path: '**/build/reports/detekt/'
+          retention-days: 7
+
+  # ───────────────────────────────────────────────────────────────────────────
   # iOS simulator tests across iOS runtime versions. Apple Silicon runners
   # (macos-14) only run the arm64 simulator path. We pin the simulator device
   # explicitly so a new Xcode release doesn't silently change the test target.

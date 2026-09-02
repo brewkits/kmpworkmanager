@@ -32,6 +32,8 @@ coreKtx = "1.7.0"
 androidx-test-core = "1.5.0"
 kover = "0.9.1"
 robolectric = "4.12.2"
+binaryCompatibilityValidator = "0.18.1"
+detekt = "1.23.8"
 
 [libraries]
 jetbrains-kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test" }
@@ -88,3 +90,5 @@ composeCompiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "k
 kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
 kotlinx-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 kover = { id = "org.jetbrains.kotlinx.kover", version.ref = "kover" }
+binaryCompatibilityValidator = { id = "org.jetbrains.kotlinx.binary-compatibility-validator", version.ref = "binaryCompatibilityValidator" }
+detekt = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }
