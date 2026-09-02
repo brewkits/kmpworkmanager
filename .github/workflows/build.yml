@@ -115,6 +115,9 @@ jobs:
       - run: chmod +x gradlew
       - name: testDebugUnitTest
         run: ./gradlew :kmpworker:testDebugUnitTest :kmpworker-http:testDebugUnitTest
+      # The release variant has its own Robolectric test config and was never exercised by CI.
+      - name: testReleaseUnitTest
+        run: ./gradlew :kmpworker:testReleaseUnitTest :kmpworker-http:testReleaseUnitTest
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -123,8 +126,12 @@ jobs:
           path: |
             kmpworker/build/reports/tests/testDebugUnitTest/
             kmpworker/build/test-results/testDebugUnitTest/
+            kmpworker/build/reports/tests/testReleaseUnitTest/
+            kmpworker/build/test-results/testReleaseUnitTest/
             kmpworker-http/build/reports/tests/testDebugUnitTest/
             kmpworker-http/build/test-results/testDebugUnitTest/
+            kmpworker-http/build/reports/tests/testReleaseUnitTest/
+            kmpworker-http/build/test-results/testReleaseUnitTest/
           retention-days: 7
 
   # ───────────────────────────────────────────────────────────────────────────

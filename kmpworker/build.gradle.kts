@@ -127,6 +127,14 @@ android {
     }
 }
 
+// Robolectric's native SQLite runtime is keyed per-JVM to one @Config(sdk=...) level; this
+// suite mixes several (28/30/33/34), and a reused JVM across classes throws a native
+// UnsatisfiedLinkError. forkEvery = 1 forces one JVM per class to keep the native state pinned.
+tasks.withType<Test>().configureEach {
+    forkEvery = 1
+    maxParallelForks = (Runtime.getRuntime().availableProcessors() / 2).coerceAtLeast(1)
+}
+
 // Empty javadoc JAR required by Maven Central — registered once, shared across all publications.
 val mavenCentralJavadocJar by tasks.registering(Jar::class) {
     archiveClassifier.set("javadoc")

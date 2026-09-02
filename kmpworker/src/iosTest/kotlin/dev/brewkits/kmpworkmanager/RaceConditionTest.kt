@@ -14,31 +14,37 @@ class RaceConditionTest {
 
     @Test
     fun testEnqueueRaceCondition() = runTest {
+        // backgroundScope is a real multi-threaded dispatcher, not runTest's virtual one — left
+        // open, it can outlive this test method and corrupt the next test's XML reporting.
         val scheduler = NativeTaskScheduler()
-        val taskId = "race-test-task"
-        val workerClassName = "TestWorker"
+        try {
+            val taskId = "race-test-task"
+            val workerClassName = "TestWorker"
 
-        // Send multiple concurrent requests with KEEP policy
-        // If a race condition occurs, multiple jobs might see metadata as null and attempt to save it simultaneously
-        val jobs = List(5) {
-            launch(Dispatchers.Default) {
-                scheduler.enqueue(
-                    id = taskId,
-                    trigger = TaskTrigger.OneTime(0),
-                    workerClassName = workerClassName,
-                    constraints = Constraints(),
-                    inputJson = null,
-                    policy = ExistingPolicy.KEEP
-                )
+            // Send multiple concurrent requests with KEEP policy
+            // If a race condition occurs, multiple jobs might see metadata as null and attempt to save it simultaneously
+            val jobs = List(5) {
+                launch(Dispatchers.Default) {
+                    scheduler.enqueue(
+                        id = taskId,
+                        trigger = TaskTrigger.OneTime(0),
+                        workerClassName = workerClassName,
+                        constraints = Constraints(),
+                        inputJson = null,
+                        policy = ExistingPolicy.KEEP
+                    )
+                }
             }
+
+            jobs.joinAll()
+
+            // Verify that exactly one enqueue won (KEEP policy) and data integrity is maintained.
+            val metadata = scheduler.fileStorage.loadTaskMetadata(taskId, periodic = false)
+            assertNotNull(metadata, "Metadata should exist after concurrent KEEP enqueues")
+            assertEquals(workerClassName, metadata["workerClassName"], "Worker class name must be preserved correctly")
+            assertEquals("", metadata["inputJson"], "inputJson must be written (empty string for null input)")
+        } finally {
+            scheduler.close()
         }
-
-        jobs.joinAll()
-
-        // Verify that exactly one enqueue won (KEEP policy) and data integrity is maintained.
-        val metadata = scheduler.fileStorage.loadTaskMetadata(taskId, periodic = false)
-        assertNotNull(metadata, "Metadata should exist after concurrent KEEP enqueues")
-        assertEquals(workerClassName, metadata["workerClassName"], "Worker class name must be preserved correctly")
-        assertEquals("", metadata["inputJson"], "inputJson must be written (empty string for null input)")
     }
 }
