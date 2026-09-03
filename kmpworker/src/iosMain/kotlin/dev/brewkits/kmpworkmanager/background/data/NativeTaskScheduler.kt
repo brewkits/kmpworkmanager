@@ -16,6 +16,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -131,6 +133,25 @@ public class NativeTaskScheduler(
     }
 
     private val migration = StorageMigration(fileStorage = fileStorage)
+
+    /**
+     * Serializes enqueue()'s check-then-act scheduling decision (read metadata → apply
+     * ExistingPolicy → write metadata → submit) per scheduler instance — fixes #98: without
+     * this, N concurrent enqueue() calls for the same brand-new task id can all observe
+     * loadTaskMetadata() == null before any of them writes, race into the write path
+     * concurrently, and corrupt the on-disk metadata (observed as a null read after all
+     * writes should have succeeded). Mirrors IosFileStorage.enqueueMutex's established
+     * "wrap check-then-act in a single Mutex" idiom (see enqueueChain()) rather than
+     * ChainJobRegistry's job-cancellation registry, which solves a different problem shape.
+     *
+     * **Known limitation, not addressed here**: this is instance-scoped, not process-wide —
+     * two NativeTaskScheduler instances sharing the same IosFileStorage (e.g. a test
+     * constructing a second instance) are not mutually protected. Also does not synchronize
+     * against a concurrent external cancel(id) call, which is a non-suspend interface method
+     * and cannot take this lock. Both are pre-existing, narrower risk classes than #98's
+     * reported race; tracked separately rather than bundled into this fix.
+     */
+    private val schedulingMutex = Mutex()
 
     /**
      * Background scope for IO operations (migration, file access)
@@ -264,13 +285,15 @@ public class NativeTaskScheduler(
             return ScheduleResult.REJECTED_OS_POLICY
         }
 
-        @Suppress("DEPRECATION")  // Keep backward compatibility for deprecated triggers 
-        val result = when (trigger) {
-            is TaskTrigger.Periodic -> schedulePeriodicTask(id, trigger, workerClassName, constraints, inputJson, policy, tags)
-            is TaskTrigger.OneTime -> scheduleOneTimeTask(id, trigger, workerClassName, constraints, inputJson, policy, tags, deadlineMs)
-            is TaskTrigger.Exact -> scheduleExactAlarm(id, trigger, workerClassName, constraints, inputJson)
-            is TaskTrigger.Windowed -> scheduleWindowedTask(id, trigger, workerClassName, constraints, inputJson, policy, tags, deadlineMs)
-            is TaskTrigger.ContentUri -> rejectUnsupportedTrigger("ContentUri")
+        @Suppress("DEPRECATION")  // Keep backward compatibility for deprecated triggers
+        val result = schedulingMutex.withLock {
+            when (trigger) {
+                is TaskTrigger.Periodic -> schedulePeriodicTask(id, trigger, workerClassName, constraints, inputJson, policy, tags)
+                is TaskTrigger.OneTime -> scheduleOneTimeTask(id, trigger, workerClassName, constraints, inputJson, policy, tags, deadlineMs)
+                is TaskTrigger.Exact -> scheduleExactAlarm(id, trigger, workerClassName, constraints, inputJson)
+                is TaskTrigger.Windowed -> scheduleWindowedTask(id, trigger, workerClassName, constraints, inputJson, policy, tags, deadlineMs)
+                is TaskTrigger.ContentUri -> rejectUnsupportedTrigger("ContentUri")
+            }
         }
 
         if (result == ScheduleResult.ACCEPTED) {
