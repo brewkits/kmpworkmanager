@@ -18,7 +18,7 @@ jobs:
     name: Common + KSP unit tests
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-java@v4
         with:
           java-version: '17'
@@ -56,7 +56,7 @@ jobs:
     name: Static analysis (detekt)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-java@v4
         with:
           java-version: '17'
@@ -97,7 +97,7 @@ jobs:
             device: "iPhone 15 Pro"
             xcode: "16.2"
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-java@v4
         with:
           java-version: '17'
@@ -131,7 +131,7 @@ jobs:
     name: Android unit tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-java@v4
         with:
           java-version: '17'
@@ -181,7 +181,7 @@ jobs:
       matrix:
         api-level: [ 28, 30, 33, 35 ]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-java@v4
         with:
           java-version: '17'
@@ -225,7 +225,7 @@ jobs:
     runs-on: macos-latest
     needs: [ common-tests ]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-java@v4
         with:
           java-version: '17'
