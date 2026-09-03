@@ -5,6 +5,25 @@ All notable changes to KMP WorkManager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **iOS: `ExistingPolicy.KEEP` silently behaved like `REPLACE` for a "dynamic" task id**
+  (any id not declared in Info.plist — the common case, since ids are typically
+  per-instance and can't realistically be pre-declared statically). Root cause:
+  `handleExistingPolicy`'s KEEP branch used `isTaskPending(id)`, which queries
+  `BGTaskScheduler` directly — but a dynamic id is never submitted to `BGTaskScheduler`
+  under its own identifier (only the shared Master Dispatcher identifier is), so
+  `isTaskPending(id)` was always `false` for a dynamic id, in production and in tests.
+  Every repeat `enqueue(id, policy = KEEP)` call therefore treated existing metadata as
+  stale, deleted it, and re-enqueued onto the file-backed dynamic queue — which has no
+  id-dedup — duplicating the task if the first copy hadn't been dequeued yet, and
+  discarding the first call's metadata. Fixed by using
+  `fileStorage.isTaskInDynamicQueue(id)` instead, for dynamic ids specifically — the same
+  signal `observeTaskState`/`computeIosTaskState` already use for this id class.
+  Fixes [#101](https://github.com/brewkits/kmpworkmanager/issues/101).
+
 ## [3.4.0] - 2026-09-03
 
 A full library-wide QA pass (SSRF hardening, a broken exact-alarm execution path, and
