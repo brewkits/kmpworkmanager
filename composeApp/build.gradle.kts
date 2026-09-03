@@ -92,6 +92,11 @@ kotlin {
                 implementation(libs.androidx.testExt.junit)
                 implementation(libs.androidx.test.runner)
                 implementation(libs.compose.ui.test.junit4.android)
+                // Force a newer espresso-core than the 3.5.0 that ui-test-junit4-android:1.7.5
+                // pulls transitively — 3.5.0's reflection-based motion-event injection targets
+                // an InputManager API shape that newer Android versions removed, failing every
+                // test with NoSuchMethodException before it even reaches app code.
+                implementation(libs.androidx.espresso.core)
             }
         }
     }
@@ -107,6 +112,7 @@ android {
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionCode = 1
         versionName = "1.0.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     packaging {
         resources {

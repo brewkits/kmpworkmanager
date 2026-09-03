@@ -3,6 +3,7 @@ package dev.brewkits.kmpworkmanager.sample
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import dev.brewkits.kmpworkmanager.background.domain.TaskTrigger
 import dev.brewkits.kmpworkmanager.sample.ui.DemoScenariosScreen
 import org.junit.Rule
@@ -34,7 +35,7 @@ class DemoScenariosScreenTest {
         val scheduler = SpyBackgroundTaskScheduler()
         setContent(scheduler)
 
-        composeTestRule.onNodeWithText("HTTP Download — Bandwidth Throttled").performClick()
+        composeTestRule.onNodeWithText("HTTP Download — Bandwidth Throttled").performScrollTo().performClick()
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) {
             scheduler.enqueueCalls.any { it.id == "demo-builtin-httpdownload-throttled" }
@@ -52,7 +53,7 @@ class DemoScenariosScreenTest {
         val scheduler = SpyBackgroundTaskScheduler()
         setContent(scheduler)
 
-        composeTestRule.onNodeWithText("Token Refresh on 401").performClick()
+        composeTestRule.onNodeWithText("Token Refresh on 401").performScrollTo().performClick()
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) {
             scheduler.enqueueCalls.any { it.id == "demo-builtin-tokenrefresh" }
@@ -68,7 +69,7 @@ class DemoScenariosScreenTest {
         val scheduler = SpyBackgroundTaskScheduler()
         setContent(scheduler)
 
-        composeTestRule.onNodeWithText("Update Periodic (ExistingPolicy.UPDATE)").performClick()
+        composeTestRule.onNodeWithText("Update Periodic (ExistingPolicy.UPDATE)").performScrollTo().performClick()
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) {
             scheduler.enqueueCalls.any { it.id == "demo-update-policy" }
@@ -83,7 +84,7 @@ class DemoScenariosScreenTest {
         val scheduler = SpyBackgroundTaskScheduler()
         setContent(scheduler)
 
-        composeTestRule.onNodeWithText("InputMerger: Step 2 URL Overwritten by Step 1's Output").performClick()
+        composeTestRule.onNodeWithText("InputMerger: Step 2 URL Overwritten by Step 1's Output").performScrollTo().performClick()
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) {
             scheduler.chainCalls.isNotEmpty()
@@ -96,7 +97,7 @@ class DemoScenariosScreenTest {
         val scheduler = SpyBackgroundTaskScheduler()
         setContent(scheduler)
 
-        composeTestRule.onNodeWithText("TaskRequest: Priority + Non-Idempotent").performClick()
+        composeTestRule.onNodeWithText("TaskRequest: Priority + Non-Idempotent").performScrollTo().performClick()
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) {
             scheduler.chainCalls.any { it.id == "demo-critical-non-idempotent" }

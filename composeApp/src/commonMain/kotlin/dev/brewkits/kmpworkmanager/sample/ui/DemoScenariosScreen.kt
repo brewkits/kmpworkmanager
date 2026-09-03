@@ -37,6 +37,7 @@ import dev.brewkits.kmpworkmanager.workers.config.HttpDownloadConfig
 import dev.brewkits.kmpworkmanager.workers.config.HttpRequestConfig
 import dev.brewkits.kmpworkmanager.workers.config.HttpSyncConfig
 import dev.brewkits.kmpworkmanager.workers.config.HttpUploadConfig
+import dev.brewkits.kmpworkmanager.utils.Logger
 import kotlin.time.TimeSource
 
 @Composable
@@ -67,6 +68,8 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
             try {
                 action()
             } catch (e: Exception) {
+                Logger.e("DemoScenariosScreen", "runTask '$taskName' failed: ${e.message}", e)
+                snackbarHostState.showSnackbar(message = "Failed to schedule: ${e.message}", duration = SnackbarDuration.Short)
                 isAnyTaskRunning = false
                 runningTaskName = ""
             }

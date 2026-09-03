@@ -204,7 +204,7 @@ jobs:
           arch: x86_64
           profile: pixel_6
           disable-animations: true
-          script: ./gradlew :kmpworker:connectedDebugAndroidTest
+          script: ./gradlew :kmpworker:connectedDebugAndroidTest :composeApp:connectedDebugAndroidTest
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -213,6 +213,8 @@ jobs:
           path: |
             kmpworker/build/reports/androidTests/
             kmpworker/build/outputs/androidTest-results/
+            composeApp/build/reports/androidTests/
+            composeApp/build/outputs/androidTest-results/
           retention-days: 7
 
   # ───────────────────────────────────────────────────────────────────────────
