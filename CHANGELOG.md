@@ -5,7 +5,11 @@ All notable changes to KMP WorkManager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.4.0] - 2026-09-03
+
+A full library-wide QA pass (SSRF hardening, a broken exact-alarm execution path, and
+20+ correctness/validation fixes across Android, iOS, common, and the KSP processor) on
+top of the WorkManager parity pass below.
 
 ### Security
 
@@ -133,7 +137,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `TaskEventBus.resetForTest()` — a no-op with zero callers; `TaskEventManager.resetForTest()`
   is the functional one actually used by tests.
 
-## [3.4.0] - 2026-09-02
+---
 
 WorkManager parity pass (task tags, deadlines, InputMerger, `ExistingPolicy.UPDATE`),
 a second Android/iOS constraint-parity pass (six more gaps closed), extensions to two
