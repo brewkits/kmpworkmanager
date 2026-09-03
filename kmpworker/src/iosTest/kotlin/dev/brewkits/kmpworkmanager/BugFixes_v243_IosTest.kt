@@ -43,40 +43,45 @@ class BugFixes_v243_IosTest {
     fun testREPLACEPolicyResetsPeriodicTaskAnchorAndAllowsImmediateRun() = runTest {
         val storage = makeStorage("ios-replace-anchor")
         val scheduler = NativeTaskScheduler(fileStorage = storage)
-        val taskId = "periodic-task"
-        val interval = 15 * 60 * 1000L
+        try {
+            val taskId = "periodic-task"
+            val interval = 15 * 60 * 1000L
 
-        // 1. Initial schedule
-        scheduler.enqueue(
-            id = taskId,
-            trigger = TaskTrigger.Periodic(intervalMs = interval, runImmediately = true),
-            workerClassName = "TestWorker",
-            constraints = Constraints(),
-            inputJson = null,
-            policy = ExistingPolicy.REPLACE
-        )
+            // 1. Initial schedule
+            scheduler.enqueue(
+                id = taskId,
+                trigger = TaskTrigger.Periodic(intervalMs = interval, runImmediately = true),
+                workerClassName = "TestWorker",
+                constraints = Constraints(),
+                inputJson = null,
+                policy = ExistingPolicy.REPLACE
+            )
 
-        val meta1 = storage.loadTaskMetadata(taskId, periodic = true)
-        val anchor1 = meta1?.get("anchoredStartMs")?.toLong()
-        assertNotNull(anchor1, "Anchor must be established on first schedule")
+            val meta1 = storage.loadTaskMetadata(taskId, periodic = true)
+            val anchor1 = meta1?.get("anchoredStartMs")?.toLong()
+            assertNotNull(anchor1, "Anchor must be established on first schedule")
 
-        // Wait a bit to ensure nowMs increases
-        kotlinx.coroutines.delay(10)
+            // Wait a bit to ensure nowMs increases
+            kotlinx.coroutines.delay(10)
 
-        // 2. Schedule again with REPLACE
-        scheduler.enqueue(
-            id = taskId,
-            trigger = TaskTrigger.Periodic(intervalMs = interval, runImmediately = true),
-            workerClassName = "TestWorker",
-            constraints = Constraints(),
-            inputJson = null,
-            policy = ExistingPolicy.REPLACE
-        )
+            // 2. Schedule again with REPLACE
+            scheduler.enqueue(
+                id = taskId,
+                trigger = TaskTrigger.Periodic(intervalMs = interval, runImmediately = true),
+                workerClassName = "TestWorker",
+                constraints = Constraints(),
+                inputJson = null,
+                policy = ExistingPolicy.REPLACE
+            )
 
-        val meta2 = storage.loadTaskMetadata(taskId, periodic = true)
-        val anchor2 = meta2?.get("anchoredStartMs")?.toLong()
-        assertNotNull(anchor2)
-        assertTrue(anchor2 > anchor1!!, "Anchor must be reset during REPLACE policy, expected $anchor2 > $anchor1")
+            val meta2 = storage.loadTaskMetadata(taskId, periodic = true)
+            val anchor2 = meta2?.get("anchoredStartMs")?.toLong()
+            assertNotNull(anchor2)
+            assertTrue(anchor2 > anchor1!!, "Anchor must be reset during REPLACE policy, expected $anchor2 > $anchor1")
+        } finally {
+            scheduler.close()
+            storage.close()
+        }
     }
 
     /**
@@ -91,69 +96,79 @@ class BugFixes_v243_IosTest {
     fun testREPLACEPolicySetsAnchorCloseToNowNotReusingOldAnchor() = runTest {
         val storage = makeStorage("ios-replace-anchor-now")
         val scheduler = NativeTaskScheduler(fileStorage = storage)
-        val taskId = "anchor-now-task"
-        val interval = 60 * 60 * 1000L // 1 hour
+        try {
+            val taskId = "anchor-now-task"
+            val interval = 60 * 60 * 1000L // 1 hour
 
-        // Plant old metadata with an anchor from 30 minutes ago (simulates a stale schedule)
-        val thirtyMinAgo = (NSDate().timeIntervalSince1970 * 1000).toLong() - 30 * 60_000L
-        storage.saveTaskMetadata(taskId, mapOf(
-            "isPeriodic"        to "true",
-            "intervalMs"        to "$interval",
-            "anchoredStartMs"   to "$thirtyMinAgo",
-            "workerClassName"   to "TestWorker",
-            "inputJson"         to ""
-        ), periodic = true)
+            // Plant old metadata with an anchor from 30 minutes ago (simulates a stale schedule)
+            val thirtyMinAgo = (NSDate().timeIntervalSince1970 * 1000).toLong() - 30 * 60_000L
+            storage.saveTaskMetadata(taskId, mapOf(
+                "isPeriodic"        to "true",
+                "intervalMs"        to "$interval",
+                "anchoredStartMs"   to "$thirtyMinAgo",
+                "workerClassName"   to "TestWorker",
+                "inputJson"         to ""
+            ), periodic = true)
 
-        val nowBefore = (NSDate().timeIntervalSince1970 * 1000).toLong()
-        scheduler.enqueue(
-            id = taskId,
-            trigger = TaskTrigger.Periodic(intervalMs = interval, runImmediately = true),
-            workerClassName = "TestWorker",
-            constraints = Constraints(),
-            inputJson = null,
-            policy = ExistingPolicy.REPLACE
-        )
-        val nowAfter = (NSDate().timeIntervalSince1970 * 1000).toLong()
+            val nowBefore = (NSDate().timeIntervalSince1970 * 1000).toLong()
+            scheduler.enqueue(
+                id = taskId,
+                trigger = TaskTrigger.Periodic(intervalMs = interval, runImmediately = true),
+                workerClassName = "TestWorker",
+                constraints = Constraints(),
+                inputJson = null,
+                policy = ExistingPolicy.REPLACE
+            )
+            val nowAfter = (NSDate().timeIntervalSince1970 * 1000).toLong()
 
-        val anchor = storage.loadTaskMetadata(taskId, periodic = true)
-            ?.get("anchoredStartMs")?.toLong()
-        assertNotNull(anchor, "Anchor must be saved after REPLACE")
-        assertTrue(
-            anchor >= nowBefore,
-            "Anchor ($anchor) must be >= nowBefore ($nowBefore) — REPLACE must not reuse the 30-min-old anchor"
-        )
-        assertTrue(
-            anchor <= nowAfter + 1_000L,
-            "Anchor ($anchor) must be within 1s of nowAfter ($nowAfter) — it should reflect current time"
-        )
+            val anchor = storage.loadTaskMetadata(taskId, periodic = true)
+                ?.get("anchoredStartMs")?.toLong()
+            assertNotNull(anchor, "Anchor must be saved after REPLACE")
+            assertTrue(
+                anchor >= nowBefore,
+                "Anchor ($anchor) must be >= nowBefore ($nowBefore) — REPLACE must not reuse the 30-min-old anchor"
+            )
+            assertTrue(
+                anchor <= nowAfter + 1_000L,
+                "Anchor ($anchor) must be within 1s of nowAfter ($nowAfter) — it should reflect current time"
+            )
+        } finally {
+            scheduler.close()
+            storage.close()
+        }
     }
 
     @Test
     fun testMissingAnchoredStartMsInMetadataIsTreatedAsFirstSchedule() = runTest {
         val storage = makeStorage("ios-upgrade-anchor")
         val scheduler = NativeTaskScheduler(fileStorage = storage)
-        val taskId = "upgrade-task"
-        val interval = 15 * 60 * 1000L
+        try {
+            val taskId = "upgrade-task"
+            val interval = 15 * 60 * 1000L
 
-        // Manually save metadata WITHOUT anchoredStartMs (simulating v2.4.0)
-        storage.saveTaskMetadata(taskId, mapOf(
-            "isPeriodic" to "true",
-            "intervalMs" to "$interval",
-            "workerClassName" to "TestWorker"
-        ), periodic = true)
+            // Manually save metadata WITHOUT anchoredStartMs (simulating v2.4.0)
+            storage.saveTaskMetadata(taskId, mapOf(
+                "isPeriodic" to "true",
+                "intervalMs" to "$interval",
+                "workerClassName" to "TestWorker"
+            ), periodic = true)
 
-        // Schedule again (e.g. app startup call)
-        scheduler.enqueue(
-            id = taskId,
-            trigger = TaskTrigger.Periodic(intervalMs = interval, runImmediately = true),
-            workerClassName = "TestWorker",
-            constraints = Constraints(),
-            inputJson = null,
-            policy = ExistingPolicy.KEEP
-        )
+            // Schedule again (e.g. app startup call)
+            scheduler.enqueue(
+                id = taskId,
+                trigger = TaskTrigger.Periodic(intervalMs = interval, runImmediately = true),
+                workerClassName = "TestWorker",
+                constraints = Constraints(),
+                inputJson = null,
+                policy = ExistingPolicy.KEEP
+            )
 
-        val meta = storage.loadTaskMetadata(taskId, periodic = true)
-        assertNotNull(meta?.get("anchoredStartMs"), "Anchor must be established when missing from old metadata")
+            val meta = storage.loadTaskMetadata(taskId, periodic = true)
+            assertNotNull(meta?.get("anchoredStartMs"), "Anchor must be established when missing from old metadata")
+        } finally {
+            scheduler.close()
+            storage.close()
+        }
     }
 
     @Test
@@ -194,23 +209,28 @@ class BugFixes_v243_IosTest {
     fun testDynamicTaskIdRoutingToMasterDispatcher() = runTest {
         val storage = makeStorage("ios-dynamic-routing")
         val scheduler = NativeTaskScheduler(fileStorage = storage)
-        val taskId = "dynamic-task-${(NSDate().timeIntervalSince1970 * 1000).toLong()}"
+        try {
+            val taskId = "dynamic-task-${(NSDate().timeIntervalSince1970 * 1000).toLong()}"
 
-        // In test environment, permittedTaskIds is empty, so any taskId is "dynamic"
-        scheduler.enqueue(
-            id = taskId,
-            trigger = TaskTrigger.OneTime(),
-            workerClassName = "TestWorker",
-            constraints = Constraints(),
-            inputJson = null,
-            policy = ExistingPolicy.REPLACE
-        )
+            // In test environment, permittedTaskIds is empty, so any taskId is "dynamic"
+            scheduler.enqueue(
+                id = taskId,
+                trigger = TaskTrigger.OneTime(),
+                workerClassName = "TestWorker",
+                constraints = Constraints(),
+                inputJson = null,
+                policy = ExistingPolicy.REPLACE
+            )
 
-        // Verify it went to the queue
-        val queueSize = storage.getTasksQueueSize()
-        assertEquals(1, queueSize, "Task should be routed to the master dispatcher queue")
-        
-        val dequeuedId = storage.dequeueTask()
-        assertEquals(taskId, dequeuedId, "The correct task ID should be in the queue")
+            // Verify it went to the queue
+            val queueSize = storage.getTasksQueueSize()
+            assertEquals(1, queueSize, "Task should be routed to the master dispatcher queue")
+
+            val dequeuedId = storage.dequeueTask()
+            assertEquals(taskId, dequeuedId, "The correct task ID should be in the queue")
+        } finally {
+            scheduler.close()
+            storage.close()
+        }
     }
 }

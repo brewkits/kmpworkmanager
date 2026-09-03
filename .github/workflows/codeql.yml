@@ -3,8 +3,6 @@ name: CodeQL
 on:
   push:
     branches: [ main ]
-  pull_request:
-    branches: [ main ]
   schedule:
     # Weekly scan even if no commits land — catches new advisories that
     # affect existing code (e.g. a transitive dep CVE published after merge).

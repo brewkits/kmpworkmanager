@@ -45,6 +45,10 @@ data class ParallelUploadFile(
  *   network error. 0..5, default 1. 4xx responses are NOT retried (programming /
  *   authentication errors).
  * @property timeoutMs Per-file request timeout in ms. Default 5 minutes.
+ * @property maxBytesPerSecond Optional cap on the AVERAGE **aggregate** upload rate across
+ *   ALL concurrent files combined, in bytes per second — not per file. `null` (default)
+ *   means unlimited. See [HttpDownloadConfig.maxBytesPerSecond] for the token-bucket
+ *   rationale.
  */
 @Serializable
 data class ParallelHttpUploadConfig(
@@ -54,7 +58,8 @@ data class ParallelHttpUploadConfig(
     val fields: Map<String, String>? = null,
     val maxConcurrent: Int = 3,
     val maxRetries: Int = 1,
-    val timeoutMs: Long = 300_000L
+    val timeoutMs: Long = 300_000L,
+    val maxBytesPerSecond: Long? = null
 ) {
     init {
         require(url.startsWith("http://") || url.startsWith("https://")) {
@@ -68,6 +73,9 @@ data class ParallelHttpUploadConfig(
             "maxRetries must be between 0 and 5 (got $maxRetries)"
         }
         require(timeoutMs > 0) { "Timeout must be positive" }
+        if (maxBytesPerSecond != null) {
+            require(maxBytesPerSecond > 0) { "maxBytesPerSecond must be positive when set, got $maxBytesPerSecond" }
+        }
     }
 }
 

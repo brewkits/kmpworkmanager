@@ -323,7 +323,8 @@ scheduler.enqueue(
     inputJson = inputJson,
     constraints = Constraints(
         requiresCharging = true,
-        requiresDeviceIdle = true
+        // DEVICE_IDLE has no iOS equivalent (Android-only) — see docs/constraints-triggers.md
+        systemConstraints = setOf(SystemConstraint.DEVICE_IDLE)
     )
 )
 ```
@@ -439,7 +440,10 @@ data class HttpDownloadConfig(
     val url: String,                          // Required: http:// or https://
     val savePath: String,                     // Required: absolute path
     val headers: Map<String, String>? = null, // Optional headers
-    val timeoutMs: Long = 300000              // Default: 5 minutes
+    val timeoutMs: Long = 300000,             // Default: 5 minutes
+    val maxBytesPerSecond: Long? = null       // Optional bandwidth cap (v3.4+); null = unlimited
+    // resumable, maxBytes, expectedChecksum, checksumAlgorithm, onDuplicate also exist —
+    // see the KDoc on HttpDownloadConfig for the full v2.5+ field set.
 )
 ```
 
@@ -453,7 +457,8 @@ data class HttpUploadConfig(
     val mimeType: String? = null,             // Optional: auto-detected if null
     val headers: Map<String, String>? = null, // Optional headers
     val fields: Map<String, String>? = null,  // Optional form fields
-    val timeoutMs: Long = 120000              // Default: 2 minutes
+    val timeoutMs: Long = 120000,             // Default: 2 minutes
+    val maxBytesPerSecond: Long? = null       // Optional bandwidth cap (v3.4+); null = unlimited
 )
 ```
 
@@ -509,7 +514,7 @@ For heavy operations, require charging:
 ```kotlin
 constraints = Constraints(
     requiresCharging = true,
-    requiresDeviceIdle = true // iOS only
+    systemConstraints = setOf(SystemConstraint.DEVICE_IDLE) // Android only — no iOS equivalent
 )
 ```
 
@@ -704,7 +709,7 @@ For examples of how to use built-in workers, please refer to the main demo appli
 
 For questions or issues:
 - GitHub: https://github.com/brewkits/kmpworkmanager
-- Email: vietnguyentuan@gmail.com
+- Security vulnerabilities: see [SECURITY.md](../SECURITY.md)
 
 ---
 

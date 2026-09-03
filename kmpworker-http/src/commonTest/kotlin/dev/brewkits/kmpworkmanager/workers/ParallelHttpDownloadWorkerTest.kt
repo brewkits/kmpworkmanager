@@ -340,4 +340,45 @@ class ParallelHttpDownloadWorkerTest {
             if (fs.exists(savePath)) fs.delete(savePath)
         }
     }
+
+    /**
+     * [ParallelHttpDownloadConfig.maxBytesPerSecond] must bound the AGGREGATE rate across
+     * every concurrent chunk, not grant each chunk its own independent budget — a per-chunk
+     * throttle would let `numChunks * maxBytesPerSecond` through in aggregate, silently
+     * defeating the limit. This is a real-wall-clock-bound test (see
+     * `HttpDownloadWorkerBandwidthThrottleTest`'s KDoc for why): 4 chunks × 50 bytes = 200
+     * bytes total at a 400 B/s cap should take ~500ms if the budget is correctly shared,
+     * vs. near-instant if each chunk got its own 400 B/s budget.
+     */
+    @Test
+    fun `maxBytesPerSecond bounds the aggregate rate across all chunks not per chunk`() = runTest {
+        val payload = ByteArray(200) { it.toByte() } // 4 chunks × 50 bytes
+        val (engine, _) = rangeServer(payload)
+
+        val savePath = "test_throttled_parallel_${kotlin.random.Random.nextInt()}.bin".toPath()
+        val fs = FileSystem.SYSTEM
+        val worker = ParallelHttpDownloadWorker(mockClient(engine), fs)
+        val config = ParallelHttpDownloadConfig(
+            url = "https://example.com/file",
+            savePath = savePath.toString(),
+            numChunks = 4,
+            maxBytesPerSecond = 400L
+        )
+        val input = HttpWorkerJson.encodeToString(config)
+
+        try {
+            val startedAt = dev.brewkits.kmpworkmanager.utils.currentTimeMillis()
+            val result = worker.doWork(input, WorkerEnvironment(null) { false })
+            val elapsedMs = dev.brewkits.kmpworkmanager.utils.currentTimeMillis() - startedAt
+
+            assertTrue(result is WorkerResult.Success, "expected Success: $result")
+            assertTrue(
+                elapsedMs >= 200L,
+                "4 chunks totalling 200 bytes at a shared 400 B/s cap took only ${elapsedMs}ms — " +
+                    "the throttle appears to be applied per-chunk instead of shared across all chunks"
+            )
+        } finally {
+            if (fs.exists(savePath)) fs.delete(savePath)
+        }
+    }
 }

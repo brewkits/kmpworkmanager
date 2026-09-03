@@ -49,4 +49,17 @@ internal object ChainJobRegistry {
         }
         job?.cancelAndJoin()
     }
+
+    /**
+     * True if [chainId] currently has a registered, still-active job — i.e. a
+     * [ChainExecutor] is actively running that chain right now, as opposed to it merely
+     * sitting in the queue waiting to be picked up. Read-only; does not affect the
+     * registry's cancel/register/unregister bookkeeping. Used by
+     * [NativeTaskScheduler.observeTaskState] as the one precise "is this chain running"
+     * signal available on iOS — everything else in that method is inferred from persisted
+     * state, not observed directly.
+     */
+    suspend fun isActive(chainId: String): Boolean = mutex.withLock {
+        activeJobs[chainId]?.isActive == true
+    }
 }

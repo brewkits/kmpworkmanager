@@ -5,6 +5,7 @@ import dev.brewkits.kmpworkmanager.background.domain.*
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.utils.AppDispatchers
 import dev.brewkits.kmpworkmanager.workers.config.HttpUploadConfig
+import dev.brewkits.kmpworkmanager.workers.utils.BandwidthThrottle
 import dev.brewkits.kmpworkmanager.workers.utils.HttpClientProvider
 import dev.brewkits.kmpworkmanager.workers.utils.SecurityValidator
 import dev.brewkits.kmpworkmanager.utils.platformFileSystem
@@ -94,6 +95,7 @@ class HttpUploadWorker(
                     var bytesUploaded = 0L
                     var lastReportTime = 0L
                     val reportIntervalMs = 200L
+                    val throttle = config.maxBytesPerSecond?.let { BandwidthThrottle(it) }
 
                     // Okio blocking read must be inside AppDispatchers.IO
                     withContext(AppDispatchers.IO) {
@@ -104,10 +106,11 @@ class HttpUploadWorker(
 
                                 val read = source.read(chunkBuf, 65536L)
                                 if (read <= 0L) break
-                                
+
                                 val bytes = chunkBuf.readByteArray()
                                 channel.writeFully(bytes)
                                 bytesUploaded += read
+                                throttle?.consume(bytes.size)
 
                                 val now = currentTimeMillis()
                                 if (now - lastReportTime >= reportIntervalMs || bytesUploaded == fileSize) {

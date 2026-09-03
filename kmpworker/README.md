@@ -371,7 +371,7 @@ Logger.e(LogTags.SCHEDULER, "Failed to schedule", exception)
 |---------|---------|-----|
 | OneTime Tasks | ✅ WorkManager | ✅ BGTaskScheduler |
 | Periodic Tasks | ✅ 15min minimum | ✅ Re-schedules |
-| Exact Alarms | ⚠️ Extend class | ⚠️ Extend class |
+| Exact Alarms | ✅ `AlarmManager` | ⚠️ Best-effort — notification only by default, code doesn't run unless tapped (`ExactAlarmIOSBehavior`, see `docs/iOS-EXACT-ALARM-GUIDE.md`) |
 | Task Chains | ✅ Continuation API | ✅ Custom queue |
 | Constraints (Network, Charging) | ✅ Full support | ✅ Basic support |
 | ContentUri Triggers | ✅ Supported | ❌ Android only |
@@ -505,23 +505,16 @@ android {
 
 ### Exact Alarms
 
-Extend `NativeTaskScheduler` and override:
-
-```kotlin
-class MyScheduler(context: Context) : NativeTaskScheduler(context) {
-    override fun scheduleExactAlarm(...): ScheduleResult {
-        // Implement with AlarmManager + BroadcastReceiver
-        return ScheduleResult.ACCEPTED
-    }
-}
-```
+`TaskTrigger.Exact` works out of the box via `AlarmManager.setExactAndAllowWhileIdle` — no
+subclassing needed. Requires the `SCHEDULE_EXACT_ALARM` permission on Android 12+ (see
+`docs/platform-setup.md`). On iOS, the same trigger is best-effort only — see
+`docs/iOS-EXACT-ALARM-GUIDE.md`.
 
 ## Requirements
 
 - **Kotlin**: 2.1.21+
 - **Android**: API 26+ (Android 8.0)
 - **iOS**: 13.0+
-- **Koin**: 4.1.1+
 
 ## Documentation
 
@@ -570,4 +563,4 @@ It helps other developers discover this project.
 
 Made with ❤️ by **Nguyễn Tuấn Việt** at **Brewkits**
 
-**Support**: datacenter111@gmail.com • **Community**: [GitHub Issues](https://github.com/brewkits/kmpworkmanager/issues)
+**Support**: [GitHub Issues](https://github.com/brewkits/kmpworkmanager/issues) • **Security**: see [SECURITY.md](https://github.com/brewkits/kmpworkmanager/blob/main/SECURITY.md)

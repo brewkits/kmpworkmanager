@@ -47,6 +47,14 @@ import kotlinx.serialization.Serializable
  * @property isDiscretionary When `true`, iOS will delay the download until the system
  *   decides it is "convenient" (Wi-Fi, charging). Best for large non-urgent media.
  *   Default `false` — start immediately if conditions allow.
+ * @property sharedContainerIdentifier Optional App Group container identifier
+ *   (`group.<bundleId>...`). When set, the underlying `NSURLSessionConfiguration` is
+ *   configured with `sharedContainerIdentifier`, allowing a Share/Widget Extension in the
+ *   same App Group to also initiate or observe transfers on this session. This shares only
+ *   the *transport* — [dev.brewkits.kmpworkmanager.workers.builtins.BackgroundDownloadStateStore]
+ *   (completion tracking) always writes to the main app's Application Support directory
+ *   regardless of this setting, so an extension cannot read pending/complete transfer state
+ *   today. See `docs/IOS_BACKGROUND_URL_SESSION.md`.
  * @property allowsCellularAccess When `false`, the download is suspended whenever the
  *   device is on cellular. Default `true`.
  * @property timeoutMs Per-request timeout. iOS allows longer effective timeouts here
@@ -59,6 +67,7 @@ data class IosBackgroundDownloadConfig(
     val sessionIdentifier: String = "dev.brewkits.kmpworkmanager.background",
     val headers: Map<String, String>? = null,
     val isDiscretionary: Boolean = false,
+    val sharedContainerIdentifier: String? = null,
     val allowsCellularAccess: Boolean = true,
     val timeoutMs: Long = 30 * 60 * 1000L
 ) {

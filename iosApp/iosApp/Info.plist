@@ -34,6 +34,11 @@
 		<string>demo-builtin-httpdownload</string>
 		<string>demo-builtin-httpupload</string>
 		<string>demo-builtin-filecompression</string>
+		<string>demo-builtin-httpdownload-throttled</string>
+		<string>demo-builtin-tokenrefresh</string>
+		<string>demo-ios-background-download</string>
+		<string>demo-update-policy</string>
+		<string>demo-critical-non-idempotent</string>
 		<string>v236-and2-periodic-flex</string>
 		<string>v236-and3-battery-not-low</string>
 		<string>battery-okay-task</string>

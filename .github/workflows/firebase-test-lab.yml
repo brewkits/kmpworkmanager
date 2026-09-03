@@ -1,0 +1,88 @@
+name: Firebase Test Lab (real devices)
+
+# ── Manual setup required before this workflow can run ────────────────────
+# 1. Create a Firebase project (or reuse an existing GCP project) and enable
+#    the Blaze (pay-as-you-go) billing plan — Test Lab requires it for any
+#    usage beyond the free per-day quota.
+# 2. Create a service account with the "Firebase Test Lab Admin" role (or an
+#    equivalent custom role with `firebase.testlab.*` + `cloudtestservice.*`
+#    permissions), and download its JSON key.
+# 3. Add the JSON key as a GitHub Actions secret named
+#    FIREBASE_SERVICE_ACCOUNT_JSON on this repo (Settings → Secrets and
+#    variables → Actions).
+#
+# Until that secret exists, the `firebase-test-lab` job below is skipped
+# (gated via the `check-secret` job's output — a job-level `if:` cannot
+# reference `secrets.*` directly, so the check has to happen in its own job
+# first) — it will NOT fail CI, and it will NOT incur any Firebase/GCP cost.
+# This is intentional: this workflow was added ahead of the Firebase project
+# being provisioned, so it must be a safe no-op until someone completes the
+# 3 steps above.
+#
+# Device matrix is deliberately small (2 devices) — each physical-device
+# minute is billed once the free daily quota (30 min/day on Blaze) is used,
+# and this workflow runs on every tag push, not gated behind manual approval.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  check-secret:
+    name: Check Firebase secret is configured
+    runs-on: ubuntu-latest
+    outputs:
+      configured: ${{ steps.check.outputs.configured }}
+    steps:
+      - id: check
+        env:
+          SECRET_VALUE: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+        run: echo "configured=${{ env.SECRET_VALUE != '' }}" >> "$GITHUB_OUTPUT"
+
+  firebase-test-lab:
+    name: Instrumented tests on real devices
+    needs: check-secret
+    if: needs.check-secret.outputs.configured == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - uses: gradle/actions/setup-gradle@v6
+      - run: chmod +x gradlew
+
+      - name: Build debug APK + debug instrumentation APK
+        run: ./gradlew :composeApp:assembleDebug :composeApp:assembleDebugAndroidTest
+
+      - id: auth
+        name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Run instrumentation tests on Firebase Test Lab
+        run: >-
+          gcloud firebase test android run
+          --type instrumentation
+          --app composeApp/build/outputs/apk/debug/composeApp-debug.apk
+          --test composeApp/build/outputs/apk/androidTest/debug/composeApp-debug-androidTest.apk
+          --device model=redfin,version=30,locale=en,orientation=portrait
+          --device model=oriole,version=33,locale=en,orientation=portrait
+          --timeout 15m
+
+      - name: Upload Test Lab results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: firebase-test-lab-results
+          path: |
+            composeApp/build/outputs/apk/debug/
+            composeApp/build/outputs/apk/androidTest/
+          retention-days: 7

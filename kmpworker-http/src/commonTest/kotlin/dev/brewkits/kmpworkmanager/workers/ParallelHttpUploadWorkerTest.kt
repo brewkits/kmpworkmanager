@@ -220,4 +220,40 @@ class ParallelHttpUploadWorkerTest {
             assertTrue(e.message!!.contains("between 1 and 16"))
         }
     }
+
+    /**
+     * [ParallelHttpUploadConfig.maxBytesPerSecond] parsing/round-trip only — see
+     * `HttpUploadWorkerBandwidthThrottleTest`'s KDoc for why no timing assertion is possible
+     * here: this worker's MockEngine handler (like every other one in this file) never reads
+     * `request.body`, so `OutgoingContent.WriteChannelContent.writeTo` — and the
+     * `throttle.consume(...)` call inside it — never executes under this test harness. The
+     * shared-budget-across-concurrent-writers behavior itself is covered by
+     * `BandwidthThrottleTest`; the one-line wiring here mirrors the already end-to-end-verified
+     * download-side pattern (`ParallelHttpDownloadWorkerTest`'s equivalent test).
+     */
+    @Test
+    fun maxBytesPerSecond_isAcceptedAndUploadStillSucceeds() = runTest {
+        val pathA = writeTempFile("a".repeat(100))
+        val pathB = writeTempFile("b".repeat(100))
+        val mock = MockEngine { _ -> respond(content = "ok", status = HttpStatusCode.OK) }
+        val worker = ParallelHttpUploadWorker(mockClient(mock), FileSystem.SYSTEM)
+        val config = ParallelHttpUploadConfig(
+            url = "https://example.com/upload",
+            files = listOf(
+                ParallelUploadFile(filePath = pathA),
+                ParallelUploadFile(filePath = pathB)
+            ),
+            maxConcurrent = 2,
+            maxRetries = 0,
+            maxBytesPerSecond = 400L
+        )
+        val input = HttpWorkerJson.encodeToString(config)
+
+        try {
+            val result = worker.doWork(input, WorkerEnvironment(null) { false })
+            assertTrue(result is WorkerResult.Success, "expected Success: $result")
+        } finally {
+            cleanup(listOf(pathA, pathB))
+        }
+    }
 }

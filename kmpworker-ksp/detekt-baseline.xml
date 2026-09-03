@@ -1,0 +1,11 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>MaxLineLength:WorkerProcessor.kt$WorkerProcessor$add(" %S to { %T() as %T }, // alias for %S\n", alias, worker.className, iosWorkerClass, worker.name)</ID>
+    <ID>MaxLineLength:WorkerProcessor.kt$WorkerProcessor$add(" put(%S) { %T() as %T } // alias for %S\n", alias, worker.className, androidWorkerClass, worker.name)</ID>
+    <ID>WildcardImport:WorkerProcessor.kt$import com.google.devtools.ksp.processing.*</ID>
+    <ID>WildcardImport:WorkerProcessor.kt$import com.google.devtools.ksp.symbol.*</ID>
+    <ID>WildcardImport:WorkerProcessor.kt$import com.squareup.kotlinpoet.*</ID>
+  </CurrentIssues>
+</SmellBaseline>

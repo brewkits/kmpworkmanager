@@ -10,6 +10,7 @@ import dev.brewkits.kmpworkmanager.background.domain.TaskEventManager
 import dev.brewkits.kmpworkmanager.utils.LogTags
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.workers.config.IosBackgroundDownloadConfig
+import dev.brewkits.kmpworkmanager.workers.config.IosBackgroundUploadConfig
 import kotlinx.cinterop.ObjCAction
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -29,6 +30,9 @@ import platform.Foundation.NSURLSessionConfiguration
 import platform.Foundation.NSURLSessionDownloadDelegateProtocol
 import platform.Foundation.NSURLSessionDownloadTask
 import platform.Foundation.NSURLSessionTask
+import platform.Foundation.NSURLSessionUploadTask
+import platform.Foundation.setHTTPMethod
+import platform.Foundation.uploadTaskWithRequest
 import platform.Foundation.setValue
 import platform.Foundation.timeIntervalSince1970
 import platform.darwin.NSObject
@@ -87,17 +91,29 @@ object IosBackgroundUrlSessionManager {
 
     /**
      * Register a background session for [sessionIdentifier]. Idempotent — calling twice
-     * returns the existing session.
+     * returns the existing session; [sharedContainerIdentifier] only takes effect on the
+     * call that actually creates the session (the config is fixed at that point per iOS's
+     * own contract — `NSURLSessionConfiguration` for an already-running background session
+     * cannot be mutated).
      *
      * Safe to call from any thread; the underlying `URLSession` is thread-safe and the
      * mutex protects the cache map.
+     *
+     * @param sharedContainerIdentifier App Group container identifier
+     *   (`group.<bundleId>...`). When set, a Share/Widget Extension in the same App Group can
+     *   also initiate or observe transfers on this session. See
+     *   [dev.brewkits.kmpworkmanager.workers.config.IosBackgroundDownloadConfig.sharedContainerIdentifier].
      */
-    suspend fun registerSession(sessionIdentifier: String): NSURLSession = sessionsMutex.withLock {
+    suspend fun registerSession(
+        sessionIdentifier: String,
+        sharedContainerIdentifier: String? = null
+    ): NSURLSession = sessionsMutex.withLock {
         sessions.getOrPut(sessionIdentifier) {
             val config = NSURLSessionConfiguration.backgroundSessionConfigurationWithIdentifier(sessionIdentifier)
             config.setSessionSendsLaunchEvents(true)
             // Default: opportunistic — host can override via `isDiscretionary` per download.
             config.setDiscretionary(false)
+            sharedContainerIdentifier?.let { config.setSharedContainerIdentifier(it) }
             NSURLSession.sessionWithConfiguration(
                 configuration = config,
                 delegate = IosBackgroundUrlSessionManagerDelegate(),
@@ -135,7 +151,7 @@ object IosBackgroundUrlSessionManager {
         workerName: String,
         config: IosBackgroundDownloadConfig
     ): NSURLSessionDownloadTask {
-        val session = registerSession(config.sessionIdentifier)
+        val session = registerSession(config.sessionIdentifier, config.sharedContainerIdentifier)
         val request = NSMutableURLRequest.requestWithURL(NSURL(string = config.url))
         config.headers?.forEach { (k, v) -> request.setValue(v, forHTTPHeaderField = k) }
         request.setAllowsCellularAccess(config.allowsCellularAccess)
@@ -151,6 +167,7 @@ object IosBackgroundUrlSessionManager {
                 savePath = config.savePath,
                 workerName = workerName,
                 createdAtMs = (NSDate().timeIntervalSince1970() * 1000.0).toLong(),
+                transferType = BackgroundDownloadStateStore.TransferType.DOWNLOAD,
             )
         )
 
@@ -158,6 +175,51 @@ object IosBackgroundUrlSessionManager {
         Logger.i(
             LogTags.WORKER,
             "Background URLSession download queued: id=$taskId url=${config.url} session=${config.sessionIdentifier}"
+        )
+        return task
+    }
+
+    /**
+     * Submit an upload to the background daemon. Mirrors [enqueueDownload]'s contract exactly
+     * — persist-then-resume, async completion delivered via [TaskEventManager].
+     *
+     * Uses `uploadTaskWithRequest(_:fromFile:)` — background sessions require an on-disk
+     * source file; in-memory (`fromData:`) request bodies are not supported for background
+     * uploads by iOS itself, so there is no alternative overload to offer here.
+     */
+    suspend fun enqueueUpload(
+        workerName: String,
+        config: IosBackgroundUploadConfig
+    ): NSURLSessionUploadTask {
+        val session = registerSession(config.sessionIdentifier, config.sharedContainerIdentifier)
+        val request = NSMutableURLRequest.requestWithURL(NSURL(string = config.url))
+        request.setHTTPMethod(config.httpMethod)
+        config.headers?.forEach { (k, v) -> request.setValue(v, forHTTPHeaderField = k) }
+        request.setAllowsCellularAccess(config.allowsCellularAccess)
+        request.setTimeoutInterval((config.timeoutMs / 1000.0))
+        val fileURL = NSURL.fileURLWithPath(config.filePath)
+        val task = session.uploadTaskWithRequest(request, fromFile = fileURL)
+        val taskId = task.taskIdentifier.toLong()
+
+        // Persist BEFORE resume — same "critical contract" as enqueueDownload: if the app
+        // crashed between resume() and this write, the daemon would already own the upload
+        // but we'd have no record of which worker to notify on completion.
+        BackgroundDownloadStateStore.put(
+            BackgroundDownloadStateStore.Entry(
+                sessionIdentifier = config.sessionIdentifier,
+                taskIdentifier = taskId,
+                savePath = "", // unused for uploads — sourcePath carries the relevant path
+                workerName = workerName,
+                createdAtMs = (NSDate().timeIntervalSince1970() * 1000.0).toLong(),
+                transferType = BackgroundDownloadStateStore.TransferType.UPLOAD,
+                sourcePath = config.filePath,
+            )
+        )
+
+        task.resume()
+        Logger.i(
+            LogTags.WORKER,
+            "Background URLSession upload queued: id=$taskId url=${config.url} session=${config.sessionIdentifier}"
         )
         return task
     }
@@ -250,11 +312,30 @@ internal class IosBackgroundUrlSessionManagerDelegate : NSObject(), NSURLSession
         val id = task.taskIdentifier.toLong()
         val sessionId = session.configuration.identifier ?: return
         val err = didCompleteWithError
-        // `didFinishDownloadingToURL` already emitted the success event AND already
-        // removed the state entry; we only surface explicit failures here.
+        val entry = BackgroundDownloadStateStore.getSync(sessionId, id)
+
+        // Downloads: `didFinishDownloadingToURL` already emitted the success event and
+        // already removed the state entry — only surface explicit failures here.
+        //
+        // Uploads have no equivalent "here's your data" callback (there's no file for us to
+        // move), so this is the ONLY completion signal an upload gets: emit success here
+        // when there's no error, not just failures.
+        if (entry?.transferType == BackgroundDownloadStateStore.TransferType.UPLOAD) {
+            val workerName = entry.workerName
+            if (err == null) {
+                emitCompletion(workerName, success = true, message = "Background upload completed")
+            } else {
+                Logger.e(LogTags.WORKER, "Background upload failed: id=$id error=${err.localizedDescription}")
+                emitCompletion(workerName, success = false, message = err.localizedDescription)
+            }
+            IosBackgroundUrlSessionManager.scope.launch {
+                BackgroundDownloadStateStore.remove(sessionId, id)
+            }
+            return
+        }
+
         if (err != null) {
-            val workerName = BackgroundDownloadStateStore.getSync(sessionId, id)?.workerName
-                ?: "IosBackgroundDownloadWorker"
+            val workerName = entry?.workerName ?: "IosBackgroundDownloadWorker"
             Logger.e(
                 LogTags.WORKER,
                 "Background download failed: id=$id error=${err.localizedDescription}"

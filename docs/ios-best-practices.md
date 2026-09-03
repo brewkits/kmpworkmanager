@@ -51,8 +51,11 @@ scheduler.enqueue(
 
 | Task Type | Time Limit | When Available |
 |-----------|-----------|----------------|
-| `BGAppRefreshTask` | ~30 seconds | Always |
-| `BGProcessingTask` | ~60 seconds | Requires charging + WiFi |
+| `BGAppRefreshTask` | ~30 seconds, hard ceiling, no extension API | Always |
+| `BGProcessingTask` | Several minutes (typically 1–10 min), iOS adjusts dynamically based on battery + thermal state | Available without charging/Wi-Fi; those are opt-in constraints you request, not requirements iOS imposes |
+
+See [`docs/IOS_BGTASK_LIMITS.md`](IOS_BGTASK_LIMITS.md) for the full breakdown, including why the
+library's own per-task executor timeout is 25s regardless of which BGTask type is used.
 
 ```kotlin
 // ❌ BAD: Long-running task
@@ -106,24 +109,34 @@ fun saveUserData() {
 
 ### 4. Limited Constraints
 
-iOS **does not support** these Android constraints:
+`requiresBatteryNotLow` and `requiresStorageNotLow` are **not real `Constraints` fields** —
+they don't compile. That shape was superseded by `SystemConstraint` and `Contracts.kt`'s
+current fields; see [`docs/constraints-triggers.md`](constraints-triggers.md) for the
+authoritative list. Of the fields that DO exist:
 
 ```kotlin
-// ❌ THESE WILL BE IGNORED ON iOS:
+// ✅ Fully supported on iOS, no caveats:
 Constraints(
-    requiresCharging = true,        // iOS ignores this
-    requiresBatteryNotLow = true,   // iOS ignores this
-    requiresStorageNotLow = true,   // iOS ignores this
+    requiresNetwork = true,
+    requiresUnmeteredNetwork = true,               // Wi-Fi only
     systemConstraints = setOf(
-        SystemConstraint.REQUIRE_BATTERY_NOT_LOW, // iOS ignores
-        SystemConstraint.DEVICE_IDLE               // iOS ignores
-    )
+        SystemConstraint.REQUIRE_BATTERY_NOT_LOW,  // via Low Power Mode
+        SystemConstraint.ALLOW_LOW_BATTERY
+    ),
+    backoffPolicy = BackoffPolicy.EXPONENTIAL,     // affects real retry timing
+    backoffDelayMs = 30_000L
 )
 
-// ✅ ONLY THESE WORK ON iOS:
+// ⚠️ Supported, but only if the host app has already opted in to
+// UIDevice.batteryMonitoringEnabled somewhere in its own code — the library never
+// toggles that flag itself (doing so would race the host's own UI thread). Hosts
+// that never touch batteryMonitoringEnabled see this silently unenforced:
+Constraints(requiresCharging = true)
+
+// ❌ No iOS primitive exists — structurally unsupported, not just unwired:
 Constraints(
-    requiresNetwork = true,           // Supported
-    requiresUnmeteredNetwork = true   // Supported (WiFi only)
+    systemConstraints = setOf(SystemConstraint.DEVICE_IDLE)       // no Doze-equivalent
+    // SystemConstraint.ALLOW_LOW_STORAGE — no storage-pressure API either
 )
 ```
 
@@ -319,44 +332,27 @@ EventSyncManager.syncEvents(eventStore)
 
 ## Constraint Limitations
 
-### Supported Constraints
+See [§4 above](#4-limited-constraints) for the current, field-accurate breakdown of what's
+supported, opt-in-conditional, or structurally unsupported on iOS — duplicated here in an
+earlier revision of this doc using a `Constraints` shape that no longer exists.
 
-```kotlin
-// ✅ These work on iOS:
-Constraints(
-    requiresNetwork = true,
-    requiresUnmeteredNetwork = true
-)
-```
-
-### Unsupported Constraints
-
-```kotlin
-// ❌ These are IGNORED on iOS:
-Constraints(
-    requiresCharging = true,         // Ignored
-    requiresBatteryNotLow = true,    // Ignored
-    requiresStorageNotLow = true,    // Ignored
-    systemConstraints = setOf(...)   // Ignored
-)
-```
-
-### Platform-Specific Scheduling
+If your app never opts in to `UIDevice.batteryMonitoringEnabled` and still needs a real
+charging check before scheduling a heavy task, do it manually at the call site instead of
+relying on `Constraints.requiresCharging`:
 
 ```kotlin
 expect fun shouldScheduleHeavyTask(): Boolean
 
-// Android
-actual fun shouldScheduleHeavyTask(): Boolean {
-    return true // Can rely on charging constraint
-}
+// Android — WorkManager enforces this natively; the manual check is redundant but harmless.
+actual fun shouldScheduleHeavyTask(): Boolean = true
 
-// iOS
+// iOS — only needed if the host hasn't already turned on batteryMonitoringEnabled
+// (if it has, prefer Constraints(requiresCharging = true) instead of this).
 actual fun shouldScheduleHeavyTask(): Boolean {
-    // Manually check conditions iOS can't enforce
-    val batteryLevel = UIDevice.currentDevice.batteryLevel
-    val isCharging = UIDevice.currentDevice.batteryState == .charging
-    return batteryLevel > 0.5 || isCharging
+    val device = UIDevice.currentDevice
+    device.batteryMonitoringEnabled = true
+    val isCharging = device.batteryState != UIDeviceBatteryState.UIDeviceBatteryStateUnplugged
+    return device.batteryLevel > 0.5 || isCharging
 }
 ```
 
@@ -512,20 +508,23 @@ fun processVideo() {
 }
 ```
 
-### Pitfall #3: Assuming Android Constraints Work
+### Pitfall #3: Assuming `requiresCharging` Enforces Itself Without Setup
 
 ```kotlin
-// ❌ DOESN'T WORK ON iOS
+// ⚠️ SILENTLY UNENFORCED if the host app never opts in to
+// UIDevice.batteryMonitoringEnabled anywhere in its own code — the library never
+// toggles that flag itself, so this constraint does nothing on a host that doesn't.
 scheduler.enqueue(
     id = "heavy-task",
     trigger = TaskTrigger.OneTime(),
     workerClassName = "HeavyWorker",
-    constraints = Constraints(
-        requiresCharging = true // iOS ignores this!
-    )
+    constraints = Constraints(requiresCharging = true)
 )
 
-// ✅ MANUAL CHECK INSTEAD
+// ✅ EITHER opt in once at app startup so the constraint above actually works:
+UIDevice.currentDevice.batteryMonitoringEnabled = true
+
+// ✅ OR do the manual check instead, if you'd rather not touch that global flag:
 if (isCharging() || getBatteryLevel() > 0.8) {
     scheduler.enqueue(
         id = "heavy-task",
@@ -589,7 +588,8 @@ scheduler.beginWith(TaskRequest("DownloadAndValidate"))  // 12s
 - [ ] Tasks complete within 25 seconds
 - [ ] Critical operations use foreground mode
 - [ ] Event persistence used for important state
-- [ ] Only network constraints used
+- [ ] `requiresCharging` only relied upon if the host opts in to `UIDevice.batteryMonitoringEnabled`
+- [ ] `DEVICE_IDLE` / `ALLOW_LOW_STORAGE` not used (no iOS equivalent — will silently never apply)
 - [ ] Handles timeout gracefully
 - [ ] Handles force-quit gracefully
 - [ ] Minimal setup/initialization time

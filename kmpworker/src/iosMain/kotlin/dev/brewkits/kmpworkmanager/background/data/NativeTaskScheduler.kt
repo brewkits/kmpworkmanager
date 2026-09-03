@@ -14,6 +14,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.encodeToString
@@ -94,6 +95,16 @@ public class NativeTaskScheduler(
         const val CHAIN_EXECUTOR_IDENTIFIER = "kmp_chain_executor_task"
         const val MASTER_DISPATCHER_IDENTIFIER = "kmp_master_dispatcher_task"
         const val APPLE_TO_UNIX_EPOCH_OFFSET_SECONDS = 978307200.0
+
+        /**
+         * Poll interval for [observeTaskState]'s emulated live stream. iOS has no
+         * OS-level push signal for "task state changed" to observe instead — see that
+         * method's KDoc. 2s balances "feels reasonably live to a UI observer" against not
+         * spinning needlessly for a caller that holds a collector open a long time; a
+         * BGTaskScheduler-driven task usually isn't going to transition faster than that
+         * anyway (opportunistic execution, not real-time by nature).
+         */
+        const val OBSERVE_TASK_STATE_POLL_INTERVAL_MS = 2_000L
 
         /**
          * True when running inside a unit-test binary (.kexe), Xcode XCTest harness, or
@@ -412,6 +423,7 @@ public class NativeTaskScheduler(
             if (tags.isNotEmpty()) put(DynamicTaskDispatcher.META_TAGS, tags.joinToString(","))
             // No deadline for periodic work — see the matching note in Android's
             // schedulePeriodicWork: a deadline on a recurring task is a delayed cancel.
+            putStandaloneConstraintMetadata(constraints)
         }
         fileStorage.saveTaskMetadata(id, periodicMetadata, periodic = true)
 
@@ -445,6 +457,18 @@ public class NativeTaskScheduler(
         val taskMetadata = buildMap {
             put("workerClassName", workerClassName)
             put("inputJson", inputJson ?: "")
+            // Mirrors schedulePeriodicTask's own metadata write below. Without these three,
+            // a one-time task's isHeavyTask/requiresNetwork/requiresCharging are permanently
+            // unrecoverable from disk — getDynamicQueueConstraintSummary() undercounts them
+            // as light/unconstrained (they were simply absent from every metadata read), and
+            // worse, a dedicated-identifier task's FIRST retry (which round-trips through
+            // reconstructConstraintsFromMetadata → scheduler.enqueue → createBackgroundTaskRequest)
+            // would silently see isHeavyTask=false and downgrade a BGProcessingTaskRequest
+            // (minutes of budget) to a BGAppRefreshTaskRequest (~30s hard ceiling) for every
+            // subsequent attempt.
+            put("requiresNetwork", "${constraints.requiresNetwork}")
+            put("requiresCharging", "${constraints.requiresCharging}")
+            put("isHeavyTask", "${constraints.isHeavyTask}")
             // Persist an explicit retry ceiling so the single-task retry loop
             // (DynamicTaskDispatcher.handleOneTimeResult) can honor Constraints.maxRetries.
             // Stored only when set (>= 0); absence means "use the platform default", matching
@@ -456,6 +480,7 @@ public class NativeTaskScheduler(
             // callers that never use tags/deadlines (keeps upgrades a no-op on disk).
             if (tags.isNotEmpty()) put(DynamicTaskDispatcher.META_TAGS, tags.joinToString(","))
             if (deadlineMs != null) put(DynamicTaskDispatcher.META_DEADLINE_MS, "$deadlineMs")
+            putStandaloneConstraintMetadata(constraints)
         }
         fileStorage.saveTaskMetadata(id, taskMetadata, periodic = false)
 
@@ -652,14 +677,15 @@ public class NativeTaskScheduler(
      */
     private data class PendingMasterDispatcherInfo(
         val earliestBeginDate: NSDate?,
-        val requiresNetwork: Boolean
+        val requiresNetwork: Boolean,
+        val requiresCharging: Boolean
     )
 
     /**
      * Returns a snapshot of the currently-pending Master Dispatcher request (date +
-     * requiresNetworkConnectivity), or null if none is pending.
+     * requiresNetworkConnectivity + requiresExternalPower), or null if none is pending.
      * Used to avoid pushing back the dispatcher when a later-dated dynamic task is enqueued,
-     * and to detect when the aggregate queue profile now requires a different network flag.
+     * and to detect when the aggregate queue profile now requires a different constraint flag.
      */
     private suspend fun getPendingMasterDispatcherInfo(): PendingMasterDispatcherInfo? {
         if (NSBundle.mainBundle.bundleIdentifier == null) return null
@@ -671,7 +697,8 @@ public class NativeTaskScheduler(
                     val info = master?.let {
                         PendingMasterDispatcherInfo(
                             earliestBeginDate = it.earliestBeginDate,
-                            requiresNetwork = it.requiresNetworkConnectivity
+                            requiresNetwork = it.requiresNetworkConnectivity,
+                            requiresCharging = it.requiresExternalPower
                         )
                     }
                     continuation.resume(info)
@@ -736,19 +763,25 @@ public class NativeTaskScheduler(
                 // Tracked as follow-up scope in issue #79.
                 val summary = fileStorage.getDynamicQueueConstraintSummary()
                 val desiredRequiresNetwork = summary.allRequireNetwork
+                // See DynamicQueueConstraintSummary.allRequireCharging: when every pending
+                // dynamic task requires charging, hold requiresExternalPower at the OS level
+                // instead of relying solely on StandaloneConstraintGuard's opt-in-gated runtime
+                // check — the OS then won't even wake the process until the device is plugged in.
+                val desiredRequiresCharging = summary.allRequireCharging
 
                 val existing = getPendingMasterDispatcherInfo()
                 val existingDate = existing?.earliestBeginDate
                 val proposedIsNotEarlier = existingDate != null && proposedDate != null &&
                     proposedDate.timeIntervalSinceDate(existingDate) >= 0
-                val networkFlagUnchanged = existing != null && existing.requiresNetwork == desiredRequiresNetwork
+                val constraintsUnchanged = existing != null &&
+                    existing.requiresNetwork == desiredRequiresNetwork &&
+                    existing.requiresCharging == desiredRequiresCharging
 
                 // Only reschedule the Master Dispatcher if the proposed date is earlier than the
-                // currently-pending one, OR the aggregate queue profile now needs a different
-                // requiresNetworkConnectivity value. Submitting a later date (with no flag
-                // change) would silently replace an earlier pending request, delaying tasks
-                // already waiting.
-                if (existing != null && proposedIsNotEarlier && networkFlagUnchanged) {
+                // currently-pending one, OR the aggregate queue profile now needs different
+                // constraint flags. Submitting a later date (with no flag change) would silently
+                // replace an earlier pending request, delaying tasks already waiting.
+                if (existing != null && proposedIsNotEarlier && constraintsUnchanged) {
                     Logger.d(LogTags.SCHEDULER,
                         "Master Dispatcher already scheduled earlier with matching constraints — keeping existing schedule for '$id'")
                     return ScheduleResult.ACCEPTED
@@ -764,10 +797,11 @@ public class NativeTaskScheduler(
                     else -> proposedDate
                 }
 
-                Logger.d(LogTags.SCHEDULER, "Master Dispatcher: BGProcessingTaskRequest (requiresNetwork=$desiredRequiresNetwork)")
+                Logger.d(LogTags.SCHEDULER, "Master Dispatcher: BGProcessingTaskRequest " +
+                    "(requiresNetwork=$desiredRequiresNetwork, requiresCharging=$desiredRequiresCharging)")
                 val masterRequest = BGProcessingTaskRequest(MASTER_DISPATCHER_IDENTIFIER).apply {
                     requiresNetworkConnectivity = desiredRequiresNetwork
-                    requiresExternalPower = false
+                    requiresExternalPower = desiredRequiresCharging
                     this.earliestBeginDate = earliestBeginDate
                 }
 
@@ -1462,4 +1496,43 @@ public class NativeTaskScheduler(
     override suspend fun clearExecutionHistory() {
         KmpWorkManagerRuntime.executionHistoryStore?.clear()
     }
+
+    override fun observeTaskState(id: String): Flow<TaskState> = kotlinx.coroutines.flow.flow {
+        // Polling, not push: no OS-level "state changed" callback exists to push from, and
+        // this deliberately avoids wiring a live registry into ChainExecutor/
+        // SingleTaskExecutor/DynamicTaskDispatcher/IosBackgroundTaskHandler — see this
+        // method's KDoc on BackgroundTaskScheduler for the full reasoning. A terminal state
+        // (Succeeded/Failed/Cancelled) ends the poll loop — those never change again for a
+        // given id — everything else keeps polling until the collector cancels.
+        while (true) {
+            val state = computeIosTaskState(
+                id = id,
+                fileStorage = fileStorage,
+                permittedTaskIds = permittedTaskIds,
+                isChainActive = { ChainJobRegistry.isActive(it) },
+                isTaskPending = { isTaskPending(it) },
+                executionHistory = { KmpWorkManagerRuntime.executionHistoryStore?.getRecords() ?: emptyList() }
+            )
+            emit(state)
+            when (state) {
+                is TaskState.Succeeded, is TaskState.Failed, is TaskState.Cancelled -> return@flow
+                else -> delay(OBSERVE_TASK_STATE_POLL_INTERVAL_MS)
+            }
+        }
+    }
+
+    override suspend fun queryTasks(
+        tags: Set<String>,
+        workerClassNames: Set<String>,
+        states: Set<TaskState.Kind>
+    ): List<dev.brewkits.kmpworkmanager.background.domain.QueriedTask> = queryIosTasks(
+        fileStorage = fileStorage,
+        permittedTaskIds = permittedTaskIds,
+        tags = tags,
+        workerClassNames = workerClassNames,
+        states = states,
+        isChainActive = { ChainJobRegistry.isActive(it) },
+        isTaskPending = { isTaskPending(it) },
+        executionHistory = { KmpWorkManagerRuntime.executionHistoryStore?.getRecords() ?: emptyList() }
+    )
 }

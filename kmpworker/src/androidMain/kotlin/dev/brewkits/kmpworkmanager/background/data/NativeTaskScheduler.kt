@@ -9,6 +9,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequest
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.PeriodicWorkRequest
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import dev.brewkits.kmpworkmanager.KmpWorkManagerRuntime
 import dev.brewkits.kmpworkmanager.background.domain.*
@@ -16,6 +17,9 @@ import dev.brewkits.kmpworkmanager.utils.LogTags
 import dev.brewkits.kmpworkmanager.utils.Logger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 import kotlin.time.Duration.Companion.milliseconds
@@ -451,19 +455,42 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
             .addTag("id-$id")
             .addTag("worker-$workerClassName")
 
+        // A chain step's own "id-" tag above is a random per-step UUID (see createWorkRequest),
+        // not the caller-facing chain id — WorkInfo exposes no other way to recover which
+        // chain a step belongs to (inputData, where chainId actually lives via KEY_CHAIN_ID,
+        // isn't readable from WorkInfo). Stamp the real chain id separately so
+        // queryTasks() can group a chain's steps back together.
+        if (chainId != null) builder.addTag("chain-$chainId")
+
         // Stamp user-defined tags from TaskRequest so cancelByTag() can resolve them.
         // Tag format: "user-<tag>" to avoid collisions with our internal "worker-", "id-", etc.
         task?.tags?.forEach { builder.addTag("user-$it") }
 
-        if (initialDelayMs == 0L && !constraints.isHeavyTask) {
-            // Expedited work does not support some constraints like charging.
-            // Safe to set only if it's a simple urgent task.
-            if (!constraints.requiresCharging && !constraints.requiresUnmeteredNetwork) {
-                builder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-            }
+        if (shouldExpedite(task, constraints, initialDelayMs)) {
+            builder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
         }
 
         return builder.build()
+    }
+
+    /**
+     * `TaskPriority.kt`'s KDoc documents `CRITICAL`/`HIGH` -> `setExpedited()`, `NORMAL`/`LOW` ->
+     * standard work. This used to expedite unconditionally (ignoring `task?.priority` entirely),
+     * so even LOW-priority chain steps jumped the WorkManager quota queue. Standalone `enqueue()`
+     * tasks have no priority parameter on either platform (`TaskPriority` lives on `TaskRequest`,
+     * which is chain-step-only by contract) — `task` is null there, so they never qualify. This
+     * is an intentional behavior change; see CHANGELOG.
+     *
+     * `internal` (not `private`) so a Robolectric test can exercise this decision directly
+     * without needing to inspect WorkManager's internal `WorkSpec.expedited` field, which has
+     * no stable public accessor.
+     */
+    internal fun shouldExpedite(task: TaskRequest?, constraints: Constraints, initialDelayMs: Long): Boolean {
+        val isHighPriority = task?.priority == TaskPriority.HIGH || task?.priority == TaskPriority.CRITICAL
+        if (initialDelayMs != 0L || constraints.isHeavyTask || !isHighPriority) return false
+        // Expedited work does not support some constraints like charging.
+        // Safe to set only if it's a simple urgent task.
+        return !constraints.requiresCharging && !constraints.requiresUnmeteredNetwork
     }
 
     private fun buildWorkData(
@@ -680,6 +707,77 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
 
     override suspend fun clearExecutionHistory() {
         KmpWorkManagerRuntime.executionHistoryStore?.clear()
+    }
+
+    override fun observeTaskState(id: String): Flow<TaskState> =
+        workManager.getWorkInfosForUniqueWorkFlow(id).map { infos ->
+            if (infos.isEmpty()) return@map TaskState.Unknown
+            // ExistingPolicy.REPLACE can briefly leave WorkManager's own history holding
+            // both the just-superseded (terminal) WorkInfo and the freshly-enqueued one
+            // for the same unique name — prefer whichever entry is still active so a
+            // REPLACE doesn't look like the old attempt's terminal state.
+            val info = infos.firstOrNull { !it.state.isFinished } ?: infos.last()
+            info.state.toTaskState()
+        }
+
+    internal fun WorkInfo.State.toTaskState(): TaskState = when (this) {
+        // BLOCKED means "waiting on a WorkManager-level dependency" — this library never
+        // creates such dependencies itself (chains are custom-executed, not WorkManager
+        // work chains), but map it to Enqueued defensively rather than falling through.
+        WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED -> TaskState.Enqueued
+        WorkInfo.State.RUNNING -> TaskState.Running
+        WorkInfo.State.SUCCEEDED -> TaskState.Succeeded()
+        WorkInfo.State.FAILED -> TaskState.Failed()
+        WorkInfo.State.CANCELLED -> TaskState.Cancelled
+    }
+
+    override suspend fun queryTasks(
+        tags: Set<String>,
+        workerClassNames: Set<String>,
+        states: Set<TaskState.Kind>
+    ): List<QueriedTask> {
+        // Single fetch of every WorkInfo this library has ever created (bounded by
+        // WorkManager's own retention) — every one carries TAG_KMP_TASK. All three filters
+        // are then applied in-memory against each WorkInfo's own tag set, avoiding N
+        // round-trips through WorkManager's WorkQuery API (which also can't express
+        // "workerClassName" as its own axis — it only has ids/uniqueWorkNames/tags/states).
+        val infos = workManager.getWorkInfosByTag(TAG_KMP_TASK).await()
+
+        // Group by the caller-facing id: a chain step carries "chain-<chainId>" (see
+        // buildOneTimeWorkRequest); a standalone task's "id-<id>" tag IS the caller-facing
+        // id, since scheduleOneTimeTask/schedulePeriodicWork use `id` as both the
+        // enqueueUniqueWork name and this tag. A WorkInfo with neither (shouldn't happen for
+        // anything this library created) is dropped rather than surfaced with a null id.
+        val byId: Map<String, List<WorkInfo>> = infos.groupBy { info ->
+            info.tags.firstOrNull { it.startsWith("chain-") }?.removePrefix("chain-")
+                ?: info.tags.firstOrNull { it.startsWith("id-") }?.removePrefix("id-")
+                ?: return@groupBy ""
+        }.filterKeys { it.isNotEmpty() }
+
+        return byId.mapNotNull { (id, group) ->
+            if (tags.isNotEmpty() && group.none { info -> tags.any { "user-$it" in info.tags } }) {
+                return@mapNotNull null
+            }
+            if (workerClassNames.isNotEmpty() &&
+                group.none { info -> workerClassNames.any { "worker-$it" in info.tags } }
+            ) {
+                return@mapNotNull null
+            }
+
+            // A chain's steps can each be in a different WorkInfo.State at once (step 2
+            // RUNNING while step 4 is still ENQUEUED). Prefer the "most alive" signal —
+            // Running over Enqueued over whatever terminal state is last in the list —
+            // mirroring observeTaskState's own "prefer active over stale terminal" handling
+            // for the ExistingPolicy.REPLACE window.
+            val candidateStates = group.map { it.state.toTaskState() }
+            val state = candidateStates.firstOrNull { it.kind == TaskState.Kind.RUNNING }
+                ?: candidateStates.firstOrNull { it.kind == TaskState.Kind.ENQUEUED }
+                ?: candidateStates.last()
+
+            if (states.isNotEmpty() && state.kind !in states) return@mapNotNull null
+
+            QueriedTask(id, state)
+        }
     }
 
     private fun taskIdToRequestCode(id: String): Int = PendingIntentCodes.forTaskId(id)

@@ -4,8 +4,6 @@ on:
   push:
     branches: [ main, develop ]
   workflow_dispatch:
-  pull_request:
-    branches: [ main ]
 
 # Cancel superseded runs from the same branch — saves macOS minutes.
 concurrency:
@@ -48,6 +46,33 @@ jobs:
             kmpworker/build/test-results/
             kmpworker-ksp/build/reports/tests/
             kmpworker-ksp/build/test-results/
+          retention-days: 7
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Static analysis (detekt) across all 4 publish modules. Runs on ubuntu — detekt
+  # needs no macOS toolchain — in parallel with common-tests rather than gating it.
+  # ───────────────────────────────────────────────────────────────────────────
+  static-analysis:
+    name: Static analysis (detekt)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - uses: gradle/actions/setup-gradle@v6
+      - run: chmod +x gradlew
+      - name: detekt
+        run: >-
+          ./gradlew :kmpworker:detekt :kmpworker-http:detekt
+          :kmpworker-ksp:detekt :kmpworker-annotations:detekt
+      - name: Upload detekt reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: detekt-reports
+          path: '**/build/reports/detekt/'
           retention-days: 7
 
   # ───────────────────────────────────────────────────────────────────────────
@@ -115,6 +140,9 @@ jobs:
       - run: chmod +x gradlew
       - name: testDebugUnitTest
         run: ./gradlew :kmpworker:testDebugUnitTest :kmpworker-http:testDebugUnitTest
+      # The release variant has its own Robolectric test config and was never exercised by CI.
+      - name: testReleaseUnitTest
+        run: ./gradlew :kmpworker:testReleaseUnitTest :kmpworker-http:testReleaseUnitTest
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -123,8 +151,12 @@ jobs:
           path: |
             kmpworker/build/reports/tests/testDebugUnitTest/
             kmpworker/build/test-results/testDebugUnitTest/
+            kmpworker/build/reports/tests/testReleaseUnitTest/
+            kmpworker/build/test-results/testReleaseUnitTest/
             kmpworker-http/build/reports/tests/testDebugUnitTest/
             kmpworker-http/build/test-results/testDebugUnitTest/
+            kmpworker-http/build/reports/tests/testReleaseUnitTest/
+            kmpworker-http/build/test-results/testReleaseUnitTest/
           retention-days: 7
 
   # ───────────────────────────────────────────────────────────────────────────
@@ -170,7 +202,7 @@ jobs:
           arch: x86_64
           profile: pixel_6
           disable-animations: true
-          script: ./gradlew :kmpworker:connectedDebugAndroidTest
+          script: ./gradlew :kmpworker:connectedDebugAndroidTest :composeApp:connectedDebugAndroidTest
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -179,6 +211,8 @@ jobs:
           path: |
             kmpworker/build/reports/androidTests/
             kmpworker/build/outputs/androidTest-results/
+            composeApp/build/reports/androidTests/
+            composeApp/build/outputs/androidTest-results/
           retention-days: 7
 
   # ───────────────────────────────────────────────────────────────────────────

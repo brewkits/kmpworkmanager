@@ -7,7 +7,6 @@
 package dev.brewkits.kmpworkmanager.background.data
 
 import dev.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
-import dev.brewkits.kmpworkmanager.background.domain.Constraints
 import dev.brewkits.kmpworkmanager.background.domain.ExistingPolicy
 import dev.brewkits.kmpworkmanager.background.domain.TaskTrigger
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
@@ -115,6 +114,8 @@ object IosBackgroundTaskHandler {
 
     private val scope: CoroutineScope get() = internalScope
 
+    private val networkStateProvider: IosNetworkStateProvider = DefaultIosNetworkStateProvider()
+
     // ──────────────────────────────────────────────────────────────────────────
     // Public API
     // ──────────────────────────────────────────────────────────────────────────
@@ -198,7 +199,24 @@ object IosBackgroundTaskHandler {
 
         job = scope.launch {
             try {
-                val result = executor.executeTask(meta.workerClassName, meta.inputJson, taskId = taskId)
+                // Constraint guard for standalone tasks with a static Info.plist identifier.
+                // requiresNetwork/requiresCharging are already covered by the BGTaskRequest's
+                // own OS-level flags for isHeavyTask requests (see NativeTaskScheduler's
+                // createBackgroundTaskRequest); requiresUnmeteredNetwork and
+                // REQUIRE_BATTERY_NOT_LOW have no OS-level equivalent, so they're re-checked
+                // here — same guard `DynamicTaskDispatcher` uses for the dynamic-queue path.
+                val violation = if (!meta.isPeriodic) {
+                    StandaloneConstraintGuard.violationReason(meta.rawMeta, networkStateProvider)
+                } else {
+                    null // periodic: warn-only, mirrors DynamicTaskDispatcher's periodic handling
+                }
+
+                val result = if (violation != null) {
+                    Logger.w(LogTags.SCHEDULER, "Task '$taskId' deferred — $violation")
+                    WorkerResult.Failure(message = violation, shouldRetry = true)
+                } else {
+                    executor.executeTask(meta.workerClassName, meta.inputJson, taskId = taskId)
+                }
 
                 if (meta.isPeriodic) {
                     // Periodic tasks self-re-schedule unconditionally — retry semantics
@@ -215,7 +233,8 @@ object IosBackgroundTaskHandler {
                         taskId = taskId,
                         meta = meta,
                         result = result,
-                        scheduler = nativeScheduler
+                        scheduler = nativeScheduler,
+                        isConstraintDeferral = violation != null
                     )
                 }
 
@@ -275,8 +294,40 @@ object IosBackgroundTaskHandler {
         taskId: String,
         meta: TaskMeta,
         result: WorkerResult,
-        scheduler: NativeTaskScheduler
+        scheduler: NativeTaskScheduler,
+        isConstraintDeferral: Boolean = false
     ) {
+        if (isConstraintDeferral) {
+            // Deferred, not failed: an unmet constraint means the task never got a chance to
+            // run at all, so it must NOT consume retry budget or be subject to the attempt
+            // cap. Re-submit the OS-level BGTaskRequest (the one that just fired is spent —
+            // there's no local queue to fall back to like DynamicTaskDispatcher has) while
+            // preserving whatever attempt count already existed, unchanged.
+            val rawMeta = meta.rawMeta ?: emptyMap()
+            val reconstructedConstraints = reconstructConstraintsFromMetadata(rawMeta)
+            try {
+                scheduler.enqueue(
+                    id = taskId,
+                    trigger = TaskTrigger.OneTime(0L),
+                    workerClassName = meta.workerClassName,
+                    constraints = reconstructedConstraints,
+                    inputJson = meta.inputJson,
+                    policy = ExistingPolicy.REPLACE
+                )
+                val freshMeta = scheduler.fileStorage.loadTaskMetadata(taskId, periodic = false)
+                    ?: emptyMap()
+                val mergedMeta = freshMeta.toMutableMap().apply {
+                    rawMeta[META_ATTEMPT_COUNT]?.let { put(META_ATTEMPT_COUNT, it) }
+                    preserveFieldsLostByReenqueue(rawMeta)
+                }
+                scheduler.fileStorage.saveTaskMetadata(taskId, mergedMeta, periodic = false)
+                Logger.i(LogTags.SCHEDULER, "Task '$taskId' re-submitted after constraint deferral (attempt count unchanged)")
+            } catch (e: Exception) {
+                Logger.e(LogTags.SCHEDULER, "Task '$taskId' constraint re-submit failed: ${e.message}", e)
+            }
+            return
+        }
+
         data class RetryDecision(
             val shouldRetry: Boolean,
             val attemptCap: Int?,
@@ -297,7 +348,12 @@ object IosBackgroundTaskHandler {
 
         val rawMeta = meta.rawMeta ?: emptyMap()
         val currentAttempt = rawMeta[META_ATTEMPT_COUNT]?.toIntOrNull() ?: 1  // 1 = original run
-        val effectiveCap = decision.attemptCap ?: DEFAULT_ATTEMPT_CAP
+        // Same precedence as DynamicTaskDispatcher.handleOneTimeResult: Retry.attemptCap wins
+        // when the worker specifies one; otherwise Constraints.maxRetries (stamped into
+        // metadata as N, meaning N retries = N+1 total attempts, matching Android); otherwise
+        // the platform default.
+        val metaMaxRetries = rawMeta[DynamicTaskDispatcher.META_MAX_RETRIES]?.toIntOrNull()?.takeIf { it >= 0 }
+        val effectiveCap = decision.attemptCap ?: metaMaxRetries?.let { it + 1 } ?: DEFAULT_ATTEMPT_CAP
         val nextAttempt = currentAttempt + 1
 
         if (nextAttempt > effectiveCap) {
@@ -310,10 +366,9 @@ object IosBackgroundTaskHandler {
             return
         }
 
-        // Reconstruct constraints from saved metadata.
-        val requiresNetwork = rawMeta["requiresNetwork"] == "true"
-        val requiresCharging = rawMeta["requiresCharging"] == "true"
-        val isHeavyTask = rawMeta["isHeavyTask"] == "true"
+        // Reconstruct constraints from saved metadata — see reconstructConstraintsFromMetadata
+        // KDoc for why this can't just be the 3 originally-hardcoded fields.
+        val reconstructedConstraints = reconstructConstraintsFromMetadata(rawMeta)
 
         try {
             // Re-submit via scheduler.enqueue — this writes fresh metadata + submits the
@@ -324,11 +379,7 @@ object IosBackgroundTaskHandler {
                 id = taskId,
                 trigger = TaskTrigger.OneTime(decision.delayMs ?: 0L),
                 workerClassName = meta.workerClassName,
-                constraints = Constraints(
-                    requiresNetwork = requiresNetwork,
-                    requiresCharging = requiresCharging,
-                    isHeavyTask = isHeavyTask
-                ),
+                constraints = reconstructedConstraints,
                 inputJson = meta.inputJson,
                 policy = ExistingPolicy.REPLACE
             )
@@ -341,6 +392,7 @@ object IosBackgroundTaskHandler {
                 ?: emptyMap()
             val mergedMeta = freshMeta.toMutableMap().apply {
                 put(META_ATTEMPT_COUNT, nextAttempt.toString())
+                preserveFieldsLostByReenqueue(rawMeta)
             }
             scheduler.fileStorage.saveTaskMetadata(taskId, mergedMeta, periodic = false)
 
@@ -352,6 +404,28 @@ object IosBackgroundTaskHandler {
         } catch (e: Exception) {
             Logger.e(LogTags.SCHEDULER, "Task '$taskId' retry re-submit failed: ${e.message}", e)
         }
+    }
+
+    // Metadata key holding a Windowed task's deadline, checked in [handleSingleTask].
+    // Written only by NativeTaskScheduler's windowed-scheduling path — never by
+    // scheduleOneTimeTask, which is what scheduler.enqueue(trigger = TaskTrigger.OneTime(...))
+    // routes through on every retry/deferral re-submission. Without carrying it forward
+    // explicitly, a Windowed task's deadline enforcement silently vanishes after its FIRST
+    // retry — see [preserveFieldsLostByReenqueue].
+    private const val META_WINDOW_LATEST = "windowLatest"
+
+    /**
+     * Re-submitting a one-time task via `scheduler.enqueue(...)` rebuilds its metadata from
+     * scratch ([NativeTaskScheduler.scheduleOneTimeTask]'s `buildMap`), which only knows about
+     * the fields that call passes explicitly (workerClassName/inputJson/constraints) — it has
+     * no parameter for [META_WINDOW_LATEST], tags, or a deadline. Any retry/deferral re-submit
+     * that doesn't carry these forward from the task's PRE-re-submit metadata silently and
+     * permanently drops them, defeating deadline/tag features for the rest of that task's life.
+     */
+    private fun MutableMap<String, String>.preserveFieldsLostByReenqueue(original: Map<String, String>) {
+        original[META_WINDOW_LATEST]?.let { put(META_WINDOW_LATEST, it) }
+        original[DynamicTaskDispatcher.META_TAGS]?.let { put(DynamicTaskDispatcher.META_TAGS, it) }
+        original[DynamicTaskDispatcher.META_DEADLINE_MS]?.let { put(DynamicTaskDispatcher.META_DEADLINE_MS, it) }
     }
 
     /**
@@ -496,20 +570,16 @@ object IosBackgroundTaskHandler {
             Logger.e(LogTags.SCHEDULER, "Periodic task '$taskId' missing intervalMs — cannot reschedule")
             return
         }
-        val requiresNetwork = rawMeta["requiresNetwork"] == "true"
-        val requiresCharging = rawMeta["requiresCharging"] == "true"
-        val isHeavyTask = rawMeta["isHeavyTask"] == "true"
+        // reconstructConstraintsFromMetadata already reads isHeavyTask/requiresNetwork/
+        // requiresCharging alongside the newer unmetered/systemConstraints/backoff fields.
+        val reconstructedConstraints = reconstructConstraintsFromMetadata(rawMeta ?: emptyMap())
 
         try {
             scheduler.enqueue(
                 id = taskId,
                 trigger = TaskTrigger.Periodic(intervalMs, runImmediately = false),
                 workerClassName = workerClassName,
-                constraints = Constraints(
-                    requiresNetwork = requiresNetwork,
-                    requiresCharging = requiresCharging,
-                    isHeavyTask = isHeavyTask
-                ),
+                constraints = reconstructedConstraints,
                 inputJson = inputJson,
                 policy = ExistingPolicy.KEEP
             )

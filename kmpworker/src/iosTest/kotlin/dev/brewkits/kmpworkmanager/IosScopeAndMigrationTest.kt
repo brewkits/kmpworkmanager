@@ -252,20 +252,23 @@ class IosScopeAndMigrationTest {
         val storage = IosFileStorage(baseDirectory = testDirectory)
         // Create scheduler (starts migration in background)
         val scheduler = NativeTaskScheduler(fileStorage = storage, forceWaitMigration = true)
+        try {
+            // Immediately enqueue (should wait for migration)
+            val result = scheduler.enqueue(
+                id = "first-task",
+                trigger = TaskTrigger.OneTime(),
+                workerClassName = "TestWorker",
+                constraints = Constraints(),
+                inputJson = null,
+                policy = ExistingPolicy.REPLACE
+            )
 
-        // Immediately enqueue (should wait for migration)
-        val result = scheduler.enqueue(
-            id = "first-task",
-            trigger = TaskTrigger.OneTime(),
-            workerClassName = "TestWorker",
-            constraints = Constraints(),
-            inputJson = null,
-            policy = ExistingPolicy.REPLACE
-        )
-
-        // Should succeed (migration completed before enqueue)
-        assertTrue(result == ScheduleResult.ACCEPTED, "First enqueue should succeed after migration")
-
+            // Should succeed (migration completed before enqueue)
+            assertTrue(result == ScheduleResult.ACCEPTED, "First enqueue should succeed after migration")
+        } finally {
+            scheduler.close()
+            storage.close()
+        }
     }
 
     /**
@@ -280,27 +283,30 @@ class IosScopeAndMigrationTest {
 
         val storage = IosFileStorage(baseDirectory = testDirectory)
         val scheduler = NativeTaskScheduler(fileStorage = storage, forceWaitMigration = true)
+        try {
+            // Rapidly enqueue multiple tasks
+            val results = (1..10).map { index ->
+                async {
+                    scheduler.enqueue(
+                        id = "rapid-enqueue-$index",
+                        trigger = TaskTrigger.OneTime(),
+                        workerClassName = "TestWorker",
+                        constraints = Constraints(),
+                        inputJson = null,
+                        policy = ExistingPolicy.REPLACE
+                    )
+                }
+            }.map { it.await() }
 
-        // Rapidly enqueue multiple tasks
-        val results = (1..10).map { index ->
-            async {
-                scheduler.enqueue(
-                    id = "rapid-enqueue-$index",
-                    trigger = TaskTrigger.OneTime(),
-                    workerClassName = "TestWorker",
-                    constraints = Constraints(),
-                    inputJson = null,
-                    policy = ExistingPolicy.REPLACE
-                )
-            }
-        }.map { it.await() }
-
-        // All should succeed (migration completed first)
-        assertTrue(
-            results.all { it == ScheduleResult.ACCEPTED },
-            "All enqueues should succeed after migration"
-        )
-
+            // All should succeed (migration completed first)
+            assertTrue(
+                results.all { it == ScheduleResult.ACCEPTED },
+                "All enqueues should succeed after migration"
+            )
+        } finally {
+            scheduler.close()
+            storage.close()
+        }
     }
 
     /**
@@ -315,30 +321,33 @@ class IosScopeAndMigrationTest {
 
         val storage = IosFileStorage(baseDirectory = testDirectory)
         val scheduler = NativeTaskScheduler(fileStorage = storage, forceWaitMigration = true)
+        try {
+            // Give migration time to complete
+            delay(100)
 
-        // Give migration time to complete
-        delay(100)
+            // Now enqueue should proceed immediately (migration already done)
+            val startTime = currentTimeMillis()
 
-        // Now enqueue should proceed immediately (migration already done)
-        val startTime = currentTimeMillis()
+            val result = scheduler.enqueue(
+                id = "after-migration",
+                trigger = TaskTrigger.OneTime(),
+                workerClassName = "TestWorker",
+                constraints = Constraints(),
+                inputJson = null,
+                policy = ExistingPolicy.REPLACE
+            )
 
-        val result = scheduler.enqueue(
-            id = "after-migration",
-            trigger = TaskTrigger.OneTime(),
-            workerClassName = "TestWorker",
-            constraints = Constraints(),
-            inputJson = null,
-            policy = ExistingPolicy.REPLACE
-        )
+            val elapsed = currentTimeMillis() - startTime
 
-        val elapsed = currentTimeMillis() - startTime
-
-        assertTrue(result == ScheduleResult.ACCEPTED, "Enqueue should succeed")
-        assertTrue(
-            elapsed < 100,
-            "Enqueue should be fast since migration already complete"
-        )
-
+            assertTrue(result == ScheduleResult.ACCEPTED, "Enqueue should succeed")
+            assertTrue(
+                elapsed < 100,
+                "Enqueue should be fast since migration already complete"
+            )
+        } finally {
+            scheduler.close()
+            storage.close()
+        }
     }
 
     /**
@@ -353,30 +362,33 @@ class IosScopeAndMigrationTest {
 
         val storage = IosFileStorage(baseDirectory = testDirectory)
         val scheduler = NativeTaskScheduler(fileStorage = storage, forceWaitMigration = true)
-
-        // Launch many concurrent enqueues immediately (during migration)
-        val jobs = (1..50).map { index ->
-            async {
-                scheduler.enqueue(
-                    id = "race-test-$index",
-                    trigger = TaskTrigger.OneTime(),
-                    workerClassName = "TestWorker",
-                    constraints = Constraints(),
-                    inputJson = null,
-                    policy = ExistingPolicy.REPLACE
-                )
+        try {
+            // Launch many concurrent enqueues immediately (during migration)
+            val jobs = (1..50).map { index ->
+                async {
+                    scheduler.enqueue(
+                        id = "race-test-$index",
+                        trigger = TaskTrigger.OneTime(),
+                        workerClassName = "TestWorker",
+                        constraints = Constraints(),
+                        inputJson = null,
+                        policy = ExistingPolicy.REPLACE
+                    )
+                }
             }
+
+            // Wait for all
+            val results = jobs.map { it.await() }
+
+            // All should succeed without race conditions
+            assertTrue(
+                results.all { it == ScheduleResult.ACCEPTED },
+                "All concurrent enqueues should succeed without race conditions"
+            )
+        } finally {
+            scheduler.close()
+            storage.close()
         }
-
-        // Wait for all
-        val results = jobs.map { it.await() }
-
-        // All should succeed without race conditions
-        assertTrue(
-            results.all { it == ScheduleResult.ACCEPTED },
-            "All concurrent enqueues should succeed without race conditions"
-        )
-
     }
 
     /**
@@ -391,14 +403,17 @@ class IosScopeAndMigrationTest {
 
         val storage = IosFileStorage(baseDirectory = testDirectory)
         val scheduler = NativeTaskScheduler(fileStorage = storage, forceWaitMigration = true)
+        try {
+            // Immediately try to cancel (should wait for migration)
+            // This shouldn't crash even though task doesn't exist yet
+            scheduler.cancel("nonexistent-task")
 
-        // Immediately try to cancel (should wait for migration)
-        // This shouldn't crash even though task doesn't exist yet
-        scheduler.cancel("nonexistent-task")
-
-        // Should complete without issue
-        assertTrue(true, "Cancel operation handled migration wait")
-
+            // Should complete without issue
+            assertTrue(true, "Cancel operation handled migration wait")
+        } finally {
+            scheduler.close()
+            storage.close()
+        }
     }
 
     /**
@@ -428,38 +443,38 @@ class IosScopeAndMigrationTest {
             error = null
         )
 
-        val scheduler1 = NativeTaskScheduler(
-            fileStorage = IosFileStorage(baseDirectory = scheduler1Dir),
-            forceWaitMigration = true
-        )
+        val storage1 = IosFileStorage(baseDirectory = scheduler1Dir)
+        val storage2 = IosFileStorage(baseDirectory = scheduler2Dir)
+        val scheduler1 = NativeTaskScheduler(fileStorage = storage1, forceWaitMigration = true)
+        val scheduler2 = NativeTaskScheduler(fileStorage = storage2, forceWaitMigration = true)
+        try {
+            // Both should successfully enqueue after their migrations
+            val result1 = scheduler1.enqueue(
+                id = "scheduler1-task",
+                trigger = TaskTrigger.OneTime(),
+                workerClassName = "TestWorker",
+                constraints = Constraints(),
+                inputJson = null,
+                policy = ExistingPolicy.REPLACE
+            )
 
-        val scheduler2 = NativeTaskScheduler(
-            fileStorage = IosFileStorage(baseDirectory = scheduler2Dir),
-            forceWaitMigration = true
-        )
+            val result2 = scheduler2.enqueue(
+                id = "scheduler2-task",
+                trigger = TaskTrigger.OneTime(),
+                workerClassName = "TestWorker",
+                constraints = Constraints(),
+                inputJson = null,
+                policy = ExistingPolicy.REPLACE
+            )
 
-        // Both should successfully enqueue after their migrations
-        val result1 = scheduler1.enqueue(
-            id = "scheduler1-task",
-            trigger = TaskTrigger.OneTime(),
-            workerClassName = "TestWorker",
-            constraints = Constraints(),
-            inputJson = null,
-            policy = ExistingPolicy.REPLACE
-        )
-
-        val result2 = scheduler2.enqueue(
-            id = "scheduler2-task",
-            trigger = TaskTrigger.OneTime(),
-            workerClassName = "TestWorker",
-            constraints = Constraints(),
-            inputJson = null,
-            policy = ExistingPolicy.REPLACE
-        )
-
-        assertTrue(result1 == ScheduleResult.ACCEPTED, "Scheduler 1 should succeed")
-        assertTrue(result2 == ScheduleResult.ACCEPTED, "Scheduler 2 should succeed")
-
+            assertTrue(result1 == ScheduleResult.ACCEPTED, "Scheduler 1 should succeed")
+            assertTrue(result2 == ScheduleResult.ACCEPTED, "Scheduler 2 should succeed")
+        } finally {
+            scheduler1.close()
+            scheduler2.close()
+            storage1.close()
+            storage2.close()
+        }
     }
 
     /**

@@ -30,6 +30,13 @@ import kotlinx.serialization.Serializable
  * @property onDuplicate How to handle a pre-existing file at [savePath] before the
  *   download starts. Default `OVERWRITE` preserves pre-v2.5 behaviour. Use `SKIP` for
  *   resumable batch imports, `RENAME` for media-gallery flows.
+ * @property maxBytesPerSecond Optional cap on the AVERAGE transfer rate, in bytes per
+ *   second. `null` (default) means unlimited. Enforced as a token bucket — a fast burst can
+ *   run momentarily ahead of the target rate and then pays it back with a delay, rather than
+ *   being chopped into fixed time slices. Independent of [maxBytes] (a size ceiling, not a
+ *   rate one) and unrelated to `Constraints.requiresUnmeteredNetwork` (a Wi-Fi-only gate, not
+ *   a rate limit either) — use this specifically to avoid saturating a shared/metered
+ *   connection during a large background transfer.
  */
 @Serializable
 data class HttpDownloadConfig(
@@ -41,7 +48,8 @@ data class HttpDownloadConfig(
     val maxBytes: Long? = null,
     val expectedChecksum: String? = null,
     val checksumAlgorithm: ChecksumAlgorithm = ChecksumAlgorithm.SHA256,
-    val onDuplicate: DuplicatePolicy = DuplicatePolicy.OVERWRITE
+    val onDuplicate: DuplicatePolicy = DuplicatePolicy.OVERWRITE,
+    val maxBytesPerSecond: Long? = null
 ) {
     init {
         require(url.startsWith("http://") || url.startsWith("https://")) {
@@ -55,6 +63,9 @@ data class HttpDownloadConfig(
         }
         if (maxBytes != null) {
             require(maxBytes > 0) { "maxBytes must be positive when set, got $maxBytes" }
+        }
+        if (maxBytesPerSecond != null) {
+            require(maxBytesPerSecond > 0) { "maxBytesPerSecond must be positive when set, got $maxBytesPerSecond" }
         }
         if (expectedChecksum != null) {
             require(expectedChecksum.isNotBlank()) {

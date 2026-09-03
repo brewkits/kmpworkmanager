@@ -20,9 +20,9 @@
 ```kotlin
 // build.gradle.kts
 commonMain.dependencies {
-    implementation("dev.brewkits:kmpworkmanager:3.5.0")          // core engine (no Ktor)
+    implementation("dev.brewkits:kmpworkmanager:3.4.0")          // core engine (no Ktor)
     // Optional — only if you use the built-in HTTP workers (Http*/ParallelHttp*).
-    implementation("dev.brewkits:kmpworkmanager-http:3.5.0")     // Ktor 3 HTTP workers
+    implementation("dev.brewkits:kmpworkmanager-http:3.4.0")     // Ktor 3 HTTP workers
 }
 ```
 
@@ -262,13 +262,13 @@ and no recovery mechanism for incomplete work. Getting it wrong means your tasks
 |---------|---------|-----|-------|
 | `OneTime(delayMs)` | WorkManager | BGTaskScheduler | Minimum delay may be enforced by OS |
 | `Periodic(intervalMs)` | WorkManager | BGTaskScheduler | Min 15 min on both platforms |
-| `Exact(epochMs)` | AlarmManager | Best-effort | iOS cannot guarantee exact timing |
+| `Exact(epochMs)` | AlarmManager | Best-effort | iOS: shows a notification by default — worker code does not run unless the user taps it or the app is reopened. Not a substitute for Android's real exact alarm; see `docs/iOS-EXACT-ALARM-GUIDE.md` |
 | `Windowed(earliest, latest)` | WorkManager with delay | BGTaskScheduler | Preferred over Exact on iOS |
 | `ContentUri(uri)` | WorkManager ContentUriTrigger | — | Android only |
 
 ---
 
-## What's new in v3.5.0
+## What's new in v3.4.0
 
 **Jetpack WorkManager parity.** Four features native WorkManager users expect, now on both
 platforms: **task tags + group cancellation** (`cancelByTag` / `cancelByWorkerClass`),
@@ -281,6 +281,36 @@ Adding `cancelByTag`/`cancelByWorkerClass` to `BackgroundTaskScheduler` is sourc
 — both ship with no-op default implementations so existing custom schedulers and test doubles
 keep compiling. Classes that *override* `enqueue()` must add the new `tags` and `deadlineMs`
 parameters.
+
+**Second Android/iOS constraint-parity pass.** Six gaps closed, all previously just unwired
+rather than platform-impossible: `requiresUnmeteredNetwork`/`requiresCharging` now enforced
+for standalone iOS tasks (not just chain steps), `backoffPolicy`/`backoffDelayMs` now affect
+real iOS retry timing, `SystemConstraint.REQUIRE_BATTERY_NOT_LOW`/`ALLOW_LOW_BATTERY`
+implemented on iOS, and Android's `setExpedited()` now actually respects `TaskPriority` as
+documented (a real behavior change for `NORMAL`/`LOW` tasks — see [CHANGELOG.md](CHANGELOG.md)).
+
+**Two `WorkQuery`-style batch APIs**, matching `androidx.work.WorkQuery`'s own
+AND-across-axes/OR-within-axis semantics: `observeTaskState(id): Flow<TaskState>` for a live
+state stream (`Enqueued`/`Running`/`Succeeded`/`Failed`/`Cancelled`/`Unknown`), and
+`queryTasks(tags, workerClassNames, states): List<QueriedTask>` for a batch read filtered by
+any combination of those three. Both ship with no-op defaults for source compatibility.
+
+**Extends two "Ultra" iOS features shipped in earlier releases**: `IosBackgroundUploadWorker`
+(upload counterpart to the download-only `IosBackgroundDownloadWorker`), `sharedContainerIdentifier`
+on both background-transfer configs (App Group transport sharing), and a new
+`KmpWorkManager.initialize(appGroupIdentifier = ...)` for read-only cross-process task
+visibility — see [`docs/IOS_APP_GROUP_STORAGE.md`](docs/IOS_APP_GROUP_STORAGE.md).
+
+**Closes out Flutter parity Group 2**: `maxBytesPerSecond` bandwidth throttling on all four
+HTTP download/upload configs (`kmpworkmanager-http`), a token-bucket rate limiter shared
+across every concurrent chunk/file in the parallel variants.
+
+**Documentation accuracy sweep**: `TaskTrigger.Exact` on iOS corrected to reflect its real
+best-effort behavior (it does not guarantee code execution — see
+[`docs/iOS-EXACT-ALARM-GUIDE.md`](docs/iOS-EXACT-ALARM-GUIDE.md)), and a pre-refactor
+`Constraints`/`ExistingPolicy` shape that had drifted into several docs (`networkType`,
+`requiresBatteryNotLow`, `expedited` as a `Constraints` field, a fictional `APPEND`/
+`APPEND_OR_REPLACE` on `ExistingPolicy`) corrected throughout.
 
 ## What's new in v3.2.0
 
@@ -305,6 +335,7 @@ See the [changelog](CHANGELOG.md) for the full history, and the per-version upgr
 | `HttpUploadWorker` | ⚠️ Experimental | Streaming multipart upload. No resumable / chunked upload yet (see `ParallelHttpUploadWorker` for multi-file uploads). |
 | `ParallelHttpUploadWorker` | Stable | One POST per file with per-host `maxConcurrent` limit (1..16, default 3) and per-file retry on 5xx / network errors (`maxRetries` 0..5). Per-file outcomes exposed via `WorkerResult.Success.data.fileResults`. |
 | `IosBackgroundDownloadWorker` | iOS-only, experimental (v2.5+) | Hands the download to `URLSessionConfiguration.background` so the transfer survives **full app termination**. Host AppDelegate must wire `application(_:handleEventsForBackgroundURLSession:completionHandler:)` — see [docs/IOS_BACKGROUND_URL_SESSION.md](docs/IOS_BACKGROUND_URL_SESSION.md). |
+| `IosBackgroundUploadWorker` | iOS-only, experimental (v3.4+) | Upload counterpart to `IosBackgroundDownloadWorker` — same background-daemon lifecycle and AppDelegate hook. Source must be a file on disk (`uploadTaskWithRequest(_:fromFile:)`; background sessions don't support in-memory bodies). |
 | `HttpSyncWorker` | Stable | Fetch-and-persist data sync. |
 | `FileCompressionWorker` | ✅ Stable | Produces a real PKZIP archive (DEFLATE) on both Android and iOS. Android uses `java.util.zip`; iOS uses native `platform.zlib` (system library, no external deps). Supports low/medium/high compression levels, exclude patterns, and optional delete-original. The `allowIosUncompressedFallback` flag is **deprecated** (ignored) since v3.2.0 — iOS now always produces a valid ZIP. |
 
@@ -362,9 +393,11 @@ RFC 3986 UserInfo bypass and multi-`@` authority attacks are both handled. DNS r
 | [Constraints & Triggers](docs/constraints-triggers.md) | All scheduling options |
 | [iOS Best Practices](docs/ios-best-practices.md) | BGTask gotchas and recommendations |
 | [iOS BGTask Hard Limits](docs/IOS_BGTASK_LIMITS.md) | Opportunistic scheduling, time budget, headless DI |
+| [iOS Exact Alarm Guide](docs/iOS-EXACT-ALARM-GUIDE.md) | What `TaskTrigger.Exact` actually does on iOS, and what not to use it for |
 | [App Store Review Compliance](docs/APPLE_APP_STORE_REVIEW_GUIDELINES.md) | §2.5.4 — what gets rejected and how to ship safely |
 | [Android FGS Type Guide](docs/ANDROID_FGS_GUIDE.md) | `mediaProcessing` / `camera` / `dataSync` setup |
-| [iOS Background URLSession](docs/IOS_BACKGROUND_URL_SESSION.md) | Surviving app termination during long downloads |
+| [iOS Background URLSession](docs/IOS_BACKGROUND_URL_SESSION.md) | Surviving app termination during long downloads/uploads |
+| [iOS App Group Storage](docs/IOS_APP_GROUP_STORAGE.md) | Sharing task storage with a Widget/Share Extension |
 | [iOS Live Activities](docs/IOS_LIVE_ACTIVITIES.md) | Dynamic Island & Lock Screen progress via `IosLiveActivityBridge` |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Common issues |
 | [CHANGELOG](CHANGELOG.md) | Release history |

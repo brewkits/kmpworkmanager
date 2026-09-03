@@ -197,7 +197,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
                     workerClassName: "one-time-upload",
                     constraints: constraints,
                     inputJson: nil,
-                    policy: .replace
+                    policy: .replace,
+                    tags: [],
+                    deadlineMs: nil
                 )
                 print(" KMP_PUSH_IOS: Successfully scheduled task from push. Result: \(result)")
                 completionHandler(.newData)

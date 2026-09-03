@@ -76,6 +76,10 @@ import platform.Foundation.writeToURL
  */
 internal object BackgroundDownloadStateStore {
 
+    /** Which direction a background `NSURLSessionTask` transfers data. */
+    @Serializable
+    internal enum class TransferType { DOWNLOAD, UPLOAD }
+
     @Serializable
     internal data class Entry(
         val sessionIdentifier: String,
@@ -83,6 +87,11 @@ internal object BackgroundDownloadStateStore {
         val savePath: String,
         val workerName: String,
         val createdAtMs: Long,
+        // Defaults preserve backward compatibility: an entry written by a pre-3.4.0 version
+        // (download-only) decodes here as TransferType.DOWNLOAD with sourcePath = null.
+        val transferType: TransferType = TransferType.DOWNLOAD,
+        /** Source file path for an upload; unused (null) for a download. */
+        val sourcePath: String? = null,
     ) {
         /** Stable composite key — see class KDoc. */
         val key: String get() = "$sessionIdentifier:$taskIdentifier"

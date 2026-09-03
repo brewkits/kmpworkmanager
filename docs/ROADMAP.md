@@ -7,7 +7,7 @@ Status legend: ✅ done · 🚧 in progress · ⏳ planned · 💭 idea / unsche
 
 ---
 
-## v3.5.0 — Jetpack WorkManager parity — ✅ shipped
+## v3.4.0 — Jetpack WorkManager parity — ✅ shipped
 
 Four features native WorkManager users expect, implemented on **both** platforms:
 
@@ -25,13 +25,85 @@ Four features native WorkManager users expect, implemented on **both** platforms
 
 Still open from the same parity analysis, in rough priority order:
 
-- ⏳ **`observeTaskState(id): Flow<TaskState>`** — live state stream, replacing
-  poll-`getExecutionHistory()`. Android: wrap `getWorkInfosForUniqueWorkFlow` (note:
-  WorkManager indexes by UUID, so this must go through the unique-name API, not
-  `getWorkInfoByIdFlow`). iOS: a `StateFlow` registry updated by `ChainExecutor` /
-  `SingleTaskExecutor` transitions.
-- ⏳ **`WorkQuery`-style batch query** — filter pending/running tasks by state/tag/worker.
-  Read-only on both platforms; iOS needs a scan across queue + metadata + active chains.
+- ✅ **`observeTaskState(id): Flow<TaskState>`** — shipped 2026-09-02, following exactly the
+  phased shape the design investigation above recommended: Android fully live via
+  `getWorkInfosForUniqueWorkFlow`, iOS's `Enqueued`/`Running`/terminal states from existing
+  persisted signals (no new registry retrofitted into the four executors), `Running` on iOS
+  documented as best-effort rather than guaranteed.
+
+  **Android**: `NativeTaskScheduler.observeTaskState` wraps `getWorkInfosForUniqueWorkFlow(id)`
+  directly — precise and live, the same durable tracking WorkManager itself uses.
+  `WorkInfo.State` maps to `TaskState` via an exhaustive `when` (no `else`, so a future
+  `androidx.work` state addition is a compile error here, not a silent gap):
+  `ENQUEUED`/`BLOCKED` → `Enqueued`, `RUNNING` → `Running`, `SUCCEEDED`/`FAILED`/`CANCELLED` →
+  their equivalents. Emits `Unknown` immediately for an `id` with no `WorkInfo` at all.
+
+  **iOS**: `computeIosTaskState` (`IosTaskStateSupport.kt`) resolves a snapshot with this
+  precedence: (1) chain namespace — `IosFileStorage`'s chain definition store + queue, plus
+  `ChainJobRegistry.isActive` for the one precise "running right now" signal iOS has; (2)
+  standalone task namespace — split by whether `id` has a dedicated Info.plist identifier
+  (checked via `BGTaskScheduler`'s pending-requests list) or routes through the dynamic queue
+  (checked via the new `IosFileStorage.isTaskInDynamicQueue`); (3) execution history as the
+  final fallback once nothing is live/queued. `NativeTaskScheduler.observeTaskState` polls this
+  snapshot every 2s (`OBSERVE_TASK_STATE_POLL_INTERVAL_MS`) since iOS has no OS-level push
+  signal to react to instead, and completes the `Flow` once a terminal state is reached.
+  **Known limitation, not a bug**: `cancel(id)` deletes task metadata outright without writing
+  an execution-history record, so a cancelled task's state becomes indistinguishable from one
+  that never existed (`Unknown`, not `Cancelled`) — this is the existing `cancel()` contract,
+  documented rather than changed to avoid widening scope further.
+
+  Covered by `computeIosTaskState`'s dedicated pure-function test suite
+  (`V340ComputeIosTaskStateTest`, 16 cases covering precedence including the deliberate
+  chain-vs-task id-collision rule and live-state-overrides-stale-history), an iOS integration
+  test on the real `NativeTaskScheduler.observeTaskState` override (`V340ObserveTaskStateIosTest`),
+  and an Android equivalent (`V340ObserveTaskStateAndroidTest`) covering both the state mapping
+  and a real enqueue-then-observe round trip. Has a no-op default (`flowOf(TaskState.Unknown)`)
+  on the interface for the same source-compatibility reason `cancelByTag`/`cancelByWorkerClass`
+  already established.
+- ✅ **`WorkQuery`-style batch query** — shipped 2026-09-02 as
+  `BackgroundTaskScheduler.queryTasks(tags, workerClassNames, states): List<QueriedTask>`.
+  Same AND-across-axes/OR-within-axis semantics as `androidx.work.WorkQuery` (checked against
+  its actual source: it only supports ids/uniqueWorkNames/tags/states, no workerClassName axis
+  natively — see below for how Android gets one anyway).
+
+  **Android**: `workManager.getWorkInfosByTag(TAG_KMP_TASK)` in one call (every WorkRequest
+  this library creates carries that tag), then all three filters applied in-memory against
+  each `WorkInfo`'s own tag set — cheaper than round-tripping through `WorkQuery` per filter
+  combination, and it's how `workerClassNames` becomes filterable at all: every WorkRequest
+  already carries a `"worker-<name>"` tag (the same one `cancelByWorkerClass` uses), so
+  filtering by tag-membership gives worker-class filtering for free. One catch found and
+  fixed while building this: a chain step's own `"id-<uuid>"` tag is a random per-step UUID
+  (see `createWorkRequest`), not the chain's caller-facing id, and `WorkInfo` exposes no other
+  way to recover which chain a step belongs to (`chainId` lives only in `inputData`, which
+  `WorkInfo` doesn't expose) — so a **new** `"chain-<chainId>"` tag was added alongside the
+  existing ones purely so `queryTasks` can group a chain's steps back under its real id.
+
+  **iOS**: `queryIosTasks` (`IosTaskStateSupport.kt`) enumerates every candidate id from all
+  known sources — `listChainDefinitionIds()` (new: chain **definitions** on disk, broader than
+  the execution queue alone, since a currently-executing chain has been dequeued but its
+  definition still exists) + `getActiveChainIds()` + `listOneTimeTaskIdsDecoded()`/
+  `listPeriodicTaskIds()` (new, decoded variants of the existing `listTaskIds()` — see below)
+  + every id present in execution history (catches a terminal id with no live state left) —
+  then runs each through `computeIosTaskState` for state (same logic `observeTaskState` uses)
+  and a matching tag/workerClassName check against `loadChainDefinition`/`loadTaskMetadata`.
+  **Known limitation, documented rather than solved**: once a chain/task reaches a terminal
+  state its definition/metadata is deleted from disk (existing behavior, not new), so a
+  terminal id survives only in `ExecutionRecord` — which carries neither tags nor worker class
+  name — meaning a non-empty `tags`/`workerClassNames` filter can never match a terminal id,
+  only a `states`-only filter (or no filter) can find it.
+
+  **Found and fixed en route**: `listTaskIds()`'s existing filenames were never decoded via
+  [`decodeFromPathComponent`] before being returned — harmless today only because
+  `checkAndExecuteMissedExactAlarms` (its one caller) re-encodes via `loadTaskMetadata`, and
+  encoding a value that's already encoding-safe is a no-op; a task id containing a literal `%`
+  or `/` would have silently failed to resolve. Left `listTaskIds()`'s public contract
+  unchanged (no behavior change for its existing caller) and added properly-decoding
+  `listOneTimeTaskIdsDecoded()`/`listPeriodicTaskIds()` as new, separate internal functions for
+  `queryTasks` to use instead of touching that caller's behavior in this change.
+
+  Covered by `V340QueryTasksAndroidTest` (8 cases) and `V340QueryIosTasksTest` (11 cases,
+  including the terminal-id-loses-filterability limitation and the executing-chain-still-has-
+  a-definition case).
 - ⏳ **`ExistingPolicy.APPEND`** — append steps to a chain that is already queued or
   running. Android maps to `ExistingWorkPolicy.APPEND`/`APPEND_OR_REPLACE` directly; iOS
   needs real design work, and **an earlier analysis of this got it wrong in a way worth
@@ -59,10 +131,116 @@ Still open from the same parity analysis, in rough priority order:
   milestone, not a quick win. (The `when` over `ExistingPolicy` in iOS `enqueueChain` is
   deliberately exhaustive so adding this forces a decision there rather than silently
   falling through to the KEEP branch.)
+
+  **Decision (2026-09-02): deliberately not implemented this session.** Evaluated whether to
+  build it after `observeTaskState`/`queryTasks` landed cleanly; concluded the risk/reward is
+  unfavorable right now for two reasons. First, real-world need is narrow — `APPEND` covers a
+  specific "queue onto an already-running sequential pipeline" pattern (outbox-style upload
+  queues, sequential log shipping); `KEEP`/`REPLACE`/`UPDATE` (shipped v3.4.0) already cover
+  the large majority of real usage, including everything in this repo's own demo app. Second,
+  `ChainExecutor` has proven fragile under scrutiny this session alone — two subtle bugs
+  surfaced from touching code merely *adjacent* to it (the constraint-deferral attempt-budget
+  bug and the `windowLatest`/tags/deadline-loss-on-retry bug, both above). APPEND requires
+  restructuring its core execution model (re-read-per-step instead of read-once) plus getting
+  the finishing-chain race and progress-index renumbering right — exactly the kind of change
+  likely to introduce a THIRD subtle bug in this file if rushed. Revisit as its own dedicated
+  milestone with real design + review time, not as a same-session add-on.
 - 💭 **`setNextScheduleTimeOverride()`** — **not feasible on iOS.** BGTaskScheduler offers
   no way to override a registered task's next run; only cancel + reschedule, which is
   what `cancel()` + `enqueue()` already do. Android-only, so it fails the
   "both platforms or it isn't parity" bar below.
+
+**A second parity pass (2026-09-02) found 6 more real, verified-in-code gaps** — none of
+these were previously documented as "impossible on iOS"/"impossible on Android", they were
+just unwired. Landed in the "Ultra 1+2+3" pass:
+
+- ✅ **`requiresUnmeteredNetwork` unchecked for standalone iOS tasks** — was enforced only
+  inside `ChainExecutor.executeTask` (chain steps); `DynamicTaskDispatcher`/`SingleTaskExecutor`
+  never checked it for a plain `enqueue()`. Fixed: `StandaloneConstraintGuard` checks
+  `isNetworkCellular()` before dispatch in both `DynamicTaskDispatcher` and
+  `IosBackgroundTaskHandler`, deferring — never abandoning — the task while the constraint
+  stays unmet (see the "constraint deferral" note below for the follow-up this uncovered).
+- ✅ **`requiresCharging` unchecked for dynamic-queue standalone iOS tasks** — was only honored
+  for tasks with a static Info.plist identifier + `isHeavyTask=true`; the Master Dispatcher
+  path hardcoded `requiresExternalPower = false`. Fixed at the OS level: when every task
+  pending in the dynamic queue requires charging, `DynamicQueueConstraintSummary
+  .allRequireCharging` holds `requiresExternalPower = true` on the Master Dispatcher's
+  `BGProcessingTaskRequest` (mirroring the pre-existing `allRequireNetwork` pattern) — the OS
+  itself won't wake the process until the device is plugged in, no host opt-in needed. The
+  app-level fallback (`StandaloneConstraintGuard`'s `defaultIsNotCharging()`, for the case
+  where charging tasks are mixed with non-charging ones in the same queue) still only fires if
+  the host has opted in to `UIDevice.batteryMonitoringEnabled` — **still not done**: there is no
+  unconditional replacement for that opt-in. Unlike `REQUIRE_BATTERY_NOT_LOW`, which reads Low
+  Power Mode via `NSProcessInfo` (a genuinely global, always-available signal), Apple exposes
+  charging *state* only via `UIDevice.batteryState`, which returns `.unknown` unless monitoring
+  is enabled — there is no `NSProcessInfo`-equivalent for this. Toggling
+  `batteryMonitoringEnabled` from inside the library was considered and rejected (see
+  `ChainExecutor`'s battery-guard KDoc): it would race the host's own UI thread and could break
+  the host's own battery-state observers.
+- ✅ **`Constraints.backoffPolicy`/`backoffDelayMs` had zero effect on iOS** — a retry just
+  waited for the next opportunistic BGTask wake, with no LINEAR/EXPONENTIAL delay computation.
+  Fixed: `nextRetryEarliestMs` is computed and persisted, dispatch is skipped until it passes,
+  and `rescheduleMasterDispatcher()` now requests the earliest of all pending tasks' backoff
+  floors (instead of always "now") when every pending task is still backed off — otherwise the
+  dispatcher would wake immediately, find nothing runnable, and re-request itself for the whole
+  backoff window, burning BGTask quota.
+- ✅ **`SystemConstraint.REQUIRE_BATTERY_NOT_LOW`/`ALLOW_LOW_BATTERY` unimplemented on iOS** —
+  not structurally impossible (unlike `DEVICE_IDLE`/`ALLOW_LOW_STORAGE`, which genuinely have
+  no iOS primitive). Fixed via `NSProcessInfo.processInfo().lowPowerModeEnabled` — a better
+  parity match than the existing `KmpWorkManagerRuntime.minBatteryLevelPercent` global knob,
+  since both this and Android's `setRequiresBatteryNotLow()` key off an OS-defined threshold
+  rather than an app-configurable one. The two mechanisms are independent; this doesn't replace
+  `minBatteryLevelPercent`.
+- ✅ **`TaskPriority` was a documented no-op on Android** — the inverse-direction gap. KDoc
+  (`TaskPriority.kt:16-17`) claimed `CRITICAL`/`HIGH` map to `setExpedited()`, but
+  `androidMain/NativeTaskScheduler.kt` called `setExpedited()` unconditionally (subject only to
+  delay/heavy/charging/unmetered checks), never reading `task.priority`. Fixed — narrows which
+  tasks get expedited by default; see CHANGELOG's `[Unreleased] Changed` entry for the behavior
+  change this is for existing callers.
+- ✅ **`docs/constraints-triggers.md` referenced a pre-refactor `Constraints` shape** —
+  `networkType`, `requiresBatteryNotLow`, `requiresStorageNotLow`, `requiresDeviceIdle`,
+  `expedited`, `existingWorkPolicy` as a `Constraints` field — none of which exist in the
+  current contract (superseded by `SystemConstraint`, `TaskRequest.priority`, and a separate
+  `ExistingPolicy` param). First pass (2026-09-02, earlier) only fixed the Exact trigger
+  section + the summary Platform Support Matrix, incorrectly marked ✅ here at the time —
+  the per-field prose sections above that table (`### Network Constraints` through
+  `### iOS Quality of Service`, roughly 450 lines) were still fully stale, plus the
+  `existingWorkPolicy`/`APPEND` misinformation covered separately below. **Actually completed
+  2026-09-02 (second pass)**, discovered while investigating whether `ExistingPolicy.APPEND`
+  was worth implementing — the investigation surfaced this doc actively claiming `APPEND`
+  already worked via a nonexistent `Constraints(existingWorkPolicy = ...)`, which led to
+  auditing the rest of the file and finding it was far more extensively stale than the first
+  pass's claim suggested. Also found and fixed the same pre-refactor patterns in
+  `docs/api-reference.md` (its entire `Constraints`/`NetworkType`/`QualityOfService`/
+  `ExistingWorkPolicy` reference sections), `docs/BUILTIN_WORKERS_GUIDE.md`,
+  `docs/platform-setup.md`, `docs/task-chains.md` (9 occurrences), and `docs/ios-migration.md`.
+  `docs/quickstart.md` had one occurrence, also fixed.
+- ✅ **`docs/ios-best-practices.md` had the SAME pre-refactor-shape staleness** — its "Limited
+  Constraints"/"Unsupported Constraints" code samples (§4 and "Pitfall #3") showed
+  `requiresBatteryNotLow`/`requiresStorageNotLow` as direct `Constraints` fields and claimed
+  `requiresCharging`/`REQUIRE_BATTERY_NOT_LOW` were unconditionally "ignored on iOS" — both
+  false after the 2026-09-02 parity pass above. Corrected 2026-09-02, including the
+  `BGProcessingTask` time-limit table row, which said "~60 seconds" against
+  `docs/IOS_BGTASK_LIMITS.md`'s authoritative "several minutes (typically 1–10 min)".
+
+**Follow-up uncovered by the above (2026-09-02):** a constraint deferral (unlike a backoff
+floor) carries no `nextRetryEarliestMs`, so `rescheduleMasterDispatcher()` requests
+`earliestBeginDate = now` for it — the dispatcher wakes immediately, finds the constraint still
+unmet, defers again, and re-requests itself, repeating for as long as the constraint stays
+unmet. This is strictly better than the pre-fix behavior (which "solved" the churn by deleting
+the task after 5 wakes), but it does burn BGTask quota while it lasts.
+
+- ✅ **`requiresCharging` half fixed**, as a side effect of `allRequireCharging` above: when
+  every pending task requires charging, `requiresExternalPower = true` at the OS level means
+  the process isn't woken at all until the device is plugged in — the wake-defer-rewake cycle
+  described above simply can't happen for an all-charging queue. It can still happen for a
+  **mixed** queue (some tasks need charging, others don't) — the OS-level flag can only be
+  all-or-nothing across the whole shared Master Dispatcher request, so a charging-required task
+  sharing a queue with a non-charging one still relies on the opt-in-gated app-level check and
+  still churns while unmet.
+- ⏳ **`requiresUnmeteredNetwork` half still open** — BGTaskScheduler has no Wi-Fi-only flag at
+  all, at any granularity, so there is no OS-level fix available the way there was for charging.
+  This half has no cheaper fix than periodic wakes.
 
 ---
 
@@ -75,33 +253,27 @@ only** — no shared-code motive at all — still pick this library over the
 platform's raw API? "Shared code" is worth nothing to that team, so the pitch
 has to come from somewhere else.
 
-- ⏳ **Flutter parity Group 2 — token refresh on 401 + HMAC request signing**
-  ([#81](https://github.com/brewkits/kmpworkmanager/issues/81)). Pitch: WorkManager/BGTaskScheduler give you
-  primitives; this ships a tested implementation of the auth-refresh and
-  request-signing logic most teams under-build (or skip) themselves. Promoted
-  out of the deferred v2.6 #6 slot below — see that entry for the full spec,
-  now superseded by #81 as the tracking issue.
-- ⏳ **Android FGS-type diagnosability** ([#82](https://github.com/brewkits/kmpworkmanager/issues/82)).
-  Pitch: on iOS, `@Worker(bgTaskId=…)` + the KSP-generated `BgTaskIdProvider`
-  already `require()`-crashes loudly at `KmpWorkManager.initialize()` if a
-  `bgTaskId` is missing from `Info.plist` — Android has no equivalent
-  registration-time hook for a missing/mismatched `android:foregroundServiceType`.
-  `KmpHeavyWorker.doWork()` already catches and logs the `setForeground()`
-  exception (see `KmpHeavyWorker.kt`), but the message names only what the
-  worker *declared*, not what the manifest actually has, and on API 29-33
-  a mismatch doesn't throw at all (`ForegroundServiceTypeException` is
-  API 34+) — a real silent-failure window on those OS versions. #82
-  originally proposed a Gradle plugin generating/validating manifest entries
-  from `@Worker` annotations at build time; investigation found `@Worker` is
-  `SOURCE`-retention (invisible to a Gradle plugin without a new KSP→Gradle
-  pipeline) and `foregroundServiceType` is a computed `open val`, not a
-  literal KSP can resolve — so static analysis can't reliably cover this.
-  Revised to reading the actual merged manifest via
-  `PackageManager.getServiceInfo()` inside `doWork()`: enrich the existing
-  exception log with the manifest's declared type, and add a proactive
-  `Logger.w` on API 29-33 where nothing throws today. No new module,
-  diagnostics-only (never fails a worker on its own). See #82 for the
-  corrected scope.
+- ✅ **Flutter parity Group 2 — token refresh on 401 + HMAC request signing**
+  ([#81](https://github.com/brewkits/kmpworkmanager/issues/81)) — shipped (`218e245`), this entry was just
+  stale. `HmacRequestSigning.kt`/`TokenRefresh.kt` in `kmpworker-http` implement both to spec
+  (see the v2.6 #6 entry below for the original spec — both now ✅ there too), wired into
+  `HttpRequestWorker`. Token refresh retries the original request **exactly once** on a 401 —
+  a still-401 retry, a failed refresh call, or a refresh response missing the configured
+  `tokenResponsePath` all pass through as the final result rather than looping. HMAC signing is
+  a pure function (no Ktor dependency), applied last so it covers the final outgoing request
+  after every other header/body mutation. **Scope note**: currently wired into
+  `HttpRequestWorker` only, not `HttpDownloadWorker`/`HttpUploadWorker`/`HttpSyncWorker`/the
+  parallel variants — `TokenRefresh.kt`'s own KDoc names these as future adopters, so this
+  looks like a deliberate phase-1 scope, not an oversight, but hasn't been confirmed as
+  permanent scope. Covered by `HttpRequestSigningAndTokenRefreshTest`,
+  `HmacRequestSigningTest`, `TokenRefreshTest`.
+- ✅ **Android FGS-type diagnosability** ([#82](https://github.com/brewkits/kmpworkmanager/issues/82)) —
+  shipped (`f6cab53`), this entry was just stale. `KmpHeavyWorker.readManifestForegroundServiceType()`
+  reads the actual merged manifest via `PackageManager.getServiceInfo()`, enriches the existing
+  `SecurityException`/`IllegalStateException` diagnostic logs with the manifest's declared type
+  bitmask, and proactively warns on API 29-33 (where a mismatch doesn't throw at all —
+  `ForegroundServiceTypeException` is API 34+). Diagnostics-only, never fails a worker on its
+  own. Covered by `KmpHeavyWorkerManifestDiagnosticsTest`.
 
 Both selected over other v2.6/v3.0 candidates (per-task QoS profiles, threat
 model docs, `ChainExecutor` state machine, `wasmJs` target) specifically
@@ -273,7 +445,8 @@ source; all are fixed in v2.5.0 before publish:
   (`docs/internal/IOS_FILE_STORAGE_SPLIT.md`) + `storage/BaseDirectory.kt`
   scaffold committed; per-store extraction across stages 1–5 still pending.
 - ⏳ `IosBackgroundDownloadWorker` polish — authentication challenges, TLS
-  pinning hook, upload variant (background URL session uploads).
+  pinning hook. **Upload variant and `sharedContainerIdentifier` landing in the
+  "Ultra 1+2+3" pass** — see `IosBackgroundUploadWorker` below once shipped.
 
 ---
 
@@ -375,6 +548,32 @@ v2.6 polishes the rough edges that surface during on-call.
   thread. Swift host owns all `ActivityKit` types; no ActivityKit symbols leak into Kotlin.
   iOS actual uses `CoroutineScope(Dispatchers.Main + SupervisorJob)`; Android is a no-op stub.
   See [`docs/IOS_LIVE_ACTIVITIES.md`](./IOS_LIVE_ACTIVITIES.md) for full Swift integration guide.
+- ⚠️ **Scope limit (verified in code)**: this only relays progress while the app process is
+  alive — `TaskProgressBus` is an in-memory `SharedFlow`, not persisted. It cannot update a
+  Live Activity after the app is killed. Real post-kill updates need `BGContinuedProcessingTask`
+  (see §1 below), which isn't GA yet — don't build against this bridge expecting it to survive
+  process death.
+
+### 3b. App Group storage — ✅ read-only sharing shipped in 3.4.0, live sync not started
+- ✅ `KmpWorkManager.initialize(appGroupIdentifier = ...)` threads one shared `IosFileStorage`
+  (rooted at the App Group container) through `ChainExecutor`/`DynamicTaskDispatcher`/
+  `NativeTaskScheduler`. Fails fast with `IllegalArgumentException` on a missing/misconfigured
+  entitlement rather than silently falling back to private storage. See
+  [`docs/IOS_APP_GROUP_STORAGE.md`](./IOS_APP_GROUP_STORAGE.md).
+- 🚫 **Still explicitly out of scope**: live cross-process state sharing / running the
+  scheduler in more than one process against the same container. `ChainJobRegistry`
+  (in-memory `Job` map), `IosFileStorage`'s progress-flush debounce buffer, and the dynamic
+  queue's `AtomicInt` size counters are all single-process by construction — sharing the
+  storage *location* (done above) does not make it safe to run the scheduler in two processes
+  at once. Making that safe needs a Darwin-notification-driven cache-invalidation redesign
+  across all three, which is its own milestone, not a bolt-on. Until then: **one process runs
+  the scheduler; other processes (widgets/extensions) may only read** from the shared
+  container via their own `IosFileStorage(baseDirectory = ...)`.
+- ⚠️ Also unresolved: `BackgroundDownloadStateStore` (background-URLSession completion
+  tracking) is not wired to `appGroupIdentifier` — it always writes to the main app's private
+  Application Support directory. Combining this with the App Group storage above (so an
+  extension could see pending/complete background transfers, not just scheduled tasks) is
+  future work, not done in 3.4.0.
 
 ### 4. Per-task QoS profiles
 - ⏳ Introduce `TaskQoSProfile` enum:
@@ -392,18 +591,26 @@ Promoted out of v2.6 and rescoped after [discussion #66](https://github.com/brew
 See [v3.3 — DI-agnostic init](#v33--di-agnostic-init-koin-removal) below.
 
 ### 6. Flutter parity — Group 2 built-in workers
-- ⏳ **HMAC-SHA256 request signing** (`request_signing.dart` parity) —
-  canonical format `METHOD\nURL\nBODY\nTIMESTAMP` → HMAC-SHA256 → header
-  `X-Signature` + optional `X-Timestamp`. Configurable secret key (min
-  16 chars), header name, prefix (`sha256=` for GitHub webhook style),
-  `signBody` and `includeTimestamp` flags.
-- ⏳ **Token refresh on 401** (`token_refresh_config.dart` parity) — when a
-  request returns 401, POST a configurable refresh endpoint, extract the new
-  token via dot-notation key (`auth.access_token`), retry the original
-  request. Mirrors the Flutter config 1-to-1.
-- ⏳ **Bandwidth throttling** — token-bucket on download/upload bytes-per-second.
-  Less critical than the others; Android already exposes
-  `Constraints.requiresUnmeteredNetwork` for the "Wi-Fi only" axis.
+- ✅ **HMAC-SHA256 request signing** (`request_signing.dart` parity) — shipped, see #81 above.
+- ✅ **Token refresh on 401** (`token_refresh_config.dart` parity) — shipped, see #81 above.
+- ✅ **Bandwidth throttling** — shipped 2026-09-02. `BandwidthThrottle` (`kmpworker-http`) is a
+  shared token-bucket rate limiter: `consume(bytes)` sleeps just long enough to keep the
+  average rate since construction at or below the configured cap, allowing brief bursts rather
+  than chopping the stream into fixed slices. `maxBytesPerSecond: Long?` added to
+  `HttpDownloadConfig`, `HttpUploadConfig`, `ParallelHttpDownloadConfig`, and
+  `ParallelHttpUploadConfig` — the two parallel configs cap the **aggregate** rate across all
+  chunks/files via ONE shared throttle instance (mutex-protected accounting, so concurrent
+  writers can't each claim an independent budget). Covered by `BandwidthThrottleTest`
+  (pure-algorithm, virtual-time) plus real-wall-clock-bound wiring tests on the download side
+  (`HttpDownloadWorkerBandwidthThrottleTest`, the new case in `ParallelHttpDownloadWorkerTest`).
+  **Known test-tooling gap, not a code gap**: the equivalent upload-side timing assertions
+  don't work — `ktor-client-mock`'s `MockEngine` never invokes
+  `OutgoingContent.WriteChannelContent.writeTo()` (and therefore never runs the throttle's
+  `consume()` call) unless the mock handler reads `request.body`, which
+  `ParallelHttpUploadWorkerTest`'s own pre-existing comment already flags as unreliable across
+  K/N targets (`toByteArray()` unavailable). Upload wiring is the same one-line pattern already
+  verified on the download side; the upload tests confirm config round-trip and that the
+  worker still succeeds with the field set, not the timing itself.
 
 ### 7. iOS ZIP compression via zlib cinterop — ✅ shipped in 3.2.0
 - ✅ `FileCompressionWorker.ios.kt` rewritten with a real PKZIP/DEFLATE writer backed by

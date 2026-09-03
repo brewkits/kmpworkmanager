@@ -1,0 +1,60 @@
+public final class dev/brewkits/kmpworkmanager/workers/HttpWorkerRegistry : dev/brewkits/kmpworkmanager/background/domain/WorkerFactory {
+	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/workers/HttpWorkerRegistry;
+	public fun createWorker (Ljava/lang/String;)Ldev/brewkits/kmpworkmanager/background/domain/Worker;
+	public final fun listWorkers ()Ljava/util/List;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/builtins/HttpDownloadWorker : dev/brewkits/kmpworkmanager/background/domain/Worker {
+	public fun <init> ()V
+	public fun <init> (Lio/ktor/client/HttpClient;Lokio/FileSystem;)V
+	public synthetic fun <init> (Lio/ktor/client/HttpClient;Lokio/FileSystem;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun close ()V
+	public fun doWork (Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/WorkerEnvironment;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/builtins/HttpRequestWorker : dev/brewkits/kmpworkmanager/background/domain/Worker {
+	public fun <init> ()V
+	public fun <init> (Lio/ktor/client/HttpClient;)V
+	public synthetic fun <init> (Lio/ktor/client/HttpClient;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun close ()V
+	public fun doWork (Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/WorkerEnvironment;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/builtins/HttpSyncWorker : dev/brewkits/kmpworkmanager/background/domain/Worker {
+	public fun <init> ()V
+	public fun <init> (Lio/ktor/client/HttpClient;)V
+	public synthetic fun <init> (Lio/ktor/client/HttpClient;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun close ()V
+	public fun doWork (Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/WorkerEnvironment;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/builtins/HttpUploadWorker : dev/brewkits/kmpworkmanager/background/domain/Worker {
+	public fun <init> ()V
+	public fun <init> (Lio/ktor/client/HttpClient;Lokio/FileSystem;)V
+	public synthetic fun <init> (Lio/ktor/client/HttpClient;Lokio/FileSystem;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun close ()V
+	public fun doWork (Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/WorkerEnvironment;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/builtins/ParallelHttpDownloadWorker : dev/brewkits/kmpworkmanager/background/domain/Worker {
+	public fun <init> ()V
+	public fun <init> (Lio/ktor/client/HttpClient;Lokio/FileSystem;)V
+	public synthetic fun <init> (Lio/ktor/client/HttpClient;Lokio/FileSystem;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun close ()V
+	public fun doWork (Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/WorkerEnvironment;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/builtins/ParallelHttpUploadWorker : dev/brewkits/kmpworkmanager/background/domain/Worker {
+	public fun <init> ()V
+	public fun <init> (Lio/ktor/client/HttpClient;Lokio/FileSystem;)V
+	public synthetic fun <init> (Lio/ktor/client/HttpClient;Lokio/FileSystem;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun close ()V
+	public fun doWork (Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/WorkerEnvironment;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/utils/HttpClientProvider {
+	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/workers/utils/HttpClientProvider;
+	public final fun close ()V
+	public final fun getInstance ()Lio/ktor/client/HttpClient;
+}
+

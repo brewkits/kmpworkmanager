@@ -2,6 +2,7 @@ package dev.brewkits.kmpworkmanager.sample.ui
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.CallMerge
 import androidx.compose.material.icons.filled.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -36,6 +37,7 @@ import dev.brewkits.kmpworkmanager.workers.config.HttpDownloadConfig
 import dev.brewkits.kmpworkmanager.workers.config.HttpRequestConfig
 import dev.brewkits.kmpworkmanager.workers.config.HttpSyncConfig
 import dev.brewkits.kmpworkmanager.workers.config.HttpUploadConfig
+import dev.brewkits.kmpworkmanager.utils.Logger
 import kotlin.time.TimeSource
 
 @Composable
@@ -66,6 +68,8 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
             try {
                 action()
             } catch (e: Exception) {
+                Logger.e("DemoScenariosScreen", "runTask '$taskName' failed: ${e.message}", e)
+                snackbarHostState.showSnackbar(message = "Failed to schedule: ${e.message}", duration = SnackbarDuration.Short)
                 isAnyTaskRunning = false
                 runningTaskName = ""
             }
@@ -271,6 +275,29 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                         }
                     }
                 )
+                DemoCard(
+                    title = "Update Periodic (ExistingPolicy.UPDATE)",
+                    description = "Tap twice: 1st schedules Hourly Sync-like periodic task, 2nd updates its constraints WITHOUT resetting the interval timer (unlike REPLACE)",
+                    icon = Icons.Default.Update,
+                    enabled = !isAnyTaskRunning,
+                    onClick = {
+                        runTask("Update Periodic (ExistingPolicy.UPDATE)") {
+                            scheduleTask(
+                                "Task 'demo-update-policy' updated in place via ExistingPolicy.UPDATE — " +
+                                    "next execution time is preserved, only constraints/input changed. " +
+                                    "Run this card again to see it (REPLACE would instead reset the timer)."
+                            ) {
+                                scheduler.enqueue(
+                                    id = "demo-update-policy",
+                                    trigger = TaskTrigger.Periodic(intervalMs = 1.hours.inWholeMilliseconds),
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.SYNC_WORKER,
+                                    constraints = Constraints(requiresNetwork = true, requiresUnmeteredNetwork = true),
+                                    policy = ExistingPolicy.UPDATE
+                                )
+                            }
+                        }
+                    }
+                )
             }
 
             // Task Chains Section
@@ -330,6 +357,60 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                                 .then(TaskRequest(workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.UPLOAD_WORKER))
                                 .enqueue()
                             snackbarHostState.showSnackbar(message = "Mixed chain started", duration = SnackbarDuration.Short)
+                        }
+                    }
+                )
+                DemoCard(
+                    title = "InputMerger: Step 2 URL Overwritten by Step 1's Output",
+                    description = "Step 2 is configured with a DIFFERENT url, but mergeOutputFromPreviousStep = true means Step 1's output url wins — watch Logs to see which URL actually gets called",
+                    icon = Icons.AutoMirrored.Filled.CallMerge,
+                    enabled = !isAnyTaskRunning,
+                    onClick = {
+                        runTask("InputMerger demo") {
+                            val step1Config = HttpSyncConfig(url = "https://jsonplaceholder.typicode.com/posts/1", method = "GET")
+                            // step2Config's url is deliberately different — after the merge it will
+                            // never actually be used, since Step 1's output "url" key overwrites it.
+                            val step2Config = HttpSyncConfig(url = "https://this-url-is-overwritten.invalid/", method = "GET")
+                            scheduler.beginWith(
+                                TaskRequest(
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.HTTP_SYNC_WORKER,
+                                    inputJson = Json.encodeToString(HttpSyncConfig.serializer(), step1Config),
+                                    constraints = Constraints(requiresNetwork = true)
+                                )
+                            ).then(
+                                TaskRequest(
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.HTTP_SYNC_WORKER,
+                                    inputJson = Json.encodeToString(HttpSyncConfig.serializer(), step2Config),
+                                    constraints = Constraints(requiresNetwork = true),
+                                    mergeOutputFromPreviousStep = true
+                                )
+                            ).enqueue()
+                            snackbarHostState.showSnackbar(
+                                message = "InputMerger chain started — Step 2 will call Step 1's URL, not its own configured URL",
+                                duration = SnackbarDuration.Short
+                            )
+                        }
+                    }
+                )
+                DemoCard(
+                    title = "TaskRequest: Priority + Non-Idempotent",
+                    description = "priority/isIdempotent only exist on TaskRequest (used via beginWith), not the flat scheduler.enqueue() — this single-step chain shows both taking effect",
+                    icon = Icons.Default.PriorityHigh,
+                    enabled = !isAnyTaskRunning,
+                    onClick = {
+                        runTask("TaskRequest: Priority + Non-Idempotent") {
+                            scheduler.beginWith(
+                                TaskRequest(
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.SYNC_WORKER,
+                                    priority = dev.brewkits.kmpworkmanager.background.domain.TaskPriority.CRITICAL,
+                                    isIdempotent = false,
+                                    tags = setOf("demo-priority-critical")
+                                )
+                            ).withId("demo-critical-non-idempotent").enqueue()
+                            snackbarHostState.showSnackbar(
+                                message = "CRITICAL priority, non-idempotent task started — Android: expedited work; iOS: highest queue weight",
+                                duration = SnackbarDuration.Short
+                            )
                         }
                     }
                 )
@@ -430,7 +511,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                 )
                 DemoCard(
                     title = "Storage Low Cleanup (Android)",
-                    description = "Cleanup task for low storage scenarios",
+                    description = "Demonstrates SystemConstraint.ALLOW_LOW_STORAGE — note this constraint is a no-op vs. omitting it entirely, since WorkManager already defaults to requiresStorageNotLow=false",
                     icon = Icons.Default.SdCard,
                     enabled = !isAnyTaskRunning,
                     onClick = {
@@ -439,7 +520,10 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                                 scheduler.enqueue(
                                     id = "demo-storage-low",
                                     trigger = TaskTrigger.OneTime(),
-                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.CLEANUP_WORKER
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.CLEANUP_WORKER,
+                                    constraints = Constraints(
+                                        systemConstraints = setOf(dev.brewkits.kmpworkmanager.background.domain.SystemConstraint.ALLOW_LOW_STORAGE)
+                                    )
                                 )
                             }
                         }
@@ -898,6 +982,60 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     }
                 )
                 DemoCard(
+                    title = "HTTP Download — Bandwidth Throttled",
+                    description = "Same download, capped at 2 KB/s so the transfer visibly takes ~5s instead of <1s",
+                    icon = Icons.Default.Speed,
+                    enabled = !isAnyTaskRunning,
+                    onClick = {
+                        runTask("HTTP Download — Bandwidth Throttled") {
+                            val config = HttpDownloadConfig(
+                                url = "https://httpbin.org/bytes/10240", // 10KB, so a 2KB/s cap takes ~5s
+                                savePath = getDummyDownloadPath(context),
+                                maxBytesPerSecond = 2 * 1024L
+                            )
+                            scheduleTask("Throttled download scheduled (2 KB/s cap) — watch Logs for the slower pace") {
+                                scheduler.enqueue(
+                                    id = "demo-builtin-httpdownload-throttled",
+                                    trigger = TaskTrigger.OneTime(initialDelayMs = 1.seconds.inWholeMilliseconds),
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.HTTP_DOWNLOAD_WORKER,
+                                    inputJson = Json.encodeToString(HttpDownloadConfig.serializer(), config),
+                                    constraints = Constraints(requiresNetwork = true)
+                                )
+                            }
+                        }
+                    }
+                )
+                DemoCard(
+                    title = "Token Refresh on 401",
+                    description = "Demonstrates the auto-refresh handshake — original URL always 401s, so watch Logs for the refresh call + retry",
+                    icon = Icons.Default.Refresh,
+                    enabled = !isAnyTaskRunning,
+                    onClick = {
+                        runTask("Token Refresh on 401") {
+                            val config = HttpRequestConfig(
+                                url = "https://httpbin.org/status/401",
+                                method = "GET",
+                                tokenRefresh = dev.brewkits.kmpworkmanager.workers.config.TokenRefreshConfig(
+                                    refreshUrl = "https://httpbin.org/post",
+                                    refreshBody = """{"access_token": "demo-refreshed-token"}""",
+                                    // httpbin's /post echoes the JSON body it received back under "json" —
+                                    // no real auth server needed to demonstrate the dot-path extraction.
+                                    tokenResponsePath = "json.access_token"
+                                )
+                            )
+                            scheduleTask("Token-refresh request scheduled — original URL always 401s, so the final retry also fails (expected)") {
+                                scheduler.enqueue(
+                                    id = "demo-builtin-tokenrefresh",
+                                    trigger = TaskTrigger.OneTime(initialDelayMs = 1.seconds.inWholeMilliseconds),
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.HTTP_REQUEST_WORKER,
+                                    inputJson = Json.encodeToString(HttpRequestConfig.serializer(), config),
+                                    constraints = Constraints(requiresNetwork = true)
+                                )
+                            }
+                        }
+                    }
+                )
+                DemoCard(
                     title = "HTTP Upload Worker",
                     description = "Upload a dummy file (POST) - ⚠️ Requires file creation first",
                     icon = Icons.Default.UploadFile,
@@ -947,6 +1085,33 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                                     trigger = TaskTrigger.OneTime(initialDelayMs = 1.seconds.inWholeMilliseconds),
                                     workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.FILE_COMPRESSION_WORKER,
                                     inputJson = Json.encodeToString(FileCompressionConfig.serializer(), config)
+                                )
+                            }
+                        }
+                    }
+                )
+
+                DemoCard(
+                    title = "Background URLSession Download (iOS)",
+                    description = "Survives full app termination — managed by the iOS system daemon, not BGTaskScheduler's ~30s budget. No-op on Android (ordinary HttpDownloadWorker already survives process death via WorkManager)",
+                    icon = Icons.Default.CloudDownload,
+                    enabled = !isAnyTaskRunning,
+                    onClick = {
+                        runTask("Background URLSession Download (iOS)") {
+                            val config = dev.brewkits.kmpworkmanager.workers.config.IosBackgroundDownloadConfig(
+                                url = "https://httpbin.org/bytes/102400", // 100KB
+                                savePath = getDummyDownloadPath(context)
+                            )
+                            scheduleTask("Background URLSession download queued (iOS) — survives app kill; see docs/IOS_BACKGROUND_URL_SESSION.md") {
+                                scheduler.enqueue(
+                                    id = "demo-ios-background-download",
+                                    trigger = TaskTrigger.OneTime(initialDelayMs = 1.seconds.inWholeMilliseconds),
+                                    workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.IOS_BACKGROUND_DOWNLOAD_WORKER,
+                                    inputJson = Json.encodeToString(
+                                        dev.brewkits.kmpworkmanager.workers.config.IosBackgroundDownloadConfig.serializer(),
+                                        config
+                                    ),
+                                    constraints = Constraints(requiresNetwork = true)
                                 )
                             }
                         }

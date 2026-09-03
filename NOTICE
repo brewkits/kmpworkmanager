@@ -1,0 +1,28 @@
+KMP WorkManager
+Copyright 2026 Nguyễn Tuấn Việt
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product includes the following third-party software, each licensed under the
+Apache License, Version 2.0 (http://www.apache.org/licenses/LICENSE-2.0):
+
+  - Kotlin Standard Library (org.jetbrains.kotlin:kotlin-stdlib) — JetBrains
+  - kotlinx.coroutines (org.jetbrains.kotlinx:kotlinx-coroutines-*) — JetBrains
+  - kotlinx.serialization (org.jetbrains.kotlinx:kotlinx-serialization-json) — JetBrains
+  - kotlinx-datetime (org.jetbrains.kotlinx:kotlinx-datetime) — JetBrains
+  - AtomicFU (org.jetbrains.kotlinx:atomicfu) — JetBrains
+  - Okio (com.squareup.okio:okio) — Square, Inc.
+  - Ktor Client (io.ktor:ktor-client-*) — JetBrains
+  - AndroidX WorkManager (androidx.work:work-runtime-ktx) — The Android Open Source Project
+  - AndroidX Core (androidx.core:core-ktx) — The Android Open Source Project
+  - OkHttp (com.squareup.okhttp3:okhttp, transitive via ktor-client-okhttp on Android) — Square, Inc.
+  - KSP Symbol Processing API (com.google.devtools.ksp:symbol-processing-api) — Google
+  - KotlinPoet (com.squareup:kotlinpoet, com.squareup:kotlinpoet-ksp) — Square, Inc.
+
+This list covers the runtime dependencies of the published `kmpworker`, `kmpworker-http`,
+and `kmpworker-ksp` artifacts. It does not include build-tool-only dependencies (test
+frameworks, static analysis, coverage tooling) or dependencies used only by the internal
+`composeApp` sample app (e.g. Koin, Compose Multiplatform) — none of those ship inside a
+consumer's app via this library.
+
+Exact versions are pinned in `gradle/libs.versions.toml`.

@@ -45,7 +45,7 @@ import kotlin.test.assertTrue
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33])
-class V350DeadlineAndInputMergerTest {
+class V340DeadlineAndInputMergerTest {
 
     private lateinit var context: Context
     private val savedRecords = mutableListOf<ExecutionRecord>()

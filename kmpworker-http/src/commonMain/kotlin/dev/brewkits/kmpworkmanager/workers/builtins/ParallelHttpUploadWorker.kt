@@ -11,6 +11,7 @@ import dev.brewkits.kmpworkmanager.utils.platformFileSystem
 import dev.brewkits.kmpworkmanager.workers.config.ParallelHttpUploadConfig
 import dev.brewkits.kmpworkmanager.workers.config.ParallelUploadFile
 import dev.brewkits.kmpworkmanager.workers.config.ParallelUploadFileResult
+import dev.brewkits.kmpworkmanager.workers.utils.BandwidthThrottle
 import dev.brewkits.kmpworkmanager.workers.utils.HttpClientProvider
 import dev.brewkits.kmpworkmanager.workers.utils.SecurityValidator
 import io.ktor.client.HttpClient
@@ -105,13 +106,16 @@ class ParallelHttpUploadWorker(
         val total = config.files.size
         val completed = atomic(0)
         val sem = Semaphore(permits = config.maxConcurrent)
+        // ONE throttle shared across every file's coroutine — a separate throttle per file
+        // would allow maxConcurrent * maxBytesPerSecond in aggregate, defeating the limit.
+        val throttle = config.maxBytesPerSecond?.let { BandwidthThrottle(it) }
 
         val results: List<ParallelUploadFileResult> = coroutineScope {
             config.files.map { file ->
                 async(AppDispatchers.IO) {
                     sem.withPermit {
                         if (env.isCancelled()) throw CancellationException("Parallel upload cancelled", null)
-                        val outcome = uploadOneFileWithRetry(config, file)
+                        val outcome = uploadOneFileWithRetry(config, file, throttle)
                         val done = completed.incrementAndGet()
                         env.progressListener?.onProgressUpdate(
                             WorkerProgress(
@@ -186,7 +190,8 @@ class ParallelHttpUploadWorker(
      */
     private suspend fun uploadOneFileWithRetry(
         config: ParallelHttpUploadConfig,
-        file: ParallelUploadFile
+        file: ParallelUploadFile,
+        throttle: BandwidthThrottle?
     ): ParallelUploadFileResult {
         var attempt = 0
         var lastError: String? = null
@@ -198,7 +203,7 @@ class ParallelHttpUploadWorker(
         while (attempt < maxAttempts) {
             attempt++
             try {
-                val (status, bytes) = uploadOne(config, file)
+                val (status, bytes) = uploadOne(config, file, throttle)
                 bytesSent = bytes
                 lastStatus = status
                 when {
@@ -262,7 +267,8 @@ class ParallelHttpUploadWorker(
      */
     private suspend fun uploadOne(
         config: ParallelHttpUploadConfig,
-        file: ParallelUploadFile
+        file: ParallelUploadFile,
+        throttle: BandwidthThrottle?
     ): Pair<Int, Long> {
         val filePath = file.filePath.toPath()
         val metadata = fileSystem.metadata(filePath)
@@ -316,6 +322,7 @@ class ParallelHttpUploadWorker(
                                 val bytes = chunk.readByteArray()
                                 channel.writeFully(bytes)
                                 bytesSent += read
+                                throttle?.consume(bytes.size)
                             }
                         }
                     }

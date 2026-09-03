@@ -6,12 +6,28 @@ plugins {
     alias(libs.plugins.androidLibrary)
     alias(libs.plugins.kotlinx.serialization)
     alias(libs.plugins.kover)
+    alias(libs.plugins.binaryCompatibilityValidator)
+    alias(libs.plugins.detekt)
     id("maven-publish")
     id("signing")
 }
 
 group = "dev.brewkits"
 version = (rootProject.findProperty("VERSION_NAME") as? String) ?: System.getenv("VERSION_NAME") ?: "0.0.0-SNAPSHOT"
+
+// Coverage floor for the JVM/Android side (Kover cannot instrument Kotlin/Native — iOS
+// coverage is not part of this number, see docs/COVERAGE.md). Measured LINE coverage at
+// the time this gate was last ratcheted was 65.72% — the bound is set a few points below
+// that so normal iteration doesn't trip the gate, while still catching an actual regression.
+kover {
+    reports {
+        verify {
+            rule {
+                minBound(62, kotlinx.kover.gradle.plugin.dsl.CoverageUnit.LINE)
+            }
+        }
+    }
+}
 
 kotlin {
     androidTarget {
@@ -125,6 +141,14 @@ android {
         // strings used by KmpWorker.getForegroundInfo()) in JVM unit tests.
         unitTests.isIncludeAndroidResources = true
     }
+}
+
+// Robolectric's native SQLite runtime is keyed per-JVM to one @Config(sdk=...) level; this
+// suite mixes several (28/30/33/34), and a reused JVM across classes throws a native
+// UnsatisfiedLinkError. forkEvery = 1 forces one JVM per class to keep the native state pinned.
+tasks.withType<Test>().configureEach {
+    forkEvery = 1
+    maxParallelForks = (Runtime.getRuntime().availableProcessors() / 2).coerceAtLeast(1)
 }
 
 // Empty javadoc JAR required by Maven Central — registered once, shared across all publications.

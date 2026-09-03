@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
+import dev.brewkits.kmpworkmanager.background.domain.TaskState
 import dev.brewkits.kmpworkmanager.sample.debug.DebugSource
 import dev.brewkits.kmpworkmanager.sample.debug.DebugTaskInfo
 import dev.brewkits.kmpworkmanager.sample.stats.TaskStatsManager
@@ -91,6 +92,14 @@ fun LiveMonitorScreen(
                         )
                     }
                 }
+            }
+
+            // observeTaskState + queryTasks demo — these two APIs are what the rest of
+            // this screen's task list could in principle be built on (see class-level
+            // note: getTasks() above uses raw platform APIs instead), demonstrated
+            // directly here without touching that existing display pipeline.
+            item {
+                ObserveAndQueryDemoCard(scheduler)
             }
 
             // Summary cards
@@ -228,6 +237,71 @@ fun LiveMonitorScreen(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ObserveAndQueryDemoCard(scheduler: BackgroundTaskScheduler) {
+    var taskIdInput by remember { mutableStateOf("demo-quick-sync") }
+    var observedState by remember { mutableStateOf<TaskState?>(null) }
+    var isObserving by remember { mutableStateOf(false) }
+    var queryResults by remember { mutableStateOf<List<String>>(emptyList()) }
+    val coroutineScope = rememberCoroutineScope()
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Default.Visibility, contentDescription = null)
+                Text("observeTaskState + queryTasks", style = MaterialTheme.typography.titleMedium)
+            }
+            Text(
+                "Enter a task id scheduled from Demo Scenarios (e.g. \"demo-quick-sync\") and observe its live state.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            OutlinedTextField(
+                value = taskIdInput,
+                onValueChange = { taskIdInput = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Task ID") },
+                singleLine = true
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        isObserving = true
+                        coroutineScope.launch {
+                            scheduler.observeTaskState(taskIdInput).collect { state ->
+                                observedState = state
+                            }
+                        }
+                    },
+                    enabled = !isObserving
+                ) {
+                    Text(if (isObserving) "Observing..." else "observeTaskState()")
+                }
+                OutlinedButton(
+                    onClick = {
+                        coroutineScope.launch {
+                            queryResults = scheduler.queryTasks(states = setOf(TaskState.Kind.ENQUEUED, TaskState.Kind.RUNNING))
+                                .map { "${it.id} → ${it.state::class.simpleName}" }
+                        }
+                    }
+                ) {
+                    Text("queryTasks(active)")
+                }
+            }
+            observedState?.let { state ->
+                Text(
+                    "Live state for '$taskIdInput': ${state::class.simpleName}",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+            if (queryResults.isNotEmpty()) {
+                Text("Active tasks (ENQUEUED/RUNNING):", style = MaterialTheme.typography.labelMedium)
+                queryResults.forEach { line -> Text(line, style = MaterialTheme.typography.bodySmall) }
             }
         }
     }

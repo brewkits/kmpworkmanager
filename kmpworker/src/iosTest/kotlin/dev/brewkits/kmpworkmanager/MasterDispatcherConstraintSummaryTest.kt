@@ -3,6 +3,7 @@
 package dev.brewkits.kmpworkmanager
 
 import dev.brewkits.kmpworkmanager.background.data.*
+import dev.brewkits.kmpworkmanager.background.domain.*
 import kotlinx.coroutines.test.runTest
 import platform.Foundation.*
 import kotlin.test.*
@@ -144,5 +145,146 @@ class MasterDispatcherConstraintSummaryTest {
         val summary = storage.getDynamicQueueConstraintSummary()
         assertEquals(1, summary.pendingCount)
         assertTrue(summary.allLight, "after the heavy task is dequeued, only the light task remains")
+    }
+
+    // ==================== earliestBackoffFloorMs ====================
+    // Covers the fix where rescheduleMasterDispatcher() ignored backoff floors entirely
+    // (always requested earliestBeginDate = now), causing the dispatcher to wake
+    // immediately, find nothing runnable, and re-request itself repeatedly for the whole
+    // backoff duration instead of waiting it out.
+
+    @Test
+    fun `earliestBackoffFloorMs is null for an empty queue`() = runTest {
+        val storage = makeStorage("floor-empty")
+
+        assertNull(storage.getDynamicQueueConstraintSummary().earliestBackoffFloorMs)
+    }
+
+    @Test
+    fun `earliestBackoffFloorMs is null when a pending task has no backoff floor`() = runTest {
+        val storage = makeStorage("floor-none")
+
+        storage.enqueueTask("no-floor-task")
+        storage.saveTaskMetadata("no-floor-task", metaFor(requiresNetwork = false, isHeavyTask = false), periodic = false)
+
+        assertNull(
+            storage.getDynamicQueueConstraintSummary().earliestBackoffFloorMs,
+            "A task with no floor is ready now — the dispatcher must not wait for anything"
+        )
+    }
+
+    @Test
+    fun `earliestBackoffFloorMs is null when only SOME pending tasks have a floor`() = runTest {
+        val storage = makeStorage("floor-mixed")
+
+        storage.enqueueTask("floored")
+        storage.saveTaskMetadata(
+            "floored",
+            metaFor(requiresNetwork = false, isHeavyTask = false) +
+                (DynamicTaskDispatcher.META_NEXT_RETRY_EARLIEST_MS to "99999999999999"),
+            periodic = false
+        )
+        storage.enqueueTask("ready-now")
+        storage.saveTaskMetadata("ready-now", metaFor(requiresNetwork = false, isHeavyTask = false), periodic = false)
+
+        assertNull(
+            storage.getDynamicQueueConstraintSummary().earliestBackoffFloorMs,
+            "One ready task means the dispatcher should wake ASAP, not wait for the other's floor"
+        )
+    }
+
+    @Test
+    fun `earliestBackoffFloorMs is the minimum floor when every pending task is backed off`() = runTest {
+        val storage = makeStorage("floor-min")
+
+        storage.enqueueTask("floor-later")
+        storage.saveTaskMetadata(
+            "floor-later",
+            metaFor(requiresNetwork = false, isHeavyTask = false) +
+                (DynamicTaskDispatcher.META_NEXT_RETRY_EARLIEST_MS to "5000"),
+            periodic = false
+        )
+        storage.enqueueTask("floor-sooner")
+        storage.saveTaskMetadata(
+            "floor-sooner",
+            metaFor(requiresNetwork = false, isHeavyTask = false) +
+                (DynamicTaskDispatcher.META_NEXT_RETRY_EARLIEST_MS to "1000"),
+            periodic = false
+        )
+
+        assertEquals(1000L, storage.getDynamicQueueConstraintSummary().earliestBackoffFloorMs)
+    }
+
+    // ==================== allRequireCharging ====================
+
+    private fun chargingMetaFor(requiresCharging: Boolean): Map<String, String> = mapOf(
+        "workerClassName" to "EchoWorker",
+        "requiresNetwork" to "false",
+        "requiresCharging" to "$requiresCharging",
+        "isHeavyTask" to "false"
+    )
+
+    @Test
+    fun `queue of only charging-required tasks is reported allRequireCharging`() = runTest {
+        val storage = makeStorage("all-charging")
+
+        storage.enqueueTask("charge-1")
+        storage.saveTaskMetadata("charge-1", chargingMetaFor(requiresCharging = true), periodic = false)
+        storage.enqueueTask("charge-2")
+        storage.saveTaskMetadata("charge-2", chargingMetaFor(requiresCharging = true), periodic = false)
+
+        assertTrue(storage.getDynamicQueueConstraintSummary().allRequireCharging)
+    }
+
+    @Test
+    fun `mixed charging requirements are not reported as allRequireCharging`() = runTest {
+        val storage = makeStorage("mixed-charging")
+
+        storage.enqueueTask("charge-1")
+        storage.saveTaskMetadata("charge-1", chargingMetaFor(requiresCharging = true), periodic = false)
+        storage.enqueueTask("no-charge-1")
+        storage.saveTaskMetadata("no-charge-1", chargingMetaFor(requiresCharging = false), periodic = false)
+
+        assertFalse(
+            storage.getDynamicQueueConstraintSummary().allRequireCharging,
+            "requiresExternalPower=true at the OS level would wrongly block the non-charging task too"
+        )
+    }
+
+    @Test
+    fun `empty queue is not reported allRequireCharging`() = runTest {
+        val storage = makeStorage("empty-charging")
+
+        assertFalse(storage.getDynamicQueueConstraintSummary().allRequireCharging)
+    }
+
+    /**
+     * Regression net for the bug this aggregate work uncovered: [NativeTaskScheduler]'s
+     * `scheduleOneTimeTask` never wrote `requiresNetwork`/`requiresCharging`/`isHeavyTask` into
+     * a ONE-TIME task's persisted metadata (only `schedulePeriodicTask` did), so
+     * `getDynamicQueueConstraintSummary()` silently undercounted every one-time dynamic task as
+     * light/unconstrained regardless of what its caller actually requested. This test goes
+     * through the REAL production `enqueue()` path — not `saveTaskMetadata` directly like the
+     * tests above — to prove the aggregate now sees a real one-time task's charging requirement.
+     */
+    @Test
+    fun `a real one-time task enqueued via the scheduler is counted in allRequireCharging`() = runTest {
+        val storage = makeStorage("real-one-time-charging")
+        val scheduler = NativeTaskScheduler(fileStorage = storage)
+
+        scheduler.enqueue(
+            id = "real-charging-task",
+            trigger = TaskTrigger.OneTime(0L),
+            workerClassName = "TestWorker",
+            constraints = Constraints(requiresCharging = true)
+        )
+
+        val summary = storage.getDynamicQueueConstraintSummary()
+        assertEquals(1, summary.pendingCount)
+        assertTrue(
+            summary.allRequireCharging,
+            "A real one-time task's requiresCharging=true must survive into persisted metadata, " +
+                "not just an in-memory Constraints object the aggregate never sees"
+        )
     }
 }

@@ -4,6 +4,8 @@ import dev.brewkits.kmpworkmanager.background.data.ChainExecutor
 import dev.brewkits.kmpworkmanager.background.data.DynamicTaskDispatcher
 import dev.brewkits.kmpworkmanager.background.data.InfoPlistReader
 import dev.brewkits.kmpworkmanager.background.data.IosBackgroundTaskHandler
+import dev.brewkits.kmpworkmanager.background.data.IosFileStorage
+import dev.brewkits.kmpworkmanager.background.data.IosFileStorageConfig
 import dev.brewkits.kmpworkmanager.background.data.IosWorkerFactory
 import dev.brewkits.kmpworkmanager.background.data.NativeTaskScheduler
 import dev.brewkits.kmpworkmanager.background.data.SingleTaskExecutor
@@ -29,14 +31,56 @@ import kotlinx.atomicfu.atomic
 internal class IosServiceRegistry(
     private val workerFactory: IosWorkerFactory,
     private val config: KmpWorkManagerConfig,
-    private val additionalTaskIds: Set<String>
+    private val additionalTaskIds: Set<String>,
+    private val appGroupIdentifier: String? = null
 ) {
+    /**
+     * Resolved once, shared by every store below. `null` (the default) keeps every store on
+     * its own default `IosFileStorage()` — unchanged from pre-3.4.0 behavior. When
+     * [appGroupIdentifier] is set, this is a single [IosFileStorage] rooted at the App
+     * Group's shared container, so a Widget/Share Extension using the same identifier can
+     * read the same files. Resolving eagerly (not `by lazy`) means a misconfigured App Group
+     * entitlement fails loudly at [initialize] time rather than silently on first task
+     * enqueue — see the KDoc on [KmpWorkManager.initialize]'s `appGroupIdentifier` param for
+     * what "misconfigured" means here.
+     */
+    private val sharedFileStorage: IosFileStorage? = appGroupIdentifier?.let { identifier ->
+        val containerURL = platform.Foundation.NSFileManager.defaultManager
+            .containerURLForSecurityApplicationGroupIdentifier(identifier)
+        require(containerURL != null) {
+            """
+            ❌ App Group container unavailable for identifier: '$identifier'
+
+            containerURLForSecurityApplicationGroupIdentifier returned nil. This means the
+            App Group entitlement is missing or misconfigured — the app was NOT falling back
+            to its default private storage, because doing so silently would make the library
+            write your data to the wrong place instead of failing where you can see it.
+
+            Fix: add the App Group capability in Xcode (Signing & Capabilities → + Capability
+            → App Groups) with identifier '$identifier', matching exactly what you passed to
+            KmpWorkManager.initialize(appGroupIdentifier = ...).
+            """.trimIndent()
+        }
+        IosFileStorage(
+            config = IosFileStorageConfig(diskSpaceBufferBytes = config.minFreeDiskSpaceBytes),
+            baseDirectory = containerURL
+        )
+    }
+
     val singleTaskExecutor: SingleTaskExecutor by lazy {
         SingleTaskExecutor(workerFactory = workerFactory)
     }
 
     val chainExecutor: ChainExecutor by lazy {
-        ChainExecutor(
+        sharedFileStorage?.let {
+            ChainExecutor(
+                workerFactory = workerFactory,
+                onContinuationNeeded = {
+                    IosBackgroundTaskHandler.triggerChainExecutorReschedule(chainExecutor)
+                },
+                fileStorage = it
+            )
+        } ?: ChainExecutor(
             workerFactory = workerFactory,
             // Resolved lazily inside the callback, exactly as the Koin module's `get()` did.
             // The lambda runs at continuation time, long after this initializer completes.
@@ -47,11 +91,21 @@ internal class IosServiceRegistry(
     }
 
     val dynamicTaskDispatcher: DynamicTaskDispatcher by lazy {
-        DynamicTaskDispatcher(singleTaskExecutor = singleTaskExecutor)
+        sharedFileStorage?.let {
+            DynamicTaskDispatcher(singleTaskExecutor = singleTaskExecutor, fileStorage = it)
+        } ?: DynamicTaskDispatcher(singleTaskExecutor = singleTaskExecutor)
     }
 
     val backgroundTaskScheduler: BackgroundTaskScheduler by lazy {
-        NativeTaskScheduler(
+        sharedFileStorage?.let {
+            NativeTaskScheduler(
+                additionalPermittedTaskIds = additionalTaskIds,
+                diskSpaceBufferBytes = config.minFreeDiskSpaceBytes,
+                singleTaskExecutor = singleTaskExecutor,
+                chainExecutor = chainExecutor,
+                fileStorage = it
+            )
+        } ?: NativeTaskScheduler(
             additionalPermittedTaskIds = additionalTaskIds,
             diskSpaceBufferBytes = config.minFreeDiskSpaceBytes,
             singleTaskExecutor = singleTaskExecutor,
@@ -124,11 +178,39 @@ object KmpWorkManager {
      * @param config Configuration for logging, telemetry and disk-space guards.
      * @param iosTaskIds Additional BGTask IDs beyond those in Info.plist (optional —
      *   Info.plist remains the primary source).
+     * @param appGroupIdentifier Optional App Group container identifier (`group.<bundleId>...`).
+     *   When set, all task/chain/progress storage is rooted at that shared container instead
+     *   of the app's private Application Support directory, via
+     *   `NSFileManager.containerURLForSecurityApplicationGroupIdentifier`.
+     *
+     *   **What this enables**: a Widget or Share Extension in the same App Group can construct
+     *   its own `IosFileStorage(baseDirectory = <same container URL>)` and call the read-only
+     *   `loadTaskMetadata` to observe what the main app scheduled — see
+     *   `docs/IOS_APP_GROUP_STORAGE.md`.
+     *
+     *   **What this does NOT enable**: running the scheduler in more than one process at
+     *   once, or reading execution history. `ChainJobRegistry`, the progress-flush debounce
+     *   buffer, and the dynamic queue's size counters are all in-memory and process-local —
+     *   two processes both calling `KmpWorkManager.initialize(appGroupIdentifier = ...)`
+     *   against the same container and both scheduling/dispatching work would race each other
+     *   and can corrupt shared state (e.g. exceed `MAX_QUEUE_SIZE`, drop progress updates).
+     *   Exactly **one** process (normally the main app) may run the scheduler against a given
+     *   container; every other process sharing it must be read-only. Separately,
+     *   `IosEventStore`/`IosExecutionHistoryStore` (backing `getExecutionHistory()`) are not
+     *   wired to [appGroupIdentifier] at all — both always resolve their own
+     *   `NSApplicationSupportDirectory` path, so an extension cannot read execution history
+     *   through this parameter today.
+     *
+     *   Fails fast with [IllegalArgumentException] if the App Group entitlement is missing or
+     *   the identifier doesn't match Xcode's configured App Group — see the thrown message
+     *   for the exact fix. Left `null` (the default), behavior is unchanged from pre-3.4.0:
+     *   private Application Support storage, as before.
      */
     fun initialize(
         workerFactory: WorkerFactory,
         config: KmpWorkManagerConfig = KmpWorkManagerConfig(),
-        iosTaskIds: Set<String> = emptySet()
+        iosTaskIds: Set<String> = emptySet(),
+        appGroupIdentifier: String? = null
     ) {
         if (registryRef.value != null) {
             Logger.w("KmpWorkManager", "Already initialized - ignoring duplicate call")
@@ -192,7 +274,8 @@ object KmpWorkManager {
         val created = IosServiceRegistry(
             workerFactory = workerFactory,
             config = config,
-            additionalTaskIds = iosTaskIds
+            additionalTaskIds = iosTaskIds,
+            appGroupIdentifier = appGroupIdentifier
         )
         // Publish first, then create the eager services, so a losing racer never runs the
         // global registration side effects a second time.
