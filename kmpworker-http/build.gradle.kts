@@ -17,13 +17,13 @@ version = (rootProject.findProperty("VERSION_NAME") as? String) ?: System.getenv
 
 // Coverage floor for the JVM/Android side (Kover cannot instrument Kotlin/Native — iOS
 // coverage is not part of this number). Measured LINE coverage at the time this gate was
-// added was 75.8% — the bound is set a few points below that so normal iteration doesn't
-// trip the gate, while still catching an actual regression.
+// last ratcheted was 77.83% — the bound is set a few points below that so normal iteration
+// doesn't trip the gate, while still catching an actual regression.
 kover {
     reports {
         verify {
             rule {
-                minBound(70, kotlinx.kover.gradle.plugin.dsl.CoverageUnit.LINE)
+                minBound(74, kotlinx.kover.gradle.plugin.dsl.CoverageUnit.LINE)
             }
         }
     }
