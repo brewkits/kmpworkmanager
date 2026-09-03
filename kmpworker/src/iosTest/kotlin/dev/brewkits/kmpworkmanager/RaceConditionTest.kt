@@ -21,11 +21,12 @@ class RaceConditionTest {
             // 10 iterations x 5 concurrent racers on a FRESH id each time (never a
             // pre-existing one) — regression guard for #98's schedulingMutex fix. A fresh id
             // per iteration deliberately avoids exercising the KEEP-policy "existing metadata"
-            // branch, whose isTaskPending() staleness check always reports false in
-            // isTestMode (nothing is ever really submitted to BGTaskScheduler for a dynamic
-            // task id — see NativeTaskScheduler.kt's submitTaskRequest), making that branch
-            // untestable for this exact race scenario and irrelevant to the fix being guarded
-            // here (the brand-new-id TOCTOU, not KEEP's existing-metadata semantics).
+            // branch here, which is irrelevant to the fix being guarded (the brand-new-id
+            // TOCTOU, not KEEP's existing-metadata semantics) — see
+            // V341KeepPolicyDynamicIdTest for that branch's own dedicated coverage (#101: for a
+            // dynamic task id, that branch's staleness check now reads
+            // fileStorage.isTaskInDynamicQueue(id) rather than the always-false-for-dynamic-ids
+            // isTaskPending(id) — see NativeTaskScheduler.kt's submitTaskRequest for why).
             repeat(10) { iteration ->
                 val taskId = "race-test-task-$iteration"
                 val workerClassName = "TestWorker"

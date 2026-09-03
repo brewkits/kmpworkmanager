@@ -670,11 +670,36 @@ public class NativeTaskScheduler(
 
             when (policy) {
                 ExistingPolicy.KEEP -> {
-                    // This prevents issues with stale metadata after crashes
-                    val isPending = isTaskPending(id)
+                    // This prevents issues with stale metadata after crashes.
+                    //
+                    // `isTaskPending()` queries BGTaskScheduler directly, which only ever knows
+                    // about the identifiers actually submitted to it. A dynamic (non-Info.plist)
+                    // id is NEVER submitted under its own identifier — submitTaskRequest's
+                    // dynamic-task branch only ever submits the shared Master Dispatcher
+                    // identifier (see its KDoc) — so `isTaskPending(id)` is always false for a
+                    // dynamic id, in production and in tests alike. Using it here for dynamic
+                    // ids made every repeat KEEP-policy enqueue() treat existing metadata as
+                    // stale unconditionally: metadata got deleted and the task re-enqueued onto
+                    // the dynamic queue on every call, silently behaving like REPLACE and, since
+                    // the dynamic queue has no id-dedup, duplicating the task if the first
+                    // enqueue's copy hadn't been dequeued yet. Fixes #101.
+                    //
+                    // For a dynamic id, `isTaskInDynamicQueue(id)` is the correct "is this still
+                    // waiting to run" signal instead (same signal `computeIosTaskState` already
+                    // uses for this exact id class). The narrow window after a dynamic task has
+                    // been dequeued for execution but not yet completed still falls through to
+                    // the stale-cleanup branch below, same as before this fix — there is no
+                    // live in-memory registry for standalone dynamic tasks (unlike
+                    // `ChainJobRegistry` for chains) to distinguish "genuinely still executing"
+                    // from "crashed mid-flight, orphaned metadata" in that window.
+                    val isPending = if (id in permittedTaskIds) {
+                        isTaskPending(id)
+                    } else {
+                        fileStorage.isTaskInDynamicQueue(id)
+                    }
 
                     if (isPending) {
-                        Logger.i(LogTags.SCHEDULER, "Task '$id' is pending in BGTaskScheduler, keeping existing task")
+                        Logger.i(LogTags.SCHEDULER, "Task '$id' is pending, keeping existing task")
                         return false
                     } else {
                         Logger.w(LogTags.SCHEDULER, "Task '$id' metadata exists but not pending (stale). Cleaning up and rescheduling.")

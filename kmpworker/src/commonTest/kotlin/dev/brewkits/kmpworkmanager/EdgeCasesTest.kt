@@ -73,10 +73,14 @@ class EdgeCasesTest {
     }
 
     @Test
-    fun TaskTrigger_Windowed_with_earliest_greater_than_latest_should_accept_value() {
-        val trigger = TaskTrigger.Windowed(earliest = 2000, latest = 1000)
-        assertEquals(2000L, trigger.earliest)
-        assertEquals(1000L, trigger.latest)
+    fun TaskTrigger_Windowed_with_earliest_greater_than_latest_should_be_rejected() {
+        // An inverted window is unschedulable — see Windowed's init block. Previously this
+        // constructed without error; a caller that defaulted deadlineMs to `latest` would
+        // then get a deadline earlier than the task's own earliest allowed start, so the
+        // task would always be silently skipped as deadline-exceeded (#see CHANGELOG).
+        assertFailsWith<IllegalArgumentException> {
+            TaskTrigger.Windowed(earliest = 2000, latest = 1000)
+        }
     }
 
     @Test

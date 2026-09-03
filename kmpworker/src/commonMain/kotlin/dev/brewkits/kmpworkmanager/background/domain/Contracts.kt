@@ -27,7 +27,16 @@ sealed interface TaskTrigger {
     /**
      * Triggers within a time window.
      */
-    data class Windowed(val earliest: Long, val latest: Long) : TaskTrigger
+    data class Windowed(val earliest: Long, val latest: Long) : TaskTrigger {
+        init {
+            require(latest >= earliest) {
+                "latest ($latest) must be >= earliest ($earliest). An inverted window is " +
+                    "unschedulable: callers that default a task's deadlineMs to `latest` would " +
+                    "produce a deadline earlier than the task's own earliest allowed start, so " +
+                    "the task would always be skipped as deadline-exceeded before it could ever run."
+            }
+        }
+    }
 
     /**
      * Triggers periodically at regular intervals.

@@ -106,4 +106,60 @@ class SecureRedirectFollowingTest {
 
         assertEquals("Bearer secret-token", secondRequestAuthHeader)
     }
+
+    @Test
+    fun relativeRedirect_isFollowed_notBlocked() = runTest {
+        // RFC 7231 §7.1.2 permits a relative Location header (common behind reverse
+        // proxies). SecurityValidator.validateURL requires an absolute http(s):// URL, so
+        // without resolving the header against the request's own URL first, this would be
+        // rejected as "unsafe" even though it's a same-origin redirect.
+        var hop = 0
+        var secondRequestUrl: String? = null
+        val mockEngine = MockEngine { request ->
+            hop++
+            if (hop == 1) {
+                respond(
+                    content = "",
+                    status = HttpStatusCode.Found,
+                    headers = headersOf(HttpHeaders.Location, "/v2/resource")
+                )
+            } else {
+                secondRequestUrl = request.url.toString()
+                respond(content = "ok", status = HttpStatusCode.OK)
+            }
+        }
+        val client = clientFor(mockEngine)
+
+        val response = client.get("https://api.example.com/v1/resource")
+
+        assertEquals("ok", response.bodyAsText())
+        assertEquals(2, hop)
+        assertEquals("https://api.example.com/v2/resource", secondRequestUrl)
+    }
+
+    @Test
+    fun relativeRedirect_isSameOrigin_preservesAuthorization() = runTest {
+        var hop = 0
+        var secondRequestAuthHeader: String? = null
+        val mockEngine = MockEngine { request ->
+            hop++
+            if (hop == 1) {
+                respond(
+                    content = "",
+                    status = HttpStatusCode.Found,
+                    headers = headersOf(HttpHeaders.Location, "/moved")
+                )
+            } else {
+                secondRequestAuthHeader = request.headers[HttpHeaders.Authorization]
+                respond(content = "ok", status = HttpStatusCode.OK)
+            }
+        }
+        val client = clientFor(mockEngine)
+
+        client.get("https://api.example.com/start") {
+            header(HttpHeaders.Authorization, "Bearer secret-token")
+        }
+
+        assertEquals("Bearer secret-token", secondRequestAuthHeader, "a relative redirect is always same-origin — must not strip credentials")
+    }
 }
