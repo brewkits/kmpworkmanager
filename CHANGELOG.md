@@ -5,6 +5,17 @@ All notable changes to KMP WorkManager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **iOS: fixed a TOCTOU race in `NativeTaskScheduler.enqueue()`** where N concurrent
+  `enqueue()` calls for the same brand-new task id could all observe no existing metadata
+  before any of them wrote, race into the write path concurrently, and corrupt the on-disk
+  metadata. Fixed with a per-scheduler-instance `Mutex` serializing the check-then-act
+  scheduling decision, mirroring `IosFileStorage.enqueueMutex`'s existing pattern.
+  Fixes [#98](https://github.com/brewkits/kmpworkmanager/issues/98).
+
 ## [3.4.0] - 2026-09-02
 
 WorkManager parity pass (task tags, deadlines, InputMerger, `ExistingPolicy.UPDATE`),
