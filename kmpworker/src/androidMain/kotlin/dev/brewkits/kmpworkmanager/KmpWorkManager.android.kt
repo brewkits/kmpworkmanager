@@ -16,6 +16,9 @@ import dev.brewkits.kmpworkmanager.persistence.AndroidExecutionHistoryStore
 import dev.brewkits.kmpworkmanager.persistence.EventStore
 import dev.brewkits.kmpworkmanager.persistence.ExecutionHistoryStore
 import dev.brewkits.kmpworkmanager.utils.Logger
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 /**
  * Android service registry — the Koin-free replacement for the private `koinApplication`
@@ -154,21 +157,32 @@ internal object KmpWorkManagerAndroid {
         }
     }
 
+    /**
+     * Dispatched onto `Dispatchers.IO` (mirrors `NativeTaskScheduler.cleanupZombieInputFiles`'s
+     * established pattern for the same kind of fire-and-forget cacheDir sweep) rather than
+     * running inline: `initialize()` is documented to be called from
+     * `Application.onCreate()` (main thread) and was previously doing this directory-listing
+     * + per-file-delete I/O synchronously while holding `initLock` — blocking the main thread
+     * at cold-start and blocking any concurrent `initialize()`/`shutdown()` call on another
+     * thread for the same duration.
+     */
     private fun cleanupStaleOverflowFiles(context: Context) {
-        try {
-            val maxAgeMs = 24 * 60 * 60 * 1000L
-            val now = System.currentTimeMillis()
-            val deleted = context.cacheDir
-                .listFiles { file -> file.name.startsWith("kmp_input_") && file.name.endsWith(".json") }
-                ?.count { file ->
-                    val stale = now - file.lastModified() > maxAgeMs
-                    if (stale) file.delete() else false
-                } ?: 0
-            if (deleted > 0) {
-                Logger.d("KmpWorkManager", "Cleaned up $deleted stale overflow file(s) from cacheDir")
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val maxAgeMs = 24 * 60 * 60 * 1000L
+                val now = System.currentTimeMillis()
+                val deleted = context.cacheDir
+                    .listFiles { file -> file.name.startsWith("kmp_input_") && file.name.endsWith(".json") }
+                    ?.count { file ->
+                        val stale = now - file.lastModified() > maxAgeMs
+                        if (stale) file.delete() else false
+                    } ?: 0
+                if (deleted > 0) {
+                    Logger.d("KmpWorkManager", "Cleaned up $deleted stale overflow file(s) from cacheDir")
+                }
+            } catch (e: Exception) {
+                Logger.w("KmpWorkManager", "Error cleaning up stale overflow files", e)
             }
-        } catch (e: Exception) {
-            Logger.w("KmpWorkManager", "Error cleaning up stale overflow files", e)
         }
     }
 

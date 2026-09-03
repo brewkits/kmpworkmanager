@@ -281,6 +281,17 @@ object SecurityValidator {
     private fun isPrivateIPv6(hostname: String): Boolean {
         if (!hostname.contains(":")) return false
 
+        // IPv4-mapped (`::ffff:a.b.c.d` / `::ffff:HHHH:HHHH`) and the deprecated
+        // IPv4-compatible (`::a.b.c.d`) forms embed a real IPv4 address in the low 32
+        // bits. Without this check, `http://[::ffff:7f00:1]/` (=127.0.0.1) or
+        // `http://[::ffff:a9fe:a9fe]/` (=169.254.169.254, cloud metadata) sailed straight
+        // through: the loopback/ULA/link-local prefix checks below never match these
+        // forms, so the embedded private/loopback address went unblocked. Delegate to
+        // isPrivateIPv4 (and treat a malformed embedded address as blocked, matching
+        // isBlockedHostname's own "invalid IPv4 -> block" policy) before falling through
+        // to the plain-IPv6 checks.
+        embeddedIPv4(hostname)?.let { ipv4 -> return isPrivateIPv4(ipv4) || !isValidIPv4(ipv4) }
+
         return try {
             // Simplified check for common private IPv6 patterns
             when {
@@ -299,6 +310,37 @@ object SecurityValidator {
         } catch (e: Exception) {
             false
         }
+    }
+
+    /**
+     * If [hostname] is an IPv6 address with an IPv4 address embedded in its low 32 bits
+     * (IPv4-mapped `::ffff:a.b.c.d` / `::ffff:HHHH:HHHH`, or the deprecated IPv4-compatible
+     * `::a.b.c.d` / `::HHHH:HHHH` form), returns that IPv4 address in dotted-decimal form.
+     * Returns `null` for every other IPv6 shape (plain loopback/ULA/link-local are handled
+     * separately by [isPrivateIPv6]'s other branches).
+     */
+    private fun embeddedIPv4(hostname: String): String? {
+        // Literal dotted form already present, e.g. "::ffff:127.0.0.1" — the part after the
+        // last ':' is a ready-made dotted-decimal candidate.
+        val lastColon = hostname.lastIndexOf(':')
+        if (lastColon >= 0) {
+            val tail = hostname.substring(lastColon + 1)
+            if (looksLikeIPv4(tail)) return tail
+        }
+
+        val expanded = (if (hostname.contains("::")) expandIPv6(hostname) else hostname) ?: return null
+        val parts = expanded.split(":")
+        if (parts.size != 8) return null
+        val values = parts.map { it.toIntOrNull(16) ?: return null }
+
+        // IPv4-mapped: 0:0:0:0:0:ffff:<ipv4>. IPv4-compatible (deprecated): 0:0:0:0:0:0:<ipv4>.
+        val isMapped = values.take(5).all { it == 0 } && values[5] == 0xFFFF
+        val isCompatible = values.take(6).all { it == 0 }
+        if (!isMapped && !isCompatible) return null
+
+        val hi = values[6]
+        val lo = values[7]
+        return "${hi shr 8}.${hi and 0xFF}.${lo shr 8}.${lo and 0xFF}"
     }
 
     /**

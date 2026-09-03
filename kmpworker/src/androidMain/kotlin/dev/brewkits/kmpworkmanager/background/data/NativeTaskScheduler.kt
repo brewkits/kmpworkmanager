@@ -70,6 +70,22 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         const val KEY_STEP_OUTPUT = "kmp_step_output"
         internal const val OVERFLOW_THRESHOLD_BYTES = 8192 // 8 KB
         private const val ZOMBIE_FILE_MAX_AGE_MS = 24 * 60 * 60 * 1000L // 24 hours
+
+        /**
+         * Hard ceiling on the `inputJson` an exact alarm's [AlarmStore.save] will persist.
+         *
+         * Unlike the Intent-extra path (which spills anything over [OVERFLOW_THRESHOLD_BYTES]
+         * to a `cacheDir` file — see the overflow branch below), [AlarmStore] always writes
+         * the FULL `inputJson` string into `SharedPreferences` so the value survives a reboot
+         * even if `cacheDir` is cleared (see [AlarmStore]'s class doc). That design has no
+         * upper bound of its own — an unusually large `inputJson` would previously be written
+         * as-is, growing the single `SharedPreferences` XML file every exact-alarm task
+         * shares (bloating parse/write time for ALL of them, not just the large one). 200 KB
+         * is generous for the input-JSON use case this trigger type targets (a small payload
+         * describing what to do) while still catching a clearly-pathological value before it
+         * reaches persistent storage.
+         */
+        private const val MAX_ALARM_PERSISTED_INPUT_JSON_BYTES = 200_000
         private val cleanupStarted = java.util.concurrent.atomic.AtomicBoolean(false)
 
         /**
@@ -282,40 +298,51 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
             return ScheduleResult.REJECTED_OS_POLICY
         }
 
-        val builder = PeriodicWorkRequestBuilder<KmpWorker>(
-            intervalMs, TimeUnit.MILLISECONDS,
-            effectiveFlexMs, TimeUnit.MILLISECONDS
-        )
-            .setInitialDelay(effectiveInitialDelayMs, TimeUnit.MILLISECONDS)
-            .setConstraints(wmConstraints)
-            .setInputData(workData)
-            .setBackoffCriteria(
-                constraints.toWorkManagerBackoffPolicy(),
-                constraints.backoffDelayMs,
-                TimeUnit.MILLISECONDS
+        // Wrapped in try-catch to match scheduleOneTimeTask/scheduleContentUriWork — an
+        // invalid Constraints/backoff combination should reject gracefully with
+        // REJECTED_OS_POLICY, not throw out of this suspend enqueue() call.
+        try {
+            val builder = PeriodicWorkRequestBuilder<KmpWorker>(
+                intervalMs, TimeUnit.MILLISECONDS,
+                effectiveFlexMs, TimeUnit.MILLISECONDS
             )
-            .addTag(TAG_KMP_TASK)
-            .addTag("type-periodic")
-            .addTag("id-$id")
-            .addTag("worker-$workerClassName")
+                .setInitialDelay(effectiveInitialDelayMs, TimeUnit.MILLISECONDS)
+                .setConstraints(wmConstraints)
+                .setInputData(workData)
+                .setBackoffCriteria(
+                    constraints.toWorkManagerBackoffPolicy(),
+                    constraints.backoffDelayMs,
+                    TimeUnit.MILLISECONDS
+                )
+                .addTag(TAG_KMP_TASK)
+                .addTag("type-periodic")
+                .addTag("id-$id")
+                .addTag("worker-$workerClassName")
 
-        // Same "user-" namespacing as one-time work so cancelByTag() resolves periodic tasks too.
-        taskMeta?.tags?.forEach { builder.addTag("user-$it") }
+            // Same "user-" namespacing as one-time work so cancelByTag() resolves periodic tasks too.
+            taskMeta?.tags?.forEach { builder.addTag("user-$it") }
 
-        // NOTE: deadlineMs is deliberately NOT stamped for periodic work. A deadline is a
-        // one-shot concept ("skip if it hasn't started by T"); applied to a recurring task it
-        // would permanently disable every future run once T passes, which is a cancel, not a
-        // deadline. Callers wanting that should cancel the task instead.
-        if (taskMeta?.deadlineMs != null) {
-            Logger.w(
-                LogTags.SCHEDULER,
-                "Periodic task '$id' declared deadlineMs — ignored. A deadline would silently kill " +
-                    "every run after it elapses; cancel the task instead."
-            )
+            // NOTE: deadlineMs is deliberately NOT stamped for periodic work. A deadline is a
+            // one-shot concept ("skip if it hasn't started by T"); applied to a recurring task it
+            // would permanently disable every future run once T passes, which is a cancel, not a
+            // deadline. Callers wanting that should cancel the task instead.
+            if (taskMeta?.deadlineMs != null) {
+                Logger.w(
+                    LogTags.SCHEDULER,
+                    "Periodic task '$id' declared deadlineMs — ignored. A deadline would silently kill " +
+                        "every run after it elapses; cancel the task instead."
+                )
+            }
+
+            workManager.enqueueUniquePeriodicWork(id, workManagerPolicy, builder.build())
+            return ScheduleResult.ACCEPTED
+        } catch (e: IllegalArgumentException) {
+            Logger.e(LogTags.SCHEDULER, "Rejecting periodic task '$id': ${e.message}", e)
+            return ScheduleResult.REJECTED_OS_POLICY
+        } catch (e: Exception) {
+            Logger.e(LogTags.SCHEDULER, "Rejecting periodic task '$id' due to unexpected error", e)
+            return ScheduleResult.REJECTED_OS_POLICY
         }
-
-        workManager.enqueueUniquePeriodicWork(id, workManagerPolicy, builder.build())
-        return ScheduleResult.ACCEPTED
     }
 
     @OptIn(AndroidOnly::class)
@@ -377,8 +404,23 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
             return ScheduleResult.REJECTED_OS_POLICY
         }
 
+        // AlarmStore.save() below always persists the FULL inputJson into SharedPreferences
+        // (unlike the Intent-extra path just below, which spills large payloads to a
+        // cacheDir file) — reject clearly-pathological sizes now rather than silently
+        // bloating the shared alarms.xml file every exact-alarm task reads/writes.
+        if (inputJson != null && inputJson.encodeToByteArray().size > MAX_ALARM_PERSISTED_INPUT_JSON_BYTES) {
+            Logger.e(
+                LogTags.ALARM,
+                "Rejecting exact alarm '$id': inputJson (${inputJson.encodeToByteArray().size} bytes) exceeds " +
+                    "the $MAX_ALARM_PERSISTED_INPUT_JSON_BYTES byte limit for AlarmStore persistence. " +
+                    "Exact alarms persist their full input to SharedPreferences for reboot-survival; " +
+                    "use a smaller payload or a different trigger type for large inputs."
+            )
+            return ScheduleResult.REJECTED_OS_POLICY
+        }
+
         val receiverClass = getAlarmReceiverClass() ?: return ScheduleResult.REJECTED_OS_POLICY
-        
+
         val intent = Intent(context, receiverClass).apply {
             putExtra(AlarmReceiver.EXTRA_TASK_ID, id)
             putExtra(AlarmReceiver.EXTRA_WORKER_CLASS, workerClassName)
@@ -488,7 +530,17 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
     internal fun shouldExpedite(task: TaskRequest?, constraints: Constraints, initialDelayMs: Long): Boolean {
         val isHighPriority = task?.priority == TaskPriority.HIGH || task?.priority == TaskPriority.CRITICAL
         if (initialDelayMs != 0L || constraints.isHeavyTask || !isHighPriority) return false
-        // Expedited work does not support some constraints like charging.
+        // Expedited WorkRequests only support the network-type constraint — every other
+        // constraint (charging, device-idle, battery-not-low, ...) is unsupported and can
+        // cause the request to be rejected/degraded. requiresCharging/requiresUnmeteredNetwork
+        // were already excluded here; DEVICE_IDLE and REQUIRE_BATTERY_NOT_LOW are also stamped
+        // onto the same androidx.work.Constraints object by buildWorkManagerConstraints's
+        // SystemConstraint loop, so they need the same exclusion — previously a
+        // HIGH/CRITICAL-priority task with either of those set was still routed through
+        // setExpedited(), for a combination WorkManager doesn't actually support as expedited.
+        if (SystemConstraint.DEVICE_IDLE in constraints.systemConstraints ||
+            SystemConstraint.REQUIRE_BATTERY_NOT_LOW in constraints.systemConstraints
+        ) return false
         // Safe to set only if it's a simple urgent task.
         return !constraints.requiresCharging && !constraints.requiresUnmeteredNetwork
     }
@@ -595,6 +647,12 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         // schedule-then-cancel-heavy workloads (e.g. user spamming draft saves) leaked
         // megabytes into cacheDir. v2.5 QA fix.
         OverflowFileRegistry.consumeAndDelete(context, id)
+        // `id` may also be a chainId (cancel() serves both standalone tasks and chains —
+        // both are enqueued as WorkManager unique work under this same id). Chain steps
+        // register their overflow files under a derived per-step key (see createWorkRequest),
+        // not under the chainId itself, so a separate lookup is needed to find them all.
+        // A no-op for a standalone task id (no chain-step entries will match its prefix).
+        OverflowFileRegistry.consumeAndDeleteForChain(context, id)
     }
 
     /**
@@ -670,11 +728,14 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         // recover chain identity for TelemetryHook events and ExecutionRecord — WorkManager's
         // native then()-chaining carries no chain metadata of its own (only a per-step tag).
         var continuation = workManager.beginUniqueWork(
-            chainId, wmPolicy, steps.first().map { createWorkRequest(it, chainId, 0, totalSteps) }
+            chainId, wmPolicy,
+            steps.first().mapIndexed { taskIndex, task -> createWorkRequest(task, chainId, 0, totalSteps, taskIndex) }
         )
         steps.drop(1).forEachIndexed { offset, step ->
             val stepIndex = offset + 1
-            continuation = continuation.then(step.map { createWorkRequest(it, chainId, stepIndex, totalSteps) })
+            continuation = continuation.then(
+                step.mapIndexed { taskIndex, task -> createWorkRequest(task, chainId, stepIndex, totalSteps, taskIndex) }
+            )
         }
         continuation.enqueue()
     }
@@ -684,11 +745,23 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         task: TaskRequest,
         chainId: String? = null,
         stepIndex: Int? = null,
-        totalSteps: Int? = null
+        totalSteps: Int? = null,
+        taskIndex: Int = 0
     ): OneTimeWorkRequest {
         val wmConstraints = buildWorkManagerConstraints(task.constraints ?: Constraints())
+        // A stable, derivable key (chainId#stepIndex#taskIndex) instead of a random UUID —
+        // needed so a large-input step's overflow file (see buildWorkData/OverflowFileRegistry)
+        // can actually be found and deleted when the chain is cancelled by chainId before this
+        // step ever runs. A random UUID discarded right after this call can never be looked up
+        // again, so the overflow file (and its registry entry) leaked forever. See
+        // OverflowFileRegistry.consumeAndDeleteForChain.
+        val overflowKey = if (chainId != null) {
+            OverflowFileRegistry.chainStepKey(chainId, stepIndex ?: 0, taskIndex)
+        } else {
+            java.util.UUID.randomUUID().toString()
+        }
         return buildOneTimeWorkRequest(
-            java.util.UUID.randomUUID().toString(),
+            overflowKey,
             task.workerClassName,
             task.constraints ?: Constraints(),
             task.inputJson,

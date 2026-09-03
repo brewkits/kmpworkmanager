@@ -53,6 +53,10 @@ import dev.brewkits.kmpworkmanager.utils.LogTags
  *                     }
  *                 worker.doWork(inputJson)
  *             } finally {
+ *                 // Remove alarm metadata only once work is confirmed done — removing it
+ *                 // earlier (e.g. at onReceive time) loses the task permanently if the
+ *                 // process is killed before this point.
+ *                 AlarmStore.remove(context, taskId)
  *                 pendingResult.finish() // Always release the BroadcastReceiver
  *             }
  *         }
@@ -148,9 +152,15 @@ abstract class AlarmReceiver : BroadcastReceiver() {
 
         Logger.i(LogTags.ALARM, "Alarm received - Task: '$taskId', Worker: '$workerClassName'")
 
-        // Alarm has fired — remove persisted metadata so AlarmBootReceiver does not
-        // attempt to reschedule it on the next reboot.
-        AlarmStore.remove(context, taskId)
+        // IMPORTANT: AlarmStore metadata is intentionally NOT removed here. Removing it
+        // before handleAlarm() confirms an outcome means a process kill or crash between
+        // this line and work completion permanently loses the task with no trace — the
+        // exact bug this comment used to cause. [BaseAlarmReceiver] removes it for you once
+        // doAlarmWork() actually finishes (success, failure, or exception); it also skips
+        // removal on timeout so the metadata survives for diagnostics. If you override
+        // [handleAlarm] directly instead of using [BaseAlarmReceiver], YOU are responsible
+        // for calling `AlarmStore.remove(context, taskId)` once your work is confirmed done
+        // — see the updated example below.
 
         // before async work completes. The PendingResult keeps the receiver alive.
         val pendingResult = goAsync()
@@ -174,6 +184,12 @@ abstract class AlarmReceiver : BroadcastReceiver() {
      * - If [overflowFilePath] is non-null, **delete the file in your `finally` block** after
      *   the work succeeds or fails permanently. The library does NOT delete it automatically,
      *   so that the file survives a crash and the data is not silently lost.
+     * - **You MUST call `AlarmStore.remove(context, taskId)` in your `finally` block** once
+     *   work is confirmed done (success or permanent failure). [onReceive] deliberately does
+     *   NOT remove it for you — removing it before your work finishes would permanently lose
+     *   the task if the process is killed mid-work, with `AlarmBootReceiver` never getting a
+     *   chance to see it again. If you extend [BaseAlarmReceiver] instead, this is handled
+     *   for you automatically.
      *
      * **Example with coroutine:**
      * ```kotlin
@@ -193,6 +209,8 @@ abstract class AlarmReceiver : BroadcastReceiver() {
      *         } finally {
      *             // Delete overflow file AFTER work completes (success or permanent failure).
      *             overflowFilePath?.let { java.io.File(it).delete() }
+     *             // Remove alarm metadata only now that work is confirmed done.
+     *             AlarmStore.remove(context, taskId)
      *             pendingResult.finish()
      *         }
      *     }

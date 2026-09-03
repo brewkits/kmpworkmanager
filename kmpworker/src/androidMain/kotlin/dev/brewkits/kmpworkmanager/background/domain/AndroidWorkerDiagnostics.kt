@@ -12,6 +12,7 @@ import android.os.StatFs
 import android.os.PowerManager
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import kotlinx.coroutines.guava.await
 
 /**
  * Android-specific diagnostics implementation
@@ -31,9 +32,10 @@ class AndroidWorkerDiagnostics(
     private val workManager = WorkManager.getInstance(context)
 
     override suspend fun getSchedulerStatus(): SchedulerStatus {
-        // Get all pending/running work
-        // "KMP_TASK" matches the tag applied by NativeTaskScheduler.TAG_KMP_TASK
-        val workInfos = workManager.getWorkInfosByTag("KMP_TASK").get()
+        // Get all pending/running work. Must match the tag NativeTaskScheduler actually
+        // applies (NativeTaskScheduler.TAG_KMP_TASK = "kmp-worker-task") — a stale literal
+        // here previously never matched any WorkRequest, so this always reported 0 tasks.
+        val workInfos = workManager.getWorkInfosByTag(dev.brewkits.kmpworkmanager.background.data.NativeTaskScheduler.TAG_KMP_TASK).await()
         val pendingTasks = workInfos.count {
             it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.RUNNING
         }
@@ -68,7 +70,7 @@ class AndroidWorkerDiagnostics(
     override suspend fun getTaskStatus(id: String): TaskStatusDetail? {
         // Try lookup by UUID first (for tasks enqueued without a unique name)
         val workInfo = try {
-            workManager.getWorkInfoById(java.util.UUID.fromString(id)).get()
+            workManager.getWorkInfoById(java.util.UUID.fromString(id)).await()
         } catch (_: IllegalArgumentException) {
             // id is not a UUID — fall through to named work lookup
             null
@@ -77,7 +79,7 @@ class AndroidWorkerDiagnostics(
         } ?: run {
             // Fallback: look up by unique work name (used for chains and named tasks)
             try {
-                workManager.getWorkInfosForUniqueWork(id).get().firstOrNull()
+                workManager.getWorkInfosForUniqueWork(id).await().firstOrNull()
             } catch (_: Exception) {
                 null
             }
@@ -85,8 +87,11 @@ class AndroidWorkerDiagnostics(
 
         return TaskStatusDetail(
             taskId = id,
-            workerClassName = workInfo.tags.firstOrNull { it.startsWith("worker:") }
-                ?.removePrefix("worker:") ?: "Unknown",
+            // Tag format is "worker-<className>" (hyphen), stamped by NativeTaskScheduler —
+            // a stale "worker:" (colon) prefix here previously never matched, so this always
+            // reported "Unknown".
+            workerClassName = workInfo.tags.firstOrNull { it.startsWith("worker-") }
+                ?.removePrefix("worker-") ?: "Unknown",
             state = when (workInfo.state) {
                 WorkInfo.State.ENQUEUED -> "PENDING"
                 WorkInfo.State.RUNNING -> "RUNNING"

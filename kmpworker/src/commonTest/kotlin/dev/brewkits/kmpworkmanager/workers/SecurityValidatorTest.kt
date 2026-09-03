@@ -126,6 +126,22 @@ class SecurityValidatorTest {
     }
 
     @Test
+    fun testIPv4MappedIPv6Bypass_shouldBeBlocked() {
+        // ::ffff:7f00:1 = IPv4-mapped 127.0.0.1 (loopback), hex form
+        assertFalse(SecurityValidator.validateURL("http://[::ffff:7f00:1]/"))
+        // ::ffff:127.0.0.1 = same address, literal dotted form
+        assertFalse(SecurityValidator.validateURL("http://[::ffff:127.0.0.1]/"))
+        // ::ffff:a9fe:a9fe = IPv4-mapped 169.254.169.254 (cloud metadata endpoint)
+        assertFalse(SecurityValidator.validateURL("http://[::ffff:a9fe:a9fe]/latest/meta-data/"))
+        // ::ffff:a.b.c.d for a private RFC 1918 address (10.0.0.1)
+        assertFalse(SecurityValidator.validateURL("http://[::ffff:10.0.0.1]/"))
+        // Deprecated IPv4-compatible form (::a.b.c.d, all-zero prefix instead of ::ffff:)
+        assertFalse(SecurityValidator.validateURL("http://[::127.0.0.1]/"))
+        // Mapped form of a public IP must still be allowed
+        assertTrue(SecurityValidator.validateURL("http://[::ffff:8.8.8.8]/"))
+    }
+
+    @Test
     fun testSSRF_UserInfoBypass_shouldBeBlocked() {
         // RFC 3986 UserInfo bypass: browser/HTTP client connects to the host AFTER '@',
         // but a naive parser may use the part BEFORE '@' for hostname validation.

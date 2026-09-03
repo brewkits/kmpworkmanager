@@ -7,6 +7,7 @@ import dev.brewkits.kmpworkmanager.utils.AppDispatchers
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.workers.config.CompressionLevel
 import dev.brewkits.kmpworkmanager.workers.config.FileCompressionConfig
+import dev.brewkits.kmpworkmanager.workers.utils.SecurityValidator
 import kotlinx.cinterop.*
 import kotlinx.coroutines.withContext
 import platform.Foundation.NSFileManager
@@ -44,6 +45,20 @@ import platform.zlib.*
 @OptIn(ExperimentalForeignApi::class, kotlinx.cinterop.BetaInteropApi::class)
 internal actual suspend fun platformCompress(config: FileCompressionConfig): WorkerResult {
     val fileManager = NSFileManager.defaultManager
+
+    // Validate BOTH paths (unlike Android's platformCompress, this file previously validated
+    // neither). Both paths can come from a chain step's merged input (ChainInputMerger lets
+    // an earlier, less-trusted step's output overwrite same-named fields when
+    // mergeOutputFromPreviousStep = true), so skipping validation here left inputPath
+    // (used for deleteOriginal's recursive delete) and outputPath both open to path
+    // traversal / writing-outside-intended-directory regardless of where the string
+    // actually originated from.
+    if (!SecurityValidator.validateFilePath(config.inputPath)) {
+        return WorkerResult.Failure("Invalid input path: ${config.inputPath}")
+    }
+    if (!SecurityValidator.validateFilePath(config.outputPath)) {
+        return WorkerResult.Failure("Invalid output path: ${config.outputPath}")
+    }
 
     if (!fileManager.fileExistsAtPath(config.inputPath)) {
         return WorkerResult.Failure("Input file does not exist: ${config.inputPath}")

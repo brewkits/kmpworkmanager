@@ -23,15 +23,24 @@ internal actual suspend fun platformCompress(config: FileCompressionConfig): Wor
     val inputFile = File(config.inputPath)
     val outputFile = File(config.outputPath)
 
-    if (!inputFile.exists()) {
-        Logger.e("FileCompressionWorker", "Input file/directory does not exist: ${config.inputPath}")
-        return WorkerResult.Failure("Input file/directory does not exist: ${config.inputPath}")
+    // Validate BOTH paths. Previously only outputPath was checked here — inputPath (used
+    // for deleteOriginal's recursive delete) went completely unvalidated. Both paths can
+    // come from a chain step's merged input (ChainInputMerger lets an earlier, less-trusted
+    // step's output overwrite same-named fields when mergeOutputFromPreviousStep = true), so
+    // validating only one of the two left the other as an open path-traversal/unsafe-delete
+    // vector regardless of where the string actually originated from.
+    if (!SecurityValidator.validateFilePath(config.inputPath)) {
+        Logger.e("FileCompressionWorker", "Invalid input path: ${config.inputPath}")
+        return WorkerResult.Failure("Invalid input path: ${config.inputPath}")
     }
-
-    // Validate output path
     if (!SecurityValidator.validateFilePath(config.outputPath)) {
         Logger.e("FileCompressionWorker", "Invalid output path: ${config.outputPath}")
         return WorkerResult.Failure("Invalid output path: ${config.outputPath}")
+    }
+
+    if (!inputFile.exists()) {
+        Logger.e("FileCompressionWorker", "Input file/directory does not exist: ${config.inputPath}")
+        return WorkerResult.Failure("Input file/directory does not exist: ${config.inputPath}")
     }
 
     // Create parent directory if needed
@@ -79,7 +88,11 @@ internal actual suspend fun platformCompress(config: FileCompressionConfig): Wor
             "FileCompressionWorker",
             "Compression complete - Original: ${SecurityValidator.formatByteSize(originalSize)}, " +
                     "Compressed: ${SecurityValidator.formatByteSize(compressedSize)}, " +
-                    "Ratio: $compressionRatio%"
+                    // Explicitly "of original size" — easy to misread as "% saved" otherwise
+                    // (it's the inverse: 30% here means the output is smaller, not that 30%
+                    // was saved). Kept as the `compressionRatio` output-data key unchanged to
+                    // avoid a breaking change for hosts already reading it by that name.
+                    "Compressed size is $compressionRatio% of original"
         )
 
         // Delete original if requested
@@ -92,7 +105,7 @@ internal actual suspend fun platformCompress(config: FileCompressionConfig): Wor
         }
 
         WorkerResult.Success(
-            message = "Compressed ${SecurityValidator.formatByteSize(originalSize)} to ${SecurityValidator.formatByteSize(compressedSize)} ($compressionRatio%)",
+            message = "Compressed ${SecurityValidator.formatByteSize(originalSize)} to ${SecurityValidator.formatByteSize(compressedSize)} ($compressionRatio% of original size)",
             data = buildJsonObject {
                 put("originalSize", originalSize)
                 put("compressedSize", compressedSize)

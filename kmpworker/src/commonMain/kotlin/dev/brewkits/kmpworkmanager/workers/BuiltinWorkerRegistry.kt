@@ -44,12 +44,14 @@ import dev.brewkits.kmpworkmanager.workers.builtins.FileCompressionWorker
  * )
  * ```
  *
- * **Supported Worker Class Names:**
- * - "HttpRequestWorker" or "dev.brewkits.kmpworkmanager.workers.builtins.HttpRequestWorker"
- * - "HttpSyncWorker" or "dev.brewkits.kmpworkmanager.workers.builtins.HttpSyncWorker"
- * - "HttpDownloadWorker" or "dev.brewkits.kmpworkmanager.workers.builtins.HttpDownloadWorker"
- * - "HttpUploadWorker" or "dev.brewkits.kmpworkmanager.workers.builtins.HttpUploadWorker"
+ * **Supported Worker Class Names (this registry only):**
  * - "FileCompressionWorker" or "dev.brewkits.kmpworkmanager.workers.builtins.FileCompressionWorker"
+ *
+ * **HTTP workers are NOT included here.** "HttpRequestWorker", "HttpSyncWorker",
+ * "HttpDownloadWorker", "HttpUploadWorker", and the parallel variants live in the separate
+ * `kmpworker-http` Gradle module/artifact and its own `HttpWorkerRegistry` (see the class
+ * doc above) — depend on that module and use `CompositeWorkerFactory(HttpWorkerRegistry,
+ * BuiltinWorkerRegistry, ...)` (or your own factory) to get both.
  */
 object BuiltinWorkerRegistry : WorkerFactory {
 
@@ -87,17 +89,27 @@ object BuiltinWorkerRegistry : WorkerFactory {
 /**
  * Composite worker factory that tries multiple factories in order.
  *
- * Each factory should throw [IllegalArgumentException] for unrecognised worker names.
- * CompositeWorkerFactory catches that exception and moves to the next factory.
- * If no factory recognises the name, [IllegalArgumentException] is thrown.
+ * **Preferred contract** (matches [WorkerFactory.createWorker] itself, and what
+ * [BuiltinWorkerRegistry] and [DelegatingWorkerFactory] both use): return `null` for an
+ * unrecognised worker name so this class can try the next factory.
  *
- * **Usage:**
+ * **Legacy contract, also supported:** a factory may instead throw [IllegalArgumentException]
+ * for an unrecognised name — this class catches exactly that exception type and moves on.
+ * Prefer returning `null`; only rely on the throwing form if you cannot change the factory.
+ * A factory that throws any other exception type is NOT caught here and will propagate.
+ *
+ * If no factory recognises the name (every one returned `null` or threw
+ * [IllegalArgumentException]), this class itself throws [IllegalArgumentException] — this is
+ * a deliberate fail-fast choice for a top-level composite, unlike the individual factories it
+ * wraps, which are expected to return `null`.
+ *
+ * **Usage (preferred, null-based):**
  * ```kotlin
  * class MyWorkerFactory : WorkerFactory {
- *     override fun createWorker(workerClassName: String): Worker {
- *         return when(workerClassName) {
+ *     override fun createWorker(workerClassName: String): Worker? {
+ *         return when (workerClassName) {
  *             "MyWorker" -> MyWorker()
- *             else -> throw IllegalArgumentException("Unregistered worker: $workerClassName")
+ *             else -> null  // Not handled — let CompositeWorkerFactory try the next one
  *         }
  *     }
  * }

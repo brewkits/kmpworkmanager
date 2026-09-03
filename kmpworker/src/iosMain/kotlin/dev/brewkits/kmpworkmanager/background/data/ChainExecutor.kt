@@ -151,8 +151,13 @@ class ChainExecutor(
 
     // Thread-safe set to track active chains (prevents duplicate execution)
     private val activeChainsMutex = Mutex()
-    // Maps chainId → timestamp (ms) when it was marked active, for stale-lock detection.
-    private val activeChains = mutableMapOf<String, Long>()
+    // Maps chainId → monotonic mark of when it was marked active, for stale-lock detection.
+    // Monotonic (not NSDate wall-clock) for the same reason every other elapsed-time
+    // comparison in this file uses it: a wall-clock jump (NTP resync, manual time change)
+    // could make a genuinely stale lock (process killed mid-execution) look fresh forever
+    // — never evicted, silently stalling that chain — or make a fresh lock look instantly
+    // stale, causing a spurious double-execution race.
+    private val activeChains = mutableMapOf<String, TimeSource.Monotonic.ValueTimeMark>()
 
     // Maps chainId → the coroutine Job currently executing that chain.
     // Used by REPLACE policy: when a new execution finds isAlreadyActive, it cancels the old
@@ -696,21 +701,20 @@ class ChainExecutor(
     private suspend fun executeChain(chainId: String): Boolean {
         // 1. Check for duplicate execution and mark as active (thread-safe)
         val isAlreadyActive = activeChainsMutex.withLock {
-            val existingTimestamp = activeChains[chainId]
-            if (existingTimestamp != null) {
-                val nowMs = (NSDate().timeIntervalSince1970 * 1000).toLong()
-                val ageMs = nowMs - existingTimestamp
+            val existingMark = activeChains[chainId]
+            if (existingMark != null) {
+                val ageMs = existingMark.elapsedNow().inWholeMilliseconds
                 if (ageMs > STALE_LOCK_TIMEOUT_MS) {
                     // Process was likely killed before the finally block could clear the lock.
                     // Evict the stale entry and allow re-execution on this invocation.
                     Logger.w(LogTags.CHAIN, "⚠️ Stale active-chain lock for $chainId (age: ${ageMs}ms > ${STALE_LOCK_TIMEOUT_MS}ms) — evicting and re-running")
-                    activeChains[chainId] = nowMs
+                    activeChains[chainId] = TimeSource.Monotonic.markNow()
                     false
                 } else {
                     true
                 }
             } else {
-                activeChains[chainId] = (NSDate().timeIntervalSince1970 * 1000).toLong()
+                activeChains[chainId] = TimeSource.Monotonic.markNow()
                 Logger.d(LogTags.CHAIN, "Marked chain $chainId as active (Total active: ${activeChains.size})")
                 false
             }
@@ -730,7 +734,7 @@ class ChainExecutor(
                 oldJob.cancelAndJoin()  // Suspend until old finally-block clears activeChains
                 // Re-claim the active slot for the replacement execution
                 activeChainsMutex.withLock {
-                    activeChains[chainId] = (NSDate().timeIntervalSince1970 * 1000).toLong()
+                    activeChains[chainId] = TimeSource.Monotonic.markNow()
                 }
             } else {
                 Logger.w(LogTags.CHAIN, "⚠️ Chain $chainId is already executing (no active job), skipping duplicate")
@@ -1781,7 +1785,13 @@ class ChainExecutor(
                     Logger.w(LogTags.CHAIN, "Worker.close() threw for ${task.workerClassName}: ${e.message}")
                 }
                 // Release the per-task throttle entry so the map doesn't grow unbounded.
-                TaskProgressBus.clearThrottle(task.workerClassName)
+                // MUST match the taskId used when emitting (see the ProgressListener above:
+                // taskId = chainId ?: task.workerClassName) — clearing "task.workerClassName"
+                // unconditionally never matched the chainId-keyed entry that's actually created
+                // for every chain execution (the common case here, since this is
+                // ChainExecutor), so lastEmittedAt grew by one entry per chain execution for
+                // the lifetime of the process.
+                TaskProgressBus.clearThrottle(chainId ?: task.workerClassName)
             }
         }
     }

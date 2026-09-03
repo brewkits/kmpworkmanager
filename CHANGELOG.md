@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Fixed an SSRF bypass in `SecurityValidator.isPrivateIPv6`**: an IPv4-mapped
+  (`::ffff:169.254.169.254`, `::ffff:a9fe:a9fe`) or IPv4-compatible (deprecated form)
+  IPv6 literal encoding a private/loopback/link-local/cloud-metadata address (e.g. the
+  `169.254.169.254` metadata endpoint) was not decoded before the private-range check,
+  so it passed validation as "not private" even though the OS resolves it straight to
+  the embedded IPv4 address. Any HTTP worker (`kmpworker-http`), `SecureRedirectFollowing`,
+  or `TokenRefresh` call that validates a caller- or redirect-supplied host was affected.
+  Fixed by extracting the embedded IPv4 address first and validating *that* whenever one
+  is present.
+
 ### Fixed
 
 - **iOS: fixed a TOCTOU race in `NativeTaskScheduler.enqueue()`** where N concurrent
@@ -15,6 +27,111 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   metadata. Fixed with a per-scheduler-instance `Mutex` serializing the check-then-act
   scheduling decision, mirroring `IosFileStorage.enqueueMutex`'s existing pattern.
   Fixes [#98](https://github.com/brewkits/kmpworkmanager/issues/98).
+- **Android: `TaskTrigger.Exact` alarms silently never ran the worker.** The default
+  `AlarmReceiver` registered by `KmpWorkManager.initialize()` only logged the fired alarm
+  and finished the `PendingResult` — it never resolved or invoked the scheduled worker.
+  Every exact-alarm task fired on time and did nothing. Fixed: the default receiver now
+  resolves the worker via the registered `AndroidWorkerFactory` and runs it, emitting the
+  same `TaskCompletionEvent`/`TelemetryHook` events as other execution paths.
+- **Android: exact-alarm metadata was removed from `AlarmStore` before the work ran**,
+  not after. A process kill between the alarm firing and the worker completing
+  permanently lost the task with no trace and no way to recover it on reboot. Metadata
+  removal now happens in `BaseAlarmReceiver`'s `finally` block, gated on `doAlarmWork`
+  having reached a definitive (success, failure, or thrown-exception) outcome — a
+  timed-out/hung run intentionally leaves the metadata in place for diagnostics. See
+  **Changed** below for the impact on custom `AlarmReceiver` subclasses.
+- **Android: `AndroidWorkerDiagnostics.getSchedulerStatus()` / `getTaskStatus()`** queried
+  WorkManager with the wrong tag prefix (`"worker:"` instead of `"worker-"`) and used the
+  blocking `Future.get()` on the calling coroutine instead of `.await()`. Status queries
+  silently returned empty/stale results and could block a dispatcher thread.
+- **Android: chain-step overflow files leaked when a chain was cancelled before a
+  large-input step ever ran.** Chain-step overflow files are now registered under a
+  stable `chainId#stepIndex#taskIndex` key (`OverflowFileRegistry.chainStepKey`) instead
+  of a random UUID, so `NativeTaskScheduler.cancel(chainId)` can find and delete every
+  step's overflow file for that chain via the new `consumeAndDeleteForChain`.
+- **Android: `KmpHeavyWorker` treated a transient OS denial as permanent failure.** A
+  `SecurityException` or `IllegalStateException` from `ForegroundServiceStartNotAllowedException`-adjacent
+  OS policy (e.g. background-start restrictions) returned `Result.failure()`, discarding
+  the task instead of `Result.retry()`, even though the condition (app in background,
+  battery saver, OEM restriction) is often transient.
+- **Android + iOS: `FileCompressionWorker` never validated `inputPath`**, only
+  `outputPath`. Since `deleteOriginal` recursively deletes `inputPath`, and a chain step's
+  merged input can let an earlier, less-trusted step's output overwrite same-named
+  fields, an unvalidated `inputPath` was an open path-traversal/unsafe-delete vector.
+- **Android: `shouldExpedite()` did not exclude `DEVICE_IDLE` / `REQUIRE_BATTERY_NOT_LOW`
+  constraints**, so a `CRITICAL`-priority task requiring either could be requested as
+  expedited work that WorkManager would then reject or silently downgrade.
+- **Android: an oversized exact-alarm input JSON (>200 KB) could hit Android Binder's
+  ~1 MB transaction limit** and crash the system server. `scheduleExactAlarm` now rejects
+  (`REJECTED_OS_POLICY`) inputs over `MAX_ALARM_PERSISTED_INPUT_JSON_BYTES` before ever
+  calling `AlarmStore.save()`.
+- **Android: `schedulePeriodicWork()` did not catch `IllegalArgumentException`** from an
+  invalid `PeriodicWorkRequest.Builder` configuration, crashing the caller instead of
+  returning `REJECTED_OS_POLICY`.
+- **iOS: `NativeTaskScheduler.enqueue()` could hang indefinitely** holding
+  `schedulingMutex` if the underlying `BGTaskScheduler`/`isTaskPending()` call never
+  completed, blocking every subsequent `enqueue()` call. Now bounded by a 10s
+  `withTimeout` in production (skipped in test mode, matching the existing
+  `migrationComplete.await()` pattern, since `runTest {}`'s virtual clock races real
+  native async callbacks).
+- **iOS: `IosFileStorage` overwrote existing task metadata, chain definitions, chain
+  progress, and the transaction log with `NSString.writeToFile(atomically:)`**, an older
+  API with known reliability gaps under some `NSFileProtection` classes and disk
+  conditions — the same class of bug already fixed for `AppendOnlyQueue`'s compaction.
+  Overwrites now go through a temp-file + `NSFileManager.replaceItemAtURL` swap.
+  First-write-ever (no existing file) still uses the direct write, since there is nothing
+  to atomically replace.
+- **iOS: `IosBackgroundUrlSessionManager`'s completed-download handler used a
+  delete-then-move pattern** (a window where a crash between the two steps loses the
+  downloaded file) and discarded `NSError` details on failure. Now uses
+  `replaceItemAtURL`/`moveItemAtURL` conditionally and logs the real error.
+- **iOS: `ChainExecutor.activeChains` used wall-clock (`NSDate`) timestamps** to track
+  chain age, which is vulnerable to NTP adjustments and clock changes mid-execution. Now
+  uses `TimeSource.Monotonic`.
+- **iOS: `TaskProgressBus.clearThrottle` was called with the wrong key** in
+  `ChainExecutor.executeTask()`'s `finally` block (`workerClassName` instead of the
+  `chainId ?: workerClassName` actually used when the throttle was set), so a chain
+  task's throttle state never cleared. `SingleTaskExecutor.recordCompletion()` was
+  missing the call entirely.
+- **Common: `WorkerProgress.forStep()` divided by `totalSteps` without validating it**,
+  throwing a raw `ArithmeticException` for `totalSteps <= 0` instead of a clear
+  `IllegalArgumentException`.
+- **Common: `TaskProgressBus`'s `MutableSharedFlow` had no `onBufferOverflow` policy**,
+  defaulting to `SUSPEND` — a slow/absent collector could block progress emission
+  indefinitely. Now `DROP_OLDEST`.
+- **Common: `TaskChain.beginWith()` silently no-op'd on an empty initial task list**
+  instead of failing, producing a chain with no first step. Now throws
+  `IllegalArgumentException` immediately.
+- **`kmpworker-ksp`: `WorkerProcessor`'s generated `requiredBgTaskIds` set used raw
+  string interpolation instead of KotlinPoet's `%S` placeholder**, risking malformed
+  generated code for a background-task id containing a quote or backslash.
+
+### Changed
+
+- **BREAKING (migration required for direct `AlarmReceiver` subclasses):**
+  `AlarmReceiver.onReceive()` no longer removes `AlarmStore` metadata before dispatching
+  to `handleAlarm()` — see the `AlarmStore` fix above. Apps extending `BaseAlarmReceiver`
+  need no changes (it now handles removal itself, at the correct time). Apps extending
+  `AlarmReceiver` **directly** (bypassing `BaseAlarmReceiver`) must now call
+  `AlarmStore.remove(context, taskId)` themselves once their work is done, or entries
+  will linger until the next `AlarmBootReceiver`/`cleanupStaleAlarms` sweep prunes them
+  (not a permanent leak, but a behavior change from immediate removal).
+
+### Docs
+
+- `AlarmBootReceiver`'s manifest KDoc example was missing the
+  `android.intent.action.MY_PACKAGE_REPLACED` action — a host app that copied only what
+  was shown never registered for it, so the "app updated" alarm-restore path silently
+  never ran.
+- Clarified `BuiltinWorkerRegistry`'s KDoc scope (only `FileCompressionWorker`; HTTP
+  workers live in `kmpworker-http`/`HttpWorkerRegistry`) and presented
+  `CompositeWorkerFactory`'s null-return contract as preferred over exception-throwing
+  (no runtime behavior change).
+
+### Removed
+
+- `TaskEventBus.resetForTest()` — a no-op with zero callers; `TaskEventManager.resetForTest()`
+  is the functional one actually used by tests.
 
 ## [3.4.0] - 2026-09-02
 

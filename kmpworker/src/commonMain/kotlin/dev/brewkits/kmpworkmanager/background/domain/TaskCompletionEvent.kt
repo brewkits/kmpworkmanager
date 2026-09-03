@@ -45,21 +45,11 @@ object TaskEventBus {
         _events.tryEmit(event)
     }
 
-    /**
-     * Resets the replay cache by re-creating internal state equivalent.
-     * For use in tests only — call between test cases to prevent event bleed-through.
-     * @suppress
-     */
-    internal fun resetForTest() {
-        // Drain replay cache: emit a sentinel then collect it synchronously is not
-        // feasible in common code, so we rely on callers using a fresh subscriber
-        // per test. This method exists as a marker / extension point.
-        //
-        // Practical pattern:
-        //   val events = mutableListOf<TaskCompletionEvent>()
-        //   val job = backgroundScope.launch { TaskEventBus.events.toList(events) }
-        //   // ... exercise code ...
-        //   job.cancel()
-        //   assertEquals(expected, events)
-    }
+    // NOTE: there is intentionally no resetForTest() here (unlike TaskEventManager, which
+    // has a real one). A prior version of this function was a complete no-op — it did not
+    // reset the replay cache despite its name and KDoc promising test isolation, and had
+    // zero callers. Its name invited exactly the kind of silent event bleed-through between
+    // tests that this project's own testing conventions warn against. Tests that need
+    // isolation should collect from a fresh subscriber per test (see the pattern in
+    // TaskEventTest) rather than relying on a bus-level reset.
 }

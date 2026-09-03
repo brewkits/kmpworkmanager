@@ -187,4 +187,58 @@ class BaseAlarmReceiverLifecycleTest {
         assertEquals(1, receiver.workCancelled.get())
         assertEquals(1, secondReceiver.workCancelled.get())
     }
+
+    // ── AlarmStore removal timing (the "completedDefinitively" fix) ─────────────────────
+    //
+    // Regression net for moving AlarmStore.remove(taskId) out of AlarmReceiver.onReceive()
+    // (pre-fix: removed *before* doAlarmWork ran at all — a process kill mid-work
+    // permanently lost the task with no retry, since the alarm was already "forgotten")
+    // and into BaseAlarmReceiver's finally block, gated on doAlarmWork having reached a
+    // definitive outcome rather than having merely been dispatched.
+
+    private fun hasAlarmStoreEntry(ctx: Context, id: String): Boolean {
+        val prefs = ctx.getSharedPreferences("dev.brewkits.kmpworkmanager.alarms", Context.MODE_PRIVATE)
+        return prefs.contains("kmp_alarm_$id")
+    }
+
+    @Test
+    fun normalCompletion_removesAlarmStoreEntry() = runBlocking {
+        val taskId = "alarmstore-normal"
+        AlarmStore.save(context, AlarmStore.AlarmMetadata(taskId, 0L, "TestWorker", null))
+        assertTrue(hasAlarmStoreEntry(context, taskId), "test setup: entry must exist before run")
+
+        val receiver = TestReceiver(timeoutMs = 5_000L) { /* completes immediately */ }
+        receiver.runDirectly(context, taskId)
+        withTimeout(2_000L) { receiver.finalized.await() }
+
+        assertFalse(hasAlarmStoreEntry(context, taskId), "AlarmStore entry must be removed after a definitive (successful) completion")
+    }
+
+    @Test
+    fun thrownException_stillRemovesAlarmStoreEntry() = runBlocking {
+        val taskId = "alarmstore-threw"
+        AlarmStore.save(context, AlarmStore.AlarmMetadata(taskId, 0L, "TestWorker", null))
+
+        val receiver = TestReceiver(timeoutMs = 5_000L) { throw RuntimeException("boom") }
+        receiver.runDirectly(context, taskId)
+        withTimeout(2_000L) { receiver.finalized.await() }
+
+        assertFalse(hasAlarmStoreEntry(context, taskId), "a thrown exception is a definitive (failed) outcome — entry must still be removed")
+    }
+
+    @Test
+    fun timeout_preservesAlarmStoreEntry_forDiagnostics() = runBlocking {
+        val taskId = "alarmstore-timeout"
+        AlarmStore.save(context, AlarmStore.AlarmMetadata(taskId, 0L, "TestWorker", null))
+
+        val receiver = TestReceiver(timeoutMs = 100L) { delay(60_000L) }
+        receiver.runDirectly(context, taskId)
+        withTimeout(5_000L) { receiver.finalized.await() }
+
+        assertTrue(
+            hasAlarmStoreEntry(context, taskId),
+            "a hung/timed-out doAlarmWork is NOT a definitive outcome — the entry must survive so the " +
+                "task isn't silently lost; removing it here would erase all evidence the task ever ran"
+        )
+    }
 }

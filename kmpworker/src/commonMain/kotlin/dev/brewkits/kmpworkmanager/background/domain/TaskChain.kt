@@ -108,11 +108,14 @@ class TaskChain {
         scheduler: BackgroundTaskScheduler,
         initialTasks: List<TaskRequest>
     ) {
+        // Fail fast at the call site (BackgroundTaskScheduler.beginWith) rather than
+        // silently building a zero-step chain — the old silent-no-op behavior meant a caller
+        // whose task list ended up empty (e.g. after their own filtering) got no error here,
+        // only a confusing no-op deep inside the platform-specific enqueueChain() much later.
+        require(initialTasks.isNotEmpty()) { "beginWith() requires at least one task" }
         this.scheduler = scheduler
         this.steps = mutableListOf()
-        if (initialTasks.isNotEmpty()) {
-            steps.add(initialTasks)
-        }
+        steps.add(initialTasks)
     }
 
     private constructor(

@@ -38,9 +38,16 @@ import dev.brewkits.kmpworkmanager.utils.LogTags
  *     <intent-filter>
  *         <action android:name="android.intent.action.BOOT_COMPLETED" />
  *         <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+ *         <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
  *     </intent-filter>
  * </receiver>
  * ```
+ *
+ * **Note on `MY_PACKAGE_REPLACED`:** [onReceive] already handles this action (an app update
+ * can reset AlarmManager state on some OEMs the same way a reboot does) — it was previously
+ * missing from this manifest example, so a host app that copied only what was shown here
+ * never actually registered for it and this receiver's "App updated" restore path silently
+ * never ran.
  *
  * **Note on `LOCKED_BOOT_COMPLETED`:**
  * On API 24+ (direct boot mode), `BOOT_COMPLETED` is not delivered until the user unlocks

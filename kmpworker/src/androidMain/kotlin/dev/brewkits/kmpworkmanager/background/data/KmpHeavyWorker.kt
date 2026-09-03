@@ -157,7 +157,20 @@ open class KmpHeavyWorker(
         }
 
         // Handle Android 14+ FGS exceptions gracefully to prevent WorkManager crashes.
-        // Translates raw exceptions into Result.failure() with diagnostic logs.
+        //
+        // Both exceptions are treated as RETRYABLE (Result.retry(), honoring
+        // Constraints.maxRetries/backoff like any other transient failure) rather than a
+        // permanent Result.failure(). A SecurityException from a missing manifest permission
+        // IS often permanent (a config problem, not a transient OS condition) — but
+        // ForegroundServiceStartNotAllowedException (API 31+), which also surfaces here as
+        // an IllegalStateException, is frequently transient: it fires when the app is not in
+        // a state allowed to start a foreground service (e.g. backgrounded, Doze), a
+        // condition that commonly clears within minutes. Treating either as a permanent
+        // Result.failure() — as this used to — killed the rest of the chain on what is often
+        // just bad timing, contradicting BaseKmpWorker's own "data loss is the worse failure
+        // mode, err on retry" policy for its other catch branches. If the underlying cause
+        // truly is a permanent manifest misconfiguration, Constraints.maxRetries still bounds
+        // how many times this repeats before the chain gives up.
         try {
             setForeground(createForegroundInfo())
         } catch (e: SecurityException) {
@@ -166,10 +179,13 @@ open class KmpHeavyWorker(
                 "Foreground service start denied (SecurityException). " +
                     "Type=$foregroundServiceType requires a matching FOREGROUND_SERVICE_<TYPE> " +
                     "permission in AndroidManifest.xml.${manifestTypeSuffix(manifestFgsType)} " +
+                    "Retrying (per Constraints.maxRetries/backoff) in case this is a transient " +
+                    "OS-level denial; if the manifest is genuinely missing the permission, " +
+                    "retries will exhaust and the task will fail permanently. " +
                     "See docs/ANDROID_FGS_GUIDE.md.",
                 e,
             )
-            return Result.failure()
+            return Result.retry()
         } catch (e: IllegalStateException) {
             // ForegroundServiceStartNotAllowedException (API 31+) and
             // ForegroundServiceTypeException (API 34+) both extend IllegalStateException.
@@ -177,13 +193,15 @@ open class KmpHeavyWorker(
                 LogTags.WORKER,
                 "Foreground service start not allowed: ${e::class.simpleName} — ${e.message}. " +
                     "This typically means: (a) the host app is in a state where it cannot start " +
-                    "an FGS (background-without-special-permission), OR (b) the FGS type " +
-                    "$foregroundServiceType is not declared on <service android:foregroundServiceType=…> " +
-                    "in the manifest.${manifestTypeSuffix(manifestFgsType)} " +
+                    "an FGS (background-without-special-permission) — often transient — OR (b) the " +
+                    "FGS type $foregroundServiceType is not declared on " +
+                    "<service android:foregroundServiceType=…> in the manifest — permanent until " +
+                    "fixed.${manifestTypeSuffix(manifestFgsType)} Retrying (per " +
+                    "Constraints.maxRetries/backoff) since (a) is the more common cause in practice. " +
                     "See docs/ANDROID_FGS_GUIDE.md for type-by-type setup.",
                 e,
             )
-            return Result.failure()
+            return Result.retry()
         }
         return doWorkInternal()
     }

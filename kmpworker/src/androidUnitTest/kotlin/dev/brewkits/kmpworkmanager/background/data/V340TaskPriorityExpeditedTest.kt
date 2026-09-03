@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.testing.WorkManagerTestInitHelper
 import dev.brewkits.kmpworkmanager.background.domain.Constraints
+import dev.brewkits.kmpworkmanager.background.domain.SystemConstraint
 import dev.brewkits.kmpworkmanager.background.domain.TaskPriority
 import dev.brewkits.kmpworkmanager.background.domain.TaskRequest
 import org.junit.runner.RunWith
@@ -87,5 +88,20 @@ class V340TaskPriorityExpeditedTest {
     fun `CRITICAL priority task requiring unmetered network is not expedited`() {
         val unmetered = Constraints(requiresUnmeteredNetwork = true)
         assertFalse(scheduler.shouldExpedite(task(TaskPriority.CRITICAL), unmetered, initialDelayMs = 0L))
+    }
+
+    @Test
+    fun `CRITICAL priority task requiring device idle is not expedited`() {
+        // Expedited WorkRequests only support the network-type constraint — DEVICE_IDLE is
+        // stamped onto the same androidx.work.Constraints via SystemConstraint, which
+        // shouldExpedite() previously didn't check at all.
+        val deviceIdle = Constraints(systemConstraints = setOf(SystemConstraint.DEVICE_IDLE))
+        assertFalse(scheduler.shouldExpedite(task(TaskPriority.CRITICAL), deviceIdle, initialDelayMs = 0L))
+    }
+
+    @Test
+    fun `CRITICAL priority task requiring battery not low is not expedited`() {
+        val batteryNotLow = Constraints(systemConstraints = setOf(SystemConstraint.REQUIRE_BATTERY_NOT_LOW))
+        assertFalse(scheduler.shouldExpedite(task(TaskPriority.CRITICAL), batteryNotLow, initialDelayMs = 0L))
     }
 }

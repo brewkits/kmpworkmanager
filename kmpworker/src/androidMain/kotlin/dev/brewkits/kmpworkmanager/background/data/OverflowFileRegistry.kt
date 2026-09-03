@@ -191,6 +191,65 @@ internal object OverflowFileRegistry {
         }
     }
 
+    /** Separator between a chain id and its step/task suffix in a chain-step registry key. */
+    private const val CHAIN_STEP_KEY_SEPARATOR = "#"
+
+    /**
+     * The registry key a chain step's overflow file is registered under — stable and
+     * derivable from (chainId, stepIndex, taskIndex), unlike a random UUID. This is what
+     * lets [consumeAndDeleteForChain] find every step's overflow file for a given chain:
+     * a chain is only ever cancelled by its [chainId] (via `NativeTaskScheduler.cancel`),
+     * never by a per-step id, so a per-step id that cannot be derived from [chainId] can
+     * never be looked up again — the overflow file (and its registry entry) would leak
+     * forever, surviving even the 24h janitor sweep (which only targets [AlarmStore]-based
+     * exact-alarm overflow files, not chain-step ones).
+     */
+    fun chainStepKey(chainId: String, stepIndex: Int, taskIndex: Int): String =
+        "$chainId$CHAIN_STEP_KEY_SEPARATOR$stepIndex$CHAIN_STEP_KEY_SEPARATOR$taskIndex"
+
+    /**
+     * Consumes every registry entry belonging to [chainId] (i.e. every key produced by
+     * [chainStepKey] for this chain, regardless of step/task index) — deletes each
+     * overflow file and its registry entry. Called from `NativeTaskScheduler.cancel(id)`
+     * when `id` is a chain id, so cancelling a chain before a large-input step ever ran
+     * does not orphan its overflow file.
+     *
+     * Percent-encoding (see [encodeTaskIdForFilename]) processes each input character
+     * independently and deterministically, so encoding a prefix of a key always yields a
+     * prefix of that key's full encoding — a plain filename `startsWith` check on the
+     * *encoded* prefix is sufficient; no decoding of existing filenames is needed.
+     *
+     * @return number of overflow files deleted.
+     */
+    fun consumeAndDeleteForChain(context: Context, chainId: String): Int {
+        migrateLegacyEntriesIfNeeded(context)
+        val encodedPrefix = encodeTaskIdForFilename("$chainId$CHAIN_STEP_KEY_SEPARATOR")
+        val dir = registryDir(context)
+        val matches = try {
+            dir.listFiles { file -> file.name.startsWith(encodedPrefix) && file.name.endsWith(ENTRY_SUFFIX) }
+        } catch (e: Exception) {
+            Logger.w(LogTags.ALARM, "OverflowFileRegistry.consumeAndDeleteForChain failed to list entries for '$chainId': ${e.message}", e)
+            null
+        } ?: return 0
+
+        var deleted = 0
+        for (entry in matches) {
+            try {
+                val path = entry.readText()
+                val file = File(path)
+                if (file.exists() && file.delete()) {
+                    deleted++
+                    Logger.d(LogTags.ALARM, "OverflowFileRegistry: deleted chain-step overflow file for '$chainId': $path")
+                }
+            } catch (e: Exception) {
+                Logger.w(LogTags.ALARM, "OverflowFileRegistry: chain-step file delete failed for '$chainId' (${entry.name}): ${e.message}")
+            } finally {
+                entry.delete()
+            }
+        }
+        return deleted
+    }
+
     /**
      * Resets the one-time-migration latch. Used only for testing — production processes
      * migrate at most once per process lifetime by design.

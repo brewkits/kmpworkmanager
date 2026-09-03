@@ -245,4 +245,49 @@ class OverflowFileRegistryTest {
         assertEquals(fileX.absolutePath, OverflowFileRegistry.consumeAndDelete(context, "legacy-x"))
         assertEquals(fileY.absolutePath, OverflowFileRegistry.consumeAndDelete(context, "legacy-y"))
     }
+
+    // ── consumeAndDeleteForChain (chain-cancel overflow cleanup) ────────────────────────
+
+    @Test
+    fun consumeAndDeleteForChain_deletesAllStepsForThatChain() {
+        val chainId = "chain-1"
+        val fileStep0 = makeOverflowFile("kmp_input_chain1_step0.json")
+        val fileStep1 = makeOverflowFile("kmp_input_chain1_step1.json")
+
+        OverflowFileRegistry.register(context, OverflowFileRegistry.chainStepKey(chainId, 0, 0), fileStep0.absolutePath)
+        OverflowFileRegistry.register(context, OverflowFileRegistry.chainStepKey(chainId, 1, 0), fileStep1.absolutePath)
+
+        val deleted = OverflowFileRegistry.consumeAndDeleteForChain(context, chainId)
+
+        assertEquals(2, deleted)
+        assertFalse(fileStep0.exists())
+        assertFalse(fileStep1.exists())
+    }
+
+    @Test
+    fun consumeAndDeleteForChain_doesNotMatchChainIdThatIsAPrefixOfAnotherChainId() {
+        // "ab" must not match "abc"'s entries — the separator ("#") is baked into the
+        // prefix check specifically to prevent this. Without it, cancelling chain "ab"
+        // would also delete chain "abc"'s still-pending overflow file.
+        val shortChainFile = makeOverflowFile("kmp_input_short.json")
+        val longChainFile = makeOverflowFile("kmp_input_long.json")
+
+        OverflowFileRegistry.register(context, OverflowFileRegistry.chainStepKey("ab", 0, 0), shortChainFile.absolutePath)
+        OverflowFileRegistry.register(context, OverflowFileRegistry.chainStepKey("abc", 0, 0), longChainFile.absolutePath)
+
+        val deleted = OverflowFileRegistry.consumeAndDeleteForChain(context, "ab")
+
+        assertEquals(1, deleted, "only chain 'ab' entry must be deleted")
+        assertFalse(shortChainFile.exists())
+        assertTrue(longChainFile.exists(), "chain 'abc' entry must survive cancelling chain 'ab'")
+
+        // Cleanup the still-registered "abc" entry so tearDown's directory-clear isn't
+        // masking a leak this test would otherwise have caught.
+        assertEquals(longChainFile.absolutePath, OverflowFileRegistry.consumeAndDelete(context, OverflowFileRegistry.chainStepKey("abc", 0, 0)))
+    }
+
+    @Test
+    fun consumeAndDeleteForChain_forUnknownChain_returnsZero() {
+        assertEquals(0, OverflowFileRegistry.consumeAndDeleteForChain(context, "no-such-chain"))
+    }
 }

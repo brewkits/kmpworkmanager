@@ -1,5 +1,6 @@
 package dev.brewkits.kmpworkmanager.background.domain
 
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -116,6 +117,11 @@ data class WorkerProgress(
          * Create progress for a specific step in a multi-step process.
          */
         fun forStep(step: Int, totalSteps: Int, message: String? = null): WorkerProgress {
+            // Validate before the division below — computing `.../totalSteps` first would
+            // throw an opaque ArithmeticException ("/ by zero") for totalSteps=0 instead of
+            // this class's normal, descriptive IllegalArgumentException (thrown by the
+            // constructor's own init block for every other invariant it checks).
+            require(totalSteps > 0) { "totalSteps must be positive, got $totalSteps" }
             val progress = ((step - 1) * 100 / totalSteps).coerceIn(0, 100)
             return WorkerProgress(
                 progress = progress,
@@ -183,7 +189,12 @@ data class TaskProgressEvent(
 object TaskProgressBus {
     private val _events = MutableSharedFlow<TaskProgressEvent>(
         replay = 1,  // Keep last progress event for each task
-        extraBufferCapacity = 32
+        extraBufferCapacity = 32,
+        // Matches TaskEventBus's rationale: emit() must never suspend a worker waiting for
+        // a slow/absent UI subscriber. Without this, emit() defaults to SUSPEND — the
+        // KDoc below ("events emitted more frequently are dropped") was already describing
+        // this policy, but the code didn't actually set it.
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
     )
     val events: SharedFlow<TaskProgressEvent> = _events.asSharedFlow()
 

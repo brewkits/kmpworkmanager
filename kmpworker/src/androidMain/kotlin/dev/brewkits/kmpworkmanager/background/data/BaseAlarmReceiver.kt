@@ -105,22 +105,31 @@ abstract class BaseAlarmReceiver : AlarmReceiver() {
     ) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         scope.launch {
+            // Whether doAlarmWork reached a definitive outcome (success, failure, or a thrown
+            // exception) as opposed to being cut off by the timeout. Only a definitive outcome
+            // removes the AlarmStore metadata — see the comment above AlarmStore.remove() below.
+            var completedDefinitively = false
             try {
                 withTimeout(workTimeoutMs) {
                     doAlarmWork(context, taskId, workerClassName, inputJson)
                 }
+                completedDefinitively = true
             } catch (e: TimeoutCancellationException) {
                 Logger.w(
                     LogTags.ALARM,
                     "doAlarmWork for task '$taskId' exceeded ${workTimeoutMs}ms budget — cancelling " +
                         "to honor the BroadcastReceiver lifetime. Work may be incomplete; the alarm " +
-                        "metadata is preserved so the next schedule can retry."
+                        "metadata is preserved in AlarmStore (not removed) for diagnostics — note this " +
+                        "library does not currently retry an overdue exact alarm automatically."
                 )
             } catch (e: CancellationException) {
                 // Propagate; do not swallow structured cancellation.
                 throw e
             } catch (e: Exception) {
                 Logger.e(LogTags.ALARM, "BaseAlarmReceiver: doAlarmWork failed for task '$taskId'", e)
+                // A thrown exception is still a definitive (failed) outcome, not a hang — remove
+                // the metadata just like a normal WorkerResult.Failure would.
+                completedDefinitively = true
             } finally {
                 overflowFilePath?.let { path ->
                     val deleted = try {
@@ -132,6 +141,14 @@ abstract class BaseAlarmReceiver : AlarmReceiver() {
                     if (deleted) {
                         Logger.d(LogTags.ALARM, "Deleted overflow file for task '$taskId': $path")
                     }
+                }
+                // Remove AlarmStore metadata only now that doAlarmWork has actually run to
+                // completion — NOT at onReceive() time (see AlarmReceiver.onReceive's comment).
+                // Removing it earlier would permanently lose the task if the process were
+                // killed before doAlarmWork finished. Skipped on timeout so a hung task's
+                // metadata survives instead of vanishing with no trace.
+                if (completedDefinitively) {
+                    AlarmStore.remove(context, taskId)
                 }
                 onFinish()
                 // Tear down the scope so any straggler children (e.g. if doAlarmWork spawned

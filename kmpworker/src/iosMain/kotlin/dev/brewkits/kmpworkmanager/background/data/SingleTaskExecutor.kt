@@ -183,6 +183,12 @@ class SingleTaskExecutor(private val workerFactory: IosWorkerFactory) {
                 Logger.w(LogTags.WORKER, "Failed to emit completion event for $workerClassName: ${e.message}")
             }
 
+            // Release the per-task throttle entry (see the ProgressListener above, which
+            // emits with taskId = workerClassName) so TaskProgressBus.lastEmittedAt doesn't
+            // grow unbounded across single-task executions. ChainExecutor does the matching
+            // cleanup for its own (chainId-keyed) progress emissions.
+            TaskProgressBus.clearThrottle(workerClassName)
+
             // Wall-clock, for the human-readable timestamp fields only.
             val endTime = (NSDate().timeIntervalSince1970 * 1000).toLong()
             // Monotonic, for durationMs — see the comment on `startMonotonic` in executeTask.

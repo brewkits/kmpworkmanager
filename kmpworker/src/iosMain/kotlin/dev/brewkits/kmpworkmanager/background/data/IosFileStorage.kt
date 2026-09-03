@@ -257,9 +257,17 @@ public class IosFileStorage(
 
     // Tracks chain IDs whose progress file was deleted by self-healing during this process lifetime.
     // Used by executeChain to prevent non-idempotent chains from silently restarting after corruption.
-    // Protected by progressMutex — only written inside loadChainProgress, only read via
-    // wasProgressCorrupted() which is called from executeChain before execution begins.
-    private val selfHealedProgressChains = mutableSetOf<String>()
+    //
+    // Backed by a lock-free CAS loop (AtomicReference<Set<String>>), NOT progressMutex — the
+    // writer is loadChainProgress()'s corrupt-data catch block, which runs inside the
+    // non-suspend `coordinated()` callback and therefore cannot suspend to acquire a
+    // coroutine Mutex. It previously bridged with `runBlocking { progressMutex.withLock {} }`,
+    // which reintroduces exactly the "runBlocking can starve Dispatchers.Default" risk this
+    // codebase already fixed once for flushAllPendingProgress's own history (see that
+    // function's KDoc) — corrupt-progress recovery is rare, but a coroutine calling
+    // loadChainProgress from Dispatchers.Default while this briefly blocks the thread is a
+    // real, if narrow, deadlock-adjacent risk on Kotlin/Native's bounded thread pool.
+    private val selfHealedProgressChains = kotlin.concurrent.AtomicReference<Set<String>>(emptySet())
 
     // Disk space cache — `attributesOfFileSystemForPath` is an OS-level I/O syscall.
     // Calling it on every file write (e.g. every saveChainDefinition) adds measurable
@@ -1321,10 +1329,9 @@ public class IosFileStorage(
 
                 // Record that this chain's progress was self-healed so that executeChain can
                 // refuse to restart non-idempotent chains (e.g. payment workflows).
-                // Uses progressMutex for thread-safety — same mutex that protects progressBuffer.
-                kotlinx.coroutines.runBlocking {
-                    progressMutex.withLock { selfHealedProgressChains.add(chainId) }
-                }
+                // Lock-free CAS add — see selfHealedProgressChains' declaration for why this
+                // isn't progressMutex-protected like progressBuffer is.
+                markProgressSelfHealed(chainId)
 
                 Logger.w(
                     LogTags.CHAIN,
@@ -1345,8 +1352,23 @@ public class IosFileStorage(
      * for every task in the chain before deciding whether to restart or quarantine.
      */
     suspend fun consumeSelfHealedFlag(chainId: String): Boolean {
-        return progressMutex.withLock {
-            selfHealedProgressChains.remove(chainId)
+        while (true) {
+            val current = selfHealedProgressChains.value
+            if (chainId !in current) return false
+            if (selfHealedProgressChains.compareAndSet(current, current - chainId)) return true
+        }
+    }
+
+    /**
+     * Lock-free CAS add to [selfHealedProgressChains]. Split out from [loadChainProgress]'s
+     * catch block (a non-suspend context) so that block stays a plain function call instead
+     * of a `runBlocking` bridge.
+     */
+    private fun markProgressSelfHealed(chainId: String) {
+        while (true) {
+            val current = selfHealedProgressChains.value
+            if (chainId in current) return
+            if (selfHealedProgressChains.compareAndSet(current, current + chainId)) return
         }
     }
 
@@ -1705,7 +1727,21 @@ public class IosFileStorage(
     }
 
     /**
-     * Write string to file atomically
+     * Write string to file atomically.
+     *
+     * When [url] already has content on disk, uses [NSFileManager.replaceItemAtURL] — a
+     * true filesystem-atomic swap — per this project's own established invariant (see
+     * [AppendOnlyQueue]'s compaction fix): `NSString.writeToFile(atomically:)` is an older
+     * API with known reliability gaps under some `NSFileProtection` classes and disk
+     * conditions, the exact class of bug this codebase already fixed for the queue file.
+     * Every caller of this function (task metadata, chain definitions, chain progress,
+     * the transaction log) carries the same risk, so the fix applies here unconditionally
+     * rather than only to the queue.
+     *
+     * Falls back to a direct (non-atomic) write if the target does not exist yet — there
+     * is nothing to atomically replace on a first write — or in test mode, matching this
+     * function's prior `atomically = !isTestMode` behavior (tests intentionally trade
+     * atomicity for speed).
      */
     private fun writeStringToFile(url: NSURL, content: String) {
         // Log instead of silent return — caller assumes write succeeded
@@ -1714,19 +1750,56 @@ public class IosFileStorage(
             return
         }
 
+        val nsString = content as NSString
+
+        if (isTestMode || !fileManager.fileExistsAtPath(path)) {
+            memScoped {
+                val errorPtr = alloc<ObjCObjectVar<NSError?>>()
+                val success = nsString.writeToFile(
+                    path,
+                    atomically = !isTestMode,
+                    encoding = NSUTF8StringEncoding,
+                    error = errorPtr.ptr
+                )
+                if (!success) {
+                    throw IllegalStateException("Failed to write file: ${errorPtr.value?.localizedDescription}")
+                }
+            }
+            return
+        }
+
+        // Target exists — atomically replace via a temp file + replaceItemAtURL.
+        val tempURL = url.URLByAppendingPathExtension("tmp-${NSUUID().UUIDString()}")
+            ?: throw IllegalStateException("Failed to construct temp URL for atomic write: $path")
+        val tempPath = tempURL.path
+            ?: throw IllegalStateException("Temp URL has no path for atomic write: $path")
+
         memScoped {
             val errorPtr = alloc<ObjCObjectVar<NSError?>>()
-            val nsString = content as NSString
+            val wroteTemp = nsString.writeToFile(tempPath, atomically = false, encoding = NSUTF8StringEncoding, error = errorPtr.ptr)
+            if (!wroteTemp) {
+                throw IllegalStateException("Failed to write temp file for atomic replace: ${errorPtr.value?.localizedDescription}")
+            }
 
-            val success = nsString.writeToFile(
-                path,
-                atomically = !isTestMode,
-                encoding = NSUTF8StringEncoding,
+            val replaced = fileManager.replaceItemAtURL(
+                originalItemURL = url,
+                withItemAtURL = tempURL,
+                backupItemName = null,
+                options = NSFileManagerItemReplacementWithoutDeletingBackupItem,
+                resultingItemURL = null,
                 error = errorPtr.ptr
             )
 
-            if (!success) {
-                throw IllegalStateException("Failed to write file: ${errorPtr.value?.localizedDescription}")
+            if (!replaced) {
+                val error = errorPtr.value
+                Logger.w(LogTags.CHAIN, "replaceItemAtURL failed for $path (${error?.localizedDescription}) — falling back to direct write")
+                // replaceItemAtURL consumes the temp file on success; on failure it may or may
+                // not still be there depending on how far it got — clean up defensively.
+                try { fileManager.removeItemAtPath(tempPath, null) } catch (e: Exception) { /* best-effort */ }
+                val fallbackOk = nsString.writeToFile(path, atomically = true, encoding = NSUTF8StringEncoding, error = errorPtr.ptr)
+                if (!fallbackOk) {
+                    throw IllegalStateException("Failed to write file (fallback after replaceItemAtURL failure): ${errorPtr.value?.localizedDescription}")
+                }
             }
         }
     }

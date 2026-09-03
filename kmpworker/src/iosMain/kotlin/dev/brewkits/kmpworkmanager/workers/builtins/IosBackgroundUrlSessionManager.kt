@@ -12,6 +12,11 @@ import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.workers.config.IosBackgroundDownloadConfig
 import dev.brewkits.kmpworkmanager.workers.config.IosBackgroundUploadConfig
 import kotlinx.cinterop.ObjCAction
+import kotlinx.cinterop.ObjCObjectVar
+import kotlinx.cinterop.alloc
+import kotlinx.cinterop.memScoped
+import kotlinx.cinterop.ptr
+import kotlinx.cinterop.value
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -22,6 +27,7 @@ import kotlinx.coroutines.sync.withLock
 import platform.Foundation.NSDate
 import platform.Foundation.NSError
 import platform.Foundation.NSFileManager
+import platform.Foundation.NSFileManagerItemReplacementWithoutDeletingBackupItem
 import platform.Foundation.NSMutableURLRequest
 import platform.Foundation.NSOperationQueue
 import platform.Foundation.NSURL
@@ -281,15 +287,40 @@ internal class IosBackgroundUrlSessionManagerDelegate : NSObject(), NSURLSession
         try {
             val fm = NSFileManager.defaultManager
             val destURL = NSURL.fileURLWithPath(savePath)
-            // Atomic-ish move: remove any existing file at destination first.
-            if (fm.fileExistsAtPath(savePath)) {
-                fm.removeItemAtPath(savePath, error = null)
+            val moved = if (fm.fileExistsAtPath(savePath)) {
+                // Destination already exists — use replaceItemAtURL for a true atomic swap
+                // instead of delete-then-move: a crash between removeItemAtPath and
+                // moveItemAtURL would lose BOTH the old destination file and the newly
+                // downloaded one, with no way to recover either.
+                memScoped {
+                    val errorPtr = alloc<ObjCObjectVar<NSError?>>()
+                    val ok = fm.replaceItemAtURL(
+                        originalItemURL = destURL,
+                        withItemAtURL = didFinishDownloadingToURL,
+                        backupItemName = null,
+                        options = NSFileManagerItemReplacementWithoutDeletingBackupItem,
+                        resultingItemURL = null,
+                        error = errorPtr.ptr
+                    )
+                    if (!ok) {
+                        Logger.w(LogTags.WORKER, "replaceItemAtURL failed for id=$id dest=$savePath: ${errorPtr.value?.localizedDescription}")
+                    }
+                    ok
+                }
+            } else {
+                memScoped {
+                    val errorPtr = alloc<ObjCObjectVar<NSError?>>()
+                    val ok = fm.moveItemAtURL(didFinishDownloadingToURL, toURL = destURL, error = errorPtr.ptr)
+                    if (!ok) {
+                        Logger.w(LogTags.WORKER, "moveItemAtURL failed for id=$id dest=$savePath: ${errorPtr.value?.localizedDescription}")
+                    }
+                    ok
+                }
             }
-            val moved = fm.moveItemAtURL(didFinishDownloadingToURL, toURL = destURL, error = null)
             if (moved) {
                 emitCompletion(workerName, success = true, message = "Background download saved to $savePath")
             } else {
-                emitCompletion(workerName, success = false, message = "moveItemAtURL failed for id=$id")
+                emitCompletion(workerName, success = false, message = "Failed to move downloaded file to $savePath for id=$id")
             }
         } catch (e: Exception) {
             Logger.e(LogTags.WORKER, "Background download finalize failed for id=$id", e)

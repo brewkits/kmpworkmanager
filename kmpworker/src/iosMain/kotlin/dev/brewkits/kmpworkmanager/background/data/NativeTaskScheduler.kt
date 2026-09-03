@@ -109,6 +109,23 @@ public class NativeTaskScheduler(
         const val OBSERVE_TASK_STATE_POLL_INTERVAL_MS = 2_000L
 
         /**
+         * Ceiling on how long a single [enqueue] call may hold [schedulingMutex] before this
+         * call gives up and rejects rather than hanging forever.
+         *
+         * [schedulingMutex] serializes ALL `enqueue()` calls on this instance (see its KDoc),
+         * including calls to `isTaskPending()`/`getPendingMasterDispatcherInfo()`, which await
+         * an OS completion handler (`getPendingTaskRequestsWithCompletionHandler`) rather than
+         * returning synchronously. Every other awaited operation in this class has an explicit
+         * timeout (`migrationComplete.await()` uses 5s) specifically so a hung OS callback
+         * rejects that one call instead of hanging forever — the scheduling mutex introduced a
+         * new failure mode this same class had already guarded against everywhere else: without
+         * this timeout, a single stuck completion handler would hold the mutex indefinitely and
+         * block every OTHER concurrent `enqueue()` call on this instance too, not just the one
+         * that triggered it.
+         */
+        const val SCHEDULING_TIMEOUT_MS = 10_000L
+
+        /**
          * True when running inside a unit-test binary (.kexe), Xcode XCTest harness, or
          * when bundleIdentifier is null (which only occurs in test runners, not in App
          * Extensions — extensions have their own ID).
@@ -286,13 +303,33 @@ public class NativeTaskScheduler(
         }
 
         @Suppress("DEPRECATION")  // Keep backward compatibility for deprecated triggers
-        val result = schedulingMutex.withLock {
+        suspend fun dispatchScheduling(): ScheduleResult = schedulingMutex.withLock {
             when (trigger) {
                 is TaskTrigger.Periodic -> schedulePeriodicTask(id, trigger, workerClassName, constraints, inputJson, policy, tags)
                 is TaskTrigger.OneTime -> scheduleOneTimeTask(id, trigger, workerClassName, constraints, inputJson, policy, tags, deadlineMs)
                 is TaskTrigger.Exact -> scheduleExactAlarm(id, trigger, workerClassName, constraints, inputJson)
                 is TaskTrigger.Windowed -> scheduleWindowedTask(id, trigger, workerClassName, constraints, inputJson, policy, tags, deadlineMs)
                 is TaskTrigger.ContentUri -> rejectUnsupportedTrigger("ContentUri")
+            }
+        }
+
+        // The SCHEDULING_TIMEOUT_MS guard is skipped in test mode, mirroring
+        // migrationComplete.await()'s own isTestMode check above: isTaskPending() (reached
+        // via handleExistingPolicy for KEEP) suspends on a real OS completion-handler
+        // callback that resumes from outside kotlinx-coroutines-test's virtual clock. Under
+        // `runTest {}`, wrapping that in withTimeout races the test dispatcher's
+        // idle-time auto-advance against the real (out-of-band) callback arriving — the
+        // virtual timeout can win and fire before the real, normally-near-instant callback
+        // ever resumes it, rejecting a schedule that would have succeeded in production.
+        val result = if (isTestMode) {
+            dispatchScheduling()
+        } else {
+            try {
+                withTimeout(SCHEDULING_TIMEOUT_MS) { dispatchScheduling() }
+            } catch (e: TimeoutCancellationException) {
+                Logger.e(LogTags.SCHEDULER, "enqueue() for '$id' did not complete within ${SCHEDULING_TIMEOUT_MS}ms — " +
+                    "rejecting rather than holding schedulingMutex indefinitely (would otherwise block every other enqueue() call).")
+                ScheduleResult.REJECTED_OS_POLICY
             }
         }
 

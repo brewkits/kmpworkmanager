@@ -255,13 +255,28 @@ class WorkerProcessor(
             )
 
         if (hasBgTaskIds) {
+            // Built via KotlinPoet's %S placeholder (like every other generated string
+            // literal in this file — see the `put(%S)`/`%S to` calls above) rather than raw
+            // string interpolation. A raw `"\"$it\""` join breaks (either fails to compile,
+            // or in the worst case subtly mis-escapes) the moment a developer-supplied
+            // `@Worker(bgTaskId = ...)` value contains a `"`, `\`, or `%` — %S escapes all
+            // of those correctly.
+            val requiredIdsInitializer = CodeBlock.builder().apply {
+                add("setOf(")
+                requiredIds.forEachIndexed { index, reqId ->
+                    if (index > 0) add(", ")
+                    add("%S", reqId)
+                }
+                add(")")
+            }.build()
+
             typeBuilder.addSuperinterface(bgTaskIdProviderClass)
             typeBuilder.addProperty(
                 PropertySpec.builder("requiredBgTaskIds", ParameterizedTypeName.run {
                     ClassName("kotlin.collections", "Set").parameterizedBy(String::class.asClassName())
                 })
                     .addModifiers(KModifier.OVERRIDE)
-                    .initializer("setOf(${requiredIds.joinToString { "\"$it\"" }})")
+                    .initializer(requiredIdsInitializer)
                     .addKdoc(
                         "BGTask IDs declared via `@Worker(bgTaskId = ...)` for validation\n" +
                         "against `Info.plist → BGTaskSchedulerPermittedIdentifiers`."
