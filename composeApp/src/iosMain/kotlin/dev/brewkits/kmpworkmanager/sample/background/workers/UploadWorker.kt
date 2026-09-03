@@ -4,6 +4,7 @@ import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.sample.background.data.IosWorker
 import dev.brewkits.kmpworkmanager.background.domain.TaskCompletionEvent
 import dev.brewkits.kmpworkmanager.background.domain.TaskEventBus
+import dev.brewkits.kmpworkmanager.background.domain.WorkerProgress
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -31,6 +32,9 @@ class UploadWorker : IosWorker {
                 uploaded += 10
                 val progress = (uploaded * 100) / totalSize
                 println(" KMP_BG_TASK_iOS: 📊 Upload progress: $uploaded/$totalSize MB ($progress%)")
+                env.progressListener?.onProgressUpdate(
+                    WorkerProgress(progress = progress, message = "$uploaded/$totalSize MB")
+                )
             }
 
             println(" KMP_BG_TASK_iOS: 🎉 UploadWorker finished successfully.")

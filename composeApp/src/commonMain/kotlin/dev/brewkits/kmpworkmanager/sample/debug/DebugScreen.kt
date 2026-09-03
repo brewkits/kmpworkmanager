@@ -11,12 +11,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.brewkits.kmpworkmanager.sample.utils.checkAppGroupContainerStatus
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DebugScreen() {
     val viewModel = remember { DebugViewModel() }
     val tasks by viewModel.tasks.collectAsState()
+    var appGroupStatus by remember { mutableStateOf<String?>(null) }
 
     DisposableEffect(viewModel) {
         onDispose {
@@ -40,6 +42,26 @@ fun DebugScreen() {
     ) {
         paddingValues ->
         LazyColumn(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+            item {
+                Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                    Text("App Group Storage (iOS)", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "This demo app does NOT have an App Groups entitlement configured — checking is expected to fail unless you've added one in Xcode. See docs/IOS_APP_GROUP_STORAGE.md.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Button(onClick = {
+                        appGroupStatus = checkAppGroupContainerStatus("group.dev.brewkits.kmpworkmanager.demo")
+                    }) {
+                        Text("Check App Group Container")
+                    }
+                    appGroupStatus?.let {
+                        Spacer(Modifier.height(8.dp))
+                        Text(it, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                HorizontalDivider()
+            }
             if (tasks.isEmpty()) {
                 item {
                     Box(modifier = Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {

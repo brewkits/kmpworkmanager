@@ -70,7 +70,7 @@ fun App(
     val exactAlarmPermissionState = rememberExactAlarmPermissionState()
 
     // State for managing the horizontal pager (tab view).
-    val pagerState = rememberPagerState(pageCount = { 11 })
+    val pagerState = rememberPagerState(pageCount = { 12 })
 
     // Snackbar host state for showing toast messages
     val snackbarHostState = remember { SnackbarHostState() }
@@ -126,6 +126,7 @@ fun App(
                 Tab(selected = pagerState.currentPage == 8, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(8) } }) { Text("Alarms", modifier = Modifier.padding(12.dp)) }
                 Tab(selected = pagerState.currentPage == 9, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(9) } }) { Text("Debug", modifier = Modifier.padding(12.dp)) }
                 Tab(selected = pagerState.currentPage == 10, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(10) } }) { Text("History", modifier = Modifier.padding(12.dp)) }
+                Tab(selected = pagerState.currentPage == 11, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(11) } }) { Text("Permissions", modifier = Modifier.padding(12.dp)) }
             }
 
             // Horizontal pager to host the different tab screens
@@ -146,276 +147,10 @@ fun App(
                     8 -> AlarmsAndPushTab(scheduler, coroutineScope, statusText, exactAlarmPermissionState, snackbarHostState)
                     9 -> DebugScreen()
                     10 -> ExecutionHistoryScreen(scheduler)
+                    11 -> PermissionsAndInfoTab(notificationPermissionState, exactAlarmPermissionState)
                 }
             }
         }
-        }
-    }
-}
-
-/**
- * Test & Demo tab - Easy-to-test features that work in foreground
- */
-@OptIn(ExperimentalTime::class)
-@Composable
-fun TestDemoTab(scheduler: BackgroundTaskScheduler, coroutineScope: CoroutineScope, snackbarHostState: SnackbarHostState) {
-    Column(
-        Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text("Quick Test & Demo", style = MaterialTheme.typography.headlineSmall)
-        Text("All features here work instantly in foreground!", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text("1. EventBus & Toast System", style = MaterialTheme.typography.titleLarge)
-                InfoBox("Test the event bus system that workers use to communicate with UI.")
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Button(
-                    onClick = {
-                        coroutineScope.launch {
-                            TaskEventBus.emit(
-                                TaskCompletionEvent(
-                                    taskName = "EventBus Test",
-                                    success = true,
-                                    message = "✅ EventBus is working! Toast displayed successfully."
-                                )
-                            )
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Test EventBus → Toast")
-                }
-                Text("✓ Instantly shows toast message", style = MaterialTheme.typography.bodySmall)
-            }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text("2. Simulated Worker Execution", style = MaterialTheme.typography.titleLarge)
-                InfoBox("Simulate a worker running and completing (like what happens in background).")
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Button(
-                    onClick = {
-                        coroutineScope.launch {
-                            snackbarHostState.showSnackbar(
-                                message = "⚙️ Worker started...",
-                                duration = SnackbarDuration.Short
-                            )
-
-                            kotlinx.coroutines.delay(2000)
-
-                            TaskEventBus.emit(
-                                TaskCompletionEvent(
-                                    taskName = "Upload Worker",
-                                    success = true,
-                                    message = "📤 Simulated: Uploaded 100MB successfully!"
-                                )
-                            )
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Simulate Upload Worker (2s)")
-                }
-                Text("✓ Shows progress → completion toast", style = MaterialTheme.typography.bodySmall)
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Button(
-                    onClick = {
-                        coroutineScope.launch {
-                            snackbarHostState.showSnackbar(
-                                message = "🔄 Syncing data...",
-                                duration = SnackbarDuration.Short
-                            )
-
-                            kotlinx.coroutines.delay(1500)
-
-                            TaskEventBus.emit(
-                                TaskCompletionEvent(
-                                    taskName = "Sync Worker",
-                                    success = true,
-                                    message = "🔄 Simulated: Data synced successfully!"
-                                )
-                            )
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Simulate Sync Worker (1.5s)")
-                }
-                Text("✓ Shows sync → success toast", style = MaterialTheme.typography.bodySmall)
-            }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text("3. Task Scheduling (Both Platforms)", style = MaterialTheme.typography.titleLarge)
-                InfoBox("Schedule a task on native schedulers. Clicking multiple times will replace the previous task (iOS requirement: fixed task IDs). Check Debug tab to see scheduled tasks.")
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Button(
-                    onClick = {
-                        coroutineScope.launch {
-                            scheduler.enqueue(
-                                id = "demo-task",
-                                trigger = TaskTrigger.OneTime(initialDelayMs = 5000),
-                                workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.SYNC_WORKER
-                            )
-                            snackbarHostState.showSnackbar(
-                                message = "✅ Task scheduled! Check Debug tab to verify.",
-                                duration = SnackbarDuration.Short
-                            )
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Schedule Task (Check Debug Tab)")
-                }
-                Text("✓ Android: WorkManager | iOS: BGTaskScheduler (uses fixed ID 'demo-task')", style = MaterialTheme.typography.bodySmall)
-            }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text("4. Task Chain Simulation", style = MaterialTheme.typography.titleLarge)
-                InfoBox("Simulate a chain of workers executing sequentially.")
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Button(
-                    onClick = {
-                        coroutineScope.launch {
-                            // Step 1
-                            snackbarHostState.showSnackbar(
-                                message = "🔗 Step 1/3: Syncing...",
-                                duration = SnackbarDuration.Short
-                            )
-                            kotlinx.coroutines.delay(1000)
-
-                            // Step 2
-                            snackbarHostState.showSnackbar(
-                                message = "🔗 Step 2/3: Uploading...",
-                                duration = SnackbarDuration.Short
-                            )
-                            kotlinx.coroutines.delay(1500)
-
-                            // Step 3
-                            snackbarHostState.showSnackbar(
-                                message = "🔗 Step 3/3: Final sync...",
-                                duration = SnackbarDuration.Short
-                            )
-                            kotlinx.coroutines.delay(1000)
-
-                            // Complete
-                            TaskEventBus.emit(
-                                TaskCompletionEvent(
-                                    taskName = "Task Chain",
-                                    success = true,
-                                    message = "✅ Simulated: Chain completed! (Sync → Upload → Sync)"
-                                )
-                            )
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Simulate Task Chain (3.5s)")
-                }
-                Text("✓ Shows all 3 steps + completion", style = MaterialTheme.typography.bodySmall)
-            }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text("5. Failure Scenarios", style = MaterialTheme.typography.titleLarge)
-                InfoBox("Test how the app handles failures and errors.")
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Button(
-                    onClick = {
-                        coroutineScope.launch {
-                            snackbarHostState.showSnackbar(
-                                message = "⚠️ Worker started...",
-                                duration = SnackbarDuration.Short
-                            )
-
-                            kotlinx.coroutines.delay(1500)
-
-                            TaskEventBus.emit(
-                                TaskCompletionEvent(
-                                    taskName = "Upload Worker",
-                                    success = false,
-                                    message = "❌ Simulated: Upload failed! Network error."
-                                )
-                            )
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error
-                    )
-                ) {
-                    Text("Simulate Failed Worker")
-                }
-                Text("✓ Shows failure toast", style = MaterialTheme.typography.bodySmall)
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.medium,
-            color = MaterialTheme.colorScheme.secondaryContainer
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text("💡 Testing Background Tasks (iOS)", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "iOS BGTaskScheduler tasks only run in background:\n\n" +
-                    "1. Schedule task in 'Tasks' tab\n" +
-                    "2. Press Home button (app to background)\n" +
-                    "3. Wait for iOS to execute\n" +
-                    "4. Open app → See completion toast\n\n" +
-                    "Or use Xcode LLDB:\n" +
-                    "e -l objc -- (void)[[BGTaskScheduler sharedScheduler] _simulateLaunchForTaskWithIdentifier:@\"one-time-upload\"]",
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.medium,
-            color = MaterialTheme.colorScheme.tertiaryContainer
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text("💡 Testing Background Tasks (Android)", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "Android WorkManager runs even in foreground:\n\n" +
-                    "1. Schedule task in 'Tasks' tab\n" +
-                    "2. Wait for delay time\n" +
-                    "3. Toast appears automatically\n\n" +
-                    "Tasks run reliably with WorkManager!",
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
         }
     }
 }
@@ -576,7 +311,12 @@ fun TasksTab(scheduler: BackgroundTaskScheduler, coroutineScope: CoroutineScope,
                         val result = scheduler.enqueue(
                             id = "battery-okay-task",
                             trigger = TaskTrigger.OneTime(),
-                            workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.SYNC_WORKER
+                            workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.SYNC_WORKER,
+                            constraints = Constraints(
+                                systemConstraints = setOf(
+                                    dev.brewkits.kmpworkmanager.background.domain.SystemConstraint.REQUIRE_BATTERY_NOT_LOW
+                                )
+                            )
                         )
                         snackbarHostState.showSnackbar(
                             message = "🔋 BatteryOkay trigger scheduled! Will run when battery is not low",
@@ -596,7 +336,12 @@ fun TasksTab(scheduler: BackgroundTaskScheduler, coroutineScope: CoroutineScope,
                             id = "device-idle-task",
                             trigger = TaskTrigger.OneTime(),
                             workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.HEAVY_PROCESSING_WORKER,
-                            constraints = Constraints(isHeavyTask = true)
+                            constraints = Constraints(
+                                isHeavyTask = true,
+                                systemConstraints = setOf(
+                                    dev.brewkits.kmpworkmanager.background.domain.SystemConstraint.DEVICE_IDLE
+                                )
+                            )
                         )
                         snackbarHostState.showSnackbar(
                             message = "💤 DeviceIdle trigger scheduled! Will run when device is idle",

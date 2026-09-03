@@ -61,3 +61,18 @@ actual fun getDummyCompressionOutputPath(context: Any): String {
     val documentsDirectory = urls.first() as NSURL
     return documentsDirectory.URLByAppendingPathComponent("compressed.zip")?.path ?: ""
 }
+
+@OptIn(ExperimentalForeignApi::class)
+actual fun checkAppGroupContainerStatus(identifier: String): String {
+    val containerURL = NSFileManager.defaultManager
+        .containerURLForSecurityApplicationGroupIdentifier(identifier)
+    return if (containerURL != null) {
+        "✅ App Group '$identifier' resolved — entitlement is configured correctly. " +
+            "Container: ${containerURL.path}"
+    } else {
+        "❌ App Group '$identifier' NOT available — containerURLForSecurityApplicationGroupIdentifier " +
+            "returned nil. This demo app does not have the App Groups capability configured in Xcode " +
+            "(Signing & Capabilities → + Capability → App Groups) with a matching identifier. " +
+            "This is expected out of the box — see docs/IOS_APP_GROUP_STORAGE.md to configure it."
+    }
+}

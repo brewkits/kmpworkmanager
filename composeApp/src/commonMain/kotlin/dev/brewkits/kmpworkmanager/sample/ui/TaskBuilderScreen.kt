@@ -11,7 +11,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import dev.brewkits.kmpworkmanager.background.domain.TaskPriority
 import dev.brewkits.kmpworkmanager.sample.background.WorkerTypes
 import dev.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
 import dev.brewkits.kmpworkmanager.background.domain.Constraints
@@ -36,7 +35,15 @@ fun TaskBuilderScreen(scheduler: BackgroundTaskScheduler) {
     var requiresUnmetered by remember { mutableStateOf(false) }
     var requiresCharging by remember { mutableStateOf(false) }
     var isHeavyTask by remember { mutableStateOf(false) }
-    var selectedPriority by remember { mutableStateOf(TaskPriority.NORMAL) }
+
+    // tags/deadlineMs are on the flat scheduler.enqueue() signature, so they work for
+    // every trigger type here. priority/isIdempotent are NOT — those only exist on
+    // TaskRequest (used via beginWith().enqueue()), which has no trigger/delay slot at
+    // all, so this screen (which lets you pick a custom delay/interval) can't route
+    // through it without silently discarding that delay. See the "TaskRequest: Priority +
+    // Non-Idempotent" card in Demo Scenarios for those two fields instead.
+    var tagsInput by remember { mutableStateOf("") }
+    var deadlineMinutes by remember { mutableStateOf("") }
 
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -207,39 +214,33 @@ fun TaskBuilderScreen(scheduler: BackgroundTaskScheduler) {
                 }
             }
 
-            // Priority Selection
+            // Tags & Deadline — both are on the flat scheduler.enqueue() signature, so
+            // they apply to whatever trigger type is selected above. (Priority and
+            // isIdempotent are demonstrated separately — see the file-level comment on
+            // the state declarations above for why they can't honestly live on this
+            // screen.)
             Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors()) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Priority", style = MaterialTheme.typography.titleMedium)
+                    Text("Tags & Deadline", style = MaterialTheme.typography.titleMedium)
+                    OutlinedTextField(
+                        value = tagsInput,
+                        onValueChange = { tagsInput = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Tags (comma-separated)") },
+                        placeholder = { Text("e.g. sync, high-priority") }
+                    )
+                    OutlinedTextField(
+                        value = deadlineMinutes,
+                        onValueChange = { if (it.all { c -> c.isDigit() }) deadlineMinutes = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Deadline (minutes from now, optional)") },
+                        placeholder = { Text("Leave empty for no deadline") }
+                    )
                     Text(
-                        "Android: HIGH/CRITICAL → expedited work (bypasses Doze). iOS: queue ordered by weight — CRITICAL runs first.",
+                        "If the task hasn't started by the deadline, it's skipped instead of run late.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    TaskPriority.entries.forEach { priority ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            RadioButton(
-                                selected = selectedPriority == priority,
-                                onClick = { selectedPriority = priority }
-                            )
-                            Column(modifier = Modifier.padding(start = 8.dp)) {
-                                Text(priority.name, style = MaterialTheme.typography.bodyMedium)
-                                Text(
-                                    when (priority) {
-                                        TaskPriority.LOW -> "Deferrable — runs when idle/charging"
-                                        TaskPriority.NORMAL -> "Default — standard background work"
-                                        TaskPriority.HIGH -> "Important — expedited on Android"
-                                        TaskPriority.CRITICAL -> "Mission-critical — runs first (use sparingly)"
-                                    },
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
                 }
             }
 
@@ -258,7 +259,8 @@ fun TaskBuilderScreen(scheduler: BackgroundTaskScheduler) {
                         requiresUnmetered = false
                         requiresCharging = false
                         isHeavyTask = false
-                        selectedPriority = TaskPriority.NORMAL
+                        tagsInput = ""
+                        deadlineMinutes = ""
                     },
                     modifier = Modifier.weight(1f)
                 ) {
@@ -297,13 +299,31 @@ fun TaskBuilderScreen(scheduler: BackgroundTaskScheduler) {
                                     isHeavyTask = isHeavyTask,
                                     systemConstraints = sysConstraints
                                 )
+                                val tags = tagsInput.split(",")
+                                    .map { it.trim() }
+                                    .filter { it.isNotEmpty() }
+                                    .toSet()
+                                val deadlineMs = deadlineMinutes.toLongOrNull()
+                                    ?.let { minutes -> kotlinx.datetime.Clock.System.now().toEpochMilliseconds() + minutes.minutes.inWholeMilliseconds }
+
+                                // Flat enqueue() for all four trigger types — TaskChain.enqueue()
+                                // has no trigger slot at all (it only takes id/policy), so routing
+                                // through beginWith(...).enqueue() here would silently discard the
+                                // user's chosen delay/interval. tags/deadlineMs ARE on this flat
+                                // signature so they work uniformly; priority/isIdempotent are NOT
+                                // (they only exist on TaskRequest, used by chains) — demonstrated
+                                // separately in the "Priority & Idempotency" chain card instead.
                                 scheduler.enqueue(
                                     id = taskId,
                                     trigger = trigger,
                                     workerClassName = selectedWorker,
-                                    constraints = constraints
+                                    constraints = constraints,
+                                    tags = tags,
+                                    deadlineMs = deadlineMs
                                 )
-                                snackbarHostState.showSnackbar("Task '$taskId' scheduled [${selectedPriority.name}]")
+                                snackbarHostState.showSnackbar(
+                                    "Task '$taskId' scheduled" + if (tags.isNotEmpty()) " tags=$tags" else ""
+                                )
                             } catch (e: Exception) {
                                 snackbarHostState.showSnackbar("Error: ${e.message}")
                             }

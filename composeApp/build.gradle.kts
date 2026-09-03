@@ -86,6 +86,14 @@ kotlin {
         commonTest.dependencies {
             implementation(libs.kotlin.test)
         }
+        val androidInstrumentedTest by getting {
+            dependencies {
+                implementation(libs.kotlin.test)
+                implementation(libs.androidx.testExt.junit)
+                implementation(libs.androidx.test.runner)
+                implementation(libs.compose.ui.test.junit4.android)
+            }
+        }
     }
 }
 
@@ -118,5 +126,9 @@ android {
 
 dependencies {
     debugImplementation(compose.uiTooling)
+    // ComposeTestRule needs an Activity to host each test's composable content — this
+    // manifest provides a bare-bones one (androidx.compose.ui.test.junit4's
+    // ComponentActivity), added on the same debug variant the instrumented tests build against.
+    debugImplementation(libs.compose.ui.test.manifest)
 }
 

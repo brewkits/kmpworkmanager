@@ -4,6 +4,7 @@ import dev.brewkits.kmpworkmanager.background.domain.AndroidWorker
 import dev.brewkits.kmpworkmanager.background.domain.TaskCompletionEvent
 import dev.brewkits.kmpworkmanager.background.domain.TaskEventBus
 import dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
+import dev.brewkits.kmpworkmanager.background.domain.WorkerProgress
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.sample.utils.Logger
 import dev.brewkits.kmpworkmanager.sample.utils.LogTags
@@ -31,6 +32,11 @@ class UploadAndroidWorker : AndroidWorker {
             delay(300)
             uploaded += 10
             Logger.d(LogTags.WORKER, "Android: Upload progress: $uploaded/$totalSize MB")
+            // Real progress channel (WorkerEnvironment.progressListener) rather than a
+            // log-only simulation — this is what a Live Monitor screen actually observes.
+            env.progressListener?.onProgressUpdate(
+                WorkerProgress(progress = (uploaded * 100) / totalSize, message = "$uploaded/$totalSize MB")
+            )
         }
         TaskEventBus.emit(TaskCompletionEvent(taskName = "Upload", success = true, message = "Uploaded ${totalSize}MB successfully"))
         return WorkerResult.Success(message = "Uploaded ${totalSize}MB successfully")

@@ -46,3 +46,6 @@ actual fun getDummyCompressionOutputPath(context: Any): String {
     val filesDir = androidContext.filesDir
     return File(filesDir, "compressed.zip").absolutePath
 }
+
+actual fun checkAppGroupContainerStatus(identifier: String): String =
+    "App Group storage is iOS-only — not applicable on Android (WorkManager already persists across process death without a shared container)."
