@@ -274,6 +274,52 @@ Closes out Flutter parity Group 2 (`kmpworker-http`), the last unbuilt item from
   subtle bug if rushed. See `docs/ROADMAP.md` for the full reasoning; tracked as its own
   future milestone.
 
+### Security
+
+- **`kmpworkmanager-http`: `TokenRefresh` now reads the refresh-endpoint response through a
+  bounded channel instead of `bodyAsText()`**, so a misbehaving or compromised refresh
+  endpoint can no longer buffer unbounded RAM before JSON parsing.
+- **`HttpSyncWorker` now sanitizes the URL before persisting it into execution history**,
+  matching `HttpRequestWorker` — the raw URL (including query string) was previously leaking
+  into cleartext execution history.
+- **`ParallelHttpDownloadWorker` now enforces the same response-size cap `HttpDownloadWorker`
+  already has**, on both the chunked and sequential-fallback paths — neither previously had
+  any ceiling on download size.
+
+### Added
+
+- **Public API stability gate**: `binary-compatibility-validator` on `kmpworker` and
+  `kmpworker-http`, with a committed `.api` baseline. `apiCheck` runs as part of `check`
+  (already covered by CI's `common-tests` job) and catches unintentional public API drift
+  before merge.
+- **Kover line-coverage floor** on both modules, set from measured coverage
+  (`kmpworker` 65.0% → 60% floor, `kmpworker-http` 75.8% → 70% floor). `koverVerify` runs as
+  part of `check`.
+- **detekt static analysis** on all 4 publishable modules (`kmpworker`, `kmpworker-http`,
+  `kmpworker-ksp`, `kmpworker-annotations`), with a per-module baseline for pre-existing
+  findings and a shared `config/detekt/detekt.yml`. New CI job `static-analysis` runs it
+  explicitly since `kmpworker-ksp`/`kmpworker-annotations` aren't otherwise covered by the
+  `check` lifecycle in CI.
+- **Android enqueue-latency benchmark** (`NativeTaskSchedulerBenchmarkTest`) as the
+  Android-side counterpart to iOS's `QueuePerformanceBenchmark` — measures
+  `NativeTaskScheduler.enqueue()` latency (not a 1:1 port: Android has no file-backed queue to
+  benchmark, WorkManager owns that via its own Room database).
+- **Governance docs**: root `SECURITY.md` stub (GitHub resolves the root file first for the
+  repo's Security tab), `NOTICE` listing verified Apache-2.0 runtime dependencies of the
+  published artifacts, and a public-API-stability section in `CONTRIBUTING.md` describing the
+  new `apiDump`/`apiCheck` gate.
+
+### Fixed
+
+- **Vulnerability reporting now goes through GitHub Security Advisories everywhere**,
+  replacing scattered/inconsistent contact emails that previously differed across
+  `docs/SECURITY.md`, `CONTRIBUTING.md`, and three other docs.
+- `docs/SECURITY.md` supported-versions table and version stamp updated to 3.4.0, recording
+  the v3.4.0 security review (3 fixes above + 1 unverified finding).
+- `docs/COVERAGE.md` / `docs/PERFORMANCE.md`: added disclaimers — these documents' figures
+  predated the current version and referenced CI commands/tools that don't exist in this
+  repo; they now point to the benchmarks/gates that do.
+
 ## [3.3.1] - 2026-08-09
 
 A senior mobile QA/QC review pass across the whole library surfaced five further findings
