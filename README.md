@@ -20,9 +20,9 @@
 ```kotlin
 // build.gradle.kts
 commonMain.dependencies {
-    implementation("dev.brewkits:kmpworkmanager:3.4.0")          // core engine (no Ktor)
+    implementation("dev.brewkits:kmpworkmanager:3.4.1")          // core engine (no Ktor)
     // Optional — only if you use the built-in HTTP workers (Http*/ParallelHttp*).
-    implementation("dev.brewkits:kmpworkmanager-http:3.4.0")     // Ktor 3 HTTP workers
+    implementation("dev.brewkits:kmpworkmanager-http:3.4.1")     // Ktor 3 HTTP workers
 }
 ```
 
