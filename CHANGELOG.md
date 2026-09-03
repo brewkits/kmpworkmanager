@@ -23,6 +23,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `fileStorage.isTaskInDynamicQueue(id)` instead, for dynamic ids specifically — the same
   signal `observeTaskState`/`computeIosTaskState` already use for this id class.
   Fixes [#101](https://github.com/brewkits/kmpworkmanager/issues/101).
+- **iOS: `flushProgressBuffer` could silently regress chain progress**, violating its own
+  documented invariant (see CLAUDE.md's "Key Invariants"). Its `finally` block re-buffered
+  every item that failed to flush unconditionally
+  (`progressBuffer.putAll(remainingToFlush)`), with no check for a newer update having
+  arrived for that `chainId` in the meantime — `saveChainProgress()` only needs
+  `progressMutex`, which the outside-lock write loop doesn't hold, so it can (and does)
+  run concurrently. A failed write for one chain during that window could clobber a
+  legitimately newer in-memory value with the stale pre-failure snapshot; if the process
+  was then killed before the next successful flush, a resumed chain would re-run an
+  already-completed step, corrupting state for a non-idempotent worker. Fixed by only
+  restoring a re-buffered entry when `!progressBuffer.containsKey(chainId)`, matching the
+  documented contract.
+- **iOS: `DynamicTaskDispatcher` silently dropped a dynamic task if the host app's
+  `WorkerFactory.createWorker()` threw anything other than `IllegalArgumentException`**
+  (its documented "throw `IllegalArgumentException` only" contract — e.g. an
+  uninitialized-DI `NullPointerException`). The exception propagated past
+  `SingleTaskExecutor` (which only catches `IllegalArgumentException` around that call) to
+  a bare `catch (e: Exception) { Logger.e(...) }` in the dispatch loop — never reaching
+  `handleOneTimeResult` (orphaning a one-time task's metadata until the 7-day
+  `cleanupStaleMetadata` sweep) or `reschedulePeriodicTask` (silently and **permanently**
+  stopping a periodic task's recurring schedule, with the same 7-day sweep eventually
+  deleting it outright rather than healing it). Now converted to a retryable
+  `WorkerResult.Failure`, routed through the same result-handling both branches already
+  have.
+- **Android: `ExecutionRecord.errorMessage` was always persisted as `null`**, even for a
+  failed/abandoned task, despite the documented contract ("error message from the failing
+  step, or null on success") and despite the actual message (`WorkerResult.Failure.message`,
+  a retry-cap-reached reason, or a caught exception's `.message`) being available in scope
+  at every place `historyStatus` was set to a non-success value. `scheduler.getExecutionHistory()`
+  therefore lost all diagnostic detail for why a task failed on Android — the live
+  `TaskCompletionEvent`/`TelemetryHook.TaskFailedEvent` still carried the message correctly;
+  only the persisted history was affected. Fixed by threading a `historyErrorMessage`
+  variable alongside the existing `historyStatus`/`historyDuration` ones.
+- **Android: `OverflowFileRegistry.register()` did not delete the previous overflow file
+  before overwriting an existing `taskId`'s entry** (e.g. `ExistingPolicy.REPLACE`
+  rescheduling the same id with a new large input, or an exact alarm being rescheduled).
+  The old physical file became unreachable through the registry — only one entry per
+  `taskId` is ever kept — and leaked in `cacheDir` until the 24h janitor sweep, undermining
+  the registry's whole purpose of immediate cleanup for this common reschedule case.
+  Fixed by deleting the stale file (if different from the new one) before overwriting the
+  entry.
+- **`kmpworker-http`: `installSecureRedirectFollowing` rejected every relative `Location`
+  header** (e.g. `/v2/resource`), a form explicitly permitted by RFC 7231 §7.1.2 and common
+  behind reverse proxies. `SecurityValidator.validateURL` requires an absolute
+  `http(s)://` URL, so a relative header was validated as "unsafe" and the whole request
+  failed with `IllegalStateException`, even for a same-origin redirect. Fixed by resolving
+  the header against the current request's URL (`URLBuilder.takeFrom(String)`, which keeps
+  the base's protocol/host/port when the string omits them — the same mechanism Ktor's own
+  built-in `HttpRedirect` plugin uses) before validating and using it.
+- **Common: `TaskTrigger.Windowed(earliest, latest)` did not validate `latest >= earliest`.**
+  An inverted window still passed the "already expired" guard (`trigger.latest < now`) if
+  both bounds were in the future, but any caller (both platforms) that defaults a task's
+  `deadlineMs` to `latest` then computed a deadline earlier than the task's own earliest
+  allowed start — the task would always be silently skipped as deadline-exceeded before it
+  could ever run, with no error indicating why. Now throws `IllegalArgumentException` at
+  construction, consistent with `Periodic`'s existing validation style.
 
 ## [3.4.0] - 2026-09-03
 

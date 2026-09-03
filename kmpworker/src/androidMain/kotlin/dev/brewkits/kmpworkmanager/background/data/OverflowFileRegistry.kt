@@ -147,12 +147,33 @@ internal object OverflowFileRegistry {
      *
      * Safe to call with a null path — becomes a no-op so callers can pass through the
      * `inputJson <= threshold` branch without an `if (overflow) register else nothing`.
+     *
+     * If `taskId` already has an entry (e.g. `ExistingPolicy.REPLACE` rescheduling the same
+     * id with a new large input, or an exact alarm being rescheduled), the OLD overflow file
+     * it pointed to is deleted before the entry is overwritten with the new path — otherwise
+     * that old file becomes unreachable through the registry (only `taskId`'s single entry
+     * slot is ever consulted) and leaks in `cacheDir` until the 24h janitor sweep, defeating
+     * this registry's whole purpose of immediate cleanup for the common reschedule case.
      */
     fun register(context: Context, taskId: String, path: String?) {
         if (path == null) return
         migrateLegacyEntriesIfNeeded(context)
         try {
-            writeEntryAtomic(entryFile(context, taskId), path)
+            val target = entryFile(context, taskId)
+            if (target.exists()) {
+                val oldPath = target.readText()
+                if (oldPath != path) {
+                    try {
+                        val oldFile = File(oldPath)
+                        if (oldFile.exists() && oldFile.delete()) {
+                            Logger.d(LogTags.ALARM, "OverflowFileRegistry: replaced overflow file for '$taskId', deleted stale: $oldPath")
+                        }
+                    } catch (e: Exception) {
+                        Logger.w(LogTags.ALARM, "OverflowFileRegistry: failed to delete stale overflow file for '$taskId' ($oldPath): ${e.message}")
+                    }
+                }
+            }
+            writeEntryAtomic(target, path)
         } catch (e: Exception) {
             Logger.w(LogTags.ALARM, "OverflowFileRegistry.register failed for '$taskId': ${e.message}", e)
         }

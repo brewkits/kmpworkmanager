@@ -154,6 +154,7 @@ abstract class BaseKmpWorker : CoroutineWorker {
         var wasCancelled = false
         var historyStatus: ExecutionStatus? = null
         var historyDuration = 0L
+        var historyErrorMessage: String? = null
 
         KmpWorkManagerRuntime.notifyTaskStarted(
             TelemetryHook.TaskStartedEvent(
@@ -222,6 +223,7 @@ abstract class BaseKmpWorker : CoroutineWorker {
             if (checkBatteryGuard()) {
                 isRetrying = true
                 historyStatus = ExecutionStatus.FAILURE
+                historyErrorMessage = "Deferred — battery below configured minimum"
                 return Result.retry()
             }
 
@@ -305,6 +307,7 @@ abstract class BaseKmpWorker : CoroutineWorker {
                     val retriesExhausted = maxRetries in 0..runAttemptCount
                     val willRetry = result.shouldRetry && !retriesExhausted
                     historyStatus = if (willRetry) ExecutionStatus.FAILURE else ExecutionStatus.ABANDONED
+                    historyErrorMessage = result.message
                     if (willRetry) {
                         isRetrying = true
                         return Result.retry()
@@ -361,6 +364,7 @@ abstract class BaseKmpWorker : CoroutineWorker {
                             )
                         )
                         historyStatus = ExecutionStatus.ABANDONED
+                        historyErrorMessage = "Retry cap reached: ${result.reason}"
                         return Result.failure()
                     }
 
@@ -381,6 +385,7 @@ abstract class BaseKmpWorker : CoroutineWorker {
                         )
                     )
                     historyStatus = ExecutionStatus.FAILURE
+                    historyErrorMessage = "Retry requested: ${result.reason}"
                     isRetrying = true
                     return Result.retry()
                 }
@@ -441,6 +446,7 @@ abstract class BaseKmpWorker : CoroutineWorker {
                 )
             )
             historyStatus = if (isPermanentFailure) ExecutionStatus.ABANDONED else ExecutionStatus.FAILURE
+            historyErrorMessage = e.message ?: "Unknown exception"
             if (isPermanentFailure) {
                 return Result.failure()
             } else {
@@ -491,7 +497,7 @@ abstract class BaseKmpWorker : CoroutineWorker {
                                 totalSteps = totalSteps ?: 1,
                                 completedSteps = if (historyStatus == ExecutionStatus.SUCCESS) 1 else 0,
                                 failedStep = if (historyStatus != ExecutionStatus.SUCCESS) (stepIndex ?: 0) else null,
-                                errorMessage = null,
+                                errorMessage = historyErrorMessage,
                                 retryCount = runAttemptCount,
                                 platform = "android",
                                 workerClassNames = listOf(workerClassName)

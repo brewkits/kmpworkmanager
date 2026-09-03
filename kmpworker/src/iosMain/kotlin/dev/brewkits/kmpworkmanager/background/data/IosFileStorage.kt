@@ -1166,10 +1166,19 @@ public class IosFileStorage(
             // saveChainProgress() from blocking indefinitely on the signal.
             progressMutex.withLock {
                 flushCompletionSignal = null
-                
-                // Re-buffer any items that failed or were cancelled to prevent data loss
-                if (remainingToFlush.isNotEmpty()) {
-                    progressBuffer.putAll(remainingToFlush)
+
+                // Re-buffer any items that failed or were cancelled to prevent data loss —
+                // but ONLY if no newer update arrived for that chainId while we were writing
+                // outside the lock. saveChainProgress() can run concurrently during that
+                // window (it only needs progressMutex, which this loop doesn't hold), so an
+                // unconditional putAll() here would clobber a legitimately newer in-memory
+                // value with this stale pre-failure snapshot — silently regressing progress
+                // and, after a crash before the next successful flush, causing a resumed
+                // chain to re-run an already-completed step with a non-idempotent worker.
+                for ((chainId, progress) in remainingToFlush) {
+                    if (!progressBuffer.containsKey(chainId)) {
+                        progressBuffer[chainId] = progress
+                    }
                 }
                 
                 // Re-schedule a flush if new items arrived or if we rebuffered items.

@@ -241,4 +241,94 @@ class IosDynamicTaskDispatcherTest {
             storage.close()
         }
     }
+
+    // ==================== Unexpected factory exception handling (#see CHANGELOG) ====================
+    //
+    // SingleTaskExecutor only catches IllegalArgumentException around
+    // workerFactory.createWorker() (its documented contract). A host app's factory can throw
+    // something else entirely — these tests pin that such an exception is treated as a
+    // retryable failure (routed through handleOneTimeResult / reschedulePeriodicTask) instead
+    // of being swallowed by a bare log line that silently orphans a one-time task or
+    // permanently stops a periodic task's schedule.
+
+    @Test
+    fun `one-time task survives an unexpected exception from the worker factory`() = runTest {
+        val storage = makeStorage("factory-throws-onetime")
+
+        val throwingFactory = object : IosWorkerFactory {
+            override fun createWorker(workerClassName: String): IosWorker {
+                throw NullPointerException("DI container not initialized")
+            }
+        }
+
+        val executor = SingleTaskExecutor(throwingFactory)
+        val dispatcher = DynamicTaskDispatcher(executor, storage)
+
+        storage.saveTaskMetadata("task-npe", mapOf("workerClassName" to "Worker"), false)
+        storage.enqueueTask("task-npe")
+
+        try {
+            val processedCount = dispatcher.executePendingTasks(makeSchedulerStub())
+
+            assertEquals(1, processedCount, "the task must still count as processed (handled), not silently dropped")
+            assertNotNull(
+                storage.loadTaskMetadata("task-npe", periodic = false),
+                "metadata must survive for a retry — the old behavior orphaned it until the 7-day sweep"
+            )
+            assertEquals(1, storage.getTasksQueueSize(), "the task must be re-enqueued for retry, not lost")
+        } finally {
+            storage.close()
+        }
+    }
+
+    @Test
+    fun `periodic task is still rescheduled after an unexpected exception from the worker factory`() = runTest {
+        val storage = makeStorage("factory-throws-periodic")
+        var enqueueCallCount = 0
+        val reschedulingScheduler = object : BackgroundTaskScheduler {
+            override suspend fun enqueue(id: String, trigger: TaskTrigger, workerClassName: String, constraints: Constraints, inputJson: String?, policy: ExistingPolicy, tags: Set<String>, deadlineMs: Long?): ScheduleResult {
+                enqueueCallCount++
+                return ScheduleResult.ACCEPTED
+            }
+            override fun cancel(id: String) {}
+            override fun cancelAll() {}
+            override fun cancelByTag(tag: String) {}
+            override fun cancelByWorkerClass(workerClassName: String) {}
+            override fun beginWith(task: TaskRequest): TaskChain = throw UnsupportedOperationException()
+            override fun beginWith(tasks: List<TaskRequest>): TaskChain = throw UnsupportedOperationException()
+            override suspend fun enqueueChain(chain: TaskChain, id: String?, policy: ExistingPolicy) {}
+            override fun flushPendingProgress() {}
+            override suspend fun getExecutionHistory(limit: Int): List<ExecutionRecord> = emptyList()
+            override suspend fun clearExecutionHistory() {}
+        }
+
+        val throwingFactory = object : IosWorkerFactory {
+            override fun createWorker(workerClassName: String): IosWorker {
+                throw IllegalStateException("host app misconfiguration")
+            }
+        }
+
+        val executor = SingleTaskExecutor(throwingFactory)
+        val dispatcher = DynamicTaskDispatcher(executor, storage)
+
+        storage.saveTaskMetadata(
+            "periodic-npe",
+            mapOf("workerClassName" to "Worker", "intervalMs" to "3600000", "isPeriodic" to "true"),
+            periodic = true
+        )
+        storage.enqueueTask("periodic-npe")
+
+        try {
+            val processedCount = dispatcher.executePendingTasks(reschedulingScheduler)
+
+            assertEquals(1, processedCount)
+            assertEquals(
+                1,
+                enqueueCallCount,
+                "reschedulePeriodicTask must still run — the old behavior silently and permanently stopped the periodic schedule"
+            )
+        } finally {
+            storage.close()
+        }
+    }
 }

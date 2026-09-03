@@ -8,6 +8,7 @@ import io.ktor.client.request.takeFrom
 import io.ktor.client.request.url
 import io.ktor.http.HttpHeaders
 import io.ktor.http.URLBuilder
+import io.ktor.http.takeFrom as takeFromUrlString
 
 /**
  * Installs security-aware manual redirect following on an [HttpClient] whose engine has
@@ -36,7 +37,17 @@ internal fun HttpClient.installSecureRedirectFollowing(): HttpClient {
         var call = execute(request)
         var hops = 0
         while (call.response.status.value in 301..308 && hops++ < 10) {
-            val location = call.response.headers[HttpHeaders.Location] ?: break
+            val locationHeader = call.response.headers[HttpHeaders.Location] ?: break
+
+            // Location may be relative (RFC 7231 §7.1.2 — e.g. "/v2/resource"), which is
+            // common behind reverse proxies. SecurityValidator.validateURL requires an
+            // absolute http(s):// URL, so validating the raw header would reject every
+            // legitimate same-origin relative redirect. Resolve it against the current
+            // request's URL first — URLBuilder.takeFrom(String) keeps the base's
+            // protocol/host/port when the string omits them (a relative path), exactly
+            // like Ktor's own built-in HttpRedirect plugin resolves Location headers.
+            val location = URLBuilder(request.url).apply { takeFromUrlString(locationHeader) }.buildString()
+
             if (!SecurityValidator.validateURL(location)) {
                 throw IllegalStateException(
                     "Redirect to unsafe URL blocked: ${SecurityValidator.sanitizedURL(location)}"

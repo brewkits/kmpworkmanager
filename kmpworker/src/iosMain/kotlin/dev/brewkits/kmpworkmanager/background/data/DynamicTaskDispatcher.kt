@@ -283,7 +283,25 @@ public class DynamicTaskDispatcher(
             Logger.i(LogTags.SCHEDULER, "DynamicTaskDispatcher: Executing '$taskId'")
 
             try {
-                val result = singleTaskExecutor.executeTask(meta.workerClassName, meta.inputJson, taskId = taskId)
+                // SingleTaskExecutor only catches IllegalArgumentException around
+                // workerFactory.createWorker() (its documented "throw IllegalArgumentException
+                // only" contract — see IosWorker.kt). A host app's factory implementation can
+                // throw anything else (e.g. an uninitialized-DI NullPointerException), which
+                // would otherwise propagate straight to this function's outer catch below and
+                // be swallowed by a bare log line — never reaching handleOneTimeResult (leaving
+                // a one-time task orphaned until the 7-day cleanupStaleMetadata sweep) or
+                // reschedulePeriodicTask (silently and permanently stopping a periodic task's
+                // recurring schedule, with no self-healing until that same 7-day sweep deletes
+                // it outright). Converting it to a retryable WorkerResult.Failure here routes it
+                // through the same result-handling both branches already have.
+                val result = try {
+                    singleTaskExecutor.executeTask(meta.workerClassName, meta.inputJson, taskId = taskId)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Logger.e(LogTags.SCHEDULER, "Dynamic task '$taskId' worker resolution threw unexpectedly — treating as a transient failure", e)
+                    WorkerResult.Failure("Unexpected exception resolving/running worker: ${e.message}", shouldRetry = true)
+                }
 
                 if (meta.isPeriodic) {
                     // Periodic tasks have their own re-schedule contract — every invocation
