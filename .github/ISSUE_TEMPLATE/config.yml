@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://github.com/brewkits/kmpworkmanager/tree/main/docs
+    about: Check the documentation for usage guides and examples
+  - name: Discussions
+    url: https://github.com/brewkits/kmpworkmanager/discussions
+    about: Ask questions and discuss ideas with the community
+  - name: Report a security vulnerability
+    url: https://github.com/brewkits/kmpworkmanager/security/advisories/new
+    about: Do not open a public issue for security vulnerabilities — see SECURITY.md

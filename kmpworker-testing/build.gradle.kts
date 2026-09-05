@@ -37,7 +37,7 @@ kotlin {
         iosSimulatorArm64()
     ).forEach {
         it.binaries.framework {
-            baseName = "kmpworker-annotations"
+            baseName = "kmpworker-testing"
             isStatic = true
         }
     }
@@ -45,18 +45,21 @@ kotlin {
     sourceSets {
         val commonMain by getting {
             dependencies {
-                // Pure annotations - no dependencies needed
+                // FakeBackgroundTaskScheduler implements BackgroundTaskScheduler and returns
+                // TaskChain/ExecutionRecord/etc. — those types are part of this module's own
+                // public API surface, so the dependency is `api`, not `implementation`.
+                api(project(":kmpworker"))
             }
         }
     }
 }
 
 android {
-    namespace = "dev.brewkits.kmpworkmanager.annotations"
-    compileSdk = 36
+    namespace = "dev.brewkits.kmpworkmanager.testing"
+    compileSdk = libs.versions.android.compileSdk.get().toInt()
 
     defaultConfig {
-        minSdk = 24
+        minSdk = libs.versions.android.minSdk.get().toInt()
     }
 
     compileOptions {
@@ -74,8 +77,8 @@ afterEvaluate {
         publications {
             withType<MavenPublication> {
                 pom {
-                    name.set("KMP WorkManager Annotations")
-                    description.set("Annotations for KMP WorkManager code generation.")
+                    name.set("KMP WorkManager Testing")
+                    description.set("Test doubles for KMP WorkManager — FakeBackgroundTaskScheduler and friends.")
                     url.set("https://github.com/brewkits/kmpworkmanager")
                     licenses {
                         license {
@@ -96,7 +99,7 @@ afterEvaluate {
                         url.set("https://github.com/brewkits/kmpworkmanager")
                     }
                 }
-                
+
                 artifact(mavenCentralJavadocJar)
             }
         }

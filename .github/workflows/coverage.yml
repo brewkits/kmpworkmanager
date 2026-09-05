@@ -1,0 +1,44 @@
+name: "Coverage Report"
+
+# Not a pull_request trigger, unlike build.yml/codeql.yml — this is a coverage report, not
+# a merge gate (koverVerify already runs as part of `check`, which build.yml's
+# common-tests job does gate on). Push-to-main plus an on-demand workflow_dispatch is the
+# right scope for "give humans an HTML report to click through".
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  coverage:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - uses: gradle/actions/setup-gradle@v6
+      - run: chmod +x gradlew
+
+      # Every module with the Kover plugin applied (kmpworker, kmpworker-http). Kover
+      # cannot instrument Kotlin/Native, so this is JVM/Android-side line coverage only —
+      # see each module's build.gradle.kts for the coverage floor rationale.
+      # kmpworker-ksp, kmpworker-annotations, kmpworker-testing have no Kover plugin: KSP is
+      # exercised through its own test task instead, and the other two are thin/pure
+      # surfaces a line-coverage floor wouldn't say anything meaningful about.
+      - name: Run Coverage (Kover)
+        run: >-
+          ./gradlew
+          :kmpworker:koverHtmlReport :kmpworker:koverVerify
+          :kmpworker-http:koverHtmlReport :kmpworker-http:koverVerify
+
+      - name: Upload Coverage Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            kmpworker/build/reports/kover/html
+            kmpworker-http/build/reports/kover/html
+          retention-days: 7

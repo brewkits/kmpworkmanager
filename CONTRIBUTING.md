@@ -30,7 +30,7 @@ cd kmpworkmanager
 
 ## 🔒 Public API Stability
 
-`kmpworker` and `kmpworker-http` use [Kotlin's binary-compatibility-validator](https://github.com/Kotlin/binary-compatibility-validator) to catch accidental public API changes. If your change touches a public class/function/property in either module:
+`kmpworker`, `kmpworker-http`, `kmpworker-annotations`, and `kmpworker-testing` use [Kotlin's binary-compatibility-validator](https://github.com/Kotlin/binary-compatibility-validator) to catch accidental public API changes. If your change touches a public class/function/property in any of these modules:
 
 1. Run `./gradlew apiDump` to regenerate the `.api` snapshot.
 2. Commit the updated `.api` file alongside your change.

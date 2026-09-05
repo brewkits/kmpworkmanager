@@ -49,11 +49,12 @@ jobs:
           retention-days: 7
 
   # ───────────────────────────────────────────────────────────────────────────
-  # Static analysis (detekt) across all 4 publish modules. Runs on ubuntu — detekt
-  # needs no macOS toolchain — in parallel with common-tests rather than gating it.
+  # Static analysis (detekt + binary compatibility) across all 5 publish modules.
+  # Runs on ubuntu — neither check needs a macOS toolchain — in parallel with
+  # common-tests rather than gating it.
   # ───────────────────────────────────────────────────────────────────────────
   static-analysis:
-    name: Static analysis (detekt)
+    name: Static analysis (detekt + binary compatibility)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -67,6 +68,7 @@ jobs:
         run: >-
           ./gradlew :kmpworker:detekt :kmpworker-http:detekt
           :kmpworker-ksp:detekt :kmpworker-annotations:detekt
+          :kmpworker-testing:detekt
       - name: Upload detekt reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -74,6 +76,13 @@ jobs:
           name: detekt-reports
           path: '**/build/reports/detekt/'
           retention-days: 7
+      # Binary Compatibility Validator: fails if a public API changed without a matching
+      # `apiDump` commit. kmpworker-ksp is excluded — it's a JVM-only annotation processor,
+      # never a runtime dependency of a consumer, so its "API" isn't a compatibility surface.
+      - name: Binary compatibility check
+        run: >-
+          ./gradlew :kmpworker:apiCheck :kmpworker-http:apiCheck
+          :kmpworker-annotations:apiCheck :kmpworker-testing:apiCheck
 
   # ───────────────────────────────────────────────────────────────────────────
   # iOS simulator tests across iOS runtime versions. Apple Silicon runners

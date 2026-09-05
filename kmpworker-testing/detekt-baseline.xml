@@ -1,0 +1,8 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>EmptyFunctionBlock:FakeBackgroundTaskScheduler.kt$FakeBackgroundTaskScheduler${}</ID>
+    <ID>TooManyFunctions:FakeBackgroundTaskScheduler.kt$FakeBackgroundTaskScheduler : BackgroundTaskScheduler</ID>
+  </CurrentIssues>
+</SmellBaseline>

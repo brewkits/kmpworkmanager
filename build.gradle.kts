@@ -12,10 +12,10 @@ plugins {
 }
 
 // Shared detekt config for every module that applies the plugin (kmpworker,
-// kmpworker-http, kmpworker-ksp, kmpworker-annotations) — avoids repeating the same
-// config{}/baseline{} block in each module's build.gradle.kts. Each module still applies
-// `alias(libs.plugins.detekt)` itself since there's no buildSrc/convention-plugin layer
-// in this repo (4 modules doesn't justify introducing one).
+// kmpworker-http, kmpworker-ksp, kmpworker-annotations, kmpworker-testing) — avoids
+// repeating the same config{}/baseline{} block in each module's build.gradle.kts. Each
+// module still applies `alias(libs.plugins.detekt)` itself since there's no buildSrc/
+// convention-plugin layer in this repo (5 modules doesn't justify introducing one).
 subprojects {
     plugins.withId("io.gitlab.arturbosch.detekt") {
         extensions.configure<io.gitlab.arturbosch.detekt.extensions.DetektExtension> {
@@ -117,6 +117,7 @@ tasks.register<Zip>("generateFullMavenZip") {
     dependsOn(":kmpworker-http:publishAllPublicationsToMavenCentralLocalRepository")
     dependsOn(":kmpworker-annotations:publishAllPublicationsToMavenCentralLocalRepository")
     dependsOn(":kmpworker-ksp:publishAllPublicationsToMavenCentralLocalRepository")
+    dependsOn(":kmpworker-testing:publishAllPublicationsToMavenCentralLocalRepository")
     
     // Checksums are handled by each module or a global step
     doFirst {

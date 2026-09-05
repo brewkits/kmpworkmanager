@@ -379,6 +379,27 @@ RFC 3986 UserInfo bypass and multi-`@` authority attacks are both handled. DNS r
 - `AppendOnlyQueueTest` — CRC32 corruption detection, truncation recovery, concurrent access
 - `SecurityValidatorTest` — SSRF, IPv6 compressed loopback, multi-`@` UserInfo bypass
 
+### Testing your own code
+
+Unit-test code that calls `BackgroundTaskScheduler` without touching real WorkManager or
+BGTaskScheduler by depending on `kmpworker-testing` and using `FakeBackgroundTaskScheduler`:
+
+```kotlin
+commonTest.dependencies {
+    implementation("dev.brewkits:kmpworker-testing:3.4.1")
+}
+```
+
+```kotlin
+val fakeScheduler = FakeBackgroundTaskScheduler()
+
+myViewModel.scheduleSync(fakeScheduler)
+
+assertEquals(1, fakeScheduler.enqueuedTasks.size)
+assertEquals("SyncWorker", fakeScheduler.enqueuedTasks.first().workerClassName)
+assertTrue(fakeScheduler.cancelledIds.isEmpty())
+```
+
 ---
 
 ## Documentation

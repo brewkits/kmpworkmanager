@@ -94,6 +94,12 @@ kotlin {
             // Kotest for property-based testing (v2.3.2+)
             implementation(libs.kotest.property)
             implementation(libs.kotest.framework.engine)
+            // FakeBackgroundTaskScheduler now lives in its own published module
+            // (extracted so external consumers can depend on it too). Safe despite
+            // kmpworker-testing's own `api(project(":kmpworker"))`: Gradle resolves this
+            // as commonTest(kmpworker) -> commonMain(kmpworker-testing) -> commonMain(kmpworker),
+            // which is a DAG, not a cycle back to commonTest(kmpworker).
+            implementation(project(":kmpworker-testing"))
         }
 
         androidInstrumentedTest.dependencies {
