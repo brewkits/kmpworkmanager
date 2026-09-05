@@ -81,11 +81,16 @@ jobs:
 
       # ── 5b. Build the public release-notes body from this version's changelog ─
       # The GitHub Release body must summarise what changed — NOT internal publish
-      # steps. We extract just the new version's section (git-cliff --latest) and
-      # append the install snippet.
+      # steps. We extract just the new version's section and append the install
+      # snippet. Must be --unreleased, NOT --latest: at this point in the workflow
+      # the new tag does not exist yet (tagging happens in step 6, after this), so
+      # "the latest tag" is still the PREVIOUS release — --latest silently produced
+      # last release's changelog as this release's body. --unreleased instead means
+      # "everything since the last real tag", which is exactly this release's commits,
+      # and --tag still supplies the version heading/timestamp to print on them.
       - name: Build release notes
         run: |
-          git-cliff --config cliff.toml --tag "${{ steps.version.outputs.tag }}" --latest --strip all > release_notes_body.md
+          git-cliff --config cliff.toml --tag "${{ steps.version.outputs.tag }}" --unreleased --strip all > release_notes_body.md
           {
             echo ""
             echo "## Install"
