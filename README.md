@@ -384,9 +384,12 @@ RFC 3986 UserInfo bypass and multi-`@` authority attacks are both handled. DNS r
 Unit-test code that calls `BackgroundTaskScheduler` without touching real WorkManager or
 BGTaskScheduler by depending on `kmpworker-testing` and using `FakeBackgroundTaskScheduler`:
 
+> **Ships starting with 3.5.0.** `kmpworker-testing` is new since the 3.4.1 release — it
+> is not published under 3.4.1 or any earlier version.
+
 ```kotlin
 commonTest.dependencies {
-    implementation("dev.brewkits:kmpworker-testing:3.4.1")
+    implementation("dev.brewkits:kmpworker-testing:3.5.0")
 }
 ```
 
