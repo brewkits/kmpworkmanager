@@ -25,6 +25,7 @@
     <ID>CyclomaticComplexMethod:NativeTaskScheduler.kt$NativeTaskScheduler$private suspend fun schedulePeriodicTask( id: String, trigger: TaskTrigger.Periodic, workerClassName: String, constraints: Constraints, inputJson: String?, policy: ExistingPolicy, tags: Set&lt;String&gt; = emptySet() ): ScheduleResult</ID>
     <ID>CyclomaticComplexMethod:NativeTaskScheduler.kt$NativeTaskScheduler$private suspend fun submitTaskRequest(request: BGTaskRequest, taskDescription: String): ScheduleResult</ID>
     <ID>CyclomaticComplexMethod:SecurityValidator.kt$SecurityValidator$private fun isPrivateIPv4(hostname: String): Boolean</ID>
+    <ID>CyclomaticComplexMethod:SecurityValidator.kt$SecurityValidator$private fun isPrivateIPv6(hostname: String): Boolean</ID>
     <ID>CyclomaticComplexMethod:StorageMigration.kt$StorageMigration$@Suppress("UNCHECKED_CAST") suspend fun migrate(): MigrationResult</ID>
     <ID>EmptyFunctionBlock:NativeTaskScheduler.kt$NativeTaskScheduler${}</ID>
     <ID>InstanceOfCheckForException:BaseKmpWorker.kt$BaseKmpWorker$e is ClassNotFoundException</ID>
@@ -86,7 +87,6 @@
     <ID>MaxLineLength:Contracts.kt$TaskTrigger.Periodic$"Ambiguous: runImmediately=false has no effect when initialDelayMs=${initialDelayMs}ms is already set. Use one or the other."</ID>
     <ID>MaxLineLength:DynamicTaskDispatcher.kt$DynamicTaskDispatcher$Logger.i(LogTags.SCHEDULER, "$remainingInQueue dynamic task(s) remaining - rescheduling master dispatcher")</ID>
     <ID>MaxLineLength:DynamicTaskDispatcher.kt$DynamicTaskDispatcher$val nextRetryEarliestMs = currentTimeMs() + computeBackoffDelayMs(backoffPolicy, backoffDelayMs, currentAttempt)</ID>
-    <ID>MaxLineLength:FileCompressionWorker.android.kt$message = "Compressed ${SecurityValidator.formatByteSize(originalSize)} to ${SecurityValidator.formatByteSize(compressedSize)} ($compressionRatio%)"</ID>
     <ID>MaxLineLength:IosBackgroundTaskHandler.kt$IosBackgroundTaskHandler$Logger.i(LogTags.SCHEDULER, "Task '$taskId' re-submitted after constraint deferral (attempt count unchanged)")</ID>
     <ID>MaxLineLength:IosEventStore.kt$IosEventStore$(content as NSString).writeToURL(safeUrl, atomically = true, encoding = NSUTF8StringEncoding, error = errorPtr.ptr)</ID>
     <ID>MaxLineLength:IosEventStore.kt$IosEventStore$fileManager.createDirectoryAtURL(url, withIntermediateDirectories = true, attributes = null, error = null)</ID>
@@ -190,6 +190,7 @@
     <ID>TooGenericExceptionCaught:ChainExecutor.kt$ChainExecutor$e: Exception</ID>
     <ID>TooGenericExceptionCaught:ChainExecutor.kt$ChainExecutor$e: Throwable</ID>
     <ID>TooGenericExceptionCaught:ChainExecutor.kt$ChainExecutor$re: Exception</ID>
+    <ID>TooGenericExceptionCaught:DefaultAlarmReceiver.kt$DefaultAlarmReceiver$e: Exception</ID>
     <ID>TooGenericExceptionCaught:DynamicTaskDispatcher.kt$DynamicTaskDispatcher$e: Exception</ID>
     <ID>TooGenericExceptionCaught:EventSyncManager.kt$EventSyncManager$e: Exception</ID>
     <ID>TooGenericExceptionCaught:FileCompressionWorker.android.kt$e: Exception</ID>
@@ -269,7 +270,6 @@
     <ID>UseCheckOrError:IosFileStorage.kt$IosFileStorage$throw IllegalStateException("Chain size exceeds limit")</ID>
     <ID>UseCheckOrError:IosFileStorage.kt$IosFileStorage$throw IllegalStateException("Could not locate Application Support directory")</ID>
     <ID>UseCheckOrError:IosFileStorage.kt$IosFileStorage$throw IllegalStateException("Failed to create directory: ${errorPtr.value?.localizedDescription ?: "Unknown error"}")</ID>
-    <ID>UseCheckOrError:IosFileStorage.kt$IosFileStorage$throw IllegalStateException("Failed to write file: ${errorPtr.value?.localizedDescription}")</ID>
     <ID>UseCheckOrError:IosFileStorage.kt$IosFileStorage$throw IllegalStateException("Queue size limit exceeded")</ID>
     <ID>UseCheckOrError:IosFileStorage.kt$IosFileStorage$throw IllegalStateException("Tasks queue size limit exceeded")</ID>
     <ID>UseCheckOrError:IosFileStorage.kt$IosFileStorage$throw IllegalStateException("test-induced flush failure (V250CloseFinallyTest)")</ID>

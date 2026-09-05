@@ -734,7 +734,9 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         steps.drop(1).forEachIndexed { offset, step ->
             val stepIndex = offset + 1
             continuation = continuation.then(
-                step.mapIndexed { taskIndex, task -> createWorkRequest(task, chainId, stepIndex, totalSteps, taskIndex) }
+                step.mapIndexed { taskIndex, task ->
+                    createWorkRequest(task, chainId, stepIndex, totalSteps, taskIndex)
+                }
             )
         }
         continuation.enqueue()

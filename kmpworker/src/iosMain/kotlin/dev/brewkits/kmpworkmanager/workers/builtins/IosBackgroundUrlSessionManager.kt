@@ -303,7 +303,10 @@ internal class IosBackgroundUrlSessionManagerDelegate : NSObject(), NSURLSession
                         error = errorPtr.ptr
                     )
                     if (!ok) {
-                        Logger.w(LogTags.WORKER, "replaceItemAtURL failed for id=$id dest=$savePath: ${errorPtr.value?.localizedDescription}")
+                        Logger.w(
+                            LogTags.WORKER,
+                            "replaceItemAtURL failed for id=$id dest=$savePath: ${errorPtr.value?.localizedDescription}"
+                        )
                     }
                     ok
                 }
@@ -312,7 +315,10 @@ internal class IosBackgroundUrlSessionManagerDelegate : NSObject(), NSURLSession
                     val errorPtr = alloc<ObjCObjectVar<NSError?>>()
                     val ok = fm.moveItemAtURL(didFinishDownloadingToURL, toURL = destURL, error = errorPtr.ptr)
                     if (!ok) {
-                        Logger.w(LogTags.WORKER, "moveItemAtURL failed for id=$id dest=$savePath: ${errorPtr.value?.localizedDescription}")
+                        Logger.w(
+                            LogTags.WORKER,
+                            "moveItemAtURL failed for id=$id dest=$savePath: ${errorPtr.value?.localizedDescription}"
+                        )
                     }
                     ok
                 }
@@ -320,7 +326,11 @@ internal class IosBackgroundUrlSessionManagerDelegate : NSObject(), NSURLSession
             if (moved) {
                 emitCompletion(workerName, success = true, message = "Background download saved to $savePath")
             } else {
-                emitCompletion(workerName, success = false, message = "Failed to move downloaded file to $savePath for id=$id")
+                emitCompletion(
+                    workerName,
+                    success = false,
+                    message = "Failed to move downloaded file to $savePath for id=$id"
+                )
             }
         } catch (e: Exception) {
             Logger.e(LogTags.WORKER, "Background download finalize failed for id=$id", e)

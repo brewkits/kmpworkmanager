@@ -105,7 +105,8 @@ internal actual suspend fun platformCompress(config: FileCompressionConfig): Wor
         }
 
         WorkerResult.Success(
-            message = "Compressed ${SecurityValidator.formatByteSize(originalSize)} to ${SecurityValidator.formatByteSize(compressedSize)} ($compressionRatio% of original size)",
+            message = "Compressed ${SecurityValidator.formatByteSize(originalSize)} to " +
+                "${SecurityValidator.formatByteSize(compressedSize)} ($compressionRatio% of original size)",
             data = buildJsonObject {
                 put("originalSize", originalSize)
                 put("compressedSize", compressedSize)

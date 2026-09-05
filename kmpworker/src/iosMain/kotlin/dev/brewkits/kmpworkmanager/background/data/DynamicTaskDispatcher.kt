@@ -299,8 +299,15 @@ public class DynamicTaskDispatcher(
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    Logger.e(LogTags.SCHEDULER, "Dynamic task '$taskId' worker resolution threw unexpectedly — treating as a transient failure", e)
-                    WorkerResult.Failure("Unexpected exception resolving/running worker: ${e.message}", shouldRetry = true)
+                    Logger.e(
+                        LogTags.SCHEDULER,
+                        "Dynamic task '$taskId' worker resolution threw unexpectedly — treating as a transient failure",
+                        e
+                    )
+                    WorkerResult.Failure(
+                        "Unexpected exception resolving/running worker: ${e.message}",
+                        shouldRetry = true
+                    )
                 }
 
                 if (meta.isPeriodic) {

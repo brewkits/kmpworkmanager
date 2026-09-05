@@ -1771,7 +1771,7 @@ public class IosFileStorage(
                     error = errorPtr.ptr
                 )
                 if (!success) {
-                    throw IllegalStateException("Failed to write file: ${errorPtr.value?.localizedDescription}")
+                    error("Failed to write file: ${errorPtr.value?.localizedDescription}")
                 }
             }
             return
@@ -1779,15 +1779,20 @@ public class IosFileStorage(
 
         // Target exists — atomically replace via a temp file + replaceItemAtURL.
         val tempURL = url.URLByAppendingPathExtension("tmp-${NSUUID().UUIDString()}")
-            ?: throw IllegalStateException("Failed to construct temp URL for atomic write: $path")
+            ?: error("Failed to construct temp URL for atomic write: $path")
         val tempPath = tempURL.path
-            ?: throw IllegalStateException("Temp URL has no path for atomic write: $path")
+            ?: error("Temp URL has no path for atomic write: $path")
 
         memScoped {
             val errorPtr = alloc<ObjCObjectVar<NSError?>>()
-            val wroteTemp = nsString.writeToFile(tempPath, atomically = false, encoding = NSUTF8StringEncoding, error = errorPtr.ptr)
+            val wroteTemp = nsString.writeToFile(
+                tempPath,
+                atomically = false,
+                encoding = NSUTF8StringEncoding,
+                error = errorPtr.ptr
+            )
             if (!wroteTemp) {
-                throw IllegalStateException("Failed to write temp file for atomic replace: ${errorPtr.value?.localizedDescription}")
+                error("Failed to write temp file for atomic replace: ${errorPtr.value?.localizedDescription}")
             }
 
             val replaced = fileManager.replaceItemAtURL(
@@ -1801,13 +1806,28 @@ public class IosFileStorage(
 
             if (!replaced) {
                 val error = errorPtr.value
-                Logger.w(LogTags.CHAIN, "replaceItemAtURL failed for $path (${error?.localizedDescription}) — falling back to direct write")
+                Logger.w(
+                    LogTags.CHAIN,
+                    "replaceItemAtURL failed for $path (${error?.localizedDescription}) — falling back to direct write"
+                )
                 // replaceItemAtURL consumes the temp file on success; on failure it may or may
                 // not still be there depending on how far it got — clean up defensively.
-                try { fileManager.removeItemAtPath(tempPath, null) } catch (e: Exception) { /* best-effort */ }
-                val fallbackOk = nsString.writeToFile(path, atomically = true, encoding = NSUTF8StringEncoding, error = errorPtr.ptr)
+                try {
+                    fileManager.removeItemAtPath(tempPath, null)
+                } catch (e: Exception) {
+                    Logger.w(LogTags.CHAIN, "Best-effort temp file cleanup failed (ignored): ${e.message}")
+                }
+                val fallbackOk = nsString.writeToFile(
+                    path,
+                    atomically = true,
+                    encoding = NSUTF8StringEncoding,
+                    error = errorPtr.ptr
+                )
                 if (!fallbackOk) {
-                    throw IllegalStateException("Failed to write file (fallback after replaceItemAtURL failure): ${errorPtr.value?.localizedDescription}")
+                    error(
+                        "Failed to write file (fallback after replaceItemAtURL failure): " +
+                            "${errorPtr.value?.localizedDescription}"
+                    )
                 }
             }
         }

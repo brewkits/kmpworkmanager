@@ -12,6 +12,7 @@ import android.os.StatFs
 import android.os.PowerManager
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import dev.brewkits.kmpworkmanager.background.data.NativeTaskScheduler
 import kotlinx.coroutines.guava.await
 
 /**
@@ -35,7 +36,7 @@ class AndroidWorkerDiagnostics(
         // Get all pending/running work. Must match the tag NativeTaskScheduler actually
         // applies (NativeTaskScheduler.TAG_KMP_TASK = "kmp-worker-task") — a stale literal
         // here previously never matched any WorkRequest, so this always reported 0 tasks.
-        val workInfos = workManager.getWorkInfosByTag(dev.brewkits.kmpworkmanager.background.data.NativeTaskScheduler.TAG_KMP_TASK).await()
+        val workInfos = workManager.getWorkInfosByTag(NativeTaskScheduler.TAG_KMP_TASK).await()
         val pendingTasks = workInfos.count {
             it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.RUNNING
         }

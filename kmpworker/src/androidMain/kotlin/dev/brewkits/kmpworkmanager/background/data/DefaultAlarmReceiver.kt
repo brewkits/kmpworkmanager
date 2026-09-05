@@ -46,7 +46,7 @@ internal class DefaultAlarmReceiver : BaseAlarmReceiver() {
                     "KmpWorkManager.initialize() in Application.onCreate().",
                 e
             )
-            emitFailure(taskId, workerClassName, "KmpWorkManager not initialized")
+            emitFailure(workerClassName, "KmpWorkManager not initialized")
             return
         }
 
@@ -54,13 +54,13 @@ internal class DefaultAlarmReceiver : BaseAlarmReceiver() {
             factory.createWorker(workerClassName)
         } catch (e: Exception) {
             Logger.e(LogTags.ALARM, "Failed to create worker '$workerClassName' for exact alarm '$taskId'", e)
-            emitFailure(taskId, workerClassName, "Worker creation failed: ${e.message}")
+            emitFailure(workerClassName, "Worker creation failed: ${e.message}")
             return
         }
 
         if (worker == null) {
             Logger.e(LogTags.ALARM, "Worker not found for exact alarm '$taskId': $workerClassName")
-            emitFailure(taskId, workerClassName, "Worker not found: $workerClassName")
+            emitFailure(workerClassName, "Worker not found: $workerClassName")
             return
         }
 
@@ -71,7 +71,7 @@ internal class DefaultAlarmReceiver : BaseAlarmReceiver() {
             worker.doWork(inputJson, env)
         } catch (e: Exception) {
             Logger.e(LogTags.ALARM, "Worker '$workerClassName' threw for exact alarm '$taskId'", e)
-            emitFailure(taskId, workerClassName, "Worker threw: ${e.message}")
+            emitFailure(workerClassName, "Worker threw: ${e.message}")
             return
         } finally {
             worker.close()
@@ -102,7 +102,7 @@ internal class DefaultAlarmReceiver : BaseAlarmReceiver() {
             }
             is WorkerResult.Failure -> {
                 Logger.w(LogTags.ALARM, "Exact-alarm task '$taskId' ($workerClassName) failed: ${result.message}")
-                emitFailure(taskId, workerClassName, result.message, durationMs = duration)
+                emitFailure(workerClassName, result.message, durationMs = duration)
             }
             is WorkerResult.Retry -> {
                 // Exact alarms are one-shot AlarmManager broadcasts — there is no scheduler-level
@@ -113,12 +113,16 @@ internal class DefaultAlarmReceiver : BaseAlarmReceiver() {
                     "Exact-alarm task '$taskId' ($workerClassName) requested a retry " +
                         "(${result.reason}), but exact alarms do not support retry/backoff — treating as failure."
                 )
-                emitFailure(taskId, workerClassName, "Retry requested but not supported for exact alarms: ${result.reason}", durationMs = duration)
+                emitFailure(
+                    workerClassName,
+                    "Retry requested but not supported for exact alarms: ${result.reason}",
+                    durationMs = duration
+                )
             }
         }
     }
 
-    private suspend fun emitFailure(taskId: String, workerClassName: String, message: String?, durationMs: Long = 0L) {
+    private suspend fun emitFailure(workerClassName: String, message: String?, durationMs: Long = 0L) {
         val errorMessage = message ?: "Unknown failure"
         TaskEventManager.emit(
             TaskCompletionEvent(

@@ -158,19 +158,32 @@ internal object OverflowFileRegistry {
     fun register(context: Context, taskId: String, path: String?) {
         if (path == null) return
         migrateLegacyEntriesIfNeeded(context)
+
+        // Local (not member) function on purpose — keeps this one-off helper out of
+        // OverflowFileRegistry's public function count while still de-nesting register().
+        fun deleteStaleOverflowFile(oldPath: String) {
+            try {
+                val oldFile = File(oldPath)
+                if (oldFile.exists() && oldFile.delete()) {
+                    Logger.d(
+                        LogTags.ALARM,
+                        "OverflowFileRegistry: replaced overflow file for '$taskId', deleted stale: $oldPath"
+                    )
+                }
+            } catch (e: Exception) {
+                Logger.w(
+                    LogTags.ALARM,
+                    "OverflowFileRegistry: failed to delete stale overflow file for '$taskId' ($oldPath): ${e.message}"
+                )
+            }
+        }
+
         try {
             val target = entryFile(context, taskId)
             if (target.exists()) {
                 val oldPath = target.readText()
                 if (oldPath != path) {
-                    try {
-                        val oldFile = File(oldPath)
-                        if (oldFile.exists() && oldFile.delete()) {
-                            Logger.d(LogTags.ALARM, "OverflowFileRegistry: replaced overflow file for '$taskId', deleted stale: $oldPath")
-                        }
-                    } catch (e: Exception) {
-                        Logger.w(LogTags.ALARM, "OverflowFileRegistry: failed to delete stale overflow file for '$taskId' ($oldPath): ${e.message}")
-                    }
+                    deleteStaleOverflowFile(oldPath)
                 }
             }
             writeEntryAtomic(target, path)
@@ -249,7 +262,11 @@ internal object OverflowFileRegistry {
         val matches = try {
             dir.listFiles { file -> file.name.startsWith(encodedPrefix) && file.name.endsWith(ENTRY_SUFFIX) }
         } catch (e: Exception) {
-            Logger.w(LogTags.ALARM, "OverflowFileRegistry.consumeAndDeleteForChain failed to list entries for '$chainId': ${e.message}", e)
+            Logger.w(
+                LogTags.ALARM,
+                "OverflowFileRegistry.consumeAndDeleteForChain failed to list entries for '$chainId': ${e.message}",
+                e
+            )
             null
         } ?: return 0
 
@@ -260,10 +277,16 @@ internal object OverflowFileRegistry {
                 val file = File(path)
                 if (file.exists() && file.delete()) {
                     deleted++
-                    Logger.d(LogTags.ALARM, "OverflowFileRegistry: deleted chain-step overflow file for '$chainId': $path")
+                    Logger.d(
+                        LogTags.ALARM,
+                        "OverflowFileRegistry: deleted chain-step overflow file for '$chainId': $path"
+                    )
                 }
             } catch (e: Exception) {
-                Logger.w(LogTags.ALARM, "OverflowFileRegistry: chain-step file delete failed for '$chainId' (${entry.name}): ${e.message}")
+                Logger.w(
+                    LogTags.ALARM,
+                    "OverflowFileRegistry: chain-step file delete failed for '$chainId' (${entry.name}): ${e.message}"
+                )
             } finally {
                 entry.delete()
             }

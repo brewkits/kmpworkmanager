@@ -327,8 +327,12 @@ public class NativeTaskScheduler(
             try {
                 withTimeout(SCHEDULING_TIMEOUT_MS) { dispatchScheduling() }
             } catch (e: TimeoutCancellationException) {
-                Logger.e(LogTags.SCHEDULER, "enqueue() for '$id' did not complete within ${SCHEDULING_TIMEOUT_MS}ms — " +
-                    "rejecting rather than holding schedulingMutex indefinitely (would otherwise block every other enqueue() call).")
+                Logger.e(
+                    LogTags.SCHEDULER,
+                    "enqueue() for '$id' did not complete within ${SCHEDULING_TIMEOUT_MS}ms — " +
+                        "rejecting rather than holding schedulingMutex indefinitely " +
+                        "(would otherwise block every other enqueue() call)."
+                )
                 ScheduleResult.REJECTED_OS_POLICY
             }
         }
