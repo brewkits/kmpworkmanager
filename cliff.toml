@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 """
 
+# The bullet is the commit SUBJECT only — `commit.message` in git-cliff does not include the
+# body. A commit whose consumer-facing impact lives in its body therefore reaches the reader
+# as one terse line, which is why anything a consumer must ACT on has to travel in a
+# `BREAKING CHANGE:` footer: that is the one piece of body text rendered below, verbatim.
 body = """
 {% if version %}\
 ## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
@@ -20,6 +24,9 @@ body = """
 {% for commit in commits %}
 - {% if commit.breaking %}**BREAKING** {% endif %}{{ commit.message | upper_first }} \
 ([`{{ commit.id | truncate(length=7, end="") }}`](https://github.com/brewkits/kmpworkmanager/commit/{{ commit.id }}))\
+{% if commit.breaking and commit.breaking_description %}
+  **Migration:** {{ commit.breaking_description }}\
+{% endif %}\
 {% endfor %}
 {% endfor %}\n
 """

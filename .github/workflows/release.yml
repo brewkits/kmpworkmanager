@@ -70,12 +70,22 @@ jobs:
       - name: Install git-cliff
         run: brew install git-cliff
 
+      # --prepend, NOT --output. `--output CHANGELOG.md` regenerates the WHOLE file from
+      # commit subjects, so every release silently replaced the hand-written changelog with
+      # one-line bullets: 931 lines of prose down to 423, with the detailed 3.4.1 entry and
+      # everything before it destroyed. `--prepend` writes only the new version's section
+      # under the existing header and leaves the rest of the file alone.
+      #
+      # Same shape of bug as 1b237c5 (--latest vs --unreleased): a git-cliff flag that does
+      # something adjacent to what was intended, and produces plausible-looking output while
+      # doing it, so nothing fails and nobody notices.
       - name: Generate CHANGELOG
         run: |
           git-cliff \
             --config cliff.toml \
             --tag "${{ steps.version.outputs.tag }}" \
-            --output CHANGELOG.md
+            --unreleased \
+            --prepend CHANGELOG.md
           echo "--- CHANGELOG preview (first 60 lines) ---"
           head -60 CHANGELOG.md
 
