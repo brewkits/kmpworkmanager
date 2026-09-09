@@ -1,0 +1,8 @@
+# Canonical identity for the repository author. Four spellings of the same person
+# appear in the history (two mail addresses, three renderings of the name); this
+# collapses them so `git shortlog -sne` and GitHub's contributor graph show one
+# contributor rather than four.
+Nguyễn Tuấn Việt <vietnguyentuan@gmail.com>
+Nguyễn Tuấn Việt <vietnguyentuan@gmail.com> <viet.nguyen@sungrove.co.jp>
+Nguyễn Tuấn Việt <vietnguyentuan@gmail.com> Viet Nguyen <vietnguyentuan@gmail.com>
+Nguyễn Tuấn Việt <vietnguyentuan@gmail.com> Viet, Nguyen Tuan <vietnguyentuan@gmail.com>

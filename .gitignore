@@ -139,3 +139,7 @@ test-results/
 *-PROFESSIONAL-REVIEW.md
 *-COMPREHENSIVE-REVIEW.md
 **/bin/
+
+# UI Automator hierarchy dumps (uiautomator dump) — accidental artifacts, never inputs
+demos.xml
+view.xml

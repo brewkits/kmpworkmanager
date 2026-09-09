@@ -1,5 +1,8 @@
 package dev.brewkits.kmpworkmanager.background.domain
 
+import dev.brewkits.kmpworkmanager.utils.LogTags
+import dev.brewkits.kmpworkmanager.utils.Logger
+import kotlinx.atomicfu.atomic
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 
@@ -65,8 +68,15 @@ interface BackgroundTaskScheduler {
      * override it; the default logs nothing and cancels nothing.
      */
     fun cancelByTag(tag: String) {
-        // Intentionally empty: see KDoc. A custom scheduler that never implemented tagging
-        // has nothing to cancel, and throwing here would break callers of a working app.
+        // Intentionally does not cancel: see KDoc. A custom scheduler that never implemented
+        // tagging has nothing to cancel, and throwing here would break callers of a working app.
+        // It does warn, once, because a silent no-op is indistinguishable from a successful
+        // cancellation at the call site — the caller believes the work is gone when it is not.
+        UnimplementedCancellation.warnOnce(
+            member = "cancelByTag",
+            argument = tag,
+            receiver = this
+        )
     }
 
     /**
@@ -83,7 +93,12 @@ interface BackgroundTaskScheduler {
      * Has a no-op default for the same source-compatibility reason as [cancelByTag].
      */
     fun cancelByWorkerClass(workerClassName: String) {
-        // Intentionally empty: see cancelByTag.
+        // Intentionally does not cancel, and warns once: see cancelByTag.
+        UnimplementedCancellation.warnOnce(
+            member = "cancelByWorkerClass",
+            argument = workerClassName,
+            receiver = this
+        )
     }
 
     /**
@@ -182,4 +197,39 @@ interface BackgroundTaskScheduler {
         workerClassNames: Set<String> = emptySet(),
         states: Set<TaskState.Kind> = emptySet()
     ): List<QueriedTask> = emptyList()
+}
+
+/**
+ * Warns, at most once per member per process, that a [BackgroundTaskScheduler] implementation
+ * inherited a cancellation method that cancels nothing.
+ *
+ * The defaults on [BackgroundTaskScheduler.cancelByTag] and
+ * [BackgroundTaskScheduler.cancelByWorkerClass] exist for source compatibility, so they must
+ * not throw. But a caller cannot tell "nothing matched the tag" apart from "this scheduler
+ * never implemented tagging" — both look like a successful cancellation, and the work keeps
+ * running. One WARN at the first call names the offending class so the gap is visible in a
+ * log without turning every subsequent call into noise.
+ */
+private object UnimplementedCancellation {
+
+    // Set, not a Boolean pair: the key is member + implementing class, so two different
+    // schedulers in one process each get their own warning instead of the second being
+    // swallowed by the first. Guarded by an atomic ref because this is called from any thread.
+    private val warned = atomic(emptySet<String>())
+
+    fun warnOnce(member: String, argument: String, receiver: BackgroundTaskScheduler) {
+        val implName = receiver::class.simpleName ?: "unknown"
+        val key = "$implName#$member"
+        while (true) {
+            val current = warned.value
+            if (key in current) return
+            if (warned.compareAndSet(current, current + key)) break
+        }
+        Logger.w(
+            LogTags.SCHEDULER,
+            "$implName does not implement $member() — the call for '$argument' cancelled nothing. " +
+                "This is the no-op default on BackgroundTaskScheduler; override $member() " +
+                "if this scheduler is expected to support it."
+        )
+    }
 }

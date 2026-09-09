@@ -1,11 +1,21 @@
 package dev.brewkits.kmpworkmanager
 
+import dev.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
+import dev.brewkits.kmpworkmanager.background.domain.Constraints
+import dev.brewkits.kmpworkmanager.background.domain.ExistingPolicy
+import dev.brewkits.kmpworkmanager.background.domain.ScheduleResult
+import dev.brewkits.kmpworkmanager.background.domain.TaskChain
 import dev.brewkits.kmpworkmanager.background.domain.TaskCompletionEvent
 import dev.brewkits.kmpworkmanager.background.domain.TaskEventBus
 import dev.brewkits.kmpworkmanager.background.domain.TaskEventManager
+import dev.brewkits.kmpworkmanager.background.domain.TaskRequest
+import dev.brewkits.kmpworkmanager.background.domain.TaskTrigger
+import dev.brewkits.kmpworkmanager.background.domain.ExecutionRecord
 import dev.brewkits.kmpworkmanager.persistence.EventStore
 import dev.brewkits.kmpworkmanager.persistence.StoredEvent
 import dev.brewkits.kmpworkmanager.utils.BackoffJitter
+import dev.brewkits.kmpworkmanager.utils.CustomLogger
+import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.workers.utils.SecurityValidator
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.filter
@@ -249,5 +259,131 @@ class V350BugFixesTest {
             val sanitized = SecurityValidator.sanitizedURL(input)
             assertFalse(sanitized.contains("pass"), "credentials must not survive in '$sanitized'")
         }
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Phase 6 — the no-op cancellation defaults were silent
+    // ---------------------------------------------------------------------------------------
+
+    /**
+     * A scheduler that inherits every default. Represents a third-party or test implementation
+     * written before cancelByTag/cancelByWorkerClass existed.
+     */
+    private open class DefaultsOnlyScheduler : BackgroundTaskScheduler {
+        override suspend fun enqueue(
+            id: String,
+            trigger: TaskTrigger,
+            workerClassName: String,
+            constraints: Constraints,
+            inputJson: String?,
+            policy: ExistingPolicy,
+            tags: Set<String>,
+            deadlineMs: Long?
+        ): ScheduleResult = ScheduleResult.ACCEPTED
+
+        override fun cancel(id: String) = Unit
+        override fun cancelAll() = Unit
+        override fun beginWith(task: TaskRequest): TaskChain = error("not needed for this test")
+        override fun beginWith(tasks: List<TaskRequest>): TaskChain = error("not needed for this test")
+        override suspend fun enqueueChain(chain: TaskChain, id: String?, policy: ExistingPolicy) = Unit
+        override fun flushPendingProgress() = Unit
+        override suspend fun getExecutionHistory(limit: Int): List<ExecutionRecord> = emptyList()
+        override suspend fun clearExecutionHistory() = Unit
+    }
+
+    /**
+     * A second, distinct implementation — used to prove the warning is not global-once.
+     * A subclass rather than a `by` delegate on purpose: delegation would forward the call to
+     * the inner instance, so the warning would be attributed to *its* class and this test would
+     * pass for the wrong reason.
+     */
+    private class OtherDefaultsOnlyScheduler : DefaultsOnlyScheduler()
+
+    private fun captureWarnings(block: () -> Unit): List<String> {
+        val captured = mutableListOf<String>()
+        Logger.setCustomLogger(object : CustomLogger {
+            override fun log(level: Logger.Level, tag: String, message: String, throwable: Throwable?) {
+                if (level == Logger.Level.WARN) captured += message
+            }
+        })
+        try {
+            block()
+        } finally {
+            Logger.setCustomLogger(null)
+        }
+        return captured
+    }
+
+    /**
+     * BUG: `cancelByTag`/`cancelByWorkerClass` have no-op defaults so that adding them did not
+     * break third-party implementations. The defaults were completely silent, which made a
+     * scheduler that cancels nothing indistinguishable from one where nothing matched the tag:
+     * the caller believes the work is cancelled and it keeps running.
+     *
+     * FIX: the defaults still do not throw (that is the whole point of having them), but they
+     * now emit one WARN naming the implementing class and the member.
+     */
+    @Test
+    fun noOpCancellationDefaults_warnInsteadOfFailingSilently() {
+        val scheduler = DefaultsOnlyScheduler()
+        val warnings = captureWarnings {
+            scheduler.cancelByTag("user-123")
+            scheduler.cancelByWorkerClass("SyncWorker")
+        }
+
+        assertEquals(2, warnings.size, "each unimplemented member warns once: $warnings")
+        assertTrue(
+            warnings.any { it.contains("cancelByTag") && it.contains("user-123") },
+            "the tag warning must name the member and the argument: $warnings"
+        )
+        assertTrue(
+            warnings.any { it.contains("cancelByWorkerClass") && it.contains("SyncWorker") },
+            "the worker-class warning must name the member and the argument: $warnings"
+        )
+        assertTrue(
+            warnings.all { it.contains("DefaultsOnlyScheduler") },
+            "the warning must name the implementation that is missing the override: $warnings"
+        )
+    }
+
+    /**
+     * The warning must not become noise: a scheduler that calls cancelByTag in a loop would
+     * otherwise flood the log. Only the first call per member warns.
+     */
+    @Test
+    fun noOpCancellationDefaults_warnAtMostOncePerMember() {
+        val scheduler = DefaultsOnlyScheduler()
+        // Warm up outside the capture — the flag is process-wide, and the previous test may
+        // or may not have run first, so this test asserts on the *delta* it can control.
+        scheduler.cancelByTag("warm-up")
+        scheduler.cancelByWorkerClass("WarmUpWorker")
+
+        val warnings = captureWarnings {
+            repeat(20) {
+                scheduler.cancelByTag("tag-$it")
+                scheduler.cancelByWorkerClass("Worker$it")
+            }
+        }
+
+        assertTrue(warnings.isEmpty(), "already-warned members must stay quiet: $warnings")
+    }
+
+    /**
+     * The flag is keyed on implementation + member rather than on member alone: two schedulers
+     * in one process must each get told, otherwise whichever one runs second is silent again.
+     */
+    @Test
+    fun noOpCancellationDefaults_warnPerImplementation() {
+        DefaultsOnlyScheduler().cancelByTag("first")
+
+        val warnings = captureWarnings {
+            OtherDefaultsOnlyScheduler().cancelByTag("second")
+        }
+
+        assertEquals(1, warnings.size, "a different implementation warns on its own: $warnings")
+        assertTrue(
+            warnings.single().contains("OtherDefaultsOnlyScheduler"),
+            "the warning must name the second implementation: ${warnings.single()}"
+        )
     }
 }

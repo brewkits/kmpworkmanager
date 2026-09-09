@@ -56,10 +56,28 @@ which branches are reached.
 
 ### Why not just turn on Kotlin/Native coverage?
 
-Kotlin/Native has an experimental `-Xbinary-test-coverage` flag that emits LLVM profiling
-data, which `llvm-profdata` + `llvm-cov` can turn into a report. Enabling it for this project
-is tracked as planned work, not as something already done. **It is not currently enabled** —
-if you are looking for it in the build files, it genuinely is not there.
+Because the flag no longer exists. This was measured in v3.5.0 rather than assumed.
+
+The advice found in older articles is to pass `-Xbinary-test-coverage` (or, earlier still,
+`-Xcoverage` + `-Xlibrary-to-cover`) to the Kotlin/Native compiler, which emits LLVM profiling
+data that `llvm-profdata` + `llvm-cov` turn into a report. Passing either flag to the compilers
+installed for this project produces:
+
+```
+warning: flag is not supported by this version of the compiler: -Xbinary-test-coverage
+warning: flag is not supported by this version of the compiler: -Xcoverage
+```
+
+Reproduced against `kotlinc-native` **2.1.21** (the version this project builds with) and
+against **2.4.0** and **2.4.10**; neither flag appears in `kotlinc-native -X` for any of the
+three. So this is not a "not enabled yet" situation and upgrading Kotlin does not fix it:
+there is currently no supported compiler-level coverage instrumentation for Kotlin/Native,
+and an iOS line-coverage percentage for this library cannot be produced by that route.
+
+If a coverage number for `iosMain` is ever required, the remaining options are to re-run the
+same logic through a JVM target purely for measurement (which measures a different binary), or
+to wait for the toolchain. Neither is planned. Until then this document reports iOS strength
+as test counts and named failure modes, and says so explicitly instead of inventing a percentage.
 
 ---
 
