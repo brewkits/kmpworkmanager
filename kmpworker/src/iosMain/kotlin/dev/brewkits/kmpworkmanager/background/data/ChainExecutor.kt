@@ -777,6 +777,15 @@ class ChainExecutor(
         // Set by every branch below that has already put this chain back on the queue, so the
         // prologue safety net in the outer `catch (CancellationException)` does not enqueue a
         // second copy. IosFileStorage.enqueueChain does not de-duplicate.
+        //
+        // The flag stays false on the ABANDON branches (poison pill, retries exhausted,
+        // quarantine), which delete the definition rather than re-queue. A cancellation
+        // arriving in that narrow window makes the safety net re-queue a chain whose
+        // definition is already gone; that is harmless and self-correcting — the next
+        // window's `loadChainDefinition` returns null, logs it, clears any orphaned
+        // progress and returns false. One wasted dequeue, no lost work. Suppressing it
+        // would need a second flag for "deliberately abandoned", which is more state than
+        // the outcome justifies.
         var reEnqueuedForResumption = false
 
         try {

@@ -241,9 +241,9 @@ data class Windowed(
 
 **Parameters:**
 - `earliest`: Window start time in epoch milliseconds
-- `latest`: Window end time in epoch milliseconds. On iOS only `earliest` is used via `earliestBeginDate`; `latest` is logged but not enforced — the OS runs the task opportunistically.
+- `latest`: Window end time in epoch milliseconds. On iOS only `earliest` reaches the OS (via `earliestBeginDate`), so iOS still chooses when to run the task. `latest` is enforced by the library at execution time (since v3.4.0): a task whose window has already closed is **skipped instead of run late**. Treat it as "do not run after this", not "will run by this".
 
-**Platform Support:** ✅ Android, ⚠️ iOS (best-effort — `latest` not enforced)
+**Platform Support:** ✅ Android, ⚠️ iOS (start time is best-effort; `latest` IS enforced — the task is skipped if the window closed)
 
 **Example:**
 
@@ -795,7 +795,7 @@ which do have real effect.
 | `OneTime` | ✅ | ✅ | Full support |
 | `Periodic` | ✅ | ✅ | 15-min minimum; `runImmediately` + drift correction |
 | `Exact` | ✅ | ⚠️ | Android: AlarmManager. iOS: best-effort via UNNotification |
-| `Windowed` | ✅ | ⚠️ | iOS: `latest` not enforced — OS runs opportunistically |
+| `Windowed` | ✅ | ⚠️ | iOS: OS picks the start time; `latest` enforced as a deadline — stale work is skipped |
 | `ContentUri` | ✅ | ❌ | Android only |
 | `BatteryLow` | ❌ | ❌ | **Removed** — use `SystemConstraint.ALLOW_LOW_BATTERY` |
 | `BatteryOkay` | ❌ | ❌ | **Removed** — use `SystemConstraint.REQUIRE_BATTERY_NOT_LOW` |

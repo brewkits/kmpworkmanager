@@ -13,7 +13,7 @@ by automated tests, and how much of that is actually measured rather than assert
 |---|---:|---|---|
 | `kmpworker` — JVM/Android side | 232 | **≥ 62%** (CI-enforced floor) | Kover |
 | `kmpworker-http` | 92 | **≥ 74%** (CI-enforced floor) | Kover |
-| `kmpworker` — `commonMain` | 464 | included in the Kover figures above | Kover, via the JVM/Android target |
+| `kmpworker` — `commonMain` | 465 | included in the Kover figures above | Kover, via the JVM/Android target |
 | `kmpworker` — `iosMain` | 549 | **not measured** | — |
 | `kmpworker-ksp` | 29 | not measured | — |
 

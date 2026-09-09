@@ -223,4 +223,31 @@ class V350BugFixesTest {
             SecurityValidator.sanitizedURL("https://api.example.com/users/a@b.com"),
         )
     }
+
+    /**
+     * `SecureRedirectFollowing` calls `sanitizedURL` on a URL that has just FAILED validation,
+     * to build the "Redirect to unsafe URL blocked" message. That input is attacker-influenced
+     * and need not be well formed, so the redaction must not be able to throw while an error
+     * is being reported — an exception there would replace a clean security block with a crash
+     * inside the very branch that exists to stop the request.
+     */
+    @Test
+    fun sanitizedUrl_doesNotThrowOnMalformedInput() {
+        listOf(
+            "https://",
+            "http://",
+            "https://@",
+            "https://@@",
+            "http://./x",
+            "://no-scheme",
+            "",
+            "not-a-url-at-all",
+            "https://user@",
+            "https://user:pass@?q=1",
+        ).forEach { input ->
+            // The assertion is that this returns at all.
+            val sanitized = SecurityValidator.sanitizedURL(input)
+            assertFalse(sanitized.contains("pass"), "credentials must not survive in '$sanitized'")
+        }
+    }
 }

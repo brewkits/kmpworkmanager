@@ -14,8 +14,13 @@ import kotlinx.serialization.Serializable
  * - Periodic, OneTime, Exact, Windowed: ✅ Android ✅ iOS
  * - ContentUri, Battery*, Storage*, DeviceIdle: ✅ Android only
  *
- * **Note on Windowed (iOS)**: iOS only supports `earliest` time via `earliestBeginDate`.
- * The `latest` time is logged but not enforced - iOS decides when to run opportunistically.
+ * **Note on Windowed (iOS)**: iOS's BGTaskScheduler only accepts `earliest`, via
+ * `earliestBeginDate`, so the OS cannot be asked to run the task *before* `latest` — it still
+ * decides opportunistically. Since v3.4.0 the library enforces `latest` from the other side:
+ * it is persisted with the task and checked at execution time, and a task whose window has
+ * already closed is **skipped rather than run late** (`IosBackgroundTaskHandler` for single
+ * tasks, `ChainExecutor` for chains). So `latest` is a deadline, not a target: it bounds how
+ * stale the work can be, not how soon it starts.
  */
 sealed interface TaskTrigger {
 
@@ -166,7 +171,11 @@ enum class ExactAlarmIOSBehavior {
 /**
  * Policy for handling a new task when one with the same ID already exists.
  *
- * - [KEEP]: The new request is silently discarded. The existing task runs unchanged.
+ * - [KEEP]: The new request is silently discarded. The existing task runs unchanged — including
+ *   its already-persisted input. The discard is decided **before** the new request is built, so
+ *   nothing the new request would have written can touch the surviving task's state. (It was not
+ *   always so: up to v3.4.1 building the discarded request deleted the live task's spilled input
+ *   file, and the kept task then ran with `input = null`.)
  * - [REPLACE]: The existing task is cancelled and replaced with the new request.
  *   For periodic tasks, this **resets the interval timer** (the next run is scheduled
  *   from `now + initialDelay`, not from the original anchor time).

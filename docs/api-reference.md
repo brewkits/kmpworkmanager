@@ -627,7 +627,7 @@ data class Windowed(
 - `earliest: Long` - Window start time in epoch milliseconds
 - `latest: Long` - Window end time in epoch milliseconds. On iOS only `earliest` is enforced via `earliestBeginDate` — the OS decides when to run opportunistically within its background budget.
 
-**Supported Platforms:** Android ✅ iOS ⚠️ (best-effort, `latest` not enforced)
+**Supported Platforms:** Android ✅ iOS ⚠️ (start time is best-effort; `latest` enforced as a deadline — a task past its window is skipped, not run late)
 
 **Example:**
 

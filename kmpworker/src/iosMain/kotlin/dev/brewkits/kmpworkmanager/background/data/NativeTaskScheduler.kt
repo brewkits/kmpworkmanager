@@ -557,16 +557,19 @@ public class NativeTaskScheduler(
     /**
      * Schedule a windowed task (execute within a time window).
      *
-     * **iOS Limitation**: iOS's BGTaskScheduler only supports `earliestBeginDate`.
-     * There is no "latest" deadline - the system decides when to run the task
-     * opportunistically based on device conditions.
+     * **iOS Limitation**: BGTaskScheduler accepts only `earliestBeginDate`; there is no way
+     * to tell the OS a deadline, so it still decides opportunistically when to run the task.
      *
      * **Implementation**:
-     * - `earliest` → Maps to `earliestBeginDate`
-     * - `latest` → Logged as a warning, but not enforced by iOS
+     * - `earliest` → maps to `earliestBeginDate`
+     * - `latest` → persisted as the `windowLatest` metadata key and enforced by the library at
+     *   execution time: [IosBackgroundTaskHandler.handleSingleTask] and
+     *   [dev.brewkits.kmpworkmanager.background.data.ChainExecutor] both skip work whose window
+     *   has already closed rather than running it late. A window that is already closed at
+     *   schedule time is rejected outright by the guard below.
      *
-     * **Best Practice**: Design your app logic to not depend on the task
-     * running before the `latest` time. Use exact alarms if strict timing is required.
+     * **Best Practice**: treat `latest` as "do not run after this", not "will run by this". If
+     * the work must actually start at a given moment, use an exact alarm.
      *
      * @param id Unique task identifier
      * @param trigger Windowed trigger with earliest and latest times
