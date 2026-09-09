@@ -1,5 +1,7 @@
 package dev.brewkits.kmpworkmanager.background.data
 
+import dev.brewkits.kmpworkmanager.background.data.storage.StorageFileIo
+import dev.brewkits.kmpworkmanager.background.data.storage.safeAppend
 import dev.brewkits.kmpworkmanager.background.domain.TaskPriority
 import dev.brewkits.kmpworkmanager.background.domain.TaskRequest
 import dev.brewkits.kmpworkmanager.utils.Logger
@@ -136,6 +138,20 @@ public class IosFileStorage(
 
     private val isTestMode: Boolean =
         config.isTestMode ?: dev.brewkits.kmpworkmanager.utils.IosTestEnvironment.isTestEnvironment
+
+    /**
+     * The shared file-I/O + coordination primitives. Stage 0b of the SRP split — see
+     * `docs/internal/IOS_FILE_STORAGE_SPLIT.md`. The private helpers below now delegate here
+     * so that the stores extracted in later stages can take this object by constructor
+     * instead of each re-implementing atomic writes and coordination.
+     */
+    private val io = StorageFileIo(
+        isTestMode = isTestMode,
+        // Deliberately config.isTestMode, not isTestMode: IosFileCoordinator runs its own
+        // test-environment detection, so feeding auto-detection in here would apply it twice.
+        coordinatorTestMode = config.isTestMode ?: false,
+        coordinationTimeoutMs = config.fileCoordinationTimeoutMs
+    )
 
     // Tolerant Json for all persisted data: ignores unknown keys so that data written by a
     // newer schema version does not crash on rollback or when consumed by an older class.
@@ -1640,37 +1656,7 @@ public class IosFileStorage(
     /**
      * Ensure directory exists, create if not
      */
-    private fun ensureDirectoryExists(url: NSURL) {
-        val path = url.path ?: return
-
-        if (!fileManager.fileExistsAtPath(path)) {
-            // In test mode (CI simulator pre-first-unlock), NSFileProtectionCompleteUntilFirstUserAuthentication
-            // blocks atomic writes (NSString.writeToFile atomically:YES needs a temp file in the same directory).
-            // Skip the protection attribute entirely in test environments.
-            val isTestEnv = config.isTestMode
-                ?: dev.brewkits.kmpworkmanager.utils.IosTestEnvironment.isTestEnvironment
-            memScoped {
-                val errorPtr = alloc<ObjCObjectVar<NSError?>>()
-                val ok = if (isTestEnv) {
-                    fileManager.createDirectoryAtURL(url, withIntermediateDirectories = true, attributes = null, error = errorPtr.ptr)
-                } else {
-                    // NSFileProtectionCompleteUntilFirstUserAuthentication: files remain encrypted at
-                    // rest but are accessible to background tasks after the first unlock post-boot.
-                    // NSFileProtectionComplete (the OS default) locks files when the screen is off,
-                    // making them unreadable by BGTasks — which defeats the purpose of this library.
-                    val attributes = mapOf<Any?, Any?>(NSFileProtectionKey to NSFileProtectionCompleteUntilFirstUserAuthentication)
-                    fileManager.createDirectoryAtURL(url, withIntermediateDirectories = true, attributes = attributes, error = errorPtr.ptr)
-                }
-
-                if (!ok) {
-                    val fallbackOk = fileManager.createDirectoryAtURL(url, withIntermediateDirectories = true, attributes = null, error = null)
-                    if (!fallbackOk) {
-                        throw IllegalStateException("Failed to create directory: ${errorPtr.value?.localizedDescription ?: "Unknown error"}")
-                    }
-                }
-            }
-        }
-    }
+    private fun ensureDirectoryExists(url: NSURL) = io.ensureDirectoryExists(url)
 
     /**
      * Check if sufficient disk space is available
@@ -1732,28 +1718,7 @@ public class IosFileStorage(
     /**
      * Read string from file
      */
-    private fun readStringFromFile(url: NSURL): String? {
-        val path = url.path ?: return null
-
-        if (!fileManager.fileExistsAtPath(path)) {
-            return null
-        }
-
-        return memScoped {
-            val errorPtr = alloc<ObjCObjectVar<NSError?>>()
-            val result = NSString.stringWithContentsOfFile(
-                path,
-                encoding = NSUTF8StringEncoding,
-                error = errorPtr.ptr
-            )
-            // Check NSError so callers can distinguish "file not found"
-            // from "file exists but unreadable" (iCloud placeholder, permissions, etc.)
-            errorPtr.value?.let { error ->
-                Logger.e(LogTags.CHAIN, "Failed to read file ${url.lastPathComponent}: ${error.localizedDescription}")
-            }
-            result
-        }
-    }
+    private fun readStringFromFile(url: NSURL): String? = io.readStringFromFile(url)
 
     /**
      * Write string to file atomically.
@@ -1772,105 +1737,13 @@ public class IosFileStorage(
      * function's prior `atomically = !isTestMode` behavior (tests intentionally trade
      * atomicity for speed).
      */
-    private fun writeStringToFile(url: NSURL, content: String) {
-        // Log instead of silent return — caller assumes write succeeded
-        val path = url.path ?: run {
-            Logger.e(LogTags.CHAIN, "writeStringToFile: url.path is null for ${url.absoluteString} — write skipped")
-            return
-        }
-
-        val nsString = content as NSString
-
-        if (isTestMode || !fileManager.fileExistsAtPath(path)) {
-            memScoped {
-                val errorPtr = alloc<ObjCObjectVar<NSError?>>()
-                val success = nsString.writeToFile(
-                    path,
-                    atomically = !isTestMode,
-                    encoding = NSUTF8StringEncoding,
-                    error = errorPtr.ptr
-                )
-                if (!success) {
-                    error("Failed to write file: ${errorPtr.value?.localizedDescription}")
-                }
-            }
-            return
-        }
-
-        // Target exists — atomically replace via a temp file + replaceItemAtURL.
-        val tempURL = url.URLByAppendingPathExtension("tmp-${NSUUID().UUIDString()}")
-            ?: error("Failed to construct temp URL for atomic write: $path")
-        val tempPath = tempURL.path
-            ?: error("Temp URL has no path for atomic write: $path")
-
-        memScoped {
-            val errorPtr = alloc<ObjCObjectVar<NSError?>>()
-            val wroteTemp = nsString.writeToFile(
-                tempPath,
-                atomically = false,
-                encoding = NSUTF8StringEncoding,
-                error = errorPtr.ptr
-            )
-            if (!wroteTemp) {
-                error("Failed to write temp file for atomic replace: ${errorPtr.value?.localizedDescription}")
-            }
-
-            val replaced = fileManager.replaceItemAtURL(
-                originalItemURL = url,
-                withItemAtURL = tempURL,
-                backupItemName = null,
-                options = NSFileManagerItemReplacementWithoutDeletingBackupItem,
-                resultingItemURL = null,
-                error = errorPtr.ptr
-            )
-
-            if (!replaced) {
-                val error = errorPtr.value
-                Logger.w(
-                    LogTags.CHAIN,
-                    "replaceItemAtURL failed for $path (${error?.localizedDescription}) — falling back to direct write"
-                )
-                // replaceItemAtURL consumes the temp file on success; on failure it may or may
-                // not still be there depending on how far it got — clean up defensively.
-                try {
-                    fileManager.removeItemAtPath(tempPath, null)
-                } catch (e: Exception) {
-                    Logger.w(LogTags.CHAIN, "Best-effort temp file cleanup failed (ignored): ${e.message}")
-                }
-                val fallbackOk = nsString.writeToFile(
-                    path,
-                    atomically = true,
-                    encoding = NSUTF8StringEncoding,
-                    error = errorPtr.ptr
-                )
-                if (!fallbackOk) {
-                    error(
-                        "Failed to write file (fallback after replaceItemAtURL failure): " +
-                            "${errorPtr.value?.localizedDescription}"
-                    )
-                }
-            }
-        }
-    }
+    private fun writeStringToFile(url: NSURL, content: String) = io.writeStringToFile(url, content)
 
 
     /**
      * Delete file if exists
      */
-    private fun deleteFile(url: NSURL) {
-        val path = url.path ?: return
-
-        if (fileManager.fileExistsAtPath(path)) {
-            memScoped {
-                val errorPtr = alloc<ObjCObjectVar<NSError?>>()
-                fileManager.removeItemAtPath(path, errorPtr.ptr)
-
-                if (errorPtr.value != null) {
-                    Logger.w(LogTags.SCHEDULER, "Failed to delete file: ${errorPtr.value?.localizedDescription}")
-                }
-            }
-        }
-    }
+    private fun deleteFile(url: NSURL) = io.deleteFile(url)
 
     /**
      * Synchronous file coordination bridge for non-suspend callers.
@@ -1880,17 +1753,8 @@ public class IosFileStorage(
      * or Swift-called functions). Never call this from inside a suspend function; use
      * [coordinatedSuspend] instead to avoid blocking a Dispatchers.Default thread.
      */
-    private fun <T> coordinated(url: NSURL, write: Boolean, block: (NSURL) -> T): T {
-        return runBlocking {
-            IosFileCoordinator.coordinate(
-                url = url,
-                write = write,
-                isTestMode = config.isTestMode ?: false,
-                timeoutMs = config.fileCoordinationTimeoutMs,
-                block = block
-            )
-        }
-    }
+    private fun <T> coordinated(url: NSURL, write: Boolean, block: (NSURL) -> T): T =
+        io.coordinated(url, write, block)
 
     /**
      * Suspend-native file coordination for use inside coroutines.
@@ -1902,15 +1766,8 @@ public class IosFileStorage(
      *
      * Only call from suspend functions. Non-suspend callers must use [coordinated].
      */
-    private suspend fun <T> coordinatedSuspend(url: NSURL, write: Boolean, block: (NSURL) -> T): T {
-        return IosFileCoordinator.coordinate(
-            url = url,
-            write = write,
-            isTestMode = config.isTestMode ?: false,
-            timeoutMs = config.fileCoordinationTimeoutMs,
-            block = block
-        )
-    }
+    private suspend fun <T> coordinatedSuspend(url: NSURL, write: Boolean, block: (NSURL) -> T): T =
+        io.coordinatedSuspend(url, write, block)
 
     /**
      * Flush pending progress and cancel all background jobs.
@@ -1957,16 +1814,6 @@ class InsufficientDiskSpaceException(
     "Insufficient disk space. Required: ${required / 1024 / 1024}MB, " +
     "Available: ${available / 1024 / 1024}MB"
 )
-
-/**
- * Safe URL path component appending.
- * Replaces `URLByAppendingPathComponent(x)!!` — throws with context instead of NPE.
- * In practice URLByAppendingPathComponent only returns null for empty components or
- * file-reference URLs; this provides a clearer crash message when that invariant breaks.
- */
-private fun NSURL.safeAppend(component: String): NSURL =
-    URLByAppendingPathComponent(component)
-        ?: throw IllegalStateException("Failed to construct URL: base='$path' component='$component'")
 
 /**
  * Encodes a caller-supplied task/chain id for safe use as a single filesystem path
