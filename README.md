@@ -370,8 +370,22 @@ RFC 3986 UserInfo bypass and multi-`@` authority attacks are both handled. DNS r
 ## Testing
 
 ```
-600+ tests across commonTest, iosTest, androidInstrumentedTest
+1,353 tests across 6 source sets
 ```
+
+| Source set | Tests | Runs on |
+|---|---:|---|
+| `kmpworker` commonTest | 456 | all platforms |
+| `kmpworker` iosTest | 548 | iOS simulator |
+| `kmpworker` androidUnitTest | 153 | JVM (Robolectric) |
+| `kmpworker` androidInstrumentedTest | 76 | device / emulator |
+| `kmpworker-http` commonTest | 91 | all platforms |
+| `kmpworker-ksp` test | 29 | JVM |
+
+> **On coverage numbers:** `koverVerify` gates the JVM/Android side only — Kover cannot
+> instrument Kotlin/Native, so the iOS half of the library has no line-coverage figure
+> despite carrying the most tests. See [`docs/COVERAGE.md`](docs/COVERAGE.md) for what is
+> and is not measured.
 
 - `QA_PersistenceResilienceTest` — 100-step chain killed at step 50, resumes at exactly step 50
 - `V236ChainExecutorTest` — time budget, shutdown propagation, batch loop correctness

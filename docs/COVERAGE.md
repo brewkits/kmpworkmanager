@@ -1,70 +1,80 @@
-# 📊 KMP WorkManager Coverage Report (v2.4.3)
+# Test coverage — what is measured, and what is not
 
-> **⚠️ Not re-verified for the current release.** The numbers below were recorded at
-> v2.4.3; no `koverReport`/verify configuration reproducing them exists in this repo, so
-> they could not be regenerated as part of this review. Kover now enforces a **measured**
-> minimum LINE coverage floor per module (`kmpworker`: 60%, `kmpworker-http`: 70% — see
-> each module's `build.gradle.kts`), which is the current, reproducible number to trust.
-> Run `./gradlew :kmpworker:koverXmlReport` for a fresh measurement.
+**Last updated:** 2026-09-09 · **Applies to:** v3.5.0
 
-This document serves as the official quality assurance record for the **v2.4.3** release. It combines automated metrics from **JetBrains Kover** (JVM/Common/Android) and manual verification for **Kotlin/Native** (iOS).
-
-## 🏆 Quality Highlights
-- **Critical Branch Coverage**: 100% of high-risk branches (Race Conditions, File Corruption, Compaction) are covered.
-- **Self-Healing Validation**: Verified 100% recovery from disk-level corruption.
-- **Memory Safety**: O(1) RAM usage confirmed across all streaming operations via Okio.
+This document exists to answer one question honestly: *how much of this library is covered
+by automated tests, and how much of that is actually measured rather than asserted?*
 
 ---
 
-## 📈 Summary Metrics
+## Summary
 
-| Target | Line Coverage | Branch Coverage | Method Coverage | Status |
-| :--- | :---: | :---: | :---: | :--- |
-| **Common Main (Logic)** | **72.4%** | **42.3%** | 80.6% | ✅ High |
-| **Android Main (Mapping)** | **22.5%** | **12.4%** | 24.4% | ⚠️ Baseline |
-| **Persistence Layer** | **80.9%** | **48.3%** | 90.0% | ✅ Industrial |
-| **iOS Logic (iosMain)** | **~65.0%*** | **100%*** | ~60% | ✅ Verified |
-| **OVERALL TOTAL** | **53.7%** | **41.4%** | 62.3% | ✅ Ready |
+| Area | Tests | Line coverage | How it is measured |
+|---|---:|---|---|
+| `kmpworker` — JVM/Android side | 229 | **≥ 62%** (CI-enforced floor) | Kover |
+| `kmpworker-http` | 91 | **≥ 74%** (CI-enforced floor) | Kover |
+| `kmpworker` — `commonMain` | 456 | included in the Kover figures above | Kover, via the JVM/Android target |
+| `kmpworker` — `iosMain` | 548 | **not measured** | — |
+| `kmpworker-ksp` | 29 | not measured | — |
 
-*\*Note: iOS metrics are verified via `IosBranchCoverageTest.kt` using binary instrumentation. Total % appears lower on Kover due to JVM-only reporting limitations.*
+The floors are declared in each module's `build.gradle.kts` (`kover { reports { verify { rule
+{ minBound(...) } } } }`) and enforced by `koverVerify`, which runs as part of `./gradlew
+check`. They are floors, not current values — run the report to see where coverage actually
+stands today.
 
----
+```bash
+./gradlew :kmpworker:koverHtmlReport :kmpworker-http:koverHtmlReport
+# open kmpworker/build/reports/kover/html/index.html
+```
 
-## 🔍 Detailed Breakdown
-
-### 1. Domain & Core Logic (`commonMain`)
-| Package / Component | Line % | Status | Notes |
-| :--- | :---: | :---: | :--- |
-| `TaskChain` Logic | 90%+ | ✅ | Nested steps and dependency resolution covered. |
-| `RetryPolicy` | 85%+ | ✅ | Linear and Exponential backoff verified. |
-| `TaskTrigger` | 100% | ✅ | All trigger types (Periodic, OneTime, Windowed) covered. |
-
-### 2. Built-in Workers
-| Worker | Line % | Status | Notes |
-| :--- | :---: | :---: | :--- |
-| `HttpRequestWorker` | 100% | ✅ | Success, 404, 500-retry paths verified. |
-| `HttpSyncWorker` | 100% | ✅ | Bi-directional sync states verified. |
-| `HttpDownloadWorker` | 100% | ✅ | Okio streaming and partial cleanup verified. |
-| `FileCompressionWorker` | 100% | ✅ | ZIP creation and recursive directory handling verified. |
-
-### 3. iOS Safety Hardening (`iosMain`)
-The following "Surgical Tests" were executed to ensure absolute stability on Apple platforms:
-- **`testCoordinatorAtMostOnceExecution`**: Confirmed that `AtomicInt` prevents late background execution after a timeout.
-- **`testQueueCorruptionBranch`**: Confirmed that the library detects CRC32 mismatches and performs a safe auto-reset.
-- **`testQueueCompactionThreshold`**: Confirmed that disk space is reclaimed once deleted items reach 80%.
+CI publishes the same HTML as a downloadable artifact on every push to `main`
+(`.github/workflows/coverage.yml`).
 
 ---
 
-## 🛠️ Infrastructure Improvements
-During the v2.4.3 hardening phase, the following tools were integrated into the CI pipeline:
-- **JetBrains Kover**: Automated coverage tracking for Common and Android.
-- **Robolectric (SDK 33)**: For hardware-agnostic Android system testing.
-- **Kotlin/Native Instrumentation**: Enabled `-Xbinary-test-coverage` for deep native analysis.
+## The iOS gap
+
+**Kover cannot instrument Kotlin/Native.** It works by instrumenting JVM bytecode, and
+`iosMain` never becomes JVM bytecode. So the largest and most intricate part of this library
+— roughly 12,200 lines implementing the queue, chain executor, file storage and BGTask
+integration that exist *because* iOS has no WorkManager — has **no line-coverage number at
+all**.
+
+What can be said about it factually:
+
+- It carries **548 tests**, more than any other single source set in the project.
+- Those tests include the failure modes that matter most for a background-task library:
+  `QA_PersistenceResilienceTest` (a 100-step chain killed at step 50 resumes at exactly step
+  50), `AppendOnlyQueueCrcCorruptionTest`, `QueueCorruptionTest`,
+  `QA_IosChainReplaceConcurrencyTest`, `IosRaceConditionTest`, `GracefulShutdownTest`.
+- Two stress tests (`IosStorageStressTest`, `IosDynamicTaskDispatcherTest`) are excluded from
+  the default run because they are flaky on constrained CI runners.
+
+What **cannot** be said: any percentage. A test count is not coverage — it says nothing about
+which branches are reached.
+
+### Why not just turn on Kotlin/Native coverage?
+
+Kotlin/Native has an experimental `-Xbinary-test-coverage` flag that emits LLVM profiling
+data, which `llvm-profdata` + `llvm-cov` can turn into a report. Enabling it for this project
+is tracked as planned work, not as something already done. **It is not currently enabled** —
+if you are looking for it in the build files, it genuinely is not there.
 
 ---
 
-## 👨‍💻 Senior QC Conclusion
-As a result of this comprehensive audit, **KMP WorkManager v2.4.3** is certified as **Gold Master**. The 53.7% overall line coverage represents 100% of the non-boilerplate logic. All critical data integrity and thread-safety paths are fully guarded.
+## History of this document
 
-**Date:** April 28, 2026  
-**Reviewer:** Senior Mobile Architect (QC/QA Lead)
+Everything above replaces a version of this file that overstated the position, in ways worth
+recording so they are not reintroduced:
+
+| Prior claim | Reality |
+|---|---|
+| "Enabled `-Xbinary-test-coverage` for deep native analysis" | The flag appears in no build file in the repository, and never has |
+| "iOS Logic: ~65.0% line, 100% branch — verified via binary instrumentation" | `IosBranchCoverageTest.kt` is an ordinary test class, not instrumentation; these numbers had no measurement behind them |
+| Kover floors of "60%" and "70%" | The declared floors are 62% and 74% |
+| "`TaskTrigger` — 100% — all trigger types (Periodic, OneTime, Windowed) covered" | Its own list omitted `Exact` and `ContentUri`, so the parenthetical and the percentage disagreed |
+| "**KMP WorkManager v2.4.3** is certified as **Gold Master**" | Self-certification against no external standard |
+
+The numbers in the old document were recorded at v2.4.3 and carried a warning that they could
+not be reproduced. Numbers that cannot be reproduced should not be published at all — hence
+this rewrite.
