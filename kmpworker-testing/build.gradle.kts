@@ -51,6 +51,16 @@ kotlin {
                 api(project(":kmpworker"))
             }
         }
+
+        // This module ships to consumers as a published artifact but had no test source set
+        // at all until v3.5.0 — the one thing every user of it relies on (that the fake
+        // records what they assert against) was itself unverified.
+        val commonTest by getting {
+            dependencies {
+                implementation(libs.kotlin.test)
+                implementation(libs.kotlinx.coroutines.test)
+            }
+        }
     }
 }
 

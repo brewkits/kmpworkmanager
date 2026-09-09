@@ -16,6 +16,7 @@ by automated tests, and how much of that is actually measured rather than assert
 | `kmpworker` — `commonMain` | 465 | included in the Kover figures above | Kover, via the JVM/Android target |
 | `kmpworker` — `iosMain` | 549 | **not measured** | — |
 | `kmpworker-ksp` | 29 | not measured | — |
+| `kmpworker-testing` | 8 | not measured | — |
 
 The floors are declared in each module's `build.gradle.kts` (`kover { reports { verify { rule
 { minBound(...) } } } }`) and enforced by `koverVerify`, which runs as part of `./gradlew

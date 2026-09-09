@@ -240,12 +240,23 @@ class WorkerProcessor(
             add(")")
         }.build()
 
+        // The BgTaskIdProvider paragraph is conditional, matching the superinterface added
+        // below. It used to be emitted unconditionally, so a factory with no
+        // `@Worker(bgTaskId = ...)` anywhere in the module shipped a KDoc telling the reader
+        // it implements an interface it does not implement — visible in every consumer's IDE,
+        // on generated code they cannot edit.
+        val bgTaskIdKdoc = if (hasBgTaskIds) {
+            "Implements [BgTaskIdProvider]: `KmpWorkManager.initialize()` automatically validates\n" +
+                "all declared BGTask IDs against `Info.plist` at startup.\n\n"
+        } else {
+            ""
+        }
+
         val typeBuilder = TypeSpec.classBuilder("IosWorkerFactoryGenerated")
             .addSuperinterface(iosWorkerFactoryClass)
             .addKdoc(
                 "Auto-generated iOS worker factory.\n\n" +
-                "Implements [BgTaskIdProvider]: `KmpWorkManager.initialize()` automatically validates\n" +
-                "all declared BGTask IDs against `Info.plist` at startup.\n\n" +
+                bgTaskIdKdoc +
                 "Override individual [providers] entries to supply workers from a DI container:\n" +
                 "```kotlin\n" +
                 "IosWorkerFactoryGenerated().also {\n" +

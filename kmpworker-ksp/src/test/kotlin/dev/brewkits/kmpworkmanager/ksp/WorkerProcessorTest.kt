@@ -3,10 +3,8 @@ package dev.brewkits.kmpworkmanager.ksp
 import com.tschuchort.compiletesting.JvmCompilationResult
 import com.tschuchort.compiletesting.KotlinCompilation
 import com.tschuchort.compiletesting.SourceFile
-import com.tschuchort.compiletesting.kspIncremental
+import com.tschuchort.compiletesting.configureKsp
 import com.tschuchort.compiletesting.kspSourcesDir
-import com.tschuchort.compiletesting.kspWithCompilation
-import com.tschuchort.compiletesting.symbolProcessorProviders
 import org.jetbrains.kotlin.compiler.plugin.ExperimentalCompilerApi
 import org.junit.Test
 import java.io.File
@@ -30,20 +28,25 @@ import kotlin.test.assertTrue
  * - Wrong base class: @Worker on a class that doesn't extend AndroidWorker or IosWorker
  * - Stress test: 50 workers in < 30 s
  *
- * **Why this class is @Ignored:**
- * kctfork 0.6.0 (`dev.zacsweers.kctfork`) does not invoke the [WorkerProcessor] for
- * in-memory [com.tschuchort.compiletesting.SourceFile] sources. The KSP output directory
- * (`ksp/sources/kotlin/`) is created but remains empty even with `useKsp2()` or
- * `kspWithCompilation = true`. Root cause: version mismatch between the KSP API on the
- * compile classpath (`symbol-processing-api 2.1.0-1.0.29`) and the runtime bundled in
- * kctfork (`symbol-processing-aa-embeddable 2.0.21-1.0.27`).
+ * **Un-ignored in v3.5.0.** This class carried `@Ignore` since it was written, on the
+ * grounds that kctfork "does not invoke the processor for in-memory SourceFiles". The real
+ * cause was narrower and fixable: the harness configured KSP through the **deprecated**
+ * `symbolProcessorProviders` setter, which drives kctfork's KSP**1** path — while this
+ * module's processor compiles against the KSP**2** API (`symbol-processing-api 2.1.21-2.0.1`).
+ * KSP1 loaded nothing, the output directory stayed empty, and all 23 tests were skipped in
+ * silence.
  *
- * The processor is verified correct by the generated factory files produced during real
- * Gradle builds (see `AndroidWorkerFactoryGenerated.kt` / `IosWorkerFactoryGenerated.kt`
- * in build outputs). Re-enable once kctfork ships a compatible version.
+ * Two changes made them run: kctfork 0.6.0 → 0.8.0 (0.6.0 has no KSP2 entry point at all),
+ * and `configureKsp(useKsp2 = true) { ... }` in place of the deprecated setter. Note that
+ * 0.9.0+ cannot be taken while this project is on Kotlin 2.1.21 — 0.13.0 pulls
+ * kotlin-compiler-embeddable 2.4.0, whose metadata this compiler rejects outright.
+ *
+ * Turning them on found three defects that had been invisible: one in the processor (the
+ * generated iOS factory's KDoc claimed to implement `BgTaskIdProvider` even when it did not)
+ * and two in this file's own assertions (see `testCodeGeneration_WrongBaseClass_...` and
+ * `testCodeGeneration_ProvidersMapIsMutable`).
  */
 @Suppress("unused")
-@org.junit.Ignore("kctfork 0.6.0: KSP processor not triggered for in-memory SourceFiles — see class KDoc for details")
 @OptIn(ExperimentalCompilerApi::class)
 class WorkerProcessorTest {
 
@@ -57,12 +60,14 @@ class WorkerProcessorTest {
                 iosWorkerSource(),
                 bgTaskIdProviderSource()
             ) + sourceFiles.toList()
-            symbolProcessorProviders = mutableListOf(WorkerProcessorProvider())
-            kspWithCompilation = true
-            kspIncremental = false
             languageVersion = "2.1"
             inheritClassPath = true
             messageOutputStream = System.out
+            configureKsp(useKsp2 = true) {
+                symbolProcessorProviders += WorkerProcessorProvider()
+                incremental = false
+                withCompilation = true
+            }
         }
 
     private fun JvmCompilationResult.kspGeneratedFile(fileName: String): File {
@@ -449,8 +454,22 @@ class WorkerProcessorTest {
         val result  = prepareCompilation(source).compile()
         val content = result.kspGeneratedFile("AndroidWorkerFactoryGenerated.kt").readText()
 
-        assertTrue(content.contains("MutableMap"), "providers must be MutableMap so consumers can override entries")
-        assertTrue(content.contains("mutableMapOf"), "providers must be initialised with mutableMapOf()")
+        // The property this test exists for is "a consumer can replace an entry to inject
+        // their own worker". It used to assert the *implementation* — `MutableMap` /
+        // `mutableMapOf` — which the Android factory deliberately does not use: it emits a
+        // ConcurrentHashMap, because providers are read from worker threads while app startup
+        // writes DI overrides, and LinkedHashMap is not safe for that (see
+        // WorkerProcessor.generateAndroidFactory). ConcurrentHashMap IS a MutableMap, so the
+        // guarantee holds; only the assertion was wrong. It never surfaced because the class
+        // was @Ignore'd.
+        assertTrue(
+            content.contains("ConcurrentHashMap"),
+            "Android providers must be a ConcurrentHashMap — worker threads read it while DI overrides write",
+        )
+        assertTrue(
+            content.contains("public val providers"),
+            "providers must be a public val a consumer can mutate entries on",
+        )
     }
 
     @Test
@@ -600,10 +619,16 @@ class WorkerProcessorTest {
         assertTrue(result.messages.contains("doesn't extend AndroidWorker or IosWorker"),
             "Must emit KSP warning for @Worker on a class not extending the required base")
 
-        // No factory should be generated for this broken worker
+        // No factory should be generated for this broken worker.
+        //
+        // Scoped to files under a `ksp/` directory on purpose. The original search walked the
+        // whole compilation directory, which also holds the INPUT source kctfork wrote to
+        // disk — and that file contains the literal `@Worker("BrokenWorker")`. So the
+        // assertion matched the test's own input and failed no matter what the processor did.
+        // It never showed up because the class was @Ignore'd.
         val generatedFiles = result.outputDirectory.parentFile
             ?.walkTopDown()
-            ?.filter { it.isFile && it.name.endsWith(".kt") }
+            ?.filter { it.isFile && it.name.endsWith(".kt") && it.path.contains("${File.separator}ksp${File.separator}") }
             ?.toList() ?: emptyList()
         assertFalse(generatedFiles.any { it.readText().contains("\"BrokenWorker\"") },
             "BrokenWorker must NOT appear in any generated factory")

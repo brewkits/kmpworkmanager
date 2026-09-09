@@ -370,7 +370,7 @@ RFC 3986 UserInfo bypass and multi-`@` authority attacks are both handled. DNS r
 ## Testing
 
 ```
-1,367 tests across 6 source sets
+1,375 tests across 7 source sets
 ```
 
 | Source set | Tests | Runs on |
@@ -381,6 +381,12 @@ RFC 3986 UserInfo bypass and multi-`@` authority attacks are both handled. DNS r
 | `kmpworker` androidInstrumentedTest | 76 | device / emulator |
 | `kmpworker-http` commonTest | 92 | all platforms |
 | `kmpworker-ksp` test | 29 | JVM |
+| `kmpworker-testing` commonTest | 8 | all platforms |
+
+> Every test in the table runs. Nothing is `@Ignore`d: as of v3.5.0 the KSP compile-testing
+> suite (23 tests that had been skipped since it was written) executes, and the two
+> load-sensitive iOS stress tests are behind an opt-in flag that reports itself when it skips
+> rather than disappearing — `KMP_RUN_STRESS_TESTS=1 ./gradlew :kmpworker:iosSimulatorArm64Test`.
 
 > **On coverage numbers:** `koverVerify` gates the JVM/Android side only — Kover cannot
 > instrument Kotlin/Native, so the iOS half of the library has no line-coverage figure

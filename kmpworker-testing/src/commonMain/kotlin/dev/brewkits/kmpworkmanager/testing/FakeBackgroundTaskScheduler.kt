@@ -130,11 +130,19 @@ class FakeBackgroundTaskScheduler(
     fun hasCancelled(id: String): Boolean = id in cancelledIds
 
     /**
-     * Returns true if a task with [id] was enqueued AND has NOT been cancelled.
-     * Used to assert that cancel() effectively removes a task from the active set.
+     * Returns true if a task with [id] was enqueued AND has NOT been cancelled — by [cancel]
+     * or by [cancelAll].
+     *
+     * The [cancelAll] half was missing: that method sets [cancelAllCalled] without adding
+     * anything to [cancelledIds], so this used to report a task as still pending after every
+     * task had been cancelled. [pendingTaskCount] already handled it, which meant the two
+     * helpers gave contradictory answers to the same question — and a consumer asserting
+     * "nothing pending after cancelAll" the natural way, per id, got a green test on a wrong
+     * answer. In a module whose whole job is letting other people assert, that is the worst
+     * shape a bug can take.
      */
     fun isPending(id: String): Boolean =
-        enqueuedTasks.any { it.id == id } && id !in cancelledIds
+        !cancelAllCalled && enqueuedTasks.any { it.id == id } && id !in cancelledIds
 
     /**
      * Returns the number of currently pending tasks (enqueued minus cancelled).

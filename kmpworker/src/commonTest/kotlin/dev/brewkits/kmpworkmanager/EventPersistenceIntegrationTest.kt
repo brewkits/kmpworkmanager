@@ -12,7 +12,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
-import kotlin.test.Ignore
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -26,12 +27,34 @@ import kotlin.test.assertTrue
  * - EventSyncManager.syncEvents() → Replay missed events
  * - End-to-end event lifecycle
  *
- * Note: These tests are currently @Ignore'd for unit tests because they require
- * Android Log to be mocked (which needs Robolectric). The actual code works fine
- * in Android instrumented tests and on actual devices.
+ * **Previously `@Ignore`d on this class, for a reason that was not true.** The note said the
+ * tests "require Android Log to be mocked (which needs Robolectric)". They do not:
+ * `kmpworker/build.gradle.kts` sets `unitTests.isReturnDefaultValues = true`, so
+ * `android.util.Log` returns defaults instead of throwing, and the iOS side never had the
+ * problem at all. Removing the annotation ran 9 tests, of which 5 passed immediately.
+ *
+ * The 4 that failed were real defects in this file, hidden for as long as the class was
+ * ignored:
+ *  - Three assumed each test got its own [TaskEventManager]. It is a singleton whose
+ *    `initialize` is compare-and-set "first call wins", so the second test onwards silently
+ *    kept the FIRST test's store and their own `store` never saw an event. Fixed with the
+ *    reset in [setUp]/[tearDown] — the pattern every other test touching this singleton uses.
+ *  - One asserted the old meaning of `clearOldEvents`. See that test for the detail.
  */
-@Ignore
 class EventPersistenceIntegrationTest {
+
+    @BeforeTest
+    fun setUp() {
+        // TaskEventManager.initialize is first-call-wins by design, so without this a test
+        // inherits whichever store ran first in the class.
+        TaskEventManager.resetForTest()
+    }
+
+    @AfterTest
+    fun tearDown() {
+        // Leave nothing behind for the next class in the same JVM / test binary.
+        TaskEventManager.resetForTest()
+    }
 
     /**
      * In-memory EventStore for testing
@@ -163,14 +186,17 @@ class EventPersistenceIntegrationTest {
 
         assertEquals(2, store.getEventCount(), "Should have 2 events initially")
 
-        // Clear events older than "now" (should delete nothing since events are new)
-        val deletedCount1 = EventSyncManager.clearOldEvents(store, 0)
-        assertEquals(0, deletedCount1, "Should delete 0 events")
+        // `olderThanMs` is an AGE, not a cutoff timestamp: EventStore.clearOldEvents documents
+        // "events older than this duration are deleted" (pass 86_400_000 for 24 h). This test
+        // used to read it as a cutoff and assert that `0` deletes nothing — the opposite of
+        // the contract, since every event is older than zero milliseconds. It was only ever
+        // green because the whole class was @Ignore'd.
+        val keptCount = EventSyncManager.clearOldEvents(store, 10_000)
+        assertEquals(0, keptCount, "A 10s retention window must keep events that were just written")
         assertEquals(2, store.getEventCount(), "Should still have 2 events")
 
-        // Clear events older than "future" (should delete all)
-        val deletedCount2 = EventSyncManager.clearOldEvents(store, -1000)
-        assertEquals(2, deletedCount2, "Should delete 2 events")
+        val deletedCount = EventSyncManager.clearOldEvents(store, 0)
+        assertEquals(2, deletedCount, "A zero-length retention window deletes everything")
         assertEquals(0, store.getEventCount(), "Should have 0 events")
     }
 

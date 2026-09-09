@@ -43,9 +43,10 @@ import kotlin.time.TimeSource
  *     compaction path documented in `AppendOnlyQueue` and reclaims disk space.
  *
  * **Why not @Ignore by default.** CI ran this in ~12 s on iPhone 15 simulator,
- * which is within our existing per-test budget. If real-device CI proves slower,
- * gate behind a `KMP_RUN_STRESS_TESTS` env flag rather than `@Ignore`-by-default
- * (which silently drops coverage).
+ * which is within our existing per-test budget. If real-device CI proves slower, gate it
+ * behind [StressTests] rather than `@Ignore`-by-default (which silently drops coverage).
+ * That gate exists as of v3.5.0 — see `StressTests.kt`; `IosStorageStressTest` and
+ * `IosDynamicTaskDispatcherTest` were moved onto it from `@Ignore`.
  *
  * **Adjacent tests to not duplicate:**
  *  - `AppendOnlyQueueTest.moderate stress test - 200 operations` — correctness.

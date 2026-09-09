@@ -34,8 +34,10 @@ class IosStorageStressTest {
     )
 
     @Test
-    @Ignore // Flaky on CI runners with limited cores — run locally to verify concurrent enqueue safety
     fun `Stress Test - Highly concurrent enqueue operations`() = runTest {
+        // Was @Ignore'd as "flaky on CI runners with limited cores". Gated instead of removed
+        // from the suite so it keeps compiling and can be turned back on. See StressTests.
+        if (StressTests.skip("Highly concurrent enqueue operations")) return@runTest
         println("🚀 RUNNING STRESS TEST: Highly concurrent enqueue operations")
         val storage = makeStorage("concurrent")
         val coroutineCount = 50

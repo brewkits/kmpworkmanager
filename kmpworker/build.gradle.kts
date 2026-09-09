@@ -215,6 +215,15 @@ tasks.withType<AbstractPublishToMaven>().configureEach {
 // TestOutputStore$Writer. SIMCTL_CHILD_ prefix passes the var into the simulator process.
 tasks.withType<org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeSimulatorTest>().configureEach {
     environment("SIMCTL_CHILD_KOTLIN_TEST_WORKERS", "1")
+
+    // Opt-in gate for the stress tests (see iosTest/StressTests.kt). Same SIMCTL_CHILD_ trick
+    // as above and for the same reason: without the prefix the variable stops at `xcrun simctl
+    // spawn` and never reaches the test binary, so `KMP_RUN_STRESS_TESTS=1 ./gradlew ...`
+    // would silently do nothing — a switch that looks flippable but is welded off, which is
+    // worse than the @Ignore it replaced.
+    providers.environmentVariable("KMP_RUN_STRESS_TESTS").orNull?.let {
+        environment("SIMCTL_CHILD_KMP_RUN_STRESS_TESTS", it)
+    }
 }
 
 signing {

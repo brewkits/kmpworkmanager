@@ -15,13 +15,15 @@ import kotlin.test.assertTrue
  * `@Worker` classes silently overwriting each other's entry in the generated
  * `providers` map (discovered during a senior review pass, no prior coverage).
  *
- * **Why this bypasses [WorkerProcessorTest]'s compile-testing harness:** that entire
- * class is `@Ignore`d — kctfork 0.6.0 never invokes [WorkerProcessor] for in-memory
- * `SourceFile`s (see its class KDoc), so none of its 21 tests actually run in CI today.
- * Rather than add a 22nd test to a harness that silently never executes, this calls
- * [WorkerProcessor.validateNoDuplicateKeys] directly against synthetic [WorkerInfo]
- * lists with a fake [KSPLogger] recording calls — exercising the real production
- * method, just without going through full annotation processing. This test DOES run.
+ * **Why this bypasses [WorkerProcessorTest]'s compile-testing harness:** it was written
+ * while that whole class was `@Ignore`d and therefore never executed, so adding a test
+ * there would have added nothing. It calls [WorkerProcessor.validateNoDuplicateKeys]
+ * directly against synthetic [WorkerInfo] lists with a fake [KSPLogger] recording calls.
+ *
+ * As of v3.5.0 [WorkerProcessorTest] does run (see its KDoc), so that reason no longer
+ * applies — but this file is kept as-is rather than folded in: a direct unit test of the
+ * validation function is faster and pins the error text more precisely than driving it
+ * through a full compilation would.
  */
 class WorkerProcessorDuplicateKeyTest {
 

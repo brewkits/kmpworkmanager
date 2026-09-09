@@ -162,8 +162,11 @@ class IosDynamicTaskDispatcherTest {
     // ==================== Performance & Stress Tests ====================
 
     @Test
-    @Ignore // Flaky on some CI runners due to I/O or concurrency limits
     fun `Stress Test - Enqueue 40 dynamic tasks concurrently`() = runBlocking {
+        // Was @Ignore'd as "flaky on some CI runners due to I/O or concurrency limits".
+        // Gated instead of deleted from the suite: it still compiles against the current API,
+        // it says so when it skips, and KMP_RUN_STRESS_TESTS=1 brings it back. See StressTests.
+        if (StressTests.skip("Enqueue 40 dynamic tasks concurrently")) return@runBlocking
         val storage = makeStorage("stress-40")
         val scheduler = NativeTaskScheduler(
             additionalPermittedTaskIds = setOf("kmp_master_dispatcher_task"),
