@@ -27,13 +27,15 @@ jobs:
       - run: chmod +x gradlew
       - name: kmpworker checks (excludes platform-specific tests)
         run: >-
-          ./gradlew :kmpworker:check :kmpworker-http:check
+          ./gradlew :kmpworker:check :kmpworker-http:check :kmpworker-testing:check
           -x :kmpworker:connectedAndroidTest
           -x :kmpworker:iosX64Test
           -x :kmpworker:iosSimulatorArm64Test
           -x :kmpworker-http:connectedAndroidTest
           -x :kmpworker-http:iosX64Test
           -x :kmpworker-http:iosSimulatorArm64Test
+          -x :kmpworker-testing:iosX64Test
+          -x :kmpworker-testing:iosSimulatorArm64Test
       - name: KSP processor tests
         run: ./gradlew :kmpworker-ksp:test
       - name: Upload test results
@@ -120,7 +122,9 @@ jobs:
       - name: iosSimulatorArm64Test
         env:
           IOS_DEVICE: ${{ matrix.device }}
-        run: ./gradlew :kmpworker:iosSimulatorArm64Test :kmpworker-http:iosSimulatorArm64Test
+        run: >-
+          ./gradlew :kmpworker:iosSimulatorArm64Test :kmpworker-http:iosSimulatorArm64Test
+          :kmpworker-testing:iosSimulatorArm64Test
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -148,7 +152,9 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6
       - run: chmod +x gradlew
       - name: testDebugUnitTest
-        run: ./gradlew :kmpworker:testDebugUnitTest :kmpworker-http:testDebugUnitTest
+        run: >-
+          ./gradlew :kmpworker:testDebugUnitTest :kmpworker-http:testDebugUnitTest
+          :kmpworker-testing:testDebugUnitTest
       # The release variant has its own Robolectric test config and was never exercised by CI.
       - name: testReleaseUnitTest
         run: ./gradlew :kmpworker:testReleaseUnitTest :kmpworker-http:testReleaseUnitTest
