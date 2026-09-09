@@ -26,6 +26,7 @@ import kotlinx.cinterop.alloc
 import kotlinx.cinterop.ptr
 import kotlinx.cinterop.value
 import kotlinx.cinterop.ObjCObjectVar
+import dev.brewkits.kmpworkmanager.utils.BackoffJitter
 
 /**
  * Internal dispatcher that processes the queue of dynamic tasks on iOS.
@@ -458,6 +459,11 @@ public class DynamicTaskDispatcher(
      * Mirrors WorkManager's backoff math (`WorkRequest.setBackoffCriteria`): LINEAR scales the
      * base delay by the attempt number, EXPONENTIAL doubles it each attempt. Capped at 1 hour,
      * the same ceiling WorkManager applies to its own backoff.
+     *
+     * The result is then spread by [BackoffJitter] so that installs which failed together do
+     * not retry together — see that class for why a deterministic schedule turns one backend
+     * outage into a synchronised retry storm. Jitter is applied after the cap and only ever
+     * shortens the delay, so the 1-hour ceiling still holds.
      */
     private fun computeBackoffDelayMs(policy: BackoffPolicy, baseDelayMs: Long, attempt: Int): Long {
         val maxDelayMs = 60 * 60 * 1000L
@@ -465,7 +471,7 @@ public class DynamicTaskDispatcher(
             BackoffPolicy.LINEAR -> baseDelayMs * attempt
             BackoffPolicy.EXPONENTIAL -> baseDelayMs * (1L shl (attempt - 1).coerceIn(0, 20))
         }
-        return delay.coerceIn(0L, maxDelayMs)
+        return BackoffJitter.apply(delay.coerceIn(0L, maxDelayMs))
     }
 
     private suspend fun rescheduleMasterDispatcher() {

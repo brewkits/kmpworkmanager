@@ -169,6 +169,15 @@ public class IosFileStorage(
      */
     internal var testEnqueueInternalDelayMs: Long = 0L
 
+    /**
+     * Test-only: optional delay (ms) inserted at the start of [loadChainDefinition], i.e. the
+     * first suspension point of `ChainExecutor.executeChain`'s prologue. Lets a regression
+     * test cancel a chain execution deterministically AFTER the chain has been dequeued but
+     * BEFORE step execution begins — the window in which a cancellation used to lose the
+     * chain outright. Default 0 → no delay. Production code never reads or writes this field.
+     */
+    internal var testLoadChainDefinitionDelayMs: Long = 0L
+
     private val queue: AppendOnlyQueue by lazy {
         val queueDirURL = baseDir.safeAppend("queue")
         ensureDirectoryExists(queueDirURL)
@@ -818,6 +827,11 @@ public class IosFileStorage(
      * now `suspend` (must acquire `progressMutex` to evict the buffer entry).
      */
     suspend fun loadChainDefinition(id: String): List<List<TaskRequest>>? {
+        // Test-only hook: widens the prologue window so a regression test can cancel between
+        // dequeue and step execution. No-op in production.
+        if (testLoadChainDefinitionDelayMs > 0L) {
+            delay(testLoadChainDefinitionDelayMs)
+        }
         val chainFile = chainsDirURL.safeAppend("${id.encodeAsPathComponent()}.json")
 
         // The coordination callback is a non-suspend block, so the suspend-only

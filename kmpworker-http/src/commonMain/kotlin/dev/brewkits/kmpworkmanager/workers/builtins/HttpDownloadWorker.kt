@@ -278,10 +278,17 @@ class HttpDownloadWorker(
             finalizePartial(partialPath, savePath)
 
             val totalBytes = startingOffset + downloadedThisAttempt
+            // Parenthesised on purpose. Without them Kotlin parses this as
+            //   "Downloaded X" + (if (appendMode) "(resumed)" else ("" + if (renamed) ... else ""))
+            // — the whole rename suffix hangs off the `else` branch, so a download that both
+            // resumed AND was renamed reported only the resume, and the caller was told a
+            // different filename than the one on disk.
+            val resumedSuffix =
+                if (appendMode) " (resumed from ${SecurityValidator.formatByteSize(startingOffset)})" else ""
+            val renamedSuffix =
+                if (savePath != originalSavePath) " (renamed to ${savePath.name})" else ""
             WorkerResult.Success(
-                message = "Downloaded ${SecurityValidator.formatByteSize(totalBytes)}" +
-                    if (appendMode) " (resumed from ${SecurityValidator.formatByteSize(startingOffset)})" else "" +
-                    if (savePath != originalSavePath) " (renamed to ${savePath.name})" else ""
+                message = "Downloaded ${SecurityValidator.formatByteSize(totalBytes)}$resumedSuffix$renamedSuffix"
             )
         } catch (e: CancellationException) {
             // Preserve the partial so the next attempt resumes.

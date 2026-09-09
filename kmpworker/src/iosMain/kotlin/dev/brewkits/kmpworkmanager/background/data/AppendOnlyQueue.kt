@@ -65,6 +65,15 @@ internal class AppendOnlyQueue(
     private val queueMutex = Mutex()
     private val fileManager = NSFileManager.defaultManager
 
+    /**
+     * Test-only: re-enables [saveIndexAsync] when [isTestMode] is set. The index write is
+     * skipped in test mode by default so that test classes sharing a queue directory cannot
+     * contaminate one another, but that also made the persisted-index path — including the
+     * compaction race it used to lose — impossible to cover. A test that owns its own
+     * directory sets this to opt back in. Production code never reads or writes this field.
+     */
+    internal var testAllowIndexSave: Boolean = false
+
     // Corruption handling
     // Both fields are read outside any lock in dequeue() ("fast check without lock").
     // Without @Volatile, the CPU may cache stale values — making the fast check unreliable in
@@ -457,16 +466,34 @@ internal class AppendOnlyQueue(
     }
 
     /**
-     * Save index asynchronously
-     * Non-blocking - runs in background scope
+     * Persists the line-position cache off the caller's critical path.
+     *
+     * Non-blocking for the caller — the write is dispatched to [compactionScope] — but the
+     * write itself runs **under [queueMutex]**, and the map is snapshotted inside that lock
+     * rather than at call time.
+     *
+     * That ordering is the whole point. The previous version snapshotted while the caller
+     * held the lock, then wrote after releasing it, so [compactQueue] (which holds
+     * [queueMutex] for its whole run) could rewrite the queue file and its index in between.
+     * The stale snapshot then landed on top: an index describing byte offsets into a file
+     * that no longer had that shape. Every subsequent seek resolved to the middle of a
+     * record, which the CRC check surfaces as queue corruption — a self-inflicted one, on a
+     * queue whose contents were perfectly fine.
+     *
+     * Re-reading the cache inside the lock also means the write always reflects the current
+     * state rather than whatever it looked like when the caller happened to ask.
      */
     private fun saveIndexAsync() {
-        if (isTestMode) return // Don't save index in test mode to prevent data contamination
-        
-        val snapshot = HashMap(linePositionCache) // snapshot while caller holds queueMutex
+        // Test-mode default is to skip the write so parallel test classes sharing a
+        // directory cannot contaminate each other's index. [testAllowIndexSave] opts a
+        // single test back in — without it this whole path was unreachable from any test.
+        if (isTestMode && !testAllowIndexSave) return
+
         compactionScope.launch {
             try {
-                queueIndex.saveIndex(snapshot)
+                queueMutex.withLock {
+                    queueIndex.saveIndex(HashMap(linePositionCache))
+                }
             } catch (e: Exception) {
                 Logger.w(LogTags.QUEUE, "Failed to save queue index (non-critical)", e)
             }

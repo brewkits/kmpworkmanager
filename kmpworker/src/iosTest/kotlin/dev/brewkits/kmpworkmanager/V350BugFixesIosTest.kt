@@ -1,23 +1,34 @@
 package dev.brewkits.kmpworkmanager
 
+import dev.brewkits.kmpworkmanager.background.data.ChainExecutor
 import dev.brewkits.kmpworkmanager.background.data.ChainProgress
+import dev.brewkits.kmpworkmanager.background.data.IosFileStorage
 import dev.brewkits.kmpworkmanager.background.data.IosWorker
 import dev.brewkits.kmpworkmanager.background.data.IosWorkerFactory
 import dev.brewkits.kmpworkmanager.background.data.SingleTaskExecutor
+import dev.brewkits.kmpworkmanager.background.domain.TaskRequest
 import dev.brewkits.kmpworkmanager.background.domain.TaskProgressBus
 import dev.brewkits.kmpworkmanager.background.domain.TaskProgressEvent
 import dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
 import dev.brewkits.kmpworkmanager.background.domain.WorkerProgress
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
+import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import platform.Foundation.NSDate
+import platform.Foundation.NSFileManager
+import platform.Foundation.NSTemporaryDirectory
+import platform.Foundation.NSURL
+import platform.Foundation.timeIntervalSince1970
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -30,6 +41,7 @@ import kotlin.test.assertTrue
  * Per the project convention (see CLAUDE.md — "Testing Conventions"), this file is tied to
  * one release and is never edited afterwards; a later release gets its own `V###` file.
  */
+@OptIn(ExperimentalForeignApi::class)
 class V350BugFixesIosTest {
 
     // ── crashAttemptCount: forward progress must clear the poison-pill counter ──────────
@@ -222,6 +234,64 @@ class V350BugFixesIosTest {
         } finally {
             collector.cancel()
             collectorScope.cancel()
+        }
+    }
+
+    // ── Cancellation during executeChain's prologue silently lost the chain ────────────
+    //
+    // executeNextChainFromQueue dequeues FIRST, then calls executeChain. Every re-enqueue
+    // inside executeChain lives in the inner try that wraps step execution, so a
+    // cancellation anywhere in the prologue — loading the definition, reading the
+    // windowed-deadline metadata, loading/saving progress, all of which suspend on file
+    // coordination — left the chain in neither the queue nor in flight. Its definition
+    // stayed on disk with nothing left to pick it up. A BGTask expiring during the prologue
+    // is not an exotic case; it is how an iOS background window normally ends.
+
+    private class NeverRunsFactory : IosWorkerFactory {
+        override fun createWorker(workerClassName: String): IosWorker = object : IosWorker {
+            override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult =
+                throw AssertionError("no step may run: the chain must be cancelled in the prologue")
+        }
+    }
+
+    @Test
+    fun chainCancelledDuringThePrologue_isPutBackOnTheQueue() = runBlocking {
+        // runBlocking, not runTest: the executor dispatches file I/O onto real GCD threads,
+        // and runTest's virtual clock never advances for those.
+        val dir = NSURL.fileURLWithPath(
+            "${NSTemporaryDirectory()}v350_prologue_${NSDate().timeIntervalSince1970()}_${Random.nextInt()}",
+        )
+        NSFileManager.defaultManager.createDirectoryAtURL(dir, true, null, null)
+        val storage = IosFileStorage(baseDirectory = dir)
+        val executor = ChainExecutor(NeverRunsFactory(), fileStorage = storage)
+        try {
+            val chainId = "v350-prologue-cancel"
+            storage.saveChainDefinition(chainId, listOf(listOf(TaskRequest(workerClassName = "NeverRuns"))))
+            storage.enqueueChain(chainId)
+            assertEquals(1, storage.getQueueSize(), "precondition: the chain is queued")
+
+            // Hold the prologue open at its first suspension point so the cancellation
+            // deterministically lands after the dequeue and before any step runs.
+            storage.testLoadChainDefinitionDelayMs = 5_000
+
+            val job = launch(Dispatchers.Default) { executor.executeNextChainFromQueue() }
+
+            withTimeout(10_000) {
+                while (storage.getQueueSize() != 0) delay(20)
+            }
+            job.cancelAndJoin()
+
+            assertEquals(
+                1,
+                storage.getQueueSize(),
+                "a chain cancelled between dequeue and step execution must go back on the queue",
+            )
+            assertTrue(storage.chainExists(chainId), "its definition must still be on disk to resume from")
+        } finally {
+            storage.testLoadChainDefinitionDelayMs = 0L
+            executor.close()
+            storage.close()
+            NSFileManager.defaultManager.removeItemAtURL(dir, null)
         }
     }
 }

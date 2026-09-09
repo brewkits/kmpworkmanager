@@ -276,11 +276,19 @@ class ParallelHttpDownloadWorker(
      * exact.
      */
     private fun computeRanges(totalBytes: Long, numChunks: Int): List<LongRange> {
-        val base = totalBytes / numChunks
+        if (totalBytes <= 0L) return emptyList()
+        // Never ask for more slices than there are bytes. With totalBytes < numChunks the
+        // integer division gave base = 0, so every non-final chunk got `start..start - 1` —
+        // an empty range that was sent to the server verbatim as `Range: bytes=0--1`. Servers
+        // answer that with 416 or 200-with-the-whole-body, and the reassembled file was
+        // wrong either way. Small files are rare in a parallel downloader but not absurd:
+        // numChunks is a fixed config value applied to whatever URL the caller passes.
+        val effectiveChunks = numChunks.coerceIn(1, totalBytes.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
+        val base = totalBytes / effectiveChunks
         val ranges = mutableListOf<LongRange>()
         var start = 0L
-        for (i in 0 until numChunks) {
-            val end = if (i == numChunks - 1) totalBytes - 1 else start + base - 1
+        for (i in 0 until effectiveChunks) {
+            val end = if (i == effectiveChunks - 1) totalBytes - 1 else start + base - 1
             ranges += start..end
             start = end + 1
         }

@@ -5,6 +5,7 @@ import dev.brewkits.kmpworkmanager.background.domain.TaskEventBus
 import dev.brewkits.kmpworkmanager.background.domain.TaskEventManager
 import dev.brewkits.kmpworkmanager.persistence.EventStore
 import dev.brewkits.kmpworkmanager.persistence.StoredEvent
+import dev.brewkits.kmpworkmanager.utils.BackoffJitter
 import dev.brewkits.kmpworkmanager.workers.utils.SecurityValidator
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.filter
@@ -17,6 +18,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.random.Random
 
 /**
  * Regression tests for the cross-platform (commonMain) fixes shipped in v3.5.0.
@@ -138,4 +140,87 @@ class V350BugFixesTest {
 
             collector.cancel()
         }
+
+    // ── Backoff was deterministic on both platforms ───────────────────────────────────
+    //
+    // iOS multiplied a fixed base by the attempt number; Android handed the same fixed base
+    // to WorkRequest.setBackoffCriteria, whose own math is equally deterministic. An outage
+    // that failed 100 000 installs in the same second produced 100 000 retries in the same
+    // second, and again in lockstep at every later attempt — the retry policy turning one
+    // outage into a load test on the customer's recovering backend.
+
+    @Test
+    fun jitter_staysWithinTheEqualJitterWindow() {
+        val delay = 30_000L
+        repeat(500) {
+            val jittered = BackoffJitter.apply(delay)
+            assertTrue(
+                jittered in (delay / 2)..delay,
+                "equal jitter must land in [${delay / 2}, $delay], got $jittered",
+            )
+        }
+    }
+
+    @Test
+    fun jitter_neverLengthensTheDelay() {
+        // Load-bearing: both callers apply an upper cap (1 h on iOS, WorkManager's own on
+        // Android) BEFORE jitter. If jitter could grow the value, those caps would leak.
+        listOf(1L, 999L, 30_000L, 60 * 60 * 1000L).forEach { delay ->
+            repeat(200) {
+                assertTrue(BackoffJitter.apply(delay) <= delay, "jitter must never exceed $delay")
+            }
+        }
+    }
+
+    @Test
+    fun jitter_actuallySpreadsAcrossCallers() {
+        // The whole point. A "jitter" that returns one value would satisfy the bounds checks
+        // above and still leave every device retrying in the same instant.
+        val distinct = (1..200).map { BackoffJitter.apply(30_000L) }.toSet()
+        assertTrue(distinct.size > 10, "expected a spread of delays, got ${distinct.size} distinct values")
+    }
+
+    @Test
+    fun jitter_leavesAZeroDelayAlone() {
+        // A caller asking for no delay is not asking for a random one.
+        assertEquals(0L, BackoffJitter.apply(0L))
+        assertEquals(-5L, BackoffJitter.apply(-5L))
+    }
+
+    @Test
+    fun jitter_isDeterministicUnderAnInjectedSeed() {
+        assertEquals(BackoffJitter.apply(30_000L, Random(42)), BackoffJitter.apply(30_000L, Random(42)))
+    }
+
+    // ── sanitizedURL redacted the query string but not the credentials ────────────────
+    //
+    // Its output is not only logged: it is embedded in WorkerResult messages, which become
+    // TaskCompletionEvents and are written to the event store. A URL carrying HTTP Basic
+    // credentials in its authority — still normal for internal services — therefore had its
+    // password persisted to disk.
+
+    @Test
+    fun sanitizedUrl_redactsUserInfoCredentials() {
+        assertEquals(
+            "https://[REDACTED]@internal.example.com/reports",
+            SecurityValidator.sanitizedURL("https://svc-account:hunter2@internal.example.com/reports"),
+        )
+    }
+
+    @Test
+    fun sanitizedUrl_redactsCredentialsAndQueryTogether() {
+        val sanitized = SecurityValidator.sanitizedURL("https://u:p@api.example.com/v1/data?token=secret")
+        assertFalse(sanitized.contains("p@"), "password must not survive: $sanitized")
+        assertFalse(sanitized.contains("secret"), "query must still be redacted: $sanitized")
+        assertEquals("https://[REDACTED]@api.example.com/v1/data?[REDACTED]", sanitized)
+    }
+
+    @Test
+    fun sanitizedUrl_leavesACredentialFreeUrlIntact() {
+        // An '@' later in the path must not be mistaken for UserInfo.
+        assertEquals(
+            "https://api.example.com/users/a@b.com",
+            SecurityValidator.sanitizedURL("https://api.example.com/users/a@b.com"),
+        )
+    }
 }

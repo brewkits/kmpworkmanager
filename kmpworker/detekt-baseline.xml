@@ -10,7 +10,6 @@
     <ID>CyclomaticComplexMethod:AppendOnlyQueue.kt$AppendOnlyQueue$private fun migrateFromTextToBinary()</ID>
     <ID>CyclomaticComplexMethod:AppendOnlyQueue.kt$AppendOnlyQueue$private fun streamCompactionToFile(srcUrl: NSURL, dstUrl: NSURL, headIndex: Int): Int</ID>
     <ID>CyclomaticComplexMethod:BaseKmpWorker.kt$BaseKmpWorker$protected suspend fun doWorkInternal(): Result</ID>
-    <ID>CyclomaticComplexMethod:ChainExecutor.kt$ChainExecutor$private suspend fun executeChain(chainId: String): Boolean</ID>
     <ID>CyclomaticComplexMethod:ChainExecutor.kt$ChainExecutor$private suspend fun executeTask( task: TaskRequest, chainId: String? = null, stepIndex: Int? = null, retryCount: Int = 0 ): WorkerResult</ID>
     <ID>CyclomaticComplexMethod:ChainExecutor.kt$ChainExecutor$suspend fun executeChainsInBatch( maxChains: Int = 3, totalTimeoutMs: Long = chainTimeout, deadlineEpochMs: Long? = null ): Int</ID>
     <ID>CyclomaticComplexMethod:DynamicTaskDispatcher.kt$DynamicTaskDispatcher$private suspend fun handleOneTimeResult( taskId: String, meta: IosBackgroundTaskHandler.TaskMeta, result: WorkerResult )</ID>

@@ -698,6 +698,19 @@ class ChainExecutor(
      * - Handles retry logic with configurable max retries
      * - Cleans up progress files on completion or abandonment
      */
+    // ThrowsCount: all three `throw` sites are `throw e` rethrows of a CancellationException
+    // this function must not swallow — a chain timeout, an outer batch timeout, and the
+    // prologue safety net. Splitting the function to satisfy the count would separate each
+    // rethrow from the re-enqueue it is paired with, which is the invariant that matters here.
+    //
+    // CyclomaticComplexMethod: pre-existing, and previously carried in
+    // kmpworker/detekt-baseline.xml. That baseline keys on the declaration's exact text, so
+    // adding the annotation above stopped it matching; the entry was removed and the
+    // suppression stated here instead, where the reason is visible next to the code. Splitting
+    // this function is real work with real regression surface (see
+    // docs/internal/IOS_FILE_STORAGE_SPLIT.md for how that is being handled elsewhere) and
+    // does not belong in a bug-fix commit.
+    @Suppress("ThrowsCount", "CyclomaticComplexMethod")
     private suspend fun executeChain(chainId: String): Boolean {
         // 1. Check for duplicate execution and mark as active (thread-safe)
         val isAlreadyActive = activeChainsMutex.withLock {
@@ -760,6 +773,11 @@ class ChainExecutor(
         var historyError: String? = null
         var historyRetryCount: Int = 0
         var historyWorkerNames: List<String> = emptyList()
+
+        // Set by every branch below that has already put this chain back on the queue, so the
+        // prologue safety net in the outer `catch (CancellationException)` does not enqueue a
+        // second copy. IosFileStorage.enqueueChain does not de-duplicate.
+        var reEnqueuedForResumption = false
 
         try {
             // 3. Load the chain definition from file storage
@@ -1035,6 +1053,7 @@ class ChainExecutor(
                                 withContext(NonCancellable) {
                                     fileStorage.enqueueChain(chainId)
                                 }
+                                reEnqueuedForResumption = true
                                 Logger.i(
                                     LogTags.CHAIN,
                                     "Chain $chainId re-enqueued for retry " +
@@ -1098,6 +1117,7 @@ class ChainExecutor(
                     }
 
                     fileStorage.enqueueChain(chainId)
+                    reEnqueuedForResumption = true
                     Logger.i(
                         LogTags.CHAIN,
                         "Chain $chainId timed out after ${chainTimeout}ms — re-queued for resumption " +
@@ -1145,6 +1165,7 @@ class ChainExecutor(
                 withContext(NonCancellable) {
                     fileStorage.enqueueChain(chainId)
                 }
+                reEnqueuedForResumption = true
                 historyStatus = ExecutionStatus.FAILURE
                 historyFailedStep = progress.getNextStepIndex() ?: (steps.size - 1)
                 historyError = "Outer (batch) timeout pre-empted chain after ${elapsedMs}ms"
@@ -1165,6 +1186,7 @@ class ChainExecutor(
                 withContext(NonCancellable) {
                     fileStorage.enqueueChain(chainId)
                 }
+                reEnqueuedForResumption = true
                 Logger.i(LogTags.CHAIN, "Re-queued chain $chainId for resumption")
 
                 // Schedule next BGTask to resume this chain
@@ -1196,6 +1218,32 @@ class ChainExecutor(
             historyCompletedSteps = steps.size
             return true
 
+        } catch (e: CancellationException) {
+            // Safety net for the PROLOGUE (steps 3-6b). Every other re-enqueue in this function
+            // lives inside the inner try that wraps step execution, but the chain is already
+            // off the queue before executeChain is even entered — executeNextChainFromQueue
+            // calls dequeueChain() first. So a cancellation while loading the definition,
+            // reading the windowed-deadline metadata, or loading/saving progress — all of which
+            // suspend on file coordination — dropped the chain for good: not in the queue, not
+            // running, definition still on disk with nothing to pick it up. BGTask expiry
+            // during the prologue is not exotic; it is the normal way an iOS window ends.
+            //
+            // executeNextChainFromQueue's `catch (e: Throwable)` re-enqueue does not cover this
+            // case: it deliberately rethrows CancellationException untouched.
+            if (!reEnqueuedForResumption) {
+                withContext(NonCancellable) {
+                    try {
+                        fileStorage.enqueueChain(chainId)
+                        Logger.w(
+                            LogTags.CHAIN,
+                            "Chain $chainId was cancelled before step execution began — re-queued so it is not lost"
+                        )
+                    } catch (re: Exception) {
+                        Logger.e(LogTags.CHAIN, "Failed to re-queue cancelled chain $chainId: ${re.message}")
+                    }
+                }
+            }
+            throw e
         } finally {
             withContext(NonCancellable) {
                 // 9. Always remove from active set (even on failure/timeout) - thread-safe

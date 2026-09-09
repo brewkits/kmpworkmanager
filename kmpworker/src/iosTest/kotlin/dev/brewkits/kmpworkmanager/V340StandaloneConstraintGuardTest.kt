@@ -287,10 +287,18 @@ class V340StandaloneConstraintGuardTest {
             assertNotNull(meta, "Retried task metadata must survive re-enqueue")
             val nextRetryEarliestMs = meta[DynamicTaskDispatcher.META_NEXT_RETRY_EARLIEST_MS]?.toLongOrNull()
             assertNotNull(nextRetryEarliestMs, "A retried task must have a computed backoff floor")
-            // attempt 1 -> 2: EXPONENTIAL delay = baseDelayMs * 2^(1-1) = baseDelayMs = 10_000ms
+            // attempt 1 -> 2: EXPONENTIAL delay = baseDelayMs * 2^(1-1) = baseDelayMs = 10_000ms.
+            //
+            // Widened in v3.5.0, deliberately: backoff now passes through BackoffJitter, which
+            // spreads the delay uniformly over [delay/2, delay] so that installs failing
+            // together stop retrying together. A 10s base therefore lands anywhere in
+            // [5s, 10s]. The property this test exists for — a retry floor IS stamped, and it
+            // sits a backoff-sized interval in the future rather than at zero — is untouched;
+            // only the width moved. The upper bound is new and keeps the old guarantee that
+            // jitter can never lengthen a delay past what was configured.
             assertTrue(
-                nextRetryEarliestMs >= beforeMs + 9_000L,
-                "Next retry floor ($nextRetryEarliestMs) must be roughly 10s after $beforeMs"
+                nextRetryEarliestMs >= beforeMs + 4_500L && nextRetryEarliestMs <= beforeMs + 11_000L,
+                "Next retry floor ($nextRetryEarliestMs) must fall in the jittered 5-10s window after $beforeMs"
             )
         } finally {
             storage.close()

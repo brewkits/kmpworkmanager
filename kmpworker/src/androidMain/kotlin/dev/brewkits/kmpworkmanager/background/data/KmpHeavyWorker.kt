@@ -55,7 +55,22 @@ open class KmpHeavyWorker(
 
     companion object {
         private const val NOTIFICATION_CHANNEL_ID = "kmp_heavy_worker_channel"
-        private const val NOTIFICATION_ID = 1001
+
+        /**
+         * Base for this worker's foreground-service notification id.
+         *
+         * It used to be the id itself, shared by every heavy worker in the process. Two
+         * concurrent heavy workers therefore posted under the same id: the second replaced
+         * the first's notification, and when either finished, `stopForeground` took down the
+         * single notification both were relying on — leaving the still-running worker as a
+         * foreground service with no visible notification, which is exactly what Android's
+         * FGS watchdog kills the process for. WorkManager runs heavy workers concurrently by
+         * default, so this needed no unusual configuration to hit.
+         */
+        private const val NOTIFICATION_ID_BASE = 1001
+
+        /** Keeps derived ids inside a small, predictable band above [NOTIFICATION_ID_BASE]. */
+        private const val NOTIFICATION_ID_SPAN = 10_000
 
         /**
          * The service `androidx.work` declares in its own AAR manifest — every app depending
@@ -266,10 +281,15 @@ open class KmpHeavyWorker(
             .setOngoing(true)
             .build()
 
+        // Derived from the WorkManager work id so concurrent heavy workers do not share one
+        // notification. Masking off the sign keeps it positive (Int.MIN_VALUE has no positive
+        // absolute value); collisions are possible in principle but need a hash clash between
+        // two workers alive at the same moment, rather than being guaranteed as before.
+        val notificationId = NOTIFICATION_ID_BASE + ((id.hashCode() and 0x7FFFFFFF) % NOTIFICATION_ID_SPAN)
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            ForegroundInfo(NOTIFICATION_ID, notification, foregroundServiceType)
+            ForegroundInfo(notificationId, notification, foregroundServiceType)
         } else {
-            ForegroundInfo(NOTIFICATION_ID, notification)
+            ForegroundInfo(notificationId, notification)
         }
     }
 

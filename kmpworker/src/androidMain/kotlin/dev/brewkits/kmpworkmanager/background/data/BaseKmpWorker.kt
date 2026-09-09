@@ -115,17 +115,26 @@ abstract class BaseKmpWorker : CoroutineWorker {
      * Dropping degrades InputMerger to "no data forwarded" — the successor still executes
      * with its own input — instead of failing a step that actually succeeded.
      */
-    private fun buildStepOutputData(data: JsonObject?): Data {
+    private fun buildStepOutputData(data: JsonObject?, isChainStep: Boolean): Data {
         if (data == null || data.isEmpty()) return Data.EMPTY
+        // A chain step's output does not reach the successor on its own: WorkManager merges it
+        // into the successor's inputData first, and that merge is what the 10 KB Data cap is
+        // applied to. Checking this side against 8 KB independently of the input side let the
+        // pair exceed the cap and kill the chain inside WorkerWrapper — see
+        // NativeTaskScheduler.CHAIN_STEP_OUTPUT_BUDGET_BYTES. A standalone task has no
+        // successor to merge with and keeps the original 8 KB.
+        val budget = if (isChainStep) {
+            NativeTaskScheduler.CHAIN_STEP_OUTPUT_BUDGET_BYTES
+        } else {
+            NativeTaskScheduler.OVERFLOW_THRESHOLD_BYTES
+        }
         return try {
             val encoded = Json.encodeToString(JsonObject.serializer(), data)
-            // WorkManager rejects Data over 10 KB at build time; stay under the same 8 KB
-            // threshold the input path uses so a chain can't fail on the return trip.
-            if (encoded.encodeToByteArray().size > NativeTaskScheduler.OVERFLOW_THRESHOLD_BYTES) {
+            if (encoded.encodeToByteArray().size > budget) {
                 Logger.w(
                     LogTags.WORKER,
                     "$workerLogTag output too large to forward to the next chain step " +
-                        "(${encoded.encodeToByteArray().size} bytes > ${NativeTaskScheduler.OVERFLOW_THRESHOLD_BYTES}). " +
+                        "(${encoded.encodeToByteArray().size} bytes > $budget). " +
                         "InputMerger will see no data. Pass large payloads by reference (file path / row id) instead."
                 )
                 Data.EMPTY
@@ -217,6 +226,11 @@ abstract class BaseKmpWorker : CoroutineWorker {
                     )
                 )
                 historyStatus = ExecutionStatus.SKIPPED
+                // Every other terminal branch records how long the attempt took; this one
+                // returned first, so a SKIPPED row always read durationMs = 0. That is not a
+                // harmless cosmetic gap — it is the row an operator looks at to answer "how
+                // late was this task when the deadline killed it", and zero says "instant".
+                historyDuration = System.currentTimeMillis() - startTime
                 return Result.success()  // Don't retry; the deadline window is gone
             }
 
@@ -262,7 +276,7 @@ abstract class BaseKmpWorker : CoroutineWorker {
                     // Emitted unconditionally on success (not gated on the *next* step's opt-in,
                     // which this worker cannot see); the successor ignores it unless it set
                     // mergeOutputFromPreviousStep. Standalone tasks simply have no successor.
-                    return Result.success(buildStepOutputData(result.data))
+                    return Result.success(buildStepOutputData(result.data, isChainStep = chainId != null))
                 }
                 is WorkerResult.Failure -> {
                     Logger.w(LogTags.WORKER, "$workerLogTag failure: $workerClassName — ${result.message}")

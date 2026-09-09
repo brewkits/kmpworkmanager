@@ -2,6 +2,8 @@ package dev.brewkits.kmpworkmanager.background.data
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import androidx.work.Data
+import androidx.work.OverwritingInputMerger
 import androidx.work.testing.WorkManagerTestInitHelper
 import dev.brewkits.kmpworkmanager.background.domain.ExistingPolicy
 import dev.brewkits.kmpworkmanager.background.domain.ScheduleResult
@@ -17,6 +19,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /**
@@ -207,6 +210,93 @@ class BugFixes_v350_AndroidTest {
             1,
             overflowFiles().size,
             "a KEEP enqueue on an id with no pending work must still spill and schedule",
+        )
+    }
+
+    // ── Shared Data budget across a chain hop ─────────────────────────────────────────
+    //
+    // A chain step's input and its predecessor's output never travel separately:
+    // WorkManager's WorkerWrapper merges every prerequisite's outputData into the
+    // successor's inputData through an InputMerger before doWork() is called, and
+    // InputMerger.merge ends in Data.Builder.build(), which enforces the 10 240-byte cap.
+    // Both sides used to be checked independently against OVERFLOW_THRESHOLD_BYTES (8 KB),
+    // so a legal pair met at ~16 KB and killed the chain inside WorkerWrapper — before any
+    // worker code could observe or report it.
+
+    /** The chain stamps every step's Data carries, sized as production writes them. */
+    private fun stampedInput(payloadBytes: Int): Data = Data.Builder()
+        .putString("workerClassName", "dev.brewkits.example.SomeReasonablyLongWorkerName")
+        .putInt(NativeTaskScheduler.KEY_MAX_RETRIES, 3)
+        .putString(NativeTaskScheduler.KEY_CHAIN_ID, "chain-${"c".repeat(36)}")
+        .putInt(NativeTaskScheduler.KEY_STEP_INDEX, 1)
+        .putInt(NativeTaskScheduler.KEY_TOTAL_STEPS, 5)
+        .putLong(NativeTaskScheduler.KEY_DEADLINE_MS, 1_700_000_000_000L)
+        .putBoolean(NativeTaskScheduler.KEY_MERGE_PREVIOUS_OUTPUT, true)
+        .putString("inputJson", "x".repeat(payloadBytes))
+        .build()
+
+    private fun stepOutput(payloadBytes: Int): Data = Data.Builder()
+        .putString(NativeTaskScheduler.KEY_STEP_OUTPUT, "y".repeat(payloadBytes))
+        .build()
+
+    @Test
+    fun chainStepBudgets_surviveTheInputMergerThatJoinsThem() {
+        val merged = OverwritingInputMerger().merge(
+            listOf(
+                stampedInput(NativeTaskScheduler.CHAIN_STEP_INPUT_BUDGET_BYTES),
+                stepOutput(NativeTaskScheduler.CHAIN_STEP_OUTPUT_BUDGET_BYTES),
+            ),
+        )
+        // Merging is the assertion — build() throws when the result exceeds the cap. The size
+        // check pins the remaining headroom so a later budget bump cannot quietly eat it.
+        val size = Data.toByteArrayInternal(merged).size
+        assertTrue(
+            size <= NativeTaskScheduler.MAX_WORK_DATA_BYTES,
+            "a worst-case chain hop serialized to $size bytes, over WorkManager's " +
+                "${NativeTaskScheduler.MAX_WORK_DATA_BYTES}-byte cap",
+        )
+    }
+
+    @Test
+    fun theOldIndependent8KbCaps_wouldHaveExceededTheDataCap() {
+        // The bug, pinned. Both halves are individually legal under the old threshold and
+        // both build() fine on their own; only the merge fails. Kept as a live control so a
+        // future change that widens the budgets back toward 8 KB fails here first.
+        val input = stampedInput(NativeTaskScheduler.OVERFLOW_THRESHOLD_BYTES)
+        val output = stepOutput(NativeTaskScheduler.OVERFLOW_THRESHOLD_BYTES)
+
+        val error = assertFailsWith<IllegalStateException> {
+            OverwritingInputMerger().merge(listOf(input, output))
+        }
+        assertTrue(
+            error.message.orEmpty().contains("10240"),
+            "expected WorkManager's Data size guard, got: ${error.message}",
+        )
+    }
+
+    @Test
+    fun chainStepInputOverBudget_spillsToAFileInsteadOfRidingInTheData() = runTest {
+        // The input side of the budget, through the real scheduler. 3 KB is under the
+        // standalone 8 KB threshold but over the chain step's, so it must spill — losslessly,
+        // which is the whole reason input got the smaller share of the budget.
+        val payload = """{"padding":"${"x".repeat(3_000)}"}"""
+        val chainId = "budget-chain-${kotlin.random.Random.nextInt()}"
+
+        scheduler.enqueueChain(
+            scheduler.beginWith(
+                dev.brewkits.kmpworkmanager.background.domain.TaskRequest(
+                    workerClassName = "SomeWorker",
+                    inputJson = payload,
+                ),
+            ),
+            id = chainId,
+            policy = ExistingPolicy.REPLACE,
+        )
+
+        assertEquals(
+            1,
+            overflowFiles().size,
+            "a chain step over the input budget must spill to cacheDir rather than ride in the Data",
         )
     }
 }

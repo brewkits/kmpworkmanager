@@ -5,10 +5,12 @@ import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.kmpworkmanager.workers.builtins.HttpDownloadWorker
 import dev.brewkits.kmpworkmanager.workers.builtins.HttpRequestWorker
 import dev.brewkits.kmpworkmanager.workers.builtins.HttpUploadWorker
+import dev.brewkits.kmpworkmanager.workers.builtins.ParallelHttpDownloadWorker
 import dev.brewkits.kmpworkmanager.workers.config.ChecksumAlgorithm
 import dev.brewkits.kmpworkmanager.workers.config.HttpDownloadConfig
 import dev.brewkits.kmpworkmanager.workers.config.HttpRequestConfig
 import dev.brewkits.kmpworkmanager.workers.config.HttpUploadConfig
+import dev.brewkits.kmpworkmanager.workers.config.ParallelHttpDownloadConfig
 import dev.brewkits.kmpworkmanager.workers.utils.HttpWorkerJson
 import dev.brewkits.kmpworkmanager.workers.utils.installSecureRedirectFollowing
 import io.ktor.client.*
@@ -16,6 +18,7 @@ import io.ktor.client.engine.mock.*
 import io.ktor.client.plugins.*
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import kotlinx.atomicfu.atomic
 import io.ktor.http.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
@@ -300,6 +303,79 @@ class V350HttpBugFixesTest {
 
         assertFailsWith<CancellationException> {
             worker.doWork(input, WorkerEnvironment())
+        }
+    }
+
+    // ── A file smaller than numChunks produced "Range: bytes=0--1" ────────────────────
+    //
+    // computeRanges divided totalBytes by numChunks in integer arithmetic. Below one byte
+    // per chunk that base is 0, so every non-final chunk got `start..start - 1` — an empty
+    // LongRange that went out on the wire verbatim. Servers answer that with 416 or with
+    // the whole body, and the reassembled file was wrong either way. numChunks is a fixed
+    // config value applied to whatever URL the caller passes, so a small file is not an
+    // exotic input.
+
+    @Test
+    fun parallelDownload_ofAFileSmallerThanNumChunks_stillProducesValidRanges() = runTest {
+        val payload = "tiny".encodeToByteArray() // 4 bytes, 8 chunks requested
+        val getCount = atomic(0)
+        val engine = MockEngine { request ->
+            when (request.method) {
+                HttpMethod.Head -> respond(
+                    content = "",
+                    status = HttpStatusCode.OK,
+                    headers = headersOf(
+                        HttpHeaders.ContentLength to listOf(payload.size.toString()),
+                        HttpHeaders.AcceptRanges to listOf("bytes"),
+                    ),
+                )
+                HttpMethod.Get -> {
+                    val range = request.headers[HttpHeaders.Range].orEmpty()
+                    // The assertion that matters: a well-formed, non-negative range.
+                    val m = Regex("""bytes=(\d+)-(\d+)""").find(range)
+                        ?: throw AssertionError("malformed Range header '$range' for a ${payload.size}-byte file")
+                    val start = m.groupValues[1].toInt()
+                    val end = m.groupValues[2].toInt()
+                    assertTrue(end >= start, "Range end must not precede its start, got '$range'")
+                    getCount.incrementAndGet()
+                    respond(
+                        content = payload.copyOfRange(start, end + 1),
+                        status = HttpStatusCode.PartialContent,
+                        headers = headersOf(
+                            HttpHeaders.ContentRange to listOf("bytes $start-$end/${payload.size}"),
+                        ),
+                    )
+                }
+                else -> throw AssertionError("unexpected method ${request.method}")
+            }
+        }
+
+        val fs = FileSystem.SYSTEM
+        val savePath = "v350_tiny_parallel_${kotlin.random.Random.nextInt()}.bin".toPath()
+        val config = ParallelHttpDownloadConfig(
+            url = "https://example.com/tiny",
+            savePath = savePath.toString(),
+            numChunks = 8,
+        )
+        try {
+            val result = ParallelHttpDownloadWorker(HttpClient(engine) { install(HttpTimeout) }, fs)
+                .doWork(HttpWorkerJson.encodeToString(config), WorkerEnvironment(null) { false })
+
+            assertIs<WorkerResult.Success>(result)
+            assertEquals(
+                payload.toList(),
+                fs.source(savePath).buffer().readByteArray().toList(),
+                "the reassembled file must equal the payload",
+            )
+            assertTrue(getCount.value <= payload.size, "cannot need more chunks than there are bytes")
+        } finally {
+            if (fs.exists(savePath)) fs.delete(savePath)
+            for (i in 0 until 8) {
+                val part = "$savePath.part$i".toPath()
+                if (fs.exists(part)) fs.delete(part)
+            }
+            val merged = "$savePath.merged".toPath()
+            if (fs.exists(merged)) fs.delete(merged)
         }
     }
 }

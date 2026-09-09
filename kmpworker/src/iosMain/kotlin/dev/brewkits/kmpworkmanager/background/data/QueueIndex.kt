@@ -63,9 +63,14 @@ internal class QueueIndex(private val indexFileURL: NSURL) {
 
         memScoped {
             val errorPtr = alloc<ObjCObjectVar<NSError?>>()
+            // NSDataWritingAtomic: write to a temp file and swap it in. Without it a kill
+            // mid-write leaves a truncated index — half-valid offsets that load without
+            // complaint and then seek into the middle of a record, which surfaces as queue
+            // corruption. An index is a cache; losing it costs one sequential scan, whereas a
+            // torn one costs the queue.
             val success = data.writeToURL(
                 indexFileURL,
-                options = 0u,
+                options = NSDataWritingAtomic,
                 error = errorPtr.ptr
             )
 

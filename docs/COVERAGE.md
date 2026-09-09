@@ -11,10 +11,10 @@ by automated tests, and how much of that is actually measured rather than assert
 
 | Area | Tests | Line coverage | How it is measured |
 |---|---:|---|---|
-| `kmpworker` — JVM/Android side | 229 | **≥ 62%** (CI-enforced floor) | Kover |
-| `kmpworker-http` | 91 | **≥ 74%** (CI-enforced floor) | Kover |
-| `kmpworker` — `commonMain` | 456 | included in the Kover figures above | Kover, via the JVM/Android target |
-| `kmpworker` — `iosMain` | 548 | **not measured** | — |
+| `kmpworker` — JVM/Android side | 232 | **≥ 62%** (CI-enforced floor) | Kover |
+| `kmpworker-http` | 92 | **≥ 74%** (CI-enforced floor) | Kover |
+| `kmpworker` — `commonMain` | 464 | included in the Kover figures above | Kover, via the JVM/Android target |
+| `kmpworker` — `iosMain` | 549 | **not measured** | — |
 | `kmpworker-ksp` | 29 | not measured | — |
 
 The floors are declared in each module's `build.gradle.kts` (`kover { reports { verify { rule
@@ -42,7 +42,7 @@ all**.
 
 What can be said about it factually:
 
-- It carries **548 tests**, more than any other single source set in the project.
+- It carries **549 tests**, more than any other single source set in the project.
 - Those tests include the failure modes that matter most for a background-task library:
   `QA_PersistenceResilienceTest` (a 100-step chain killed at step 50 resumes at exactly step
   50), `AppendOnlyQueueCrcCorruptionTest`, `QueueCorruptionTest`,

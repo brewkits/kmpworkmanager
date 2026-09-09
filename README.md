@@ -370,16 +370,16 @@ RFC 3986 UserInfo bypass and multi-`@` authority attacks are both handled. DNS r
 ## Testing
 
 ```
-1,353 tests across 6 source sets
+1,366 tests across 6 source sets
 ```
 
 | Source set | Tests | Runs on |
 |---|---:|---|
-| `kmpworker` commonTest | 456 | all platforms |
-| `kmpworker` iosTest | 548 | iOS simulator |
-| `kmpworker` androidUnitTest | 153 | JVM (Robolectric) |
+| `kmpworker` commonTest | 464 | all platforms |
+| `kmpworker` iosTest | 549 | iOS simulator |
+| `kmpworker` androidUnitTest | 156 | JVM (Robolectric) |
 | `kmpworker` androidInstrumentedTest | 76 | device / emulator |
-| `kmpworker-http` commonTest | 91 | all platforms |
+| `kmpworker-http` commonTest | 92 | all platforms |
 | `kmpworker-ksp` test | 29 | JVM |
 
 > **On coverage numbers:** `koverVerify` gates the JVM/Android side only — Kover cannot

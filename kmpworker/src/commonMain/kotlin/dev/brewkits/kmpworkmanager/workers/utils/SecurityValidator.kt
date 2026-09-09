@@ -472,6 +472,32 @@ object SecurityValidator {
     }
 
     /**
+     * Replaces RFC 3986 UserInfo (`scheme://user:pass@host/...`) with `[REDACTED]@`.
+     *
+     * Only the query string was being redacted, so a URL that carried its credentials in the
+     * authority — still common for internal services and S3-style pre-signed endpoints —
+     * printed them verbatim. And this is not only a log-file problem: `sanitizedURL` output
+     * is embedded in `WorkerResult` messages, which end up in `TaskCompletionEvent` and are
+     * persisted by the event store, so the password outlived the process.
+     *
+     * The authority ends at the first `/`, `?` or `#` after the scheme; anything before the
+     * last `@` inside it is UserInfo.
+     */
+    private fun redactUserInfo(url: String): String {
+        val schemeEnd = url.indexOf("://")
+        if (schemeEnd < 0) return url
+        val authorityStart = schemeEnd + 3
+        val authorityEnd = url.drop(authorityStart)
+            .indexOfFirst { it == '/' || it == '?' || it == '#' }
+            .let { if (it < 0) url.length else authorityStart + it }
+        val authority = url.substring(authorityStart, authorityEnd)
+        val at = authority.lastIndexOf('@')
+        if (at < 0) return url
+        return url.substring(0, authorityStart) + "[REDACTED]@" +
+            authority.substring(at + 1) + url.substring(authorityEnd)
+    }
+
+    /**
      * Redacts query parameters from URL for safe logging.
      * Example: "https://api.com/data?key=secret" -> "https://api.com/data?[REDACTED]"
      *
@@ -479,11 +505,12 @@ object SecurityValidator {
      * @return Sanitized URL safe for logging
      */
     fun sanitizedURL(url: String): String {
-        val queryIndex = url.indexOf('?')
+        val withoutCredentials = redactUserInfo(url)
+        val queryIndex = withoutCredentials.indexOf('?')
         return if (queryIndex != -1) {
-            "${url.substring(0, queryIndex)}?[REDACTED]"
+            "${withoutCredentials.substring(0, queryIndex)}?[REDACTED]"
         } else {
-            url
+            withoutCredentials
         }
     }
 

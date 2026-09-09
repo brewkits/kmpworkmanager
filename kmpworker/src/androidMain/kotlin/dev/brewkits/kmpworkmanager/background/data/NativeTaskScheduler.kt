@@ -26,6 +26,7 @@ import kotlin.time.Duration.Companion.milliseconds
 
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
+import dev.brewkits.kmpworkmanager.utils.BackoffJitter
 
 /**
  * Android implementation of BackgroundTaskScheduler using WorkManager.
@@ -69,6 +70,43 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
          */
         const val KEY_STEP_OUTPUT = "kmp_step_output"
         internal const val OVERFLOW_THRESHOLD_BYTES = 8192 // 8 KB
+
+        /**
+         * WorkManager's hard ceiling on one serialized [androidx.work.Data]
+         * (`androidx.work.Data.MAX_DATA_BYTES`). Mirrored here rather than referenced because
+         * the constant is not public API.
+         */
+        internal const val MAX_WORK_DATA_BYTES = 10240
+
+        /**
+         * Spill threshold for a **chain step's** `inputJson`, and the ceiling
+         * [BaseKmpWorker] applies to a chain step's forwarded output. Together they are the
+         * shared budget the two sides of a chain hop have to live inside.
+         *
+         * **Why they are smaller than [OVERFLOW_THRESHOLD_BYTES].** A chain step's input and
+         * its predecessor's output do not travel separately: WorkManager's `WorkerWrapper`
+         * merges every prerequisite's `outputData` into the successor's `inputData` through
+         * an `InputMerger` before the worker runs, and `InputMerger.merge` ends in
+         * `Data.Builder.build()`, which enforces [MAX_WORK_DATA_BYTES]. Checking the two
+         * halves independently against 8 KB let a perfectly legal pair — measured at 8 506
+         * and 8 222 bytes — meet at 16 KB and blow the cap. The chain then died inside
+         * WorkerWrapper with `IllegalStateException: Data cannot occupy more than 10240 bytes
+         * when serialized`, before the successor's `doWork` was ever called, so no worker
+         * code could observe or report it.
+         *
+         * The merge is unconditional: it happens for every chained step, whether or not the
+         * step set [KEY_MERGE_PREVIOUS_OUTPUT] (that flag only tells [BaseKmpWorker] whether
+         * to *read* the merged value). So the budget applies to all chain steps.
+         *
+         * **Why the split is lopsided.** Input over budget spills losslessly to a `cacheDir`
+         * file; output over budget is dropped (see [BaseKmpWorker]'s `buildStepOutputData`
+         * for why spilling output has no owner to clean it up). Output therefore gets the
+         * larger share — the aim is to drop as little as possible. The 2 048 left over covers
+         * key names, the chain stamps, and serialization overhead, measured at ~314 bytes for
+         * a typical step; standalone tasks are unaffected and keep the full 8 KB.
+         */
+        internal const val CHAIN_STEP_INPUT_BUDGET_BYTES = 2048
+        internal const val CHAIN_STEP_OUTPUT_BUDGET_BYTES = 6144
         private const val ZOMBIE_FILE_MAX_AGE_MS = 24 * 60 * 60 * 1000L // 24 hours
 
         /**
@@ -356,7 +394,7 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
                 .setInputData(workData)
                 .setBackoffCriteria(
                     constraints.toWorkManagerBackoffPolicy(),
-                    constraints.backoffDelayMs,
+                    jitteredBackoffDelayMs(constraints),
                     TimeUnit.MILLISECONDS
                 )
                 .addTag(TAG_KMP_TASK)
@@ -571,7 +609,7 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
             .setInputData(workData)
             .setBackoffCriteria(
                 constraints.toWorkManagerBackoffPolicy(),
-                constraints.backoffDelayMs,
+                jitteredBackoffDelayMs(constraints),
                 TimeUnit.MILLISECONDS
             )
             .addTag(TAG_KMP_TASK)
@@ -651,8 +689,12 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         if (inputJson == null) return builder.build()
 
         val bytes = inputJson.encodeToByteArray()
-        // WorkManager data limit is 10KB. We set threshold to 8KB to be safe.
-        return if (bytes.size <= OVERFLOW_THRESHOLD_BYTES) {
+        // A chain step shares its Data budget with the predecessor's forwarded output, which
+        // WorkManager merges in before the worker runs — see CHAIN_STEP_INPUT_BUDGET_BYTES.
+        // Standalone tasks have no prerequisite and keep the full 8 KB.
+        val spillThreshold =
+            if (chainId != null) CHAIN_STEP_INPUT_BUDGET_BYTES else OVERFLOW_THRESHOLD_BYTES
+        return if (bytes.size <= spillThreshold) {
             builder.putString("inputJson", inputJson).build()
         } else {
             val tempFile = java.io.File(context.cacheDir, "kmp_input_${java.util.UUID.randomUUID()}.json")
@@ -696,18 +738,58 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
                                    else androidx.work.NetworkType.NOT_REQUIRED)
             .setRequiresCharging(constraints.requiresCharging)
         
-        constraints.systemConstraints.forEach {
-            when (it) {
-                SystemConstraint.DEVICE_IDLE -> builder.setRequiresDeviceIdle(true)
-                SystemConstraint.REQUIRE_BATTERY_NOT_LOW -> builder.setRequiresBatteryNotLow(true)
-                SystemConstraint.ALLOW_LOW_BATTERY -> builder.setRequiresBatteryNotLow(false)
-                SystemConstraint.ALLOW_LOW_STORAGE -> builder.setRequiresStorageNotLow(false)
-            }
+        // REQUIRE_BATTERY_NOT_LOW and ALLOW_LOW_BATTERY are direct opposites and nothing stops
+        // a caller putting both in the same Set. The old `forEach` + `when` applied whichever
+        // came last in iteration order, so the effective constraint depended on the Set
+        // implementation the caller happened to build — and flipped silently if they reordered
+        // the arguments. Resolve it explicitly instead, and say so in the log: the restrictive
+        // side wins, because deferring a task until the battery recovers is recoverable while
+        // draining a nearly-flat battery is not.
+        val systemConstraints = constraints.systemConstraints
+        val requireBatteryNotLow = SystemConstraint.REQUIRE_BATTERY_NOT_LOW in systemConstraints
+        val allowLowBattery = SystemConstraint.ALLOW_LOW_BATTERY in systemConstraints
+        if (requireBatteryNotLow && allowLowBattery) {
+            Logger.w(
+                LogTags.SCHEDULER,
+                "Constraints list both REQUIRE_BATTERY_NOT_LOW and ALLOW_LOW_BATTERY — " +
+                    "honouring REQUIRE_BATTERY_NOT_LOW (the restrictive one). Drop one of them " +
+                    "to make the intent explicit."
+            )
         }
+        if (requireBatteryNotLow) {
+            builder.setRequiresBatteryNotLow(true)
+        } else if (allowLowBattery) {
+            builder.setRequiresBatteryNotLow(false)
+        }
+        if (SystemConstraint.DEVICE_IDLE in systemConstraints) builder.setRequiresDeviceIdle(true)
+        if (SystemConstraint.ALLOW_LOW_STORAGE in systemConstraints) builder.setRequiresStorageNotLow(false)
         
         block?.invoke(builder)
         return builder.build()
     }
+
+    /**
+     * The configured backoff base, spread by [BackoffJitter] so installs that failed together
+     * do not retry together. See that class for why a deterministic schedule turns one backend
+     * outage into a synchronised retry storm across every device running the app.
+     *
+     * **Jitter lands on the base, not on each attempt.** WorkManager derives every attempt's
+     * delay from the single value stored on the WorkSpec, and there is no supported way to
+     * re-randomise it between attempts without rewriting the request. Randomising the base
+     * still breaks the herd — devices get different bases, so their retries fan out at every
+     * attempt — it just does not re-fan them independently per attempt.
+     *
+     * Floored at `WorkRequest.MIN_BACKOFF_MILLIS`: WorkManager clamps anything below it
+     * anyway, silently, and clamping every jittered value back to the same floor is exactly
+     * the synchronisation this is meant to remove. Doing it here keeps the value we log and
+     * the value WorkManager stores the same.
+     *
+     * [BackoffJitter] only ever shortens the delay, so WorkManager's own upper bound
+     * (`MAX_BACKOFF_MILLIS`) needs no second check.
+     */
+    private fun jitteredBackoffDelayMs(constraints: Constraints): Long =
+        BackoffJitter.apply(constraints.backoffDelayMs)
+            .coerceAtLeast(androidx.work.WorkRequest.MIN_BACKOFF_MILLIS)
 
     private fun Constraints.toWorkManagerBackoffPolicy(): androidx.work.BackoffPolicy =
         when (this.backoffPolicy) {
