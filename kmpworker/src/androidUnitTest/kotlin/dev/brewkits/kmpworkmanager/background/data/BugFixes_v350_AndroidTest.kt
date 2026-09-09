@@ -9,6 +9,8 @@ import dev.brewkits.kmpworkmanager.background.domain.ExistingPolicy
 import dev.brewkits.kmpworkmanager.background.domain.ScheduleResult
 import dev.brewkits.kmpworkmanager.background.domain.TaskState
 import dev.brewkits.kmpworkmanager.background.domain.TaskTrigger
+import dev.brewkits.kmpworkmanager.utils.CustomLogger
+import dev.brewkits.kmpworkmanager.utils.Logger
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.runner.RunWith
@@ -297,6 +299,72 @@ class BugFixes_v350_AndroidTest {
             1,
             overflowFiles().size,
             "a chain step over the input budget must spill to cacheDir rather than ride in the Data",
+        )
+    }
+
+    // ── I-23: WorkManager's flex clamp happened in silence ────────────────────────────
+    //
+    // `flexMs` is coerced up to WorkManager's 5-minute floor and down to the interval. Both
+    // are required, but neither was reported: a caller who asked for a 60s window got 300s
+    // and could only discover it by watching when the task actually ran. Open as I-23 since
+    // v2.4.2.
+
+    private class CapturingLogger : CustomLogger {
+        val warnings = mutableListOf<String>()
+        override fun log(level: Logger.Level, tag: String, message: String, throwable: Throwable?) {
+            if (level == Logger.Level.WARN) warnings += message
+        }
+    }
+
+    private fun withCapturedLogs(block: () -> Unit): List<String> {
+        val capturing = CapturingLogger()
+        Logger.setCustomLogger(capturing)
+        try {
+            block()
+        } finally {
+            Logger.setCustomLogger(null)
+        }
+        return capturing.warnings
+    }
+
+    @Test
+    fun explicitFlexBelowTheWorkManagerMinimum_warnsThatItWasClamped() = runTest {
+        val warnings = withCapturedLogs {
+            kotlinx.coroutines.runBlocking {
+                scheduler.enqueue(
+                    id = "flex-clamped-${kotlin.random.Random.nextInt()}",
+                    trigger = TaskTrigger.Periodic(intervalMs = 20 * 60 * 1000L, flexMs = 60_000L),
+                    workerClassName = "SomeWorker",
+                )
+            }
+        }
+
+        val clampWarning = warnings.singleOrNull { it.contains("clamped") }
+        assertTrue(
+            clampWarning != null && clampWarning.contains("60000") && clampWarning.contains("300000"),
+            "expected a warning naming the requested and effective flex windows, got: $warnings",
+        )
+    }
+
+    @Test
+    fun noExplicitFlex_doesNotWarn_evenThoughTheDerivedDefaultIsClampedToo() = runTest {
+        // The library derives flexMs = interval/2 when the caller does not set it, and that
+        // derived value is clamped by the same code. Warning about it would fire on every
+        // periodic schedule and train people to ignore the message — the warning is for a
+        // request the caller actually made.
+        val warnings = withCapturedLogs {
+            kotlinx.coroutines.runBlocking {
+                scheduler.enqueue(
+                    id = "flex-default-${kotlin.random.Random.nextInt()}",
+                    trigger = TaskTrigger.Periodic(intervalMs = 15 * 60 * 1000L),
+                    workerClassName = "SomeWorker",
+                )
+            }
+        }
+
+        assertTrue(
+            warnings.none { it.contains("clamped") },
+            "the library's own derived default must not produce a clamp warning, got: $warnings",
         )
     }
 }

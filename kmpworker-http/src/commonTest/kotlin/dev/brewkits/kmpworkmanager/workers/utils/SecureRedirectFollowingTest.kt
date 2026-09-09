@@ -160,6 +160,11 @@ class SecureRedirectFollowingTest {
             header(HttpHeaders.Authorization, "Bearer secret-token")
         }
 
-        assertEquals("Bearer secret-token", secondRequestAuthHeader, "a relative redirect is always same-origin — must not strip credentials")
+        // "Same-origin" is judged against the request that RECEIVED the Location header, not
+        // against the original request — see installSecureRedirectFollowing. Here that is the
+        // first hop and the origin are the same host, so credentials are kept. A relative
+        // redirect arriving on a later, already-cross-origin hop resolves against THAT host
+        // and does not restore anything (V350HttpBugFixesTest covers that case).
+        assertEquals("Bearer secret-token", secondRequestAuthHeader, "a same-origin relative redirect must not strip credentials")
     }
 }

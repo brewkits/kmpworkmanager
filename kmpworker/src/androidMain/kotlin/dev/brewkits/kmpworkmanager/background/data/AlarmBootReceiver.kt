@@ -49,11 +49,26 @@ import dev.brewkits.kmpworkmanager.utils.LogTags
  * never actually registered for it and this receiver's "App updated" restore path silently
  * never ran.
  *
- * **Note on `LOCKED_BOOT_COMPLETED`:**
- * On API 24+ (direct boot mode), `BOOT_COMPLETED` is not delivered until the user unlocks
- * the device. `LOCKED_BOOT_COMPLETED` fires earlier and ensures alarms are restored even
- * on encrypted devices that haven't been unlocked yet. Both actions are safe to register —
- * pre-API 24 devices simply ignore `LOCKED_BOOT_COMPLETED`.
+ * **Note on `LOCKED_BOOT_COMPLETED` — read this before relying on it:**
+ * On API 24+, `BOOT_COMPLETED` is not delivered until the user unlocks the device, and
+ * `LOCKED_BOOT_COMPLETED` fires earlier. Registering it is harmless (pre-API 24 devices
+ * ignore it), but **as this library stands it does not buy you a pre-unlock restore**, and
+ * the snippet above is deliberately not `directBootAware`. Two things would have to change
+ * together, and neither is a manifest edit the host app can make alone:
+ *
+ *  1. The receiver would need `android:directBootAware="true"`. Without it the system does
+ *     not start the component before first unlock, so `LOCKED_BOOT_COMPLETED` never arrives
+ *     no matter what the intent-filter says.
+ *  2. [AlarmStore] would have to move to device-protected storage. It reads and writes
+ *     through `context.getSharedPreferences(...)` on the credential-encrypted context, which
+ *     is simply not readable before first unlock — so a direct-boot-aware receiver would wake
+ *     up and find no alarms to restore.
+ *
+ * What you actually get today: alarms are restored at `BOOT_COMPLETED`, i.e. after the first
+ * unlock. For the overwhelming majority of apps that is the right trade — moving alarm
+ * metadata to device-protected storage means it is no longer protected by the user's
+ * credential, which is a real decision, not a checkbox. If you need pre-unlock restore, file
+ * an issue describing the use case.
  *
  * **Note on SCHEDULE_EXACT_ALARM permission:**
  * This receiver silently skips rescheduling if [AlarmManager.canScheduleExactAlarms] returns

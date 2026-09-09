@@ -79,6 +79,13 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         internal const val MAX_WORK_DATA_BYTES = 10240
 
         /**
+         * WorkManager's floor on a periodic task's flex window
+         * (`PeriodicWorkRequest.MIN_PERIODIC_FLEX_MILLIS`). Mirrored rather than referenced so
+         * the clamp and the warning that reports it cannot drift apart.
+         */
+        internal const val MIN_FLEX_MS = 5 * 60 * 1000L
+
+        /**
          * Spill threshold for a **chain step's** `inputJson`, and the ceiling
          * [BaseKmpWorker] applies to a chain step's forwarded output. Together they are the
          * shared budget the two sides of a chain hop have to live inside.
@@ -348,9 +355,7 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         // WorkManager requires flexMs >= 5 min. Default to half the interval when not specified.
         // Clamp between the OS minimum and the interval (flex > interval is nonsensical).
         // If runImmediately is true, we use the full interval as flexMs to allow immediate execution.
-        val effectiveFlexMs = (trigger.flexMs ?: if (trigger.runImmediately) intervalMs else (intervalMs / 2))
-            .coerceAtLeast(5 * 60 * 1000L)
-            .coerceAtMost(intervalMs)
+        val effectiveFlexMs = resolveFlexMs(id, trigger, intervalMs)
 
         // When runImmediately = false and no explicit delay is set, defer first run by one
         // full interval. This eliminates the workaround of setting initialDelayMs = intervalMs.
@@ -709,6 +714,34 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
                 throw IllegalArgumentException("JSON too large and failed to spill to disk", e)
             }
         }
+    }
+
+    /**
+     * Resolves the flex window WorkManager will actually use, and says so when that differs
+     * from what the caller asked for.
+     *
+     * The clamp itself is not optional — WorkManager enforces [MIN_FLEX_MS], and a flex window
+     * wider than the interval is meaningless — but it used to happen in complete silence
+     * (I-23, open since v2.4.2). A caller who asked for a 60 s window got 5 minutes and could
+     * only discover it by observing when the task ran.
+     *
+     * The warning fires only for an **explicit** `flexMs`. When the caller sets none the
+     * library derives one (`interval / 2`, or the full interval under `runImmediately`) and
+     * that derived value is clamped by the same code — warning about it would fire on every
+     * periodic schedule in every app and teach people to filter the message out.
+     */
+    private fun resolveFlexMs(id: String, trigger: TaskTrigger.Periodic, intervalMs: Long): Long {
+        val requested = trigger.flexMs ?: if (trigger.runImmediately) intervalMs else (intervalMs / 2)
+        val effective = requested.coerceAtLeast(MIN_FLEX_MS).coerceAtMost(intervalMs)
+        if (trigger.flexMs != null && effective != requested) {
+            Logger.w(
+                LogTags.SCHEDULER,
+                "Periodic task '$id': requested flexMs=${requested}ms was clamped to ${effective}ms. " +
+                    "WorkManager enforces a ${MIN_FLEX_MS}ms minimum, and a flex window larger than the " +
+                    "interval (${intervalMs}ms) is meaningless. The task will run with the clamped window."
+            )
+        }
+        return effective
     }
 
     private fun buildPeriodicWorkData(workerClassName: String, inputJson: String?): Data {
