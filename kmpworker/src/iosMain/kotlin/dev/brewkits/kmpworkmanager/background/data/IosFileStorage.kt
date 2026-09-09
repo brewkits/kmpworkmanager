@@ -820,12 +820,18 @@ public class IosFileStorage(
     suspend fun loadChainDefinition(id: String): List<List<TaskRequest>>? {
         val chainFile = chainsDirURL.safeAppend("${id.encodeAsPathComponent()}.json")
 
-        // The `coordinated` callback is a non-suspend block, so the suspend-only
+        // The coordination callback is a non-suspend block, so the suspend-only
         // `deleteChainProgress(id)` call has to happen AFTER coordination returns.
         // We surface "needs self-heal" via a flag captured in the return tuple.
         var needsSelfHealProgress = false
-        val result = coordinated(chainFile, write = false) { safeUrl ->
-            val json = readStringFromFile(safeUrl) ?: return@coordinated null
+        // coordinatedSuspend, not coordinated: this function is `suspend` and is called from
+        // ChainExecutor on Dispatchers.Default. The blocking variant parks that thread inside
+        // dispatch_semaphore_wait for the whole coordination — the exact violation of Key
+        // Invariant #1 in CLAUDE.md, and with MAX_PARALLEL_TASKS = 4 chains loading
+        // definitions concurrently it can starve the shared Default pool outright.
+        // The block itself is non-suspend in both variants, so this is a drop-in swap.
+        val result = coordinatedSuspend(chainFile, write = false) { safeUrl ->
+            val json = readStringFromFile(safeUrl) ?: return@coordinatedSuspend null
 
             try {
                 persistenceJson.decodeFromString<List<List<TaskRequest>>>(json)

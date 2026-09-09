@@ -127,7 +127,19 @@ object SecurityValidator {
             }
         }
         if (hostname.isBlank()) return null
-        return hostname.lowercase()
+        // A fully-qualified name with the root label spelled out ("localhost.",
+        // "metadata.google.internal.") resolves to exactly the same host as the dotless form,
+        // but matched no entry in isBlockedHostname's exact-match tables, nor its
+        // `.localhost` / `.local` suffix checks — so a named host walked straight through
+        // the SSRF blocklist. Numeric literals were never exposed: "127.0.0.1." still
+        // satisfies looksLikeIPv4 (a trailing dot is a '.'), then splits into five parts and
+        // is rejected by the `!isValidIPv4` arm. Verified by stashing this fix — the named
+        // cases go red, the numeric ones stay green.
+        //
+        // Strip the root label here, before any comparison sees the value, so both the
+        // multi-'@' candidate loop above and the normal path are covered by one fix. takeIf
+        // guards the degenerate input "." (and ".." etc.), which trims to empty.
+        return hostname.trimEnd('.').lowercase().takeIf { it.isNotBlank() }
     }
 
     /**

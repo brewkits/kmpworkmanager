@@ -29,8 +29,18 @@ interface EventStore {
     /**
      * Saves an event to persistent storage.
      *
+     * Implementations must return an id **only** when the event actually reached storage. A
+     * path that declines to write (a disk-space guard, an unwritable file) has to throw, not
+     * return a freshly minted id: the caller cannot tell the two apart, and a fabricated id
+     * turns a silent data loss into a logged success that no later lookup can resolve.
+     *
+     * [dev.brewkits.kmpworkmanager.background.domain.TaskEventManager.emit] catches, logs, still
+     * publishes to `TaskEventBus` so live UI is unaffected, and returns `null` — persistence is
+     * best-effort by design, but it reports honestly.
+     *
      * @param event The event to save
      * @return Unique event ID for tracking
+     * @throws Exception if the event could not be persisted
      */
     suspend fun saveEvent(event: TaskCompletionEvent): String
 

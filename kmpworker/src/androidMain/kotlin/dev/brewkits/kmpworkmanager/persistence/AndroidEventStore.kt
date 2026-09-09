@@ -80,11 +80,17 @@ class AndroidEventStore(
 
         synchronized(fileLock) {
             try {
-                // Disk space guard: avoid writing if disk is critically low (< 1MB)
+                // Disk space guard: avoid writing if disk is critically low (< 1MB).
+                // Throwing rather than returning `eventId`: this branch writes nothing, and a
+                // freshly minted UUID handed back from it is indistinguishable from a real
+                // save — the caller logged "Saved event <id>" and every later lookup of that
+                // id found nothing. TaskEventManager.emit already catches, logs, still emits
+                // to TaskEventBus, and returns null, which is exactly what its KDoc promises
+                // ("Event ID if saved successfully, null otherwise"). The signature is
+                // unchanged, so no BCV/apiCheck movement and no break for custom EventStores.
                 val usableSpace = eventsFile.parentFile?.usableSpace ?: 0L
                 if (usableSpace < 1024 * 1024L) {
-                    Logger.e(LogTags.SCHEDULER, "AndroidEventStore: disk critically low ($usableSpace bytes), skipping save")
-                    return@withContext eventId
+                    error("AndroidEventStore: disk critically low ($usableSpace bytes) — event not persisted")
                 }
 
                 // Append event as JSONL (JSON Lines - one line per event)

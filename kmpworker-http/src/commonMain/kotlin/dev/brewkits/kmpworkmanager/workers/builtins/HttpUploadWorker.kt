@@ -11,6 +11,7 @@ import dev.brewkits.kmpworkmanager.workers.utils.SecurityValidator
 import dev.brewkits.kmpworkmanager.utils.platformFileSystem
 import dev.brewkits.kmpworkmanager.utils.currentTimeMillis
 import io.ktor.client.*
+import io.ktor.client.plugins.timeout
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
@@ -42,6 +43,18 @@ class HttpUploadWorker(
                 return WorkerResult.Failure("Invalid or unsafe URL")
             }
 
+            // v3.5.0: this worker was the only HTTP worker that validated the URL but not the
+            // path it reads from — ParallelHttpUploadWorker, HttpDownloadWorker (savePath) and
+            // IosBackgroundUploadWorker all validate theirs. That mattered because `filePath`
+            // is not necessarily author-controlled: in a chain step with
+            // `mergeOutputFromPreviousStep = true`, the PREVIOUS step's output wins on a key
+            // collision (ChainInputMerger), so an earlier, less-trusted step could redirect
+            // this upload at an arbitrary local file. Same vector v3.4.0 closed for
+            // FileCompressionWorker.inputPath.
+            if (!SecurityValidator.validateFilePath(config.filePath)) {
+                return WorkerResult.Failure("Invalid or unsafe file path: ${config.filePath}")
+            }
+
             uploadFile(httpClient, config, env)
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
@@ -71,6 +84,16 @@ class HttpUploadWorker(
         val boundary = "KmpWorkManagerBoundary${Random.nextInt(1000000)}"
 
         val response = client.post(config.url) {
+            // v3.5.0: HttpUploadConfig.timeoutMs was validated in the config's `init` but never
+            // applied here, so it was dead configuration — a server that accepted the
+            // connection and then stalled held the multipart body open indefinitely (burning
+            // an Android dataSync FGS budget, or a whole iOS BGTask window). Same three-way
+            // timeout the download workers set.
+            timeout {
+                requestTimeoutMillis = config.timeoutMs
+                connectTimeoutMillis = config.timeoutMs
+                socketTimeoutMillis = config.timeoutMs
+            }
             headers {
                 SecurityValidator.sanitizeHeaders(config.headers)?.forEach { (k, v) -> append(k, v) }
                 append(HttpHeaders.ContentType, "multipart/form-data; boundary=$boundary")

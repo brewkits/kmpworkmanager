@@ -20,11 +20,13 @@ import kotlin.test.assertTrue
  *
  * These tests assert:
  *  1. Each public alias resolves to the right `ServiceInfo.FOREGROUND_SERVICE_TYPE_*`.
- *  2. `FGS_MEDIA_PROCESSING` is the documented `0x1000` literal — `ServiceInfo`
- *     doesn't expose the constant on AOSP API ≤ 34, so we keep the literal in
- *     the companion object and pin it here so an accidental "fix" by a future
- *     PR (e.g. moving to `ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING`)
- *     doesn't silently change the wire value.
+ *  2. `FGS_MEDIA_PROCESSING` equals the real
+ *     `ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING` (0x2000 / 8192).
+ *     Until v3.5.0 both the constant and this assertion said `0x1000` (4096),
+ *     and this comment actively told future PRs not to "fix" it. That was wrong:
+ *     4096 is not any publicly-declarable FGS type, so Android 15 rejected every
+ *     worker using the alias. Assert against the platform constant, not a literal,
+ *     so the two can never drift apart again.
  *  3. The aliases are distinct integers (no copy-paste typo collapsing two
  *     constants to the same value).
  *
@@ -60,12 +62,20 @@ class KmpHeavyWorkerFgsTypeTest {
     }
 
     @Test
-    fun fgsMediaProcessing_isAndroid15Literal() {
-        // ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING is API 35+ and not exposed
-        // on the compile classpath at compileSdk=34. The constant value per AOSP is 0x1000
-        // (4096). Pin it so a future "cleanup" doesn't change the on-wire value.
-        assertEquals(0x1000, KmpHeavyWorker.FGS_MEDIA_PROCESSING)
-        assertEquals(4096, KmpHeavyWorker.FGS_MEDIA_PROCESSING)
+    fun fgsMediaProcessing_matchesPlatformConstant() {
+        // The project builds at compileSdk = 36, so the API 35 constant IS on the compile
+        // classpath. Assert against it rather than a literal — that is what stops the two
+        // from drifting apart, which is exactly how the 4096 bug survived three releases.
+        assertEquals(
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING,
+            KmpHeavyWorker.FGS_MEDIA_PROCESSING,
+        )
+        // Belt-and-braces on the actual number, so a platform-constant regression is loud.
+        assertEquals(0x2000, KmpHeavyWorker.FGS_MEDIA_PROCESSING)
+        assertEquals(8192, KmpHeavyWorker.FGS_MEDIA_PROCESSING)
+        // Regression guard: the pre-v3.5.0 value was not merely stale, it was never a valid
+        // FGS type at all.
+        assertNotEquals(4096, KmpHeavyWorker.FGS_MEDIA_PROCESSING)
     }
 
     @Test

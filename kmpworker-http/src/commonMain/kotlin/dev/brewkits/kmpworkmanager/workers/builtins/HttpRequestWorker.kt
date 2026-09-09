@@ -18,6 +18,7 @@ import io.ktor.client.statement.*
 import io.ktor.http.*
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.coroutines.CancellationException
 
 /**
  * Built-in worker for executing HTTP requests (GET, POST, PUT, DELETE, PATCH).
@@ -56,6 +57,14 @@ class HttpRequestWorker(
             Logger.i("HttpRequestWorker", "Executing ${config.httpMethod} request to ${SecurityValidator.sanitizedURL(config.url)}")
 
             executeRequest(httpClient, config)
+        } catch (e: CancellationException) {
+            // Rethrow, never convert. This was the only HTTP worker whose catch-all also
+            // caught cancellation (kotlinx's CancellationException is a RuntimeException on
+            // every target), so a task the scheduler merely pre-empted reported a *failure*:
+            // a bogus TaskCompletionEvent(success = false) reached the event store and the
+            // UI, and the parent scope's cancellation was swallowed. Every sibling worker
+            // (Download, Upload, Parallel*) already has this branch.
+            throw e
         } catch (e: Exception) {
             Logger.e("HttpRequestWorker", "Failed to execute HTTP request", e)
             WorkerResult.Failure("HTTP request failed: ${e.message}")
@@ -137,6 +146,11 @@ class HttpRequestWorker(
                     shouldRetry = statusCode in 500..599
                 )
             }
+        } catch (e: CancellationException) {
+            // Same reasoning as doWork's catch — and worse here, because this branch sets
+            // shouldRetry = true: a cancelled request was re-armed as if the network had
+            // failed.
+            throw e
         } catch (e: Exception) {
             Logger.e("HttpRequestWorker", "HTTP request failed", e)
             WorkerResult.Failure("Request failed: ${e.message}", shouldRetry = true)

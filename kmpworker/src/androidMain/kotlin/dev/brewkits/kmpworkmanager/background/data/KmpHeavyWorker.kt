@@ -96,8 +96,25 @@ open class KmpHeavyWorker(
          * Requires `android.permission.FOREGROUND_SERVICE_MEDIA_PROCESSING` and
          * `android:foregroundServiceType="mediaProcessing"` in the host manifest. Guard
          * usage with `Build.VERSION.SDK_INT >= 35` to avoid crashes on older devices.
+         *
+         * **v3.5.0 correctness fix.** This was previously a hand-written `0x1000` (4096)
+         * literal, on the rationale that `ServiceInfo` did not expose the constant at the
+         * then-current `compileSdk = 34`. The literal was simply the wrong number — the real
+         * `FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING` is `0x2000` (8192), and 4096 is not any
+         * publicly-declarable FGS type — so on API 35 `setForeground` threw
+         * `ForegroundServiceTypeException` for every worker that used this alias, which
+         * [doWork] then reported as a retryable failure, looping until `maxRetries`. The
+         * project now builds at `compileSdk = 36`, so the constant is referenced directly
+         * and cannot drift again.
+         *
+         * Deliberately `@JvmField val`, not `const val`, and not only for consistency with
+         * the aliases above: a `const val` is inlined into consumer bytecode at *their*
+         * compile time, so an app that merely bumped the dependency would have kept using
+         * the stale 4096 until it recompiled. A field read picks up the corrected value on
+         * a version bump alone. The ABI shape is unchanged either way — both emit
+         * `public static final field FGS_MEDIA_PROCESSING I`, so `apiCheck` stays green.
          */
-        const val FGS_MEDIA_PROCESSING: Int = 0x1000  // ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING
+        @JvmField val FGS_MEDIA_PROCESSING: Int = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING
     }
 
     /**

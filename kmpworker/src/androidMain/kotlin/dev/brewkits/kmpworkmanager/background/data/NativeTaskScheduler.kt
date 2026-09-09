@@ -133,6 +133,38 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
         }
     }
 
+    /**
+     * True when unique work named [id] already exists in a non-terminal state
+     * (`ENQUEUED`/`RUNNING`/`BLOCKED`) — i.e. exactly the situation in which WorkManager's
+     * `ExistingWorkPolicy.KEEP` will discard an incoming request.
+     *
+     * **Why this has to be asked BEFORE the request is built (v3.5.0).** Building a request
+     * is not side-effect-free: for an `inputJson` over [OVERFLOW_THRESHOLD_BYTES],
+     * `buildWorkData` spills the payload to `cacheDir` and calls
+     * `OverflowFileRegistry.register`, which deletes whatever overflow file the id was
+     * previously pointing at. Under `KEEP` that stale file belongs to the task WorkManager
+     * is about to keep, so the kept task's payload was destroyed before it ever ran —
+     * `BaseKmpWorker.resolveInputJson` then logged "Overflow input file missing" and handed
+     * the worker `null`, surfacing as a confusing `Failure("Input is null")` rather than as
+     * the payload loss it actually was. `scheduleExactAlarm` never had this problem because
+     * it has always short-circuited KEEP first; this brings the WorkManager paths in line.
+     *
+     * **Known race, deliberately accepted:** the existing work can finish between this check
+     * and the enqueue, in which case the incoming request is skipped where WorkManager would
+     * have accepted it. The window is small, the same one `scheduleExactAlarm`'s equivalent
+     * guard has always had, and its failure mode (one skipped re-schedule under KEEP, whose
+     * whole contract is "there is already one of these, do nothing") is far milder than
+     * silently emptying a live task's input.
+     */
+    private suspend fun hasPendingUniqueWork(id: String): Boolean = try {
+        workManager.getWorkInfosForUniqueWork(id).await().any { !it.state.isFinished }
+    } catch (e: Exception) {
+        // Never let a WorkManager query failure block scheduling: fall through to the normal
+        // path, which is what happened before this guard existed.
+        Logger.w(LogTags.SCHEDULER, "KEEP pre-check failed for '$id', proceeding: ${e.message}")
+        false
+    }
+
     @OptIn(AndroidOnly::class)
     override suspend fun enqueue(
         id: String,
@@ -165,6 +197,19 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
                     "exact-alarm path (it uses AlarmManager, not WorkManager). cancelByTag() will not " +
                     "match this task — cancel it by id instead."
             )
+        }
+
+        // KEEP + already-pending ⇒ WorkManager would discard this request anyway. Return before
+        // building it, because building it has destructive side effects on the kept task's
+        // overflow file. TaskTrigger.Exact is excluded: it does not go through WorkManager and
+        // runs its own equivalent guard inside scheduleExactAlarm.
+        if (policy == ExistingPolicy.KEEP && trigger !is TaskTrigger.Exact && hasPendingUniqueWork(id)) {
+            Logger.i(
+                LogTags.SCHEDULER,
+                "Task '$id' already pending and policy is KEEP — keeping the existing task, " +
+                    "discarding this request (its input is left untouched)."
+            )
+            return ScheduleResult.ACCEPTED
         }
 
         val result = when (trigger) {
@@ -453,10 +498,47 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        // Save BEFORE arming, on purpose: the alarm can fire the instant it is set, and
+        // AlarmReceiver/AlarmBootReceiver need the metadata to already be there. The cost of
+        // that ordering is that a failure to arm leaves the row behind — so undo it here.
+        //
+        // Arming can still fail after canScheduleExactAlarms() returned true, and it used to
+        // throw straight out of the public enqueue() — a caller that reasonably expects a
+        // ScheduleResult got a crash, and AlarmStore was left claiming an alarm AlarmManager
+        // never accepted. See armExactAlarm for the rollback and why it catches broadly.
         AlarmStore.save(context, AlarmStore.AlarmMetadata(id, trigger.atEpochMillis, workerClassName, inputJson))
-        alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, trigger.atEpochMillis, pendingIntent)
-        
-        return ScheduleResult.ACCEPTED
+        return armExactAlarm(alarmManager, id, trigger.atEpochMillis, pendingIntent)
+    }
+
+    /**
+     * Arms the alarm and rolls the [AlarmStore] row back if AlarmManager refuses it.
+     *
+     * Returns [ScheduleResult.ACCEPTED] when the alarm is armed. On refusal the stored
+     * metadata and the PendingIntent are both removed, so [AlarmStore] never claims an alarm that
+     * AlarmManager does not hold — a divergence the `ExistingPolicy.KEEP` guard in
+     * [scheduleExactAlarm] would otherwise honour forever, silently swallowing every later
+     * attempt to schedule the same id.
+     *
+     * Caught broadly rather than as `SecurityException` alone: the exact type varies by API
+     * level and OEM (revoked SCHEDULE_EXACT_ALARM, vendor alarm quotas, and no
+     * `canScheduleExactAlarms()` check at all below API 31), and guessing a narrower set
+     * would reopen the orphan-row bug for every type not listed. Nothing is swallowed — the
+     * failure is logged and surfaced as a typed [ScheduleResult].
+     */
+    @OptIn(AndroidOnly::class)
+    private fun armExactAlarm(
+        alarmManager: AlarmManager,
+        id: String,
+        atEpochMillis: Long,
+        pendingIntent: PendingIntent
+    ): ScheduleResult = try {
+        alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atEpochMillis, pendingIntent)
+        ScheduleResult.ACCEPTED
+    } catch (e: Exception) {
+        Logger.e(LogTags.ALARM, "AlarmManager refused exact alarm '$id' — rolling back stored metadata", e)
+        AlarmStore.remove(context, id)
+        cancelAlarmManagerPendingIntent(id)
+        ScheduleResult.REJECTED_OS_POLICY
     }
 
     private fun buildOneTimeWorkRequest(
@@ -722,6 +804,18 @@ open class NativeTaskScheduler(private val context: Context) : BackgroundTaskSch
             ExistingPolicy.REPLACE,
             ExistingPolicy.UPDATE -> ExistingWorkPolicy.REPLACE
             ExistingPolicy.KEEP -> ExistingWorkPolicy.KEEP
+        }
+
+        // Same KEEP pre-check as enqueue() — and it matters more here, because a chain builds
+        // one request per step, so every step's overflow file for this chainId would be
+        // deleted before beginUniqueWork discarded the lot. See hasPendingUniqueWork.
+        if (policy == ExistingPolicy.KEEP && hasPendingUniqueWork(chainId)) {
+            Logger.i(
+                LogTags.SCHEDULER,
+                "Chain '$chainId' already pending and policy is KEEP — keeping the existing chain, " +
+                    "discarding this request (its steps' inputs are left untouched)."
+            )
+            return
         }
 
         // Stamp chainId/stepIndex/totalSteps into every step's inputData so BaseKmpWorker can

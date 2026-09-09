@@ -48,6 +48,15 @@ import kotlinx.serialization.Transient
  *   chain but never finished cleanly (process killed, OOM, native crash). Incremented on
  *   disk BEFORE any work begins so it survives process death. When this exceeds
  *   [MAX_CRASH_ATTEMPTS] the chain is quarantined to break the crash loop.
+ *
+ *   **Reset to 0 by [withCompletedStep]** — this is what makes the counter mean
+ *   "consecutive invocations that produced nothing" rather than "invocations, ever".
+ *   Until v3.5.0 there was no reset anywhere, so the counter also accumulated *clean*
+ *   pre-emptions: a chain long enough to need a 5th BGTask window to finish was deleted
+ *   as a poison pill on that window, losing every completed step, even though it had been
+ *   making steady forward progress. That directly contradicted [withTimeout], whose own
+ *   KDoc promises "a long chain that naturally exceeds the 300s iOS BGTask window should
+ *   be allowed to resume as many times as needed to finish".
  * @property stepRetryCounts Per-step attempt counter — incremented when a step's worker
  *   returns `WorkerResult.Retry` or `WorkerResult.Failure(shouldRetry = true)`. When a
  *   step's count exceeds the worker's `Retry.attemptCap`, the chain is abandoned.
@@ -150,7 +159,12 @@ data class ChainProgress(
         return copy(
             completedSteps = (completedSteps + stepIndex).sorted(),
             completedTasksInSteps = completedTasksInSteps - stepIndex, // Per-task data no longer needed
-            lastFailedStep = null // Clear failure on success
+            lastFailedStep = null, // Clear failure on success
+            // Forward progress clears the crash counter: whatever happened in the previous
+            // windows, this invocation finished a step, so the chain is not crash-looping.
+            // A chain that genuinely dies inside the same step still never reaches here, so
+            // the poison-pill guard keeps its teeth. See the crashAttemptCount KDoc.
+            crashAttemptCount = 0
         )
     }
 
@@ -208,6 +222,9 @@ data class ChainProgress(
      * Call this BEFORE any work begins and persist to disk immediately so the counter
      * survives a process kill. If the chain completes (success or clean failure), its
      * progress file is deleted anyway; the count only matters across process-death cycles.
+     *
+     * Pairs with [withCompletedStep], which resets the counter to 0 — without that reset
+     * this increment counts every invocation rather than only unproductive ones.
      */
     fun withCrashAttempt(): ChainProgress = copy(crashAttemptCount = crashAttemptCount + 1)
 
@@ -215,6 +232,10 @@ data class ChainProgress(
      * Returns true when this chain has crashed enough times to be considered a poison pill.
      * A chain that consistently crashes the process should be quarantined so it does not
      * penalise the app's iOS background execution budget on every BGTask invocation.
+     *
+     * "Consistently" means [MAX_CRASH_ATTEMPTS] invocations **in a row with no step
+     * completed** — [withCompletedStep] resets the counter — so an ordinary long-running
+     * chain that simply needs many BGTask windows is never quarantined.
      */
     fun isPoisonPill(): Boolean = crashAttemptCount >= MAX_CRASH_ATTEMPTS
 

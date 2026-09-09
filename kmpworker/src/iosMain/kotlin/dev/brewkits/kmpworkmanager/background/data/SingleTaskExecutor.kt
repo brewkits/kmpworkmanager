@@ -75,7 +75,14 @@ class SingleTaskExecutor(private val workerFactory: IosWorkerFactory) {
                             coroutineScope.launch {
                                 TaskProgressBus.emit(
                                     TaskProgressEvent(
-                                        taskId = workerClassName,
+                                        // recordTaskId, not workerClassName: two concurrently
+                                        // running tasks of the same worker class emitted under
+                                        // an identical taskId, so a UI could not tell their
+                                        // progress apart and they shared one throttle entry —
+                                        // one task's update suppressed the other's. The
+                                        // ExecutionRecord below is already keyed this way, so
+                                        // progress and history now agree on task identity.
+                                        taskId = recordTaskId,
                                         taskName = workerClassName.substringAfterLast('.'),
                                         progress = progress
                                     )
@@ -128,6 +135,21 @@ class SingleTaskExecutor(private val workerFactory: IosWorkerFactory) {
             val result = WorkerResult.Failure("Exception: ${e.message}")
             recordCompletion(recordTaskId, workerClassName, result, startTime, startMonotonic)
             result
+        } finally {
+            // Worker.close() was never called on this path — every single-task execution
+            // leaked whatever the worker held (an HttpClient, an open file handle, a native
+            // resource), for the lifetime of the process. ChainExecutor has done this since
+            // 3.3; the single-task path simply never grew the same finally block.
+            //
+            // NonCancellable so cleanup still runs when the task was cancelled or timed out —
+            // those are precisely the cases where the worker did not get to tidy up itself.
+            withContext(NonCancellable) {
+                try {
+                    worker.close()
+                } catch (e: Exception) {
+                    Logger.w(LogTags.WORKER, "Worker.close() threw for $workerClassName: ${e.message}")
+                }
+            }
         }
     }
 
@@ -183,11 +205,11 @@ class SingleTaskExecutor(private val workerFactory: IosWorkerFactory) {
                 Logger.w(LogTags.WORKER, "Failed to emit completion event for $workerClassName: ${e.message}")
             }
 
-            // Release the per-task throttle entry (see the ProgressListener above, which
-            // emits with taskId = workerClassName) so TaskProgressBus.lastEmittedAt doesn't
-            // grow unbounded across single-task executions. ChainExecutor does the matching
-            // cleanup for its own (chainId-keyed) progress emissions.
-            TaskProgressBus.clearThrottle(workerClassName)
+            // Release the per-task throttle entry so TaskProgressBus.lastEmittedAt doesn't
+            // grow unbounded across single-task executions. MUST match the key the
+            // ProgressListener emits under (`recordTaskId`) — clearing a different key leaks
+            // one map entry per execution, the exact bug ChainExecutor already had and fixed.
+            TaskProgressBus.clearThrottle(taskId)
 
             // Wall-clock, for the human-readable timestamp fields only.
             val endTime = (NSDate().timeIntervalSince1970 * 1000).toLong()

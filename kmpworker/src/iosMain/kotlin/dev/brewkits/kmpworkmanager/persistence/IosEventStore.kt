@@ -72,28 +72,49 @@ class IosEventStore(
             )
 
             try {
+                // Every early exit below used to `return@coordinate` and then fall through to
+                // returning `eventId`, so a save that wrote nothing was reported as a success
+                // with a valid-looking id. Record why instead and throw after the coordinated
+                // block: TaskEventManager.emit catches, logs, still emits to TaskEventBus, and
+                // returns null — matching its documented "null otherwise" contract. The
+                // EventStore signature is untouched, so apiCheck stays green.
+                var skipReason: String? = null
                 IosFileCoordinator.coordinate(eventsFileURL, write = true) { safeUrl ->
                     val usableSpace = checkFreeSpace(safeUrl)
                     if (usableSpace < 1024 * 1024L) {
-                        Logger.e(LogTags.SCHEDULER, "IosEventStore: disk critically low, skipping save")
+                        skipReason = "disk critically low ($usableSpace bytes free)"
                         return@coordinate
                     }
 
                     val line = json.encodeToString(storedEvent) + "\n"
-                    val path = safeUrl.path ?: return@coordinate
+                    val path = safeUrl.path
+                    if (path == null) {
+                        skipReason = "coordinated URL has no filesystem path"
+                        return@coordinate
+                    }
                     memScoped {
                         val nsLine = line as NSString
-                        val data = nsLine.dataUsingEncoding(NSUTF8StringEncoding) ?: return@coordinate
+                        val data = nsLine.dataUsingEncoding(NSUTF8StringEncoding)
+                        if (data == null) {
+                            skipReason = "event JSON is not representable as UTF-8"
+                            return@memScoped
+                        }
                         val handle = NSFileHandle.fileHandleForWritingAtPath(path)
                         if (handle != null) {
-                            handle.seekToEndOfFile()
-                            handle.writeData(data)
-                            handle.closeFile()
-                        } else {
-                            fileManager.createFileAtPath(path, data, null)
+                            // closeFile() in finally — a throw out of seek/write previously
+                            // leaked the descriptor for the lifetime of the process.
+                            try {
+                                handle.seekToEndOfFile()
+                                handle.writeData(data)
+                            } finally {
+                                handle.closeFile()
+                            }
+                        } else if (!fileManager.createFileAtPath(path, data, null)) {
+                            skipReason = "createFileAtPath failed"
                         }
                     }
                 }
+                skipReason?.let { error("IosEventStore: event not persisted — $it") }
 
                 Logger.d(LogTags.SCHEDULER, "IosEventStore: Saved event $eventId for task ${event.taskName}")
 

@@ -180,6 +180,12 @@ class HttpDownloadWorker(
                 // (or beyond content length). Treat the partial as the final file.
                 416 -> {
                     if (existingBytes > 0L) {
+                        // The server will not send these bytes again, so this is the last
+                        // moment anything can check them — and the partial came from a
+                        // previous, possibly interrupted attempt, which is exactly when a
+                        // truncated or corrupted body is most likely. Skipping verification
+                        // here published unverified bytes to `savePath` under a Success.
+                        verifyChecksum(partialPath, config)?.let { return it }
                         finalizePartial(partialPath, savePath)
                         return WorkerResult.Success(
                             "Resumed download already complete (${SecurityValidator.formatByteSize(existingBytes)})"
@@ -267,34 +273,7 @@ class HttpDownloadWorker(
                 }
             }
 
-            // Checksum verification — happens BEFORE finalize so a mismatched partial
-            // never appears at the user-visible `savePath`. The partial is deleted on
-            // mismatch; we return Failure (not Retry) because the bytes on disk are
-            // demonstrably wrong, retrying the same URL is likely to reproduce the
-            // problem (e.g. a stale CDN cache pinning the corrupted version).
-            val expected = config.expectedChecksum
-            if (expected != null) {
-                val actual = computeChecksum(partialPath, config.checksumAlgorithm)
-                if (!actual.equals(expected, ignoreCase = true)) {
-                    Logger.e(
-                        "HttpDownloadWorker",
-                        "Checksum mismatch (${config.checksumAlgorithm}): expected=$expected actual=$actual " +
-                            "— deleting partial at $partialPath"
-                    )
-                    try {
-                        fileSystem.delete(partialPath)
-                    } catch (e: Exception) {
-                        Logger.w("HttpDownloadWorker", "Failed to delete partial after checksum mismatch: $partialPath", e)
-                    }
-                    return WorkerResult.Failure(
-                        "${config.checksumAlgorithm} mismatch — expected $expected, got $actual"
-                    )
-                }
-                Logger.i(
-                    "HttpDownloadWorker",
-                    "Checksum OK (${config.checksumAlgorithm}): $actual"
-                )
-            }
+            verifyChecksum(partialPath, config)?.let { return it }
 
             finalizePartial(partialPath, savePath)
 
@@ -319,6 +298,42 @@ class HttpDownloadWorker(
             }
             throw e
         }
+    }
+
+    /**
+     * Verifies [HttpDownloadConfig.expectedChecksum] against the bytes at [partialPath].
+     *
+     * Returns `null` when there is nothing to verify or the digest matches; otherwise deletes
+     * the partial and returns the [WorkerResult.Failure] the caller must return as-is.
+     * Failure rather than Retry: the bytes on disk are demonstrably wrong, and retrying the
+     * same URL is likely to reproduce the problem (e.g. a stale CDN cache pinning the
+     * corrupted version).
+     *
+     * **Every path that promotes a partial to the user-visible `savePath` must call this
+     * first.** It is a function rather than an inline block because there are two such paths:
+     * the normal end-of-stream one, and the HTTP 416 short-circuit, which used to call
+     * [finalizePartial] directly and so published unverified bytes.
+     */
+    private suspend fun verifyChecksum(partialPath: Path, config: HttpDownloadConfig): WorkerResult.Failure? {
+        val expected = config.expectedChecksum ?: return null
+        val actual = computeChecksum(partialPath, config.checksumAlgorithm)
+        if (actual.equals(expected, ignoreCase = true)) {
+            Logger.i("HttpDownloadWorker", "Checksum OK (${config.checksumAlgorithm}): $actual")
+            return null
+        }
+        Logger.e(
+            "HttpDownloadWorker",
+            "Checksum mismatch (${config.checksumAlgorithm}): expected=$expected actual=$actual " +
+                "— deleting partial at $partialPath"
+        )
+        try {
+            fileSystem.delete(partialPath)
+        } catch (e: Exception) {
+            Logger.w("HttpDownloadWorker", "Failed to delete partial after checksum mismatch: $partialPath", e)
+        }
+        return WorkerResult.Failure(
+            "${config.checksumAlgorithm} mismatch — expected $expected, got $actual"
+        )
     }
 
     private suspend fun finalizePartial(partialPath: Path, savePath: Path) {
