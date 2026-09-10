@@ -12,7 +12,6 @@ import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.ptr
 import kotlinx.cinterop.value
 import kotlinx.coroutines.runBlocking
-import platform.Foundation.NSDirectoryEnumerationSkipsHiddenFiles
 import platform.Foundation.NSDirectoryEnumerationSkipsSubdirectoryDescendants
 import platform.Foundation.NSError
 import platform.Foundation.NSFileManager
@@ -351,11 +350,21 @@ internal class StorageFileIo(
      * enumerator). Do not iterate it more than once.
      */
     fun listJsonFileIds(dir: NSURL, decode: Boolean): Sequence<String> {
+        // NSDirectoryEnumerationSkipsHiddenFiles is deliberately NOT set. It used to be, and
+        // it made every task or chain whose id starts with '.' invisible to this listing:
+        // the encoder leaves a leading dot alone, so id ".internal.sync" is stored as
+        // ".internal.sync.json" and an id like "../escape" as "..%2Fescape.json" — both of
+        // which the OS classifies as hidden. The records were on disk and readable by id,
+        // but absent from queryTasks, from computeIosTaskState, and from the catch-up scan
+        // for missed exact alarms, while findTaskIdsByWorkerOrTag (which enumerates through
+        // contentsOfDirectoryAtPath instead) still saw them — so cancelByTag and queryTasks
+        // disagreed about which tasks existed. There are no user "hidden files" here to
+        // respect: this directory holds only this library's own records, and the `.json`
+        // suffix filter below already excludes strays like .DS_Store.
         val enumerator = fileManager.enumeratorAtURL(
             dir,
             includingPropertiesForKeys = null,
-            options = NSDirectoryEnumerationSkipsSubdirectoryDescendants or
-                NSDirectoryEnumerationSkipsHiddenFiles,
+            options = NSDirectoryEnumerationSkipsSubdirectoryDescendants,
             errorHandler = null
         ) ?: return emptySequence()
 

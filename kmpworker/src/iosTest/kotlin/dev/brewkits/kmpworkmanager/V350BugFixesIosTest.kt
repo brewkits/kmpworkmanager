@@ -294,4 +294,63 @@ class V350BugFixesIosTest {
             NSFileManager.defaultManager.removeItemAtURL(dir, null)
         }
     }
+
+    /**
+     * BUG: every iOS listing skipped tasks and chains whose id starts with a dot.
+     *
+     * `listJsonFileIds` enumerated with `NSDirectoryEnumerationSkipsHiddenFiles`. The path
+     * encoder leaves a leading `.` alone, so an id like `.internal.sync` is stored as
+     * `.internal.sync.json` — which the OS classifies as hidden. The record was on disk and
+     * `loadTaskMetadata(id)` returned it, but it was absent from `listTaskIds`,
+     * `listOneTimeTaskIdsDecoded`, `listPeriodicTaskIds` and `listChainDefinitionIds`, and so
+     * from `queryTasks`, from `computeIosTaskState`, and from the catch-up scan for missed
+     * exact alarms. `findTaskIdsByWorkerOrTag` enumerates through `contentsOfDirectoryAtPath`
+     * instead and still saw them, so `cancelByTag` and `queryTasks` disagreed about which
+     * tasks existed.
+     *
+     * FIX: the option is gone. This directory holds only the library's own records, so there
+     * is no user "hidden file" to respect, and the `.json` suffix filter already excludes
+     * strays such as `.DS_Store`.
+     */
+    @OptIn(ExperimentalForeignApi::class)
+    @Test
+    fun dotPrefixedIdsAreVisibleToEveryListing() = runTest {
+        val dir = NSURL.fileURLWithPath(
+            "${NSTemporaryDirectory()}v350_dot_listing_${NSDate().timeIntervalSince1970()}_${Random.nextInt()}",
+        )
+        NSFileManager.defaultManager.createDirectoryAtURL(dir, true, null, null)
+        val storage = IosFileStorage(baseDirectory = dir)
+        try {
+            val dotted = ".internal.sync"
+            val ordinary = "ordinary-task"
+
+            storage.saveTaskMetadata(dotted, mapOf("workerClassName" to "W"), periodic = false)
+            storage.saveTaskMetadata(ordinary, mapOf("workerClassName" to "W"), periodic = false)
+            storage.saveChainDefinition(".hidden-chain", listOf(listOf(TaskRequest("W"))))
+
+            assertTrue(
+                storage.listOneTimeTaskIdsDecoded().toSet().contains(dotted),
+                "a dot-prefixed task id must be listed, not treated as a hidden file",
+            )
+            assertTrue(
+                storage.listOneTimeTaskIdsDecoded().toSet().contains(ordinary),
+                "ordinary ids must keep working",
+            )
+            assertTrue(
+                storage.listChainDefinitionIds().toSet().contains(".hidden-chain"),
+                "a dot-prefixed chain id must be listed too",
+            )
+
+            // The inconsistency this bug produced: the tag scan and the listing must agree.
+            assertEquals(
+                listOf(dotted to false),
+                storage.findTaskIdsByWorkerOrTag(workerClassName = "W")
+                    .filter { it.first == dotted },
+                "the tag scan already saw dot-prefixed ids; the listing must now agree",
+            )
+        } finally {
+            storage.close()
+            NSFileManager.defaultManager.removeItemAtURL(dir, null)
+        }
+    }
 }
