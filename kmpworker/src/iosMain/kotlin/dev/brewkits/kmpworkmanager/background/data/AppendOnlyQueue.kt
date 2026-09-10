@@ -136,6 +136,18 @@ internal class AppendOnlyQueue(
     // Persistent index for O(1) startup
     private val queueIndex = QueueIndex(indexFileURL)
 
+    /**
+     * The record format, extracted in v3.5.0 (stage D1 of the AppendOnlyQueue split).
+     *
+     * Corruption is reported back through this lambda rather than owned by the codec: the
+     * flag and offset are read by `dequeue()` outside any lock and are @Volatile for that
+     * reason, so they stay here with the rest of the queue's state.
+     */
+    private val codec = QueueRecordCodec { offset ->
+        isQueueCorrupt = true
+        corruptionOffset = offset
+    }
+
     // Ratio-based compaction trigger: fire when 80%+ items are processed AND there are
     // at least 100 processed items to reclaim. Good for steady-state dequeue workloads.
     private val COMPACTION_THRESHOLD = 0.8
@@ -170,7 +182,6 @@ internal class AppendOnlyQueue(
         private const val MAGIC_NUMBER: UInt = 0x4B4D5051u  // "KMPQ" in ASCII
         private const val FORMAT_VERSION: UInt = 0x00000001u  // Version 1
         private const val FORMAT_VERSION_LEGACY: UInt = 0x00000000u  // Text format
-        private const val LEGACY_READ_CHUNK_SIZE: Int = 4096
 
         /** Sentinel for [totalLinesCache]: the record count is not known and must be recounted. */
         private const val UNKNOWN_LINE_COUNT: Int = -1  // Bytes per read in legacy text-format path
@@ -391,7 +402,7 @@ internal class AppendOnlyQueue(
 
                     if (fileHandle != null) {
                         try {
-                            writeFileHeader(fileHandle)
+                            codec.writeFileHeader(fileHandle)
                             fileFormat = FORMAT_VERSION
                         } finally {
                             fileHandle.closeFile()
@@ -420,7 +431,7 @@ internal class AppendOnlyQueue(
                 when (fileFormat) {
                     FORMAT_VERSION -> {
                         // Binary format with CRC32
-                        appendToQueueFileBinary(fileHandle, item)
+                        codec.appendToQueueFileBinary(fileHandle, item)
                     }
                     else -> {
                         // Legacy text format
@@ -468,8 +479,8 @@ internal class AppendOnlyQueue(
                     fileHandle.seekToFileOffset(cachedOffset)
 
                     return when (fileFormat) {
-                        FORMAT_VERSION -> readSingleRecordWithValidation(fileHandle)
-                        else -> readSingleLine(fileHandle)
+                        FORMAT_VERSION -> codec.readSingleRecordWithValidation(fileHandle)
+                        else -> codec.readSingleLine(fileHandle)
                     }
                 } else {
                     // Slow path: Build cache by scanning (O(N) but only first time)
@@ -501,8 +512,8 @@ internal class AppendOnlyQueue(
             val startOffset = currentOffset
 
             val line = when (fileFormat) {
-                FORMAT_VERSION -> readSingleRecordWithValidation(fileHandle)
-                else -> readSingleLine(fileHandle)
+                FORMAT_VERSION -> codec.readSingleRecordWithValidation(fileHandle)
+                else -> codec.readSingleLine(fileHandle)
             } ?: break
 
             // Cache this line's position
@@ -560,57 +571,6 @@ internal class AppendOnlyQueue(
         }
     }
 
-    /**
-     * Read a single line from file handle at current position
-     */
-    private fun readSingleLine(fileHandle: NSFileHandle): String? {
-        val lineStartOffset = fileHandle.offsetInFile
-        return try {
-            val result = StringBuilder()
-
-            while (true) {
-                val chunkStartOffset = fileHandle.offsetInFile
-                val data = fileHandle.readDataOfLength(LEGACY_READ_CHUNK_SIZE.toULong())
-
-                if (data.length == 0UL) {
-                    return if (result.isEmpty()) null else result.toString()
-                }
-
-                val bytes = data.bytes?.reinterpret<ByteVar>()
-                    ?: throw CorruptQueueException("Cannot read chunk bytes")
-
-                val len = data.length.toInt()
-                var newlineIndex = -1
-                for (i in 0 until len) {
-                    if (bytes[i].toInt().toChar() == '\n') {
-                        newlineIndex = i
-                        break
-                    }
-                }
-
-                if (newlineIndex >= 0) {
-                    // Append bytes before the newline, then seek past it
-                    for (i in 0 until newlineIndex) {
-                        result.append(bytes[i].toInt().toChar())
-                    }
-                    fileHandle.seekToFileOffset(chunkStartOffset + (newlineIndex + 1).toULong())
-                    return result.toString()
-                } else {
-                    // No newline in this chunk — append all and continue
-                    for (i in 0 until len) {
-                        result.append(bytes[i].toInt().toChar())
-                    }
-                }
-            }
-
-            if (result.isEmpty()) null else result.toString()
-        } catch (e: Exception) {
-            Logger.e(LogTags.QUEUE, "Corrupt queue line detected at offset $lineStartOffset", e)
-            isQueueCorrupt = true
-            corruptionOffset = lineStartOffset
-            return null
-        }
-    }
 
     /**
      * Read head pointer value (current read position)
@@ -1125,7 +1085,7 @@ internal class AppendOnlyQueue(
             try {
                 // Write header onto destination first (matches the format the consumer expects).
                 if (fileFormat == FORMAT_VERSION) {
-                    writeFileHeader(writeHandle)
+                    codec.writeFileHeader(writeHandle)
 
                     // Try the cached offset for headIndex — if present, this is O(1).
                     val cachedStartOffset = if (cacheValid) linePositionCache[headIndex] else null
@@ -1143,7 +1103,7 @@ internal class AppendOnlyQueue(
                         // Harmless in outcome, wasted work in fact; the loop now actually stops.
                         var skipped = 0
                         while (skipped < headIndex &&
-                            readSingleRecordWithValidation(readHandle) != null
+                            codec.readSingleRecordWithValidation(readHandle) != null
                         ) {
                             skipped++
                         }
@@ -1153,7 +1113,7 @@ internal class AppendOnlyQueue(
                     readHandle.seekToFileOffset(0u)
                     // Same `return@repeat`-is-`continue` trap as the binary branch above.
                     var skipped = 0
-                    while (skipped < headIndex && readSingleLine(readHandle) != null) {
+                    while (skipped < headIndex && codec.readSingleLine(readHandle) != null) {
                         skipped++
                     }
                 }
@@ -1161,12 +1121,12 @@ internal class AppendOnlyQueue(
                 // Stream the remaining records: read → write → drop. Peak RAM = one record.
                 while (true) {
                     val item = when (fileFormat) {
-                        FORMAT_VERSION -> readSingleRecordWithValidation(readHandle)
-                        else -> readSingleLine(readHandle)
+                        FORMAT_VERSION -> codec.readSingleRecordWithValidation(readHandle)
+                        else -> codec.readSingleLine(readHandle)
                     } ?: break
 
                     when (fileFormat) {
-                        FORMAT_VERSION -> appendToQueueFileBinary(writeHandle, item)
+                        FORMAT_VERSION -> codec.appendToQueueFileBinary(writeHandle, item)
                         else -> writeHandle.writeData("$item\n".toNSData())
                     }
                     written++
@@ -1205,7 +1165,7 @@ internal class AppendOnlyQueue(
 
             try {
                 if (fileFormat == FORMAT_VERSION) {
-                    writeFileHeader(fileHandle)
+                    codec.writeFileHeader(fileHandle)
                 }
 
                 // Write all items
@@ -1213,7 +1173,7 @@ internal class AppendOnlyQueue(
                     when (fileFormat) {
                         FORMAT_VERSION -> {
                             // Binary format with CRC32
-                            appendToQueueFileBinary(fileHandle, item)
+                            codec.appendToQueueFileBinary(fileHandle, item)
                         }
                         else -> {
                             // Legacy text format
@@ -1367,15 +1327,15 @@ internal class AppendOnlyQueue(
                     }
 
                 try {
-                    writeFileHeader(writeHandle)
+                    codec.writeFileHeader(writeHandle)
 
                     var lineIndex = 0
                     while (true) {
-                        val line = readSingleLine(readHandle) ?: break
+                        val line = codec.readSingleLine(readHandle) ?: break
                         if (lineIndex >= existingHeadIndex) {
                             val trimmed = line.trim()
                             if (trimmed.isNotEmpty()) {
-                                appendToQueueFileBinary(writeHandle, trimmed)
+                                codec.appendToQueueFileBinary(writeHandle, trimmed)
                                 migratedCount++
                             }
                         }
@@ -1438,16 +1398,6 @@ internal class AppendOnlyQueue(
         }
     }
 
-    /**
-     * Write binary file header (magic number + version)
-     */
-    private fun writeFileHeader(fileHandle: NSFileHandle) {
-        // Write magic number (4 bytes)
-        fileHandle.writeData(MAGIC_NUMBER.toByteArray().toNSData())
-
-        // Write format version (4 bytes)
-        fileHandle.writeData(FORMAT_VERSION.toByteArray().toNSData())
-    }
 
     /**
      * Detect and migrate old queue format if needed
@@ -1643,7 +1593,7 @@ internal class AppendOnlyQueue(
 
                     if (fileHandle != null) {
                         try {
-                            writeFileHeader(fileHandle)
+                            codec.writeFileHeader(fileHandle)
                         } finally {
                             fileHandle.closeFile()
                         }
@@ -1694,142 +1644,13 @@ internal class AppendOnlyQueue(
         }
     }
 
-    /**
-     * String to NSData conversion helper
-     */
-    private fun String.toNSData(): NSData {
-        val bytes = this.encodeToByteArray()
-        if (bytes.isEmpty()) return NSData()
-        return bytes.usePinned { pinned ->
-            NSData.create(bytes = pinned.addressOf(0), length = bytes.size.toULong())
-        }
-    }
 
     // ==================== Binary Format Helpers ====================
 
-    /**
-     * Append item to queue file in binary format with CRC32
-     * Format: [length:4][data:length][crc32:4][\n:1]
-     *
-     * Combined into a single write to reduce memory pinning overhead.
-     */
-    private fun appendToQueueFileBinary(fileHandle: NSFileHandle, item: String) {
-        val jsonBytes = item.encodeToByteArray()
-        val length = jsonBytes.size.toUInt()
-        val crc = jsonBytes.crc32()
-        val newline = "\n".encodeToByteArray()
 
-        // Total size = 4 (length) + json.size + 4 (crc) + 1 (\n)
-        val totalSize = 4 + jsonBytes.size + 4 + 1
-        val combined = ByteArray(totalSize)
-        
-        // Manual copy is faster than multiple toNSData calls
-        val lengthBytes = length.toByteArray()
-        val crcBytes = crc.toByteArray()
-        
-        lengthBytes.copyInto(combined, 0)
-        jsonBytes.copyInto(combined, 4)
-        crcBytes.copyInto(combined, 4 + jsonBytes.size)
-        newline.copyInto(combined, 4 + jsonBytes.size + 4)
 
-        fileHandle.writeData(combined.toNSData())
-    }
 
-    /**
-     * Read single record from binary format with CRC32 validation
-     * Format: [length:4][data:length][crc32:4][\n:1]
-     *
-     * Reads length first, then the entire remaining record (data + crc + \n) in one syscall.
-     *
-     * @return JSON string or null if EOF/corrupt
-     */
-    private fun readSingleRecordWithValidation(fileHandle: NSFileHandle): String? {
-        val recordStartOffset = fileHandle.offsetInFile
-        return try {
-            // Syscall 1: Read length (4 bytes)
-            val lengthData = fileHandle.readDataOfLength(4u)
-            if (lengthData.length < 4uL) return null // EOF
 
-            val lengthBytes = lengthData.bytes?.reinterpret<ByteVar>()
-                ?: throw CorruptQueueException("Cannot read length bytes")
-            val length = readUIntFromBytes(lengthBytes)
-
-            if (length > 10_000_000u) { // Sanity check: max 10MB per record
-                throw CorruptQueueException("Invalid record length: $length")
-            }
-
-            // Syscall 2: Read data + CRC + Newline in ONE GO
-            // total remaining = length + 4 (crc) + 1 (newline)
-            val totalRemaining = length.toULong() + 4uL + 1uL
-            val restData = fileHandle.readDataOfLength(totalRemaining)
-            if (restData.length < totalRemaining) {
-                throw CorruptQueueException("Incomplete record read: expected $totalRemaining, got ${restData.length}")
-            }
-
-            val restPtr = restData.bytes?.reinterpret<ByteVar>()
-                ?: throw CorruptQueueException("Cannot access rest data bytes")
-
-            // Copy JSON data into ByteArray
-            val jsonBytes = ByteArray(length.toInt()) { i -> restPtr[i].toByte() }
-
-            // Extract CRC (4 bytes starting after JSON)
-            val expectedCrc = readUIntFromBytes(restPtr.plus(length.toInt())!!)
-
-            // Validate CRC
-            val actualCrc = jsonBytes.crc32()
-            if (expectedCrc != actualCrc) {
-                Logger.e(LogTags.QUEUE, "CRC mismatch! Expected: ${expectedCrc.toString(16)}, Actual: ${actualCrc.toString(16)}")
-                throw CorruptQueueException("CRC32 validation failed")
-            }
-
-            jsonBytes.decodeToString()
-
-        } catch (e: CorruptQueueException) {
-            Logger.e(LogTags.QUEUE, "Corrupt binary record detected at offset $recordStartOffset", e)
-            isQueueCorrupt = true
-            corruptionOffset = recordStartOffset
-            return null
-        } catch (e: Exception) {
-            Logger.e(LogTags.QUEUE, "Error reading binary record at offset $recordStartOffset", e)
-            isQueueCorrupt = true
-            corruptionOffset = recordStartOffset
-            return null
-        }
-    }
-
-    /**
-     * Convert UInt to ByteArray (Little Endian)
-     */
-    private fun UInt.toByteArray(): ByteArray {
-        return byteArrayOf(
-            (this and 0xFFu).toByte(),
-            ((this shr 8) and 0xFFu).toByte(),
-            ((this shr 16) and 0xFFu).toByte(),
-            ((this shr 24) and 0xFFu).toByte()
-        )
-    }
-
-    /**
-     * Convert ByteArray to NSData
-     */
-    private fun ByteArray.toNSData(): NSData {
-        if (this.isEmpty()) return NSData()
-        return this.usePinned { pinned ->
-            NSData.create(bytes = pinned.addressOf(0), length = this.size.toULong())
-        }
-    }
-
-    /**
-     * Read UInt from bytes (Little Endian)
-     */
-    private fun readUIntFromBytes(bytes: CPointer<ByteVar>): UInt {
-        val b0 = bytes[0].toUByte().toUInt()
-        val b1 = bytes[1].toUByte().toUInt()
-        val b2 = bytes[2].toUByte().toUInt()
-        val b3 = bytes[3].toUByte().toUInt()
-
-        return b0 or (b1 shl 8) or (b2 shl 16) or (b3 shl 24)
-    }
 }
 
 /**
