@@ -370,16 +370,17 @@ RFC 3986 UserInfo bypass and multi-`@` authority attacks are both handled. DNS r
 ## Testing
 
 ```
-1,473 tests across 7 source sets
+1,504 tests across 8 source sets
 ```
 
 | Source set | Tests | Runs on |
 |---|---:|---|
-| `kmpworker` commonTest | 482 | all platforms |
-| `kmpworker` iosTest | 608 | iOS simulator |
+| `kmpworker` commonTest | 485 | all platforms |
+| `kmpworker` iosTest | 624 | iOS simulator |
 | `kmpworker` androidUnitTest | 177 | JVM (Robolectric) |
 | `kmpworker` androidInstrumentedTest | 76 (9 are diagnostics — see below) | device / emulator |
-| `kmpworker-http` commonTest | 92 | all platforms |
+| `kmpworker-http` commonTest | 102 | all platforms |
+| `kmpworker-http` iosTest | 3 | iOS simulator (opt-in, network) |
 | `kmpworker-ksp` test | 29 | JVM |
 | `kmpworker-testing` commonTest | 8 | all platforms |
 
