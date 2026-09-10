@@ -12,6 +12,7 @@ import dev.brewkits.kmpworkmanager.background.domain.TaskProgressEvent
 import dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
 import dev.brewkits.kmpworkmanager.background.domain.WorkerProgress
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
+import dev.brewkits.kmpworkmanager.utils.Logger
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -352,5 +353,54 @@ class V350BugFixesIosTest {
             storage.close()
             NSFileManager.defaultManager.removeItemAtURL(dir, null)
         }
+    }
+
+    /**
+     * `LoggerPlatform.ios` passed the message straight to `NSLog`, whose first argument is a
+     * printf-style FORMAT string. Every conversion specifier in log text was therefore read
+     * against an argument list that does not exist.
+     *
+     * Found on an iPhone 14 Pro Max: "Step 1/5 completed (20% complete, ...)" arrived in the
+     * console as "20\u00CBomplete" — "%c" had consumed a register and printed it as a
+     * character. The same mechanism with "%@" or "%s" dereferences that register instead of
+     * printing it, which is a crash or a leaked pointer rather than a cosmetic glitch.
+     *
+     * It is reachable from the public API, which is what makes it more than a formatting bug:
+     * a task id is caller-supplied and gets interpolated into log lines verbatim.
+     *
+     * This test drives the specifiers most likely to fault — "%@" and "%s" dereference, "%n"
+     * writes — through the real logger. Restore `NSLog(message)` and it stops being a passing
+     * test.
+     */
+    @Test
+    fun formatSpecifiersInLogTextAreNotInterpretedAsAFormatString() {
+        val hostile = listOf(
+            "20% complete",
+            "task id: %@%@%@%@%@%@%@%@",
+            "worker: %s%s%s%s%s%s%s%s",
+            "%n%n%n%n",
+            "%x %p %d %c %f",
+            "100%",
+        )
+
+        // Each call reaches NSLog. Before the fix these read (and %n would write) memory that
+        // was never passed as an argument; the process either faults or prints garbage.
+        for (text in hostile) {
+            Logger.v(TAG_FORMAT, text)
+            Logger.d(TAG_FORMAT, text)
+            Logger.i(TAG_FORMAT, text)
+            Logger.w(TAG_FORMAT, text)
+            Logger.e(TAG_FORMAT, text)
+        }
+
+        // Surviving the loop is the assertion — a format-string fault aborts the process and
+        // takes the whole suite with it. Assert on the payloads too so the test cannot be
+        // mistaken for an empty one.
+        assertEquals(6, hostile.size)
+        assertTrue(hostile.all { it.contains("%") }, "every payload must carry a specifier")
+    }
+
+    private companion object {
+        const val TAG_FORMAT = "V350FormatString"
     }
 }
