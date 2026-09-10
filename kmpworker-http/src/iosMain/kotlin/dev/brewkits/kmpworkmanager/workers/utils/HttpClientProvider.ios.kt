@@ -1,5 +1,7 @@
 package dev.brewkits.kmpworkmanager.workers.utils
 
+import dev.brewkits.kmpworkmanager.utils.LogTags
+import dev.brewkits.kmpworkmanager.utils.Logger
 import io.ktor.client.*
 import io.ktor.client.engine.darwin.*
 import io.ktor.client.plugins.*
@@ -37,6 +39,34 @@ internal actual fun createPlatformHttpClient(): HttpClient {
                 setHTTPShouldSetCookies(true)
                 setHTTPShouldUsePipelining(true)
                 setHTTPMaximumConnectionsPerHost(20)
+            }
+
+            // TLS pinning, and only when the host asked for it. Installing a challenge handler
+            // unconditionally would route every server-trust challenge through our code even
+            // for unpinned hosts — more surface, and a bug in it would break TLS for apps that
+            // never wanted pinning. With no pins configured this block does not run and the
+            // client is exactly what it was before.
+            if (TlsPinningConfig.pins.isNotEmpty()) {
+                handleChallenge { _, _, challenge, completionHandler ->
+                    // Integer literals, not NSURLSessionAuthChallenge* constants, and this is
+                    // not laziness. The disposition is Long in the per-target compilations and
+                    // Int in the shared iOS metadata compilation, while the platform constants
+                    // are Long in both — so passing a constant compiles for the simulator and
+                    // fails `compileIosMainKotlinMetadata`, which only runs at publish time.
+                    // A literal adapts to whichever width the expected type has.
+                    //
+                    // NSURLSessionAuthChallengePerformDefaultHandling == 1
+                    // NSURLSessionAuthChallengeCancelAuthenticationChallenge == 2
+                    when (decidePinningChallenge(challenge)) {
+                        PinDecision.PROCEED_WITH_DEFAULT_HANDLING -> completionHandler(1, null)
+                        PinDecision.CANCEL -> completionHandler(2, null)
+                    }
+                }
+                Logger.i(
+                    LogTags.WORKER,
+                    "TLS pinning enabled for ${TlsPinningConfig.pins.size} host(s): " +
+                        TlsPinningConfig.pins.joinToString { it.hostname }
+                )
             }
         }
 

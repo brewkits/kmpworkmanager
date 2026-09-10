@@ -52,9 +52,27 @@ public final class dev/brewkits/kmpworkmanager/workers/builtins/ParallelHttpUplo
 	public fun doWork (Ljava/lang/String;Ldev/brewkits/kmpworkmanager/background/domain/WorkerEnvironment;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
+public final class dev/brewkits/kmpworkmanager/workers/utils/CertificatePin {
+	public static final field Companion Ldev/brewkits/kmpworkmanager/workers/utils/CertificatePin$Companion;
+	public fun <init> (Ljava/lang/String;Ljava/util/List;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/util/List;
+	public final fun copy (Ljava/lang/String;Ljava/util/List;)Ldev/brewkits/kmpworkmanager/workers/utils/CertificatePin;
+	public static synthetic fun copy$default (Ldev/brewkits/kmpworkmanager/workers/utils/CertificatePin;Ljava/lang/String;Ljava/util/List;ILjava/lang/Object;)Ldev/brewkits/kmpworkmanager/workers/utils/CertificatePin;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getHostname ()Ljava/lang/String;
+	public final fun getSha256Pins ()Ljava/util/List;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/brewkits/kmpworkmanager/workers/utils/CertificatePin$Companion {
+}
+
 public final class dev/brewkits/kmpworkmanager/workers/utils/HttpClientProvider {
 	public static final field INSTANCE Ldev/brewkits/kmpworkmanager/workers/utils/HttpClientProvider;
 	public final fun close ()V
+	public final fun configurePinning (Ljava/util/List;)V
 	public final fun getInstance ()Lio/ktor/client/HttpClient;
 }
 

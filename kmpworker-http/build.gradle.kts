@@ -218,6 +218,15 @@ tasks.withType<AbstractPublishToMaven>().configureEach {
 
 tasks.withType<org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeSimulatorTest>().configureEach {
     environment("SIMCTL_CHILD_KOTLIN_TEST_WORKERS", "1")
+
+    // Opt-in gate for TlsPinningNetworkTest. The SIMCTL_CHILD_ prefix is required, not
+    // cosmetic: without it the variable stops at `xcrun simctl spawn` and never reaches the
+    // test binary, so `KMP_RUN_NETWORK_TESTS=1 ./gradlew ...` would silently skip every test
+    // it claims to enable — a switch that looks flippable but is welded off. Same trick, and
+    // same reason, as :kmpworker's KMP_RUN_STRESS_TESTS passthrough.
+    providers.environmentVariable("KMP_RUN_NETWORK_TESTS").orNull?.let {
+        environment("SIMCTL_CHILD_KMP_RUN_NETWORK_TESTS", it)
+    }
 }
 
 signing {

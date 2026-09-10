@@ -8,6 +8,8 @@ import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.request.*
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.serialization.json.Json
+import dev.brewkits.kmpworkmanager.utils.LogTags
+import dev.brewkits.kmpworkmanager.utils.Logger
 import java.util.concurrent.TimeUnit
 
 /**
@@ -46,6 +48,28 @@ internal actual fun createPlatformHttpClient(): HttpClient {
                 // Disable engine-level redirect following — validated manually via HttpSend interceptor below
                 followRedirects(false)
                 followSslRedirects(false)
+
+                // TLS pinning, when the host configured it. Delegated to OkHttp's
+                // CertificatePinner rather than hand-rolled: it already does SPKI hashing,
+                // chain traversal and wildcard matching, and getting any of those subtly wrong
+                // yields a pinner that accepts everything — worse than no pinning, because it
+                // reads as protection. Absent configuration this block adds nothing and the
+                // client is byte-for-byte what it was before.
+                val pins = TlsPinningConfig.pins
+                if (pins.isNotEmpty()) {
+                    certificatePinner(
+                        okhttp3.CertificatePinner.Builder().apply {
+                            pins.forEach { entry ->
+                                entry.sha256Pins.forEach { pin -> add(entry.hostname, pin) }
+                            }
+                        }.build()
+                    )
+                    Logger.i(
+                        LogTags.WORKER,
+                        "TLS pinning enabled for ${pins.size} host(s): " +
+                            pins.joinToString { it.hostname }
+                    )
+                }
             }
         }
 
