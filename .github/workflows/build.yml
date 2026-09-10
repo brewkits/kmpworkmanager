@@ -1,8 +1,23 @@
 name: CI
 
 on:
+  # main only, and only for changes that can actually affect the build.
+  #
+  # `develop` used to be here too. It no longer is: every job below runs on a macOS
+  # runner (10x the per-minute cost of Linux), the iOS matrix alone is three of them, and
+  # nothing merges to `develop` that does not later merge to `main` — so every push there
+  # paid for the same verification twice. There is deliberately no `pull_request` trigger
+  # either; verification happens on merge, not on every push to a topic branch.
+  #
+  # Run it by hand on a branch with workflow_dispatch when you want it before merging.
   push:
-    branches: [ main, develop ]
+    branches: [ main ]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.gitignore'
+      - '.mailmap'
   workflow_dispatch:
 
 # Cancel superseded runs from the same branch — saves macOS minutes.

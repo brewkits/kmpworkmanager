@@ -1,13 +1,27 @@
 name: "Coverage Report"
 
-# Not a pull_request trigger, unlike build.yml/codeql.yml — this is a coverage report, not
-# a merge gate (koverVerify already runs as part of `check`, which build.yml's
-# common-tests job does gate on). Push-to-main plus an on-demand workflow_dispatch is the
-# right scope for "give humans an HTML report to click through".
+# main only. This is a coverage report, not a merge gate — koverVerify already runs as part
+# of `check`, which build.yml's common-tests job gates on. Push-to-main plus an on-demand
+# workflow_dispatch is the right scope for "give humans an HTML report to click through".
+#
+# (An earlier version of this comment said "not a pull_request trigger, unlike
+# build.yml/codeql.yml". Neither of those has ever had one; no workflow in this repo does.
+# Verification runs on merge to main, never on a push to a topic branch.)
 on:
   push:
     branches: [ main ]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.gitignore'
+      - '.mailmap'
   workflow_dispatch:
+
+# This job runs on macOS. Without this, two merges in quick succession stack two full runs.
+concurrency:
+  group: coverage-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   coverage:
