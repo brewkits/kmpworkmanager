@@ -1,0 +1,18 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64, iosX64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <dev.brewkits:kmpworker-annotations>
+open annotation class dev.brewkits.kmpworkmanager.annotations/Worker : kotlin/Annotation { // dev.brewkits.kmpworkmanager.annotations/Worker|null[0]
+    constructor <init>(kotlin/String = ..., kotlin/String = ..., kotlin/Array<kotlin/String> = ...) // dev.brewkits.kmpworkmanager.annotations/Worker.<init>|<init>(kotlin.String;kotlin.String;kotlin.Array<kotlin.String>){}[0]
+
+    final val aliases // dev.brewkits.kmpworkmanager.annotations/Worker.aliases|{}aliases[0]
+        final fun <get-aliases>(): kotlin/Array<kotlin/String> // dev.brewkits.kmpworkmanager.annotations/Worker.aliases.<get-aliases>|<get-aliases>(){}[0]
+    final val bgTaskId // dev.brewkits.kmpworkmanager.annotations/Worker.bgTaskId|{}bgTaskId[0]
+        final fun <get-bgTaskId>(): kotlin/String // dev.brewkits.kmpworkmanager.annotations/Worker.bgTaskId.<get-bgTaskId>|<get-bgTaskId>(){}[0]
+    final val name // dev.brewkits.kmpworkmanager.annotations/Worker.name|{}name[0]
+        final fun <get-name>(): kotlin/String // dev.brewkits.kmpworkmanager.annotations/Worker.name.<get-name>|<get-name>(){}[0]
+}

@@ -112,6 +112,17 @@ publishing {
     }
 }
 
+// Binary Compatibility Validator normally guards only the JVM/Android surface. Enabling the
+// klib check extends it to the Kotlin/Native (iOS) API, which was otherwise unguarded —
+// `apiCheck` passed while `klibApiCheck` sat SKIPPED, so any change to an iOS-only public
+// declaration went unnoticed.
+apiValidation {
+    @OptIn(kotlinx.validation.ExperimentalBCVApi::class)
+    klib {
+        enabled = true
+    }
+}
+
 signing {
     val signingKeyBase64 = project.findProperty("signing.key") as String?
     val signingPassword = project.findProperty("signing.password") as String? ?: ""

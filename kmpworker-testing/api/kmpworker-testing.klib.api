@@ -1,0 +1,97 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64, iosX64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <dev.brewkits:kmpworker-testing>
+final class dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler : dev.brewkits.kmpworkmanager.background.domain/BackgroundTaskScheduler { // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler|null[0]
+    constructor <init>(dev.brewkits.kmpworkmanager.background.domain/ScheduleResult = ...) // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.<init>|<init>(dev.brewkits.kmpworkmanager.background.domain.ScheduleResult){}[0]
+
+    final val cancelledIds // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.cancelledIds|{}cancelledIds[0]
+        final fun <get-cancelledIds>(): kotlin.collections/MutableList<kotlin/String> // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.cancelledIds.<get-cancelledIds>|<get-cancelledIds>(){}[0]
+    final val cancelledTags // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.cancelledTags|{}cancelledTags[0]
+        final fun <get-cancelledTags>(): kotlin.collections/MutableList<kotlin/String> // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.cancelledTags.<get-cancelledTags>|<get-cancelledTags>(){}[0]
+    final val cancelledWorkerClasses // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.cancelledWorkerClasses|{}cancelledWorkerClasses[0]
+        final fun <get-cancelledWorkerClasses>(): kotlin.collections/MutableList<kotlin/String> // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.cancelledWorkerClasses.<get-cancelledWorkerClasses>|<get-cancelledWorkerClasses>(){}[0]
+    final val enqueuedChains // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.enqueuedChains|{}enqueuedChains[0]
+        final fun <get-enqueuedChains>(): kotlin.collections/MutableList<dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedChain> // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.enqueuedChains.<get-enqueuedChains>|<get-enqueuedChains>(){}[0]
+    final val enqueuedTasks // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.enqueuedTasks|{}enqueuedTasks[0]
+        final fun <get-enqueuedTasks>(): kotlin.collections/MutableList<dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedTask> // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.enqueuedTasks.<get-enqueuedTasks>|<get-enqueuedTasks>(){}[0]
+
+    final var cancelAllCalled // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.cancelAllCalled|{}cancelAllCalled[0]
+        final fun <get-cancelAllCalled>(): kotlin/Boolean // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.cancelAllCalled.<get-cancelAllCalled>|<get-cancelAllCalled>(){}[0]
+    final var flushCount // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.flushCount|{}flushCount[0]
+        final fun <get-flushCount>(): kotlin/Int // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.flushCount.<get-flushCount>|<get-flushCount>(){}[0]
+
+    final fun beginWith(dev.brewkits.kmpworkmanager.background.domain/TaskRequest): dev.brewkits.kmpworkmanager.background.domain/TaskChain // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.beginWith|beginWith(dev.brewkits.kmpworkmanager.background.domain.TaskRequest){}[0]
+    final fun beginWith(kotlin.collections/List<dev.brewkits.kmpworkmanager.background.domain/TaskRequest>): dev.brewkits.kmpworkmanager.background.domain/TaskChain // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.beginWith|beginWith(kotlin.collections.List<dev.brewkits.kmpworkmanager.background.domain.TaskRequest>){}[0]
+    final fun cancel(kotlin/String) // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.cancel|cancel(kotlin.String){}[0]
+    final fun cancelAll() // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.cancelAll|cancelAll(){}[0]
+    final fun cancelByTag(kotlin/String) // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.cancelByTag|cancelByTag(kotlin.String){}[0]
+    final fun cancelByWorkerClass(kotlin/String) // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.cancelByWorkerClass|cancelByWorkerClass(kotlin.String){}[0]
+    final fun flushPendingProgress() // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.flushPendingProgress|flushPendingProgress(){}[0]
+    final fun hasCancelled(kotlin/String): kotlin/Boolean // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.hasCancelled|hasCancelled(kotlin.String){}[0]
+    final fun hasEnqueued(kotlin/String): kotlin/Boolean // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.hasEnqueued|hasEnqueued(kotlin.String){}[0]
+    final fun isPending(kotlin/String): kotlin/Boolean // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.isPending|isPending(kotlin.String){}[0]
+    final fun pendingTaskCount(): kotlin/Int // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.pendingTaskCount|pendingTaskCount(){}[0]
+    final fun reset() // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.reset|reset(){}[0]
+    final suspend fun clearExecutionHistory() // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.clearExecutionHistory|clearExecutionHistory(){}[0]
+    final suspend fun enqueue(kotlin/String, dev.brewkits.kmpworkmanager.background.domain/TaskTrigger, kotlin/String, dev.brewkits.kmpworkmanager.background.domain/Constraints, kotlin/String?, dev.brewkits.kmpworkmanager.background.domain/ExistingPolicy, kotlin.collections/Set<kotlin/String>, kotlin/Long?): dev.brewkits.kmpworkmanager.background.domain/ScheduleResult // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.enqueue|enqueue(kotlin.String;dev.brewkits.kmpworkmanager.background.domain.TaskTrigger;kotlin.String;dev.brewkits.kmpworkmanager.background.domain.Constraints;kotlin.String?;dev.brewkits.kmpworkmanager.background.domain.ExistingPolicy;kotlin.collections.Set<kotlin.String>;kotlin.Long?){}[0]
+    final suspend fun enqueueChain(dev.brewkits.kmpworkmanager.background.domain/TaskChain, kotlin/String?, dev.brewkits.kmpworkmanager.background.domain/ExistingPolicy) // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.enqueueChain|enqueueChain(dev.brewkits.kmpworkmanager.background.domain.TaskChain;kotlin.String?;dev.brewkits.kmpworkmanager.background.domain.ExistingPolicy){}[0]
+    final suspend fun getExecutionHistory(kotlin/Int): kotlin.collections/List<dev.brewkits.kmpworkmanager.background.domain/ExecutionRecord> // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.getExecutionHistory|getExecutionHistory(kotlin.Int){}[0]
+
+    final class EnqueuedChain { // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedChain|null[0]
+        constructor <init>(dev.brewkits.kmpworkmanager.background.domain/TaskChain, kotlin/String?, dev.brewkits.kmpworkmanager.background.domain/ExistingPolicy) // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedChain.<init>|<init>(dev.brewkits.kmpworkmanager.background.domain.TaskChain;kotlin.String?;dev.brewkits.kmpworkmanager.background.domain.ExistingPolicy){}[0]
+
+        final val chain // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedChain.chain|{}chain[0]
+            final fun <get-chain>(): dev.brewkits.kmpworkmanager.background.domain/TaskChain // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedChain.chain.<get-chain>|<get-chain>(){}[0]
+        final val id // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedChain.id|{}id[0]
+            final fun <get-id>(): kotlin/String? // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedChain.id.<get-id>|<get-id>(){}[0]
+        final val policy // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedChain.policy|{}policy[0]
+            final fun <get-policy>(): dev.brewkits.kmpworkmanager.background.domain/ExistingPolicy // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedChain.policy.<get-policy>|<get-policy>(){}[0]
+
+        final fun component1(): dev.brewkits.kmpworkmanager.background.domain/TaskChain // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedChain.component1|component1(){}[0]
+        final fun component2(): kotlin/String? // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedChain.component2|component2(){}[0]
+        final fun component3(): dev.brewkits.kmpworkmanager.background.domain/ExistingPolicy // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedChain.component3|component3(){}[0]
+        final fun copy(dev.brewkits.kmpworkmanager.background.domain/TaskChain = ..., kotlin/String? = ..., dev.brewkits.kmpworkmanager.background.domain/ExistingPolicy = ...): dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedChain // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedChain.copy|copy(dev.brewkits.kmpworkmanager.background.domain.TaskChain;kotlin.String?;dev.brewkits.kmpworkmanager.background.domain.ExistingPolicy){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedChain.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedChain.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedChain.toString|toString(){}[0]
+    }
+
+    final class EnqueuedTask { // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedTask|null[0]
+        constructor <init>(kotlin/String, dev.brewkits.kmpworkmanager.background.domain/TaskTrigger, kotlin/String, dev.brewkits.kmpworkmanager.background.domain/Constraints, kotlin/String?, dev.brewkits.kmpworkmanager.background.domain/ExistingPolicy, kotlin.collections/Set<kotlin/String> = ..., kotlin/Long? = ...) // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedTask.<init>|<init>(kotlin.String;dev.brewkits.kmpworkmanager.background.domain.TaskTrigger;kotlin.String;dev.brewkits.kmpworkmanager.background.domain.Constraints;kotlin.String?;dev.brewkits.kmpworkmanager.background.domain.ExistingPolicy;kotlin.collections.Set<kotlin.String>;kotlin.Long?){}[0]
+
+        final val constraints // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedTask.constraints|{}constraints[0]
+            final fun <get-constraints>(): dev.brewkits.kmpworkmanager.background.domain/Constraints // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedTask.constraints.<get-constraints>|<get-constraints>(){}[0]
+        final val deadlineMs // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedTask.deadlineMs|{}deadlineMs[0]
+            final fun <get-deadlineMs>(): kotlin/Long? // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedTask.deadlineMs.<get-deadlineMs>|<get-deadlineMs>(){}[0]
+        final val id // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedTask.id|{}id[0]
+            final fun <get-id>(): kotlin/String // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedTask.id.<get-id>|<get-id>(){}[0]
+        final val inputJson // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedTask.inputJson|{}inputJson[0]
+            final fun <get-inputJson>(): kotlin/String? // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedTask.inputJson.<get-inputJson>|<get-inputJson>(){}[0]
+        final val policy // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedTask.policy|{}policy[0]
+            final fun <get-policy>(): dev.brewkits.kmpworkmanager.background.domain/ExistingPolicy // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedTask.policy.<get-policy>|<get-policy>(){}[0]
+        final val tags // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedTask.tags|{}tags[0]
+            final fun <get-tags>(): kotlin.collections/Set<kotlin/String> // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedTask.tags.<get-tags>|<get-tags>(){}[0]
+        final val trigger // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedTask.trigger|{}trigger[0]
+            final fun <get-trigger>(): dev.brewkits.kmpworkmanager.background.domain/TaskTrigger // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedTask.trigger.<get-trigger>|<get-trigger>(){}[0]
+        final val workerClassName // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedTask.workerClassName|{}workerClassName[0]
+            final fun <get-workerClassName>(): kotlin/String // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedTask.workerClassName.<get-workerClassName>|<get-workerClassName>(){}[0]
+
+        final fun component1(): kotlin/String // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedTask.component1|component1(){}[0]
+        final fun component2(): dev.brewkits.kmpworkmanager.background.domain/TaskTrigger // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedTask.component2|component2(){}[0]
+        final fun component3(): kotlin/String // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedTask.component3|component3(){}[0]
+        final fun component4(): dev.brewkits.kmpworkmanager.background.domain/Constraints // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedTask.component4|component4(){}[0]
+        final fun component5(): kotlin/String? // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedTask.component5|component5(){}[0]
+        final fun component6(): dev.brewkits.kmpworkmanager.background.domain/ExistingPolicy // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedTask.component6|component6(){}[0]
+        final fun component7(): kotlin.collections/Set<kotlin/String> // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedTask.component7|component7(){}[0]
+        final fun component8(): kotlin/Long? // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedTask.component8|component8(){}[0]
+        final fun copy(kotlin/String = ..., dev.brewkits.kmpworkmanager.background.domain/TaskTrigger = ..., kotlin/String = ..., dev.brewkits.kmpworkmanager.background.domain/Constraints = ..., kotlin/String? = ..., dev.brewkits.kmpworkmanager.background.domain/ExistingPolicy = ..., kotlin.collections/Set<kotlin/String> = ..., kotlin/Long? = ...): dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedTask // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedTask.copy|copy(kotlin.String;dev.brewkits.kmpworkmanager.background.domain.TaskTrigger;kotlin.String;dev.brewkits.kmpworkmanager.background.domain.Constraints;kotlin.String?;dev.brewkits.kmpworkmanager.background.domain.ExistingPolicy;kotlin.collections.Set<kotlin.String>;kotlin.Long?){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedTask.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedTask.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // dev.brewkits.kmpworkmanager.testing/FakeBackgroundTaskScheduler.EnqueuedTask.toString|toString(){}[0]
+    }
+}

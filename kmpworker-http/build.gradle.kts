@@ -229,6 +229,17 @@ tasks.withType<org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeSimu
     }
 }
 
+// Binary Compatibility Validator normally guards only the JVM/Android surface. Enabling the
+// klib check extends it to the Kotlin/Native (iOS) API, which was unguarded: v3.5.0 added a
+// public iOS pinning surface here, and without this nothing would have caught a later change
+// to it. `apiCheck` was passing while `klibApiCheck` sat SKIPPED.
+apiValidation {
+    @OptIn(kotlinx.validation.ExperimentalBCVApi::class)
+    klib {
+        enabled = true
+    }
+}
+
 signing {
     val signingKeyBase64 = project.findProperty("signing.key") as String?
     val signingPassword = project.findProperty("signing.password") as String? ?: ""

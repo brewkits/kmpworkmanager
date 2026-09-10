@@ -1,0 +1,74 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64, iosX64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <dev.brewkits:kmpworker-http>
+final class dev.brewkits.kmpworkmanager.workers.builtins/HttpDownloadWorker : dev.brewkits.kmpworkmanager.background.domain/Worker { // dev.brewkits.kmpworkmanager.workers.builtins/HttpDownloadWorker|null[0]
+    constructor <init>(io.ktor.client/HttpClient = ..., okio/FileSystem = ...) // dev.brewkits.kmpworkmanager.workers.builtins/HttpDownloadWorker.<init>|<init>(io.ktor.client.HttpClient;okio.FileSystem){}[0]
+
+    final suspend fun doWork(kotlin/String?, dev.brewkits.kmpworkmanager.background.domain/WorkerEnvironment): dev.brewkits.kmpworkmanager.background.domain/WorkerResult // dev.brewkits.kmpworkmanager.workers.builtins/HttpDownloadWorker.doWork|doWork(kotlin.String?;dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment){}[0]
+}
+
+final class dev.brewkits.kmpworkmanager.workers.builtins/HttpRequestWorker : dev.brewkits.kmpworkmanager.background.domain/Worker { // dev.brewkits.kmpworkmanager.workers.builtins/HttpRequestWorker|null[0]
+    constructor <init>(io.ktor.client/HttpClient = ...) // dev.brewkits.kmpworkmanager.workers.builtins/HttpRequestWorker.<init>|<init>(io.ktor.client.HttpClient){}[0]
+
+    final suspend fun doWork(kotlin/String?, dev.brewkits.kmpworkmanager.background.domain/WorkerEnvironment): dev.brewkits.kmpworkmanager.background.domain/WorkerResult // dev.brewkits.kmpworkmanager.workers.builtins/HttpRequestWorker.doWork|doWork(kotlin.String?;dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment){}[0]
+}
+
+final class dev.brewkits.kmpworkmanager.workers.builtins/HttpSyncWorker : dev.brewkits.kmpworkmanager.background.domain/Worker { // dev.brewkits.kmpworkmanager.workers.builtins/HttpSyncWorker|null[0]
+    constructor <init>(io.ktor.client/HttpClient = ...) // dev.brewkits.kmpworkmanager.workers.builtins/HttpSyncWorker.<init>|<init>(io.ktor.client.HttpClient){}[0]
+
+    final suspend fun doWork(kotlin/String?, dev.brewkits.kmpworkmanager.background.domain/WorkerEnvironment): dev.brewkits.kmpworkmanager.background.domain/WorkerResult // dev.brewkits.kmpworkmanager.workers.builtins/HttpSyncWorker.doWork|doWork(kotlin.String?;dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment){}[0]
+}
+
+final class dev.brewkits.kmpworkmanager.workers.builtins/HttpUploadWorker : dev.brewkits.kmpworkmanager.background.domain/Worker { // dev.brewkits.kmpworkmanager.workers.builtins/HttpUploadWorker|null[0]
+    constructor <init>(io.ktor.client/HttpClient = ..., okio/FileSystem = ...) // dev.brewkits.kmpworkmanager.workers.builtins/HttpUploadWorker.<init>|<init>(io.ktor.client.HttpClient;okio.FileSystem){}[0]
+
+    final suspend fun doWork(kotlin/String?, dev.brewkits.kmpworkmanager.background.domain/WorkerEnvironment): dev.brewkits.kmpworkmanager.background.domain/WorkerResult // dev.brewkits.kmpworkmanager.workers.builtins/HttpUploadWorker.doWork|doWork(kotlin.String?;dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment){}[0]
+}
+
+final class dev.brewkits.kmpworkmanager.workers.builtins/ParallelHttpDownloadWorker : dev.brewkits.kmpworkmanager.background.domain/Worker { // dev.brewkits.kmpworkmanager.workers.builtins/ParallelHttpDownloadWorker|null[0]
+    constructor <init>(io.ktor.client/HttpClient = ..., okio/FileSystem = ...) // dev.brewkits.kmpworkmanager.workers.builtins/ParallelHttpDownloadWorker.<init>|<init>(io.ktor.client.HttpClient;okio.FileSystem){}[0]
+
+    final suspend fun doWork(kotlin/String?, dev.brewkits.kmpworkmanager.background.domain/WorkerEnvironment): dev.brewkits.kmpworkmanager.background.domain/WorkerResult // dev.brewkits.kmpworkmanager.workers.builtins/ParallelHttpDownloadWorker.doWork|doWork(kotlin.String?;dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment){}[0]
+}
+
+final class dev.brewkits.kmpworkmanager.workers.builtins/ParallelHttpUploadWorker : dev.brewkits.kmpworkmanager.background.domain/Worker { // dev.brewkits.kmpworkmanager.workers.builtins/ParallelHttpUploadWorker|null[0]
+    constructor <init>(io.ktor.client/HttpClient = ..., okio/FileSystem = ...) // dev.brewkits.kmpworkmanager.workers.builtins/ParallelHttpUploadWorker.<init>|<init>(io.ktor.client.HttpClient;okio.FileSystem){}[0]
+
+    final suspend fun doWork(kotlin/String?, dev.brewkits.kmpworkmanager.background.domain/WorkerEnvironment): dev.brewkits.kmpworkmanager.background.domain/WorkerResult // dev.brewkits.kmpworkmanager.workers.builtins/ParallelHttpUploadWorker.doWork|doWork(kotlin.String?;dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment){}[0]
+}
+
+final class dev.brewkits.kmpworkmanager.workers.utils/CertificatePin { // dev.brewkits.kmpworkmanager.workers.utils/CertificatePin|null[0]
+    constructor <init>(kotlin/String, kotlin.collections/List<kotlin/String>) // dev.brewkits.kmpworkmanager.workers.utils/CertificatePin.<init>|<init>(kotlin.String;kotlin.collections.List<kotlin.String>){}[0]
+
+    final val hostname // dev.brewkits.kmpworkmanager.workers.utils/CertificatePin.hostname|{}hostname[0]
+        final fun <get-hostname>(): kotlin/String // dev.brewkits.kmpworkmanager.workers.utils/CertificatePin.hostname.<get-hostname>|<get-hostname>(){}[0]
+    final val sha256Pins // dev.brewkits.kmpworkmanager.workers.utils/CertificatePin.sha256Pins|{}sha256Pins[0]
+        final fun <get-sha256Pins>(): kotlin.collections/List<kotlin/String> // dev.brewkits.kmpworkmanager.workers.utils/CertificatePin.sha256Pins.<get-sha256Pins>|<get-sha256Pins>(){}[0]
+
+    final fun component1(): kotlin/String // dev.brewkits.kmpworkmanager.workers.utils/CertificatePin.component1|component1(){}[0]
+    final fun component2(): kotlin.collections/List<kotlin/String> // dev.brewkits.kmpworkmanager.workers.utils/CertificatePin.component2|component2(){}[0]
+    final fun copy(kotlin/String = ..., kotlin.collections/List<kotlin/String> = ...): dev.brewkits.kmpworkmanager.workers.utils/CertificatePin // dev.brewkits.kmpworkmanager.workers.utils/CertificatePin.copy|copy(kotlin.String;kotlin.collections.List<kotlin.String>){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // dev.brewkits.kmpworkmanager.workers.utils/CertificatePin.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // dev.brewkits.kmpworkmanager.workers.utils/CertificatePin.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // dev.brewkits.kmpworkmanager.workers.utils/CertificatePin.toString|toString(){}[0]
+
+    final object Companion // dev.brewkits.kmpworkmanager.workers.utils/CertificatePin.Companion|null[0]
+}
+
+final object dev.brewkits.kmpworkmanager.workers.utils/HttpClientProvider { // dev.brewkits.kmpworkmanager.workers.utils/HttpClientProvider|null[0]
+    final val instance // dev.brewkits.kmpworkmanager.workers.utils/HttpClientProvider.instance|{}instance[0]
+        final fun <get-instance>(): io.ktor.client/HttpClient // dev.brewkits.kmpworkmanager.workers.utils/HttpClientProvider.instance.<get-instance>|<get-instance>(){}[0]
+
+    final fun close() // dev.brewkits.kmpworkmanager.workers.utils/HttpClientProvider.close|close(){}[0]
+    final fun configurePinning(kotlin.collections/List<dev.brewkits.kmpworkmanager.workers.utils/CertificatePin>) // dev.brewkits.kmpworkmanager.workers.utils/HttpClientProvider.configurePinning|configurePinning(kotlin.collections.List<dev.brewkits.kmpworkmanager.workers.utils.CertificatePin>){}[0]
+}
+
+final object dev.brewkits.kmpworkmanager.workers/HttpWorkerRegistry : dev.brewkits.kmpworkmanager.background.domain/WorkerFactory { // dev.brewkits.kmpworkmanager.workers/HttpWorkerRegistry|null[0]
+    final fun createWorker(kotlin/String): dev.brewkits.kmpworkmanager.background.domain/Worker? // dev.brewkits.kmpworkmanager.workers/HttpWorkerRegistry.createWorker|createWorker(kotlin.String){}[0]
+    final fun listWorkers(): kotlin.collections/List<kotlin/String> // dev.brewkits.kmpworkmanager.workers/HttpWorkerRegistry.listWorkers|listWorkers(){}[0]
+}
