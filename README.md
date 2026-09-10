@@ -321,7 +321,7 @@ best-effort behavior (it does not guarantee code execution — see
 ## Previous releases
 
 See the [changelog](CHANGELOG.md) for the full history, and the per-version upgrade guides:
-[v3.2.0](docs/MIGRATION_V3.2.0.md) · [v3.1.0](docs/MIGRATION_V3.1.0.md) · [v3.0.0](docs/MIGRATION_V3.0.0.md) · [v2.5.0](docs/MIGRATION_V2.5.0.md) · [v2.4.0](docs/MIGRATION_V2.4.0.md).
+[v3.5.0](docs/MIGRATION_V3.5.0.md) · [v3.3.0](docs/MIGRATION_V3.3.0.md) · [v3.2.0](docs/MIGRATION_V3.2.0.md) · [v3.1.0](docs/MIGRATION_V3.1.0.md) · [v3.0.0](docs/MIGRATION_V3.0.0.md) · [v2.5.0](docs/MIGRATION_V2.5.0.md) · [v2.4.0](docs/MIGRATION_V2.4.0.md).
 
 ---
 
@@ -453,7 +453,7 @@ assertTrue(fakeScheduler.cancelledIds.isEmpty())
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Common issues |
 | [CHANGELOG](CHANGELOG.md) | Release history |
 
-**Migration:** [v3.1.x → v3.2.0](docs/MIGRATION_V3.2.0.md) · [v2.5.x → v3.0.0](docs/MIGRATION_V3.0.0.md) · [v2.4.x → v2.5.0](docs/MIGRATION_V2.5.0.md)
+**Migration:** [v3.4.x → v3.5.0](docs/MIGRATION_V3.5.0.md) · [v3.2.x → v3.3.0](docs/MIGRATION_V3.3.0.md) · [v3.1.x → v3.2.0](docs/MIGRATION_V3.2.0.md) · [v2.5.x → v3.0.0](docs/MIGRATION_V3.0.0.md)
 
 ---
 
