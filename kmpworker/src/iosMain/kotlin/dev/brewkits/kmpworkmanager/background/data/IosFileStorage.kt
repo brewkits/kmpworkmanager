@@ -1501,9 +1501,11 @@ public class IosFileStorage(
     suspend fun close() {
         // Two-phase shutdown:
         //   Phase 1 (try):     flushNow — best-effort durable save of buffered progress
-        //                      BEFORE we kill the scope. If we cancelled first, the in-
-        //                      flight flushJob would die and buffered updates would be
-        //                      silently lost.
+        //                      BEFORE we kill the scope. If we cancelled first, the
+        //                      ChainProgressStore's in-flight debounced flush job would die
+        //                      (it runs on this same backgroundScope, which is why the store
+        //                      is handed the scope rather than owning one) and buffered
+        //                      updates would be silently lost.
         //   Phase 2 (finally): cancel + join — MUST run even if flush threw, otherwise
         //                      the backgroundScope keeps running forever (coroutine leak).
         //                      Common trigger: full disk / EACCES on flush → previous
