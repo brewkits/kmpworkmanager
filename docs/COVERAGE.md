@@ -14,7 +14,7 @@ by automated tests, and how much of that is actually measured rather than assert
 | `kmpworker` — JVM/Android side | 253 | 74.3% measured, **≥ 70%** (CI-enforced floor) | Kover |
 | `kmpworker-http` | 105 | 77.5% measured, **≥ 74%** (CI-enforced floor) | Kover |
 | `kmpworker` — `commonMain` | 485 | included in the Kover figures above | Kover, via the JVM/Android target |
-| `kmpworker` — `iosMain` | 624 | **not measured** | — |
+| `kmpworker` — `iosMain` | 625 | **not measured** | — |
 | `kmpworker-ksp` | 29 | not measured | — |
 | `kmpworker-testing` | 8 | not measured | — |
 
@@ -45,7 +45,7 @@ all**.
 
 What can be said about it factually:
 
-- It carries **624 tests**, more than any other single source set in the project.
+- It carries **625 tests**, more than any other single source set in the project.
 - Those tests include the failure modes that matter most for a background-task library:
   `QA_PersistenceResilienceTest` (a 100-step chain killed at step 50 resumes at exactly step
   50), `AppendOnlyQueueCrcCorruptionTest`, `QueueCorruptionTest`,
