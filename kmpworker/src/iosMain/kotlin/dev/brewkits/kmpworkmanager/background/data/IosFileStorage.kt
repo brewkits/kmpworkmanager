@@ -213,15 +213,6 @@ public class IosFileStorage(
 
 
     /**
-     * Chain-progress persistence — the debounced buffer, the emergency flush and the
-     * self-healing recovery. Stage 1 of the SRP split; see
-     * `docs/internal/IOS_FILE_STORAGE_SPLIT.md`. The progress methods below are delegations,
-     * kept so that no call site outside this package had to move.
-     *
-     * `chainsDirURL` is passed as a lambda rather than a value: it is `by lazy` and creates
-     * the directory on first touch, and resolving it here would force that at construction.
-     */
-    /**
      * Task-metadata persistence. Stage 2 of the SRP split. Same lambda-directory reasoning as
      * [progressStore]: `tasksDirURL`/`periodicDirURL` are `by lazy` and create their
      * directories on first touch.
@@ -245,6 +236,13 @@ public class IosFileStorage(
         isTestMode = isTestMode
     )
 
+    /**
+     * Chain-progress persistence — the debounced buffer, the emergency flush and the
+     * self-healing recovery. Stage 1 of the SRP split.
+     *
+     * `chainsDirURL` is passed as a lambda rather than a value: it is `by lazy` and creates
+     * the directory on first touch, and resolving it here would force that at construction.
+     */
     private val progressStore = ChainProgressStore(
         io = io,
         backgroundScope = backgroundScope,

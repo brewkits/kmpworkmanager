@@ -54,7 +54,13 @@ internal class StorageMaintenance(
     // Calling it on every file write (e.g. every saveChainDefinition) adds measurable
     // latency on I/O-bound devices. Cache the result for DISK_SPACE_CACHE_TTL_MS and
     // re-query only when the TTL expires.
+    // Thread-safety: reads are allowed without a lock (a stale read is safe — the
+    // consequence is one extra syscall, not a correctness error). Writes use @Volatile
+    // so the updated pair is visible to all threads without a mutex.
+    @kotlin.concurrent.Volatile
     private var diskSpaceCacheFreeBytes: Long = -1L
+
+    @kotlin.concurrent.Volatile
     private var diskSpaceCacheExpiryMs: Long = 0L
 
     /**
