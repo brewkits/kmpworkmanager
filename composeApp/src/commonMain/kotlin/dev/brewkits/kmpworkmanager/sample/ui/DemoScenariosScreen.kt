@@ -46,32 +46,39 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
     val snackbarHostState = remember { SnackbarHostState() }
     val context = getPlatformContext()
 
-    // Track running tasks to disable other buttons
-    var isAnyTaskRunning by remember { mutableStateOf(false) }
-    var runningTaskName by remember { mutableStateOf("") }
+    // Guards against double-taps while a scenario is being *scheduled*. It is deliberately
+    // not "is a task running":
+    //
+    // Tapping a card calls scheduler.enqueue(), which hands the work to the platform. On
+    // Android WorkManager usually starts it within seconds; on iOS BGTaskScheduler queues a
+    // BGTaskRequest and the OS decides when to run it — which, for an app in the foreground,
+    // is essentially never.
+    //
+    // This used to be cleared ONLY by a TaskEventBus completion event, so on iOS the flag
+    // never cleared: one tap disabled every other button on the screen for the rest of the
+    // session, and the only way out was the Stop button. It looked fine on Android purely
+    // because the work completed quickly there. Now it clears when the enqueue call returns,
+    // which is the operation the button actually performs.
+    var isScheduling by remember { mutableStateOf(false) }
+    var schedulingTaskName by remember { mutableStateOf("") }
 
-    // Listen to task completion events
-    LaunchedEffect(Unit) {
-        dev.brewkits.kmpworkmanager.background.domain.TaskEventBus.events.collect { event ->
-            // Reset running state when any task completes
-            isAnyTaskRunning = false
-            runningTaskName = ""
-        }
-    }
-
-    // Helper function to run tasks with state tracking
+    // Helper function to schedule tasks with state tracking
     fun runTask(taskName: String, action: suspend () -> Unit) {
-        if (isAnyTaskRunning) return
-        isAnyTaskRunning = true
-        runningTaskName = taskName
+        if (isScheduling) return
+        isScheduling = true
+        schedulingTaskName = taskName
         coroutineScope.launch {
             try {
                 action()
             } catch (e: Exception) {
                 Logger.e("DemoScenariosScreen", "runTask '$taskName' failed: ${e.message}", e)
                 snackbarHostState.showSnackbar(message = "Failed to schedule: ${e.message}", duration = SnackbarDuration.Short)
-                isAnyTaskRunning = false
-                runningTaskName = ""
+            } finally {
+                // Always, including on the success path. Scheduling is done when enqueue()
+                // returns; what happens afterwards belongs to the OS and is reported by the
+                // Dashboard and the execution history, not by disabling this screen.
+                isScheduling = false
+                schedulingTaskName = ""
             }
         }
     }
@@ -114,8 +121,9 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            // Running Task Indicator
-            if (isAnyTaskRunning) {
+            // Scheduling indicator. Shown only while enqueue() is in flight, which is
+            // usually a few milliseconds — it is not a progress bar for the task itself.
+            if (isScheduling) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
@@ -132,27 +140,20 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                             strokeWidth = 3.dp
                         )
                         Column(modifier = Modifier.weight(1f)) {
+                            // "Scheduling", not "Task Running": at this point the work has
+                            // been handed to WorkManager or BGTaskScheduler and this app does
+                            // not know whether it has started. Claiming otherwise is what made
+                            // the old indicator misleading on iOS, where it had not.
                             Text(
-                                "Task Running",
+                                "Scheduling",
                                 style = MaterialTheme.typography.titleSmall,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                             Text(
-                                runningTaskName,
+                                schedulingTaskName,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
-                        }
-                        Button(
-                            onClick = {
-                                isAnyTaskRunning = false
-                                runningTaskName = ""
-                            },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.error
-                            )
-                        ) {
-                            Text("Stop")
                         }
                     }
                 }
@@ -167,7 +168,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Quick Sync",
                     description = "OneTime task with no constraints",
                     icon = Icons.Default.Sync,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("Quick Sync") {
                             scheduleTask("Quick Sync scheduled (2s delay)") {
@@ -184,7 +185,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "File Upload",
                     description = "OneTime with network required",
                     icon = Icons.Default.Upload,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("File Upload") {
                             scheduleTask("File Upload scheduled (5s, network required)") {
@@ -202,7 +203,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Database Operation",
                     description = "Batch inserts with progress",
                     icon = Icons.Default.Storage,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("Database Operation") {
                             scheduleTask("Database Worker scheduled (3s delay)") {
@@ -226,7 +227,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Hourly Sync",
                     description = "Repeats every hour with network constraints",
                     icon = Icons.Default.Schedule,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("Hourly Sync") {
                             scheduleTask("Hourly Sync scheduled (1h interval)") {
@@ -244,7 +245,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Daily Cleanup",
                     description = "Runs every 24 hours while charging",
                     icon = Icons.Default.CleaningServices,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("Daily Cleanup") {
                             scheduleTask("Daily Cleanup scheduled (24h, charging)") {
@@ -262,7 +263,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Location Sync",
                     description = "Periodic 15min location upload",
                     icon = Icons.Default.LocationOn,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("Location Sync") {
                             scheduleTask("Location Sync scheduled (15min)") {
@@ -279,7 +280,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Update Periodic (ExistingPolicy.UPDATE)",
                     description = "Tap twice: 1st schedules Hourly Sync-like periodic task, 2nd updates its constraints WITHOUT resetting the interval timer (unlike REPLACE)",
                     icon = Icons.Default.Update,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("Update Periodic (ExistingPolicy.UPDATE)") {
                             scheduleTask(
@@ -309,7 +310,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Sequential: Download \u2192 Process \u2192 Upload",
                     description = "Three tasks in sequence",
                     icon = Icons.AutoMirrored.Filled.ArrowForward,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("Sequential: Download \u2192 Process \u2192 Upload") {
                             scheduler.beginWith(TaskRequest(workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.SYNC_WORKER))
@@ -324,7 +325,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Parallel: Process 3 Images \u2192 Upload",
                     description = "Parallel processing then upload",
                     icon = Icons.Default.DynamicFeed,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("Parallel: Process 3 Images \u2192 Upload") {
                             scheduler.beginWith(
@@ -343,7 +344,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Mixed: Fetch \u2192 [Process \u2225 Analyze \u2225 Compress] \u2192 Upload",
                     description = "Sequential + parallel combination",
                     icon = Icons.Default.AccountTree,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("Mixed: Fetch \u2192 [Process \u2225 Analyze \u2225 Compress] \u2192 Upload") {
                             scheduler.beginWith(TaskRequest(workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.SYNC_WORKER))
@@ -364,7 +365,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "InputMerger: Step 2 URL Overwritten by Step 1's Output",
                     description = "Step 2 is configured with a DIFFERENT url, but mergeOutputFromPreviousStep = true means Step 1's output url wins — watch Logs to see which URL actually gets called",
                     icon = Icons.AutoMirrored.Filled.CallMerge,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("InputMerger demo") {
                             val step1Config = HttpSyncConfig(url = "https://jsonplaceholder.typicode.com/posts/1", method = "GET")
@@ -396,7 +397,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "TaskRequest: Priority + Non-Idempotent",
                     description = "priority/isIdempotent only exist on TaskRequest (used via beginWith), not the flat scheduler.enqueue() — this single-step chain shows both taking effect",
                     icon = Icons.Default.PriorityHigh,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("TaskRequest: Priority + Non-Idempotent") {
                             scheduler.beginWith(
@@ -418,7 +419,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Long Chain: 5 Sequential Steps",
                     description = "Extended workflow demonstration",
                     icon = Icons.Default.LinearScale,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("Long Chain: 5 Sequential Steps") {
                             scheduler.beginWith(TaskRequest(workerClassName = dev.brewkits.kmpworkmanager.sample.background.WorkerTypes.SYNC_WORKER))
@@ -442,7 +443,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Network Required",
                     description = "Only runs when network available",
                     icon = Icons.Default.Wifi,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("Network Required") {
                             scheduleTask("Network-constrained task scheduled") {
@@ -460,7 +461,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Unmetered Network (WiFi Only)",
                     description = "Only runs on WiFi/unmetered",
                     icon = Icons.Default.WifiTethering,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("Unmetered Network (WiFi Only)") {
                             scheduleTask("WiFi-only task scheduled") {
@@ -478,7 +479,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Charging Required",
                     description = "Runs only while device is charging",
                     icon = Icons.Default.BatteryChargingFull,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("Charging Required") {
                             scheduleTask("Charging-constrained task scheduled") {
@@ -496,7 +497,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Battery Not Low (Android)",
                     description = "Defers when battery is low",
                     icon = Icons.Default.BatteryFull,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("Battery Not Low (Android)") {
                             scheduleTask("Battery-OK task scheduled") {
@@ -513,7 +514,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Storage Low Cleanup (Android)",
                     description = "Demonstrates SystemConstraint.ALLOW_LOW_STORAGE — note this constraint is a no-op vs. omitting it entirely, since WorkManager already defaults to requiresStorageNotLow=false",
                     icon = Icons.Default.SdCard,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("Storage Low Cleanup (Android)") {
                             scheduleTask("Storage-low task scheduled (Android only)") {
@@ -533,7 +534,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Device Idle (Android)",
                     description = "Runs when device is idle/sleeping",
                     icon = Icons.Default.NightsStay,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("Device Idle (Android)") {
                             scheduleTask("Device-idle task scheduled (Android only)") {
@@ -562,7 +563,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Network Retry with Backoff",
                     description = "Demonstrates exponential backoff (fails 2x, succeeds 3rd)",
                     icon = Icons.Default.Refresh,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("Network Retry with Backoff") {
                             scheduleTask("Retry demo started (watch logs)") {
@@ -579,7 +580,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Random Database Failure",
                     description = "10% chance of transaction failure",
                     icon = Icons.Default.Error,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("Random Database Failure") {
                             scheduleTask("Database worker scheduled (may fail)") {
@@ -603,7 +604,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Heavy Processing",
                     description = "Long-running CPU-intensive task (30s)",
                     icon = Icons.Default.Memory,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("Heavy Processing") {
                             scheduleTask("Heavy task scheduled (ForegroundService/BGProcessingTask)") {
@@ -621,7 +622,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Batch Upload (5 Files)",
                     description = "Multiple file uploads with progress",
                     icon = Icons.Default.CloudUpload,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("Batch Upload (5 Files)") {
                             scheduleTask("Batch upload started (5 files)") {
@@ -638,7 +639,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Image Processing (5 Images x 3 Sizes)",
                     description = "CPU-intensive image resizing",
                     icon = Icons.Default.Image,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("Image Processing (5 Images x 3 Sizes)") {
                             scheduleTask("Image processing started (15 operations)") {
@@ -662,7 +663,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Download \u2192 Compress \u2192 Upload Chain",
                     description = "Complete workflow: Download file, compress it, then upload with data passing between steps.",
                     icon = Icons.Default.CloudSync,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("Download \u2192 Compress \u2192 Upload Chain") {
                             // Step 1: Download file
@@ -719,7 +720,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Parallel HTTP Sync \u2192 Compress Results",
                     description = "Fetch 3 APIs in parallel, then compress all results together",
                     icon = Icons.Default.DynamicFeed,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("Parallel HTTP Sync \u2192 Compress Results") {
                             // Create dummy files first
@@ -773,7 +774,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "HTTP Request \u2192 Sync \u2192 Upload Pipeline",
                     description = "POST data, sync response, then upload result file",
                     icon = Icons.Default.SwapHoriz,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("HTTP Request \u2192 Sync \u2192 Upload Pipeline") {
                             // Create dummy files first
@@ -832,7 +833,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Long Chain: Download \u2192 Process \u2192 Compress \u2192 Sync \u2192 Upload",
                     description = "5-step workflow showcasing complete built-in worker integration",
                     icon = Icons.Default.LinearScale,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("Long Chain: Download \u2192 Process \u2192 Compress \u2192 Sync \u2192 Upload") {
                             val downloadConfig = HttpDownloadConfig(
@@ -908,7 +909,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "HTTP Request Worker",
                     description = "Fire-and-forget HTTP POST request",
                     icon = Icons.Default.Http,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("HTTP Request Worker") {
                             val config = HttpRequestConfig(
@@ -933,7 +934,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "HTTP Sync Worker",
                     description = "JSON POST/GET with response logging",
                     icon = Icons.Default.SyncAlt,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("HTTP Sync Worker") {
                             val requestBody = buildJsonObject {
@@ -962,7 +963,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "HTTP Download Worker",
                     description = "Download a file (dummy URL)",
                     icon = Icons.Default.Download,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("HTTP Download Worker") {
                             val config = HttpDownloadConfig(
@@ -985,7 +986,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "HTTP Download — Bandwidth Throttled",
                     description = "Same download, capped at 2 KB/s so the transfer visibly takes ~5s instead of <1s",
                     icon = Icons.Default.Speed,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("HTTP Download — Bandwidth Throttled") {
                             val config = HttpDownloadConfig(
@@ -1009,7 +1010,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Token Refresh on 401",
                     description = "Demonstrates the auto-refresh handshake — original URL always 401s, so watch Logs for the refresh call + retry",
                     icon = Icons.Default.Refresh,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("Token Refresh on 401") {
                             val config = HttpRequestConfig(
@@ -1039,7 +1040,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "HTTP Upload Worker",
                     description = "Upload a dummy file (POST) - ⚠️ Requires file creation first",
                     icon = Icons.Default.UploadFile,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("HTTP Upload Worker") {
                             // This requires a dummy file to exist for the demo to work
@@ -1067,7 +1068,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "File Compression Worker",
                     description = "Compress a dummy folder into a zip - ⚠️ Requires folder/file creation first",
                     icon = Icons.Default.FolderZip,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("File Compression Worker") {
                             // This requires a dummy folder/files to exist
@@ -1095,7 +1096,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Background URLSession Download (iOS)",
                     description = "Survives full app termination — managed by the iOS system daemon, not BGTaskScheduler's ~30s budget. No-op on Android (ordinary HttpDownloadWorker already survives process death via WorkManager)",
                     icon = Icons.Default.CloudDownload,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("Background URLSession Download (iOS)") {
                             val config = dev.brewkits.kmpworkmanager.workers.config.IosBackgroundDownloadConfig(
@@ -1125,7 +1126,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     description = "Download httpbin's known-output endpoint and verify the SHA-256 digest. " +
                         "Mismatched bytes delete the partial and Fail.",
                     icon = Icons.Default.Download,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("HTTP Download + SHA-256") {
                             // httpbin /bytes/N returns deterministic content for a seed — but seeds
@@ -1155,7 +1156,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Download with DuplicatePolicy.SKIP",
                     description = "If the destination file already exists, return Success without any HTTP call.",
                     icon = Icons.Default.Download,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("HTTP Download + SKIP duplicate") {
                             val config = HttpDownloadConfig(
@@ -1181,7 +1182,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     description = "Big-file demo — splits the response into 4 byte-range chunks " +
                         "and merges them. Falls back to sequential if Accept-Ranges is missing.",
                     icon = Icons.Default.Download,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("Parallel HTTP Download") {
                             val config = dev.brewkits.kmpworkmanager.workers.config.ParallelHttpDownloadConfig(
@@ -1210,7 +1211,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     description = "One POST per file; per-file retry on 5xx; aggregate result map " +
                         "with per-file outcomes in WorkerResult.Success.data.",
                     icon = Icons.Default.UploadFile,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("Parallel HTTP Upload") {
                             val basePath = getDummyUploadPath(context)
@@ -1252,7 +1253,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     description = "OneTime expedited task now works with WorkManager 2.10.0+. " +
                         "Previously crashed with IllegalStateException: Not implemented (getForegroundInfo).",
                     icon = Icons.Default.CheckCircle,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("Fix1: Expedited task (WorkManager 2.10.0+ compat)") {
                             scheduleTask("✅ Fix #1: Expedited task scheduled — no crash on WorkManager 2.10.0+") {
@@ -1272,7 +1273,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     description = "Chain with isHeavyTask=true now correctly uses KmpHeavyWorker (foreground service). " +
                         "Previously both branches silently used KmpWorker.",
                     icon = Icons.Default.AccountTree,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("Fix2: Heavy task routing in chain") {
                             scheduler.beginWith(
@@ -1308,7 +1309,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     description = "Notification strings (channel name, title) are now in res/values/strings.xml. " +
                         "Override kmp_worker_notification_title in your app's res/values-xx/strings.xml for localization.",
                     icon = Icons.Default.Language,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("i18n: Localized notification") {
                             // Schedule a regular task — if WorkManager promotes it to foreground,
@@ -1338,7 +1339,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                         "Before fix: flexMs was silently ignored on Android. " +
                         "Now: task runs within the 15-minute flex window.",
                     icon = Icons.Default.Schedule,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("Fix AND-2: Periodic with Flex Interval") {
                             scheduleTask("Fix AND-2: Periodic with 15min flex window scheduled (Android: flexMs now respected)") {
@@ -1362,7 +1363,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                         "excluded from expedited mode on Android. " +
                         "Before fix: WorkManager threw IllegalArgumentException when isHeavyTask=false.",
                     icon = Icons.Default.BatteryFull,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("Fix AND-3: Battery-Low Constraint") {
                             // BatteryOkay is the legacy trigger that maps to REQUIRE_BATTERY_NOT_LOW.
@@ -1386,7 +1387,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                         "Before fix: a file-processing chain would never start on an offline device " +
                         "because the executor itself had requiresNetworkConnectivity=true.",
                     icon = Icons.Default.CloudOff,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("Fix IOS-1: Offline Chain Execution") {
                             // Simulate a chain of local-only tasks (no network needed)
@@ -1418,7 +1419,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                         "BGTask expiry properly cancels running chains (CE-2). " +
                         "Queue-empty check actually stops the batch loop (CE-3). iOS only.",
                     icon = Icons.Default.Link,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("Fix CE-1/2/3: Chain Correctness") {
                             // A 3-step chain — on iOS, CE-1 ensures chainSucceeded tracks real outcome,
@@ -1458,7 +1459,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Fix: Periodic runImmediately=true",
                     description = "Android: runImmediately=true now executes without delay, even with flexMs defaults.",
                     icon = Icons.Default.FastForward,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("Fix: Periodic runImmediately=true") {
                             scheduleTask("Periodic runImmediately=true scheduled") {
@@ -1478,7 +1479,7 @@ fun DemoScenariosScreen(scheduler: BackgroundTaskScheduler) {
                     title = "Fix: Periodic with REPLACE policy",
                     description = "iOS: REPLACE policy no longer incorrectly applies drift-correction delay.",
                     icon = Icons.Default.PublishedWithChanges,
-                    enabled = !isAnyTaskRunning,
+                    enabled = !isScheduling,
                     onClick = {
                         runTask("Fix: Periodic with REPLACE policy") {
                             scheduleTask("Periodic with REPLACE policy scheduled") {
