@@ -677,6 +677,11 @@ public class IosFileStorage(
         taskMetadataStore.cleanupStaleMetadata(olderThanDays)
 
     // ==================== Helper Methods ====================
+    //
+    // Only ensureDirectoryExists survives here, and only because the directory lazies above
+    // use it. The rest of the old helper block — readStringFromFile, writeStringToFile,
+    // deleteFile, coordinated, coordinatedSuspend — went to StorageFileIo in Stage 0b and
+    // had no callers left in this file once the stores moved out.
 
     /**
      * Ensure directory exists, create if not
@@ -684,59 +689,11 @@ public class IosFileStorage(
     private fun ensureDirectoryExists(url: NSURL) = io.ensureDirectoryExists(url)
 
 
-    /**
-     * Read string from file
-     */
-    private fun readStringFromFile(url: NSURL): String? = io.readStringFromFile(url)
-
-    /**
-     * Write string to file atomically.
-     *
-     * When [url] already has content on disk, uses [NSFileManager.replaceItemAtURL] — a
-     * true filesystem-atomic swap — per this project's own established invariant (see
-     * [AppendOnlyQueue]'s compaction fix): `NSString.writeToFile(atomically:)` is an older
-     * API with known reliability gaps under some `NSFileProtection` classes and disk
-     * conditions, the exact class of bug this codebase already fixed for the queue file.
-     * Every caller of this function (task metadata, chain definitions, chain progress,
-     * the transaction log) carries the same risk, so the fix applies here unconditionally
-     * rather than only to the queue.
-     *
-     * Falls back to a direct (non-atomic) write if the target does not exist yet — there
-     * is nothing to atomically replace on a first write — or in test mode, matching this
-     * function's prior `atomically = !isTestMode` behavior (tests intentionally trade
-     * atomicity for speed).
-     */
-    private fun writeStringToFile(url: NSURL, content: String) = io.writeStringToFile(url, content)
 
 
-    /**
-     * Delete file if exists
-     */
-    private fun deleteFile(url: NSURL) = io.deleteFile(url)
 
-    /**
-     * Synchronous file coordination bridge for non-suspend callers.
-     *
-     * Blocks the calling thread via runBlocking — safe only from threads that are NOT
-     * Dispatchers.Default coroutine threads (e.g. the GCD high-priority queue, init blocks,
-     * or Swift-called functions). Never call this from inside a suspend function; use
-     * [coordinatedSuspend] instead to avoid blocking a Dispatchers.Default thread.
-     */
-    private fun <T> coordinated(url: NSURL, write: Boolean, block: (NSURL) -> T): T =
-        io.coordinated(url, write, block)
 
-    /**
-     * Suspend-native file coordination for use inside coroutines.
-     *
-     * Calls [IosFileCoordinator.coordinate] directly without a runBlocking bridge.
-     * This ensures the calling Dispatchers.Default thread is released while
-     * NSFileCoordinator waits on IosDispatchers.IO — preventing thread starvation
-     * when multiple chains flush progress concurrently inside [flushProgressBuffer].
-     *
-     * Only call from suspend functions. Non-suspend callers must use [coordinated].
-     */
-    private suspend fun <T> coordinatedSuspend(url: NSURL, write: Boolean, block: (NSURL) -> T): T =
-        io.coordinatedSuspend(url, write, block)
+
 
     /**
      * Flush pending progress and cancel all background jobs.
