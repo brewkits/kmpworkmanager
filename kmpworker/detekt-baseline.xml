@@ -6,7 +6,7 @@
     <ID>ComplexCondition:SecurityValidator.kt$SecurityValidator$hostname == "169.254.169.254" || // AWS / GCP / Azure instance metadata hostname == "fd00:ec2::254" || // AWS IPv6 metadata hostname == "100.100.100.200" || // Alibaba Cloud ECS metadata hostname == "metadata.google.internal"</ID>
     <ID>ComplexCondition:SecurityValidator.kt$SecurityValidator$hostname.contains("0x", ignoreCase = true) &amp;&amp; hostname.all { it.isDigit() || it == '.' || it.lowercaseChar() in 'a'..'f' || it.lowercaseChar() == 'x' }</ID>
     <ID>CyclomaticComplexMethod:AlarmBootReceiver.kt$AlarmBootReceiver$final override fun onReceive(context: Context, intent: Intent)</ID>
-    <ID>CyclomaticComplexMethod:AppendOnlyQueue.kt$AppendOnlyQueue$private fun countTotalLines(url: NSURL): Int</ID>
+    <ID>CyclomaticComplexMethod:AppendOnlyQueue.kt$AppendOnlyQueue$private fun countTotalLinesByScanning(url: NSURL): Int</ID>
     <ID>CyclomaticComplexMethod:AppendOnlyQueue.kt$AppendOnlyQueue$private fun migrateFromTextToBinary()</ID>
     <ID>CyclomaticComplexMethod:AppendOnlyQueue.kt$AppendOnlyQueue$private fun streamCompactionToFile(srcUrl: NSURL, dstUrl: NSURL, headIndex: Int): Int</ID>
     <ID>CyclomaticComplexMethod:BaseKmpWorker.kt$BaseKmpWorker$protected suspend fun doWorkInternal(): Result</ID>
