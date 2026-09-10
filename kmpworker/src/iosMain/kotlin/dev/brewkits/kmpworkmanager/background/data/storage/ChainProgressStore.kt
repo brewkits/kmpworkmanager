@@ -92,6 +92,18 @@ internal class ChainProgressStore(
      */
     internal var testForceFlushFailure: Boolean = false
 
+    /**
+     * Test-only: delay inserted before each per-chain write inside [flushProgressBuffer].
+     *
+     * Widens the window in which a flush can be cancelled *mid-write*, which is the only
+     * state where the `finally` below matters. Without it the write loop finishes far too
+     * quickly in test mode to land a cancellation inside it — an earlier attempt to provoke
+     * the deadlock through the public API alone failed across ~65 rounds of contention.
+     * Production code never reads or writes this field. Same pattern as
+     * `IosFileStorage.testEnqueueInternalDelayMs`.
+     */
+    internal var testFlushWriteDelayMs: Long = 0L
+
     private companion object {
         private const val FLUSH_DEBOUNCE_MS = 100L
 
@@ -185,6 +197,8 @@ internal class ChainProgressStore(
                 // withTimeoutOrNull fires, we exit as soon as the current NSFileCoordinator
                 // call returns (the coordinator itself cannot be interrupted mid-call).
                 kotlinx.coroutines.currentCoroutineContext().ensureActive()
+
+                if (testFlushWriteDelayMs > 0L) delay(testFlushWriteDelayMs)
 
                 val progressFile = chainsDir().safeAppend("${chainId.encodeAsPathComponent()}_progress.json")
                 val json = Json.encodeToString(progress)

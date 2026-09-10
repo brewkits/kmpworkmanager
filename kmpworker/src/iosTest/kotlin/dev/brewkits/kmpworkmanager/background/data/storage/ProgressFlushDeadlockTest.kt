@@ -14,6 +14,8 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.yield
 import kotlinx.serialization.json.Json
@@ -186,6 +188,77 @@ class ProgressFlushDeadlockTest {
 
                     contenders.awaitAll()
                     flushers.awaitAll()
+                }
+            }
+        }
+    }
+
+
+    /**
+     * The deadlock, reproduced.
+     *
+     * The earlier attempts in this file could not provoke it, and the reason turned out to be
+     * mundane: every `progressMutex` critical section in this class is pure in-memory work —
+     * a map put, a snapshot, a clear — so the window in which the flush's `finally` finds the
+     * mutex *contended*, and therefore has to suspend, is microseconds wide. One or two
+     * concurrent savers essentially never land in it.
+     *
+     * Fifty savers in tight loops do. The sequence is then:
+     *
+     *  1. [ChainProgressStore.testFlushWriteDelayMs] parks the debounced flush inside its write
+     *     loop, which is the only state where the `finally` matters.
+     *  2. The savers keep `progressMutex` occupied nearly continuously.
+     *  3. `flushNow()`'s `flushJob?.cancelAndJoin()` cancels the in-flight flush. Its `finally`
+     *     hits the contended mutex, suspends, and — in a cancelled coroutine — throws, so
+     *     `completionSignal.complete(Unit)` never runs and `flushCompletionSignal` is never
+     *     cleared.
+     *  4. `flushNow()` reads that still-set signal and awaits it. Forever.
+     *
+     * Step 4 is `IosFileStorage.close()` or a chain completion hanging permanently.
+     *
+     * Verified in both directions on 2026-09-10: with the `finally`'s `withContext(NonCancellable)`
+     * removed this hangs on the **first** round; with it restored all 15 rounds return. The
+     * `withTimeout` turns a regression into a failure instead of a hung suite.
+     */
+    @Test
+    fun flushNowReturnsWhenItCancelsAFlushThatIsMidWriteUnderMutexContention() = runTest {
+        withContext(Dispatchers.Default) {
+            withTimeout(120_000) {
+                repeat(15) { round ->
+                    val store = newStore()
+                    store.testFlushWriteDelayMs = 15
+
+                    repeat(30) { i ->
+                        store.saveChainProgress(
+                            ChainProgress(chainId = "chain-$round-$i", totalSteps = 1)
+                        )
+                    }
+                    // Let the debounced job get into the write loop.
+                    kotlinx.coroutines.delay(180)
+
+                    val stop = kotlinx.atomicfu.atomic(false)
+                    val hammers = (0 until 50).map { i ->
+                        launch {
+                            while (!stop.value) {
+                                store.saveChainProgress(
+                                    ChainProgress(chainId = "hammer-$i", totalSteps = 1)
+                                )
+                            }
+                        }
+                    }
+
+                    val returned = withTimeoutOrNull(8_000) { store.flushNow(); true }
+                    stop.value = true
+                    hammers.forEach { it.cancelAndJoin() }
+
+                    assertTrue(
+                        returned == true,
+                        "flushNow() hung on round $round: it cancelled a flush whose finally then " +
+                            "died on the contended mutex without completing the signal it was " +
+                            "waiting on. This is close() hanging for good — check that " +
+                            "flushProgressBuffer's finally is still wrapped in NonCancellable."
+                    )
+                    store.testFlushWriteDelayMs = 0
                 }
             }
         }
