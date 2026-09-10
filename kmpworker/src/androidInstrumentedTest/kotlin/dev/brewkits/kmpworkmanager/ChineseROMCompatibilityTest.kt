@@ -16,7 +16,6 @@ import dev.brewkits.kmpworkmanager.background.domain.TaskTrigger
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
-import kotlin.test.assertTrue
 
 /**
  * Chinese ROM Compatibility Tests
@@ -31,7 +30,23 @@ import kotlin.test.assertTrue
  * These ROMs have aggressive battery optimization and background task restrictions
  * that can prevent WorkManager tasks from executing properly.
  *
- * Added
+ * ---
+ *
+ * **These are operator diagnostics, not tests, and they cannot fail.**
+ *
+ * Every method here inspects the *device it happens to be running on* — its manufacturer,
+ * its battery-optimisation state, whether an OEM settings Intent resolves — and prints what
+ * it finds. None of that is a property of this library, and none of it can be asserted: on a
+ * Pixel or a CI emulator the correct outcome is "not a Chinese ROM, nothing to check", and on
+ * a Xiaomi it is "battery optimisation is on", which is the user's setting and not a defect.
+ *
+ * They were counted as nine passing tests for their whole life while asserting nothing. That
+ * is recorded here so the count is not read as coverage: run them to *learn about a device*
+ * before shipping to that market, not to verify a change.
+ *
+ * If you add a method here, keep it diagnostic or move it somewhere it can genuinely fail.
+ * The one piece that could be a real test — the manufacturer/brand matching itself — is not
+ * library code: the list below is local to this file, and nothing in `kmpworker` consumes it.
  */
 class ChineseROMCompatibilityTest {
 

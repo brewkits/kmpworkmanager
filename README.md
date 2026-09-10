@@ -378,10 +378,16 @@ RFC 3986 UserInfo bypass and multi-`@` authority attacks are both handled. DNS r
 | `kmpworker` commonTest | 482 | all platforms |
 | `kmpworker` iosTest | 608 | iOS simulator |
 | `kmpworker` androidUnitTest | 177 | JVM (Robolectric) |
-| `kmpworker` androidInstrumentedTest | 76 | device / emulator |
+| `kmpworker` androidInstrumentedTest | 76 (9 are diagnostics — see below) | device / emulator |
 | `kmpworker-http` commonTest | 92 | all platforms |
 | `kmpworker-ksp` test | 29 | JVM |
 | `kmpworker-testing` commonTest | 8 | all platforms |
+
+> **Nine of the 76 instrumented tests are diagnostics, not verification.**
+> `ChineseROMCompatibilityTest` inspects the device it runs on — manufacturer,
+> battery-optimisation state, whether an OEM settings Intent resolves — and prints what it
+> finds. It contains no assertions and cannot fail. Run it to learn about a device before
+> shipping to that market; do not read it as coverage. The class KDoc says the same.
 
 > Every test in the table runs. Nothing is `@Ignore`d: as of v3.5.0 the KSP compile-testing
 > suite (23 tests that had been skipped since it was written) executes, and the two

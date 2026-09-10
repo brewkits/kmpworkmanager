@@ -107,6 +107,13 @@ class ChainProgressStoreTest {
         }
     }
 
+    /** Every file directly under [dir], as names. */
+    private fun filesUnder(dir: NSURL): List<String> {
+        val path = dir.path ?: return emptyList()
+        return (NSFileManager.defaultManager.contentsOfDirectoryAtPath(path, null) ?: emptyList<Any?>())
+            .mapNotNull { it as? String }
+    }
+
     private fun progressFileExists(chainId: String): Boolean {
         val path = chainsDir.safeAppend("${chainId}_progress.json").path ?: return false
         return NSFileManager.defaultManager.fileExistsAtPath(path)
@@ -254,12 +261,23 @@ class ChainProgressStoreTest {
         }
     }
 
-    /** Flushing an empty buffer is a no-op, not an error — `close()` relies on this. */
+    /**
+     * Flushing an empty buffer is a no-op, not an error — `IosFileStorage.close()` calls
+     * `flushNow()` unconditionally, including on an instance that never saved anything.
+     * Also asserts it writes nothing: an empty flush that created a file would leave a stray
+     * artifact in the chains directory for every closed storage instance.
+     */
     @Test
-    fun flushingAnEmptyBufferIsHarmless() = runTest {
-        bothStrategies { store, _ ->
+    fun flushingAnEmptyBufferIsHarmlessAndWritesNothing() = runTest {
+        bothStrategies { store, label ->
             store.flushNow()
             store.flushNow()
+
+            assertTrue(
+                filesUnder(chainsDir).isEmpty(),
+                "an empty flush must not create files: ${filesUnder(chainsDir)} ($label)"
+            )
+            assertNull(store.loadChainProgress("never-saved"), label)
         }
     }
 

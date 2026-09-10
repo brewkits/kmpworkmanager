@@ -154,9 +154,78 @@ class IosDynamicTaskDispatcherTest {
 
     // ==================== NativeTaskScheduler Integration Test ====================
 
+    /**
+     * The interception rule the whole dynamic-task feature rests on: an id that is **not** in
+     * Info.plist must not be submitted to BGTaskScheduler under its own identifier — it goes
+     * onto the internal queue for the Master Dispatcher to run instead, with its metadata
+     * persisted so the dispatcher can resolve the worker after a process restart.
+     *
+     * This test had a body of `// ... (existing code)` from the commit that introduced the
+     * feature (ca9db14) until v3.5.0. It compiled, ran, asserted nothing and reported as
+     * passing — worse than `@Ignore`, which at least announces itself, and it counted toward
+     * the suite's totals the whole time.
+     */
     @Test
     fun `NativeTaskScheduler should intercept dynamic tasks and enqueue them`() = runTest {
-        // ... (existing code)
+        val storage = makeStorage("intercept")
+        val dedicatedId = "task-with-dedicated-identifier"
+        val scheduler = NativeTaskScheduler(
+            // Literal rather than NativeTaskScheduler.MASTER_DISPATCHER_IDENTIFIER: the
+            // companion is private. The stress test in this file uses the same literal.
+            additionalPermittedTaskIds = setOf("kmp_master_dispatcher_task", dedicatedId),
+            fileStorage = storage
+        )
+
+        try {
+            val dynamicResult = scheduler.enqueue(
+                id = "task-without-identifier",
+                trigger = TaskTrigger.OneTime(0L),
+                workerClassName = "SyncWorker"
+            )
+
+            assertEquals(ScheduleResult.ACCEPTED, dynamicResult, "a dynamic task must be accepted")
+            assertTrue(
+                storage.isTaskInDynamicQueue("task-without-identifier"),
+                "an id absent from Info.plist must be intercepted onto the dynamic queue"
+            )
+            assertEquals(1, storage.getTasksQueueSize())
+
+            // Metadata has to be persisted too, or the dispatcher cannot resolve the worker
+            // when it later dequeues the id.
+            assertEquals(
+                "SyncWorker",
+                storage.loadTaskMetadata("task-without-identifier", periodic = false)
+                    ?.get("workerClassName"),
+                "the dispatcher resolves the worker from metadata after a process restart"
+            )
+
+            // The other half of the rule, and a distinction that is easy to "fix" wrongly:
+            // interception keys on `infoPlistTaskIds` ALONE, not on `permittedTaskIds`.
+            // `additionalPermittedTaskIds` only relaxes the library's own validation — it
+            // cannot grant a dedicated BGTask, because BGTaskScheduler will not register an
+            // identifier that is absent from Info.plist. So an id passed there is still
+            // intercepted, which is correct: the dynamic queue is the only way it can ever
+            // run. Widening line 853 to `permittedTaskIds` would submit a BGTask under an
+            // unregistered identifier and the task would simply never fire.
+            scheduler.enqueue(
+                id = dedicatedId,
+                trigger = TaskTrigger.OneTime(0L),
+                workerClassName = "SyncWorker"
+            )
+
+            assertTrue(
+                storage.isTaskInDynamicQueue(dedicatedId),
+                "additionalPermittedTaskIds relaxes validation only; without a real Info.plist " +
+                    "entry the task must still be intercepted, or it could never run"
+            )
+            assertEquals(
+                2,
+                storage.getTasksQueueSize(),
+                "both tasks are dynamic in a test environment, which has no Info.plist"
+            )
+        } finally {
+            storage.close()
+        }
     }
 
     // ==================== Performance & Stress Tests ====================

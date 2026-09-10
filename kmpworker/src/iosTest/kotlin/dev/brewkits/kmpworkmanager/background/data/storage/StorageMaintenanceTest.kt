@@ -14,6 +14,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.time.TimeSource
 
 /**
  * Contract tests for [StorageMaintenance], the Stage 4 extraction from `IosFileStorage`
@@ -58,9 +59,26 @@ class StorageMaintenanceTest {
         isTestMode = true
     )
 
+    /**
+     * An ordinary write clears the guard — and the second call must be served from the 10s
+     * cache rather than re-running `attributesOfFileSystemForPath`, which is the whole reason
+     * the cache exists (it sits on the path of every `saveChainDefinition`).
+     */
     @Test
-    fun anOrdinaryWriteClearsTheDiskSpaceGuard() {
-        newMaintenance().checkDiskSpace(requiredBytes = 1024)
+    fun anOrdinaryWriteClearsTheDiskSpaceGuardAndTheSecondCheckIsCached() {
+        val maintenance = newMaintenance()
+
+        maintenance.checkDiskSpace(requiredBytes = 1024)
+
+        val mark = TimeSource.Monotonic.markNow()
+        repeat(200) { maintenance.checkDiskSpace(requiredBytes = 1024) }
+        val elapsed = mark.elapsedNow()
+
+        assertTrue(
+            elapsed.inWholeMilliseconds < 500,
+            "200 cached checks took ${elapsed.inWholeMilliseconds}ms — that is a filesystem " +
+                "syscall per check, i.e. the disk-space cache is not being hit"
+        )
     }
 
     /**
