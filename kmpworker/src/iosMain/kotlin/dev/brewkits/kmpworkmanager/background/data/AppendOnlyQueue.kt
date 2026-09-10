@@ -1049,17 +1049,25 @@ internal class AppendOnlyQueue(
                         // O(headIndex), but each skipped record is read into a short-lived String
                         // that is released before the next iteration, so RAM stays O(1).
                         readHandle.seekToFileOffset(8u)  // past 8-byte binary header
-                        repeat(headIndex) {
-                            val skipped = readSingleRecordWithValidation(readHandle)
-                            if (skipped == null) return@repeat  // file shorter than expected
+                        // `return@repeat` here would be `continue`, not `break` — a classic
+                        // Kotlin trap, and the comment that used to sit on it ("file shorter
+                        // than expected") described the `break` that was meant. On a truncated
+                        // file it kept re-reading an exhausted handle `headIndex` more times.
+                        // Harmless in outcome, wasted work in fact; the loop now actually stops.
+                        var skipped = 0
+                        while (skipped < headIndex &&
+                            readSingleRecordWithValidation(readHandle) != null
+                        ) {
+                            skipped++
                         }
                     }
                 } else {
                     // Legacy text format — no header, no offset cache. Sequential skip.
                     readHandle.seekToFileOffset(0u)
-                    repeat(headIndex) {
-                        val skipped = readSingleLine(readHandle)
-                        if (skipped == null) return@repeat
+                    // Same `return@repeat`-is-`continue` trap as the binary branch above.
+                    var skipped = 0
+                    while (skipped < headIndex && readSingleLine(readHandle) != null) {
+                        skipped++
                     }
                 }
 

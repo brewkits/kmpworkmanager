@@ -11,10 +11,12 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -92,6 +94,16 @@ internal class ChainProgressStore(
 
     private companion object {
         private const val FLUSH_DEBOUNCE_MS = 100L
+
+        /** Wall-clock budget for the flush itself, leaving headroom before the iOS watchdog. */
+        private const val FLUSH_TIMEOUT_MS = 450L
+
+        /**
+         * Budget for the force-release that follows a timed-out flush. Sized so the caller's
+         * total worst case stays at [FLUSH_TIMEOUT_MS] + this, i.e. the 500 ms the design
+         * documents — rather than "450 ms plus however long a mutex holder takes".
+         */
+        private const val FORCE_RELEASE_BUDGET_MS = 50L
     }
 
     /**
@@ -205,39 +217,56 @@ internal class ChainProgressStore(
             )
             throw e
         } finally {
-            // Always complete signal and reset, even if flush failed — prevents
-            // saveChainProgress() from blocking indefinitely on the signal.
-            progressMutex.withLock {
-                flushCompletionSignal = null
+            // NonCancellable is load-bearing, not decoration. This block's job is to complete
+            // `completionSignal`, and `flushNow()` parks on that signal indefinitely:
+            //
+            //     flushJob?.cancelAndJoin()                                    // can cancel THIS flush
+            //     val signal = progressMutex.withLock { flushCompletionSignal }
+            //     signal?.await()                                              // forever, if nobody completes it
+            //
+            // `Mutex.withLock` suspends when the mutex is contended, and suspending inside a
+            // cancelled coroutine throws — so without this wrapper, a flush cancelled while a
+            // concurrent `saveChainProgress` held the mutex would skip both the reset below
+            // and `completionSignal.complete(Unit)`, leaving a signal nobody will ever
+            // complete for the next `flushNow()` — i.e. `IosFileStorage.close()` or a chain
+            // completion hanging for good.
+            //
+            // The uncontended fast path does not suspend and so does not throw, which is why
+            // this never showed up in testing; `ProgressFlushDeadlockTest` demonstrates the
+            // underlying mechanism directly rather than relying on winning that race.
+            withContext(NonCancellable) {
+                progressMutex.withLock {
+                    flushCompletionSignal = null
 
-                // Re-buffer any items that failed or were cancelled to prevent data loss —
-                // but ONLY if no newer update arrived for that chainId while we were writing
-                // outside the lock. saveChainProgress() can run concurrently during that
-                // window (it only needs progressMutex, which this loop doesn't hold), so an
-                // unconditional putAll() here would clobber a legitimately newer in-memory
-                // value with this stale pre-failure snapshot — silently regressing progress
-                // and, after a crash before the next successful flush, causing a resumed
-                // chain to re-run an already-completed step with a non-idempotent worker.
-                for ((chainId, progress) in remainingToFlush) {
-                    if (!progressBuffer.containsKey(chainId)) {
-                        progressBuffer[chainId] = progress
+                    // Re-buffer any items that failed or were cancelled to prevent data loss —
+                    // but ONLY if no newer update arrived for that chainId while we were writing
+                    // outside the lock. saveChainProgress() can run concurrently during that
+                    // window (it only needs progressMutex, which this loop doesn't hold), so an
+                    // unconditional putAll() here would clobber a legitimately newer in-memory
+                    // value with this stale pre-failure snapshot — silently regressing progress
+                    // and, after a crash before the next successful flush, causing a resumed
+                    // chain to re-run an already-completed step with a non-idempotent worker.
+                    for ((chainId, progress) in remainingToFlush) {
+                        if (!progressBuffer.containsKey(chainId)) {
+                            progressBuffer[chainId] = progress
+                        }
                     }
-                }
                 
-                // Re-schedule a flush if new items arrived or if we rebuffered items.
-                // Previously: saveChainProgress() called during a flush saw flushCompletionSignal != null
-                // and skipped scheduling a new job. After the flush completed, those items stayed in
-                // progressBuffer indefinitely if no further saveChainProgress() was called.
-                if (progressBuffer.isNotEmpty() && flushJob?.isActive != true) {
-                    flushJob = backgroundScope.launch {
-                        delay(FLUSH_DEBOUNCE_MS)
-                        flushProgressBuffer()
+                    // Re-schedule a flush if new items arrived or if we rebuffered items.
+                    // Previously: saveChainProgress() called during a flush saw flushCompletionSignal != null
+                    // and skipped scheduling a new job. After the flush completed, those items stayed in
+                    // progressBuffer indefinitely if no further saveChainProgress() was called.
+                    if (progressBuffer.isNotEmpty() && flushJob?.isActive != true) {
+                        flushJob = backgroundScope.launch {
+                            delay(FLUSH_DEBOUNCE_MS)
+                            flushProgressBuffer()
+                        }
+                        Logger.d(
+                            LogTags.CHAIN,
+                            "Scheduled follow-up flush for ${progressBuffer.size} items " +
+                                "buffered during previous flush"
+                        )
                     }
-                    Logger.d(
-                        LogTags.CHAIN,
-                        "Scheduled follow-up flush for ${progressBuffer.size} items " +
-                            "buffered during previous flush"
-                    )
                 }
             }
             completionSignal.complete(Unit)
@@ -313,24 +342,44 @@ internal class ChainProgressStore(
         val deferred = backgroundScope.async { flushNow() }
 
         val timedOut = runBlocking {
-            withTimeoutOrNull(450L) { deferred.await() }
+            withTimeoutOrNull(FLUSH_TIMEOUT_MS) { deferred.await() }
         } == null
 
         if (timedOut) {
             deferred.cancel()
-            // Force-release completion signal so saveChainProgress() is not permanently stuck.
-            runBlocking {
-                progressMutex.withLock {
-                    flushCompletionSignal?.complete(Unit)
-                    flushCompletionSignal = null
+            // Force-release the completion signal so saveChainProgress() is not left stuck.
+            //
+            // This is bounded, and that is the point. It used to be a bare `runBlocking` with
+            // no timeout, which quietly broke this function's entire contract: the KDoc
+            // promises the caller is blocked for at most 450 ms, and the log line below used
+            // to assert "Main thread safe (Watchdog respected)" — while the code could park
+            // the main thread on `progressMutex` for as long as its holder wanted. The path
+            // is reached precisely when the system is already contended (that is why the
+            // flush timed out), so it was unbounded exactly when contention was likeliest.
+            //
+            // FORCE_RELEASE_BUDGET_MS is the 50 ms of headroom the 450 ms figure already
+            // reserves, so the worst case for the caller stays under the documented 500 ms.
+            val released = runBlocking {
+                withTimeoutOrNull(FORCE_RELEASE_BUDGET_MS) {
+                    progressMutex.withLock {
+                        flushCompletionSignal?.complete(Unit)
+                        flushCompletionSignal = null
+                    }
+                    flushJob?.cancel()
+                    true
                 }
-                flushJob?.cancel()
-            }
+            } == true
+
             Logger.w(
                 LogTags.CHAIN,
-                "⚠️ Progress flush timed out after 450ms — likely NSFileCoordinator contention " +
-                    "(iCloud sync or file lock). Signal force-released; deferred coroutine cancelled. " +
-                    "Main thread safe (Watchdog respected)."
+                "⚠️ Progress flush timed out after ${FLUSH_TIMEOUT_MS}ms — likely " +
+                    "NSFileCoordinator contention (iCloud sync or file lock). Deferred " +
+                    "coroutine cancelled; signal " +
+                    (if (released) "force-released." else
+                        "NOT released within ${FORCE_RELEASE_BUDGET_MS}ms — the flush's own " +
+                            "finally completes it instead.") +
+                    " Caller blocked for at most " +
+                    "${FLUSH_TIMEOUT_MS + FORCE_RELEASE_BUDGET_MS}ms."
             )
         }
 
