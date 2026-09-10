@@ -393,6 +393,32 @@ pending request for it to launch. The app had all 42 identifiers registered at t
 time (`iOS BGTask: Registration completed. Total registered: 42`), so registration is
 not the missing piece.
 
+### And the debugger is the only door on older hardware
+
+`_simulateLaunchForTaskWithIdentifier:` needs a debugger that can execute code inside the
+target process. That is not a given on older devices. On an iPhone 6s Plus running iOS 15.8.8,
+driven by the Xcode 26 lldb, the app launches and runs fine but expression evaluation is
+one-way:
+
+```
+(lldb) expr -l objc -- (int)(21*2)
+(int) $0 = 42                                   <- pure IR, no code run in the target
+
+(lldb) expr -l objc -O -- (id)NSClassFromString(@"BGTaskScheduler")
+warning: could not execute support code to read Objective-C class data in the process.
+error: Can't evaluate the expression without a running target due to:
+       Interpreter doesn't handle one of the expression's opcodes
+```
+
+Anything lldb can constant-fold works; anything needing an Objective-C message send in the
+target does not. `process interrupt` reports "Process is not running" while `continue`
+reports "process already running" in the same session, which is the same interop breakage
+seen from another angle. It is the toolchain, not the app: this is the same Xcode-lldb /
+iOS-15.8 mismatch that produces an `EXC_BREAKPOINT` in `dyld` with no application frames.
+
+So on a device this old the private API is out of reach too. Use an iOS 17+ device if you
+need to drive a background launch by hand.
+
 ### What this means for you
 
 - **You cannot test background execution on the simulator.** Not with a private API,
