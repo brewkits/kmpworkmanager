@@ -22,8 +22,6 @@ import platform.Foundation.NSString
 import platform.Foundation.NSURL
 import platform.Foundation.NSUUID
 import platform.Foundation.NSUTF8StringEncoding
-import platform.Foundation.URLByAppendingPathComponent
-import platform.Foundation.URLByAppendingPathExtension
 import platform.Foundation.stringWithContentsOfFile
 import platform.Foundation.writeToFile
 

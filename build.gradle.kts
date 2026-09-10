@@ -111,7 +111,9 @@ tasks.register<Zip>("generateFullMavenZip") {
 
     from(stagingDir)
 
-    // Always start from an empty staging dir, then publish all 3 modules into it.
+    // Always start from an empty staging dir, then publish every module into it.
+    // (Said "all 3 modules" while listing five — kmpworker-annotations, -ksp and -testing
+    // were added underneath without the comment being updated.)
     dependsOn(cleanMavenStaging)
     dependsOn(":kmpworker:publishAllPublicationsToMavenCentralLocalRepository")
     dependsOn(":kmpworker-http:publishAllPublicationsToMavenCentralLocalRepository")
