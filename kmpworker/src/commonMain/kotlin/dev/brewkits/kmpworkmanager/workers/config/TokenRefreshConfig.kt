@@ -49,6 +49,18 @@ data class TokenRefreshConfig(
     val authHeaderName: String = "Authorization",
     val authHeaderPrefix: String = "Bearer "
 ) {
+    /**
+     * Redacts [refreshBody] and [refreshHeaders], which carry the refresh token and any
+     * client secret. See [HmacSigningConfig.toString] for why the generated `toString()` is
+     * a leak path even though this library never logs a config itself.
+     */
+    override fun toString(): String =
+        "TokenRefreshConfig(refreshUrl='$refreshUrl', refreshMethod='$refreshMethod', " +
+            "refreshBody=${if (refreshBody == null) "null" else "***"}, " +
+            "refreshHeaders=${if (refreshHeaders == null) "null" else "***"}, " +
+            "tokenResponsePath='$tokenResponsePath', authHeaderName='$authHeaderName', " +
+            "authHeaderPrefix='$authHeaderPrefix')"
+
     init {
         require(refreshUrl.startsWith("http://") || refreshUrl.startsWith("https://")) {
             "refreshUrl must start with http:// or https://"

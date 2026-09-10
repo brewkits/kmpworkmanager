@@ -4,6 +4,7 @@ import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -251,6 +252,52 @@ class WorkerConfigValidationTest {
         assertEquals(
             CompressionLevel.HIGH,
             FileCompressionConfig("/tmp/in", "/tmp/o.zip", compressionLevel = "High").level
+        )
+    }
+
+    // ---- Credential redaction ------------------------------------------------------
+
+    /**
+     * A `data class` generates a `toString()` that prints every property. For a config that
+     * carries a signing key or a refresh token that is a leak waiting for a host to write
+     * `Logger.d("scheduling $config")` — or for a crash reporter to capture the object.
+     *
+     * These assert the negative (the secret is absent) rather than matching an exact string,
+     * so they keep working when a field is added, and they check the surrounding fields are
+     * still present so redaction cannot be "achieved" by returning a constant.
+     */
+    @Test
+    fun hmacSigningConfig_toStringDoesNotLeakTheSecretKey() {
+        val secret = "super-secret-signing-key-value"
+        val rendered = HmacSigningConfig(secretKey = secret, headerName = "X-Sig").toString()
+
+        assertFalse(secret in rendered, "the signing key must not appear in toString(): $rendered")
+        assertTrue("X-Sig" in rendered, "non-secret fields must still be visible: $rendered")
+        assertTrue("HmacSigningConfig" in rendered, "the type must still identify itself")
+    }
+
+    @Test
+    fun tokenRefreshConfig_toStringDoesNotLeakTheRefreshCredentials() {
+        val refreshToken = "rt_9f3c1d-do-not-log-me"
+        val clientSecret = "cs_1a2b3c-do-not-log-me"
+        val rendered = TokenRefreshConfig(
+            refreshUrl = "https://auth.example.com/token",
+            refreshBody = """{"refresh_token":"$refreshToken"}""",
+            refreshHeaders = mapOf("X-Client-Secret" to clientSecret)
+        ).toString()
+
+        assertFalse(refreshToken in rendered, "the refresh token must not appear: $rendered")
+        assertFalse(clientSecret in rendered, "the client secret must not appear: $rendered")
+        assertTrue("auth.example.com" in rendered, "the URL is not a secret and aids debugging")
+    }
+
+    /** Redaction must not hide the difference between "absent" and "present but hidden". */
+    @Test
+    fun tokenRefreshConfig_toStringStillDistinguishesAbsentCredentials() {
+        val rendered = TokenRefreshConfig(refreshUrl = "https://auth.example.com/token").toString()
+        assertTrue(
+            "refreshBody=null" in rendered,
+            "an absent body must read as null, not as a redaction marker: $rendered"
         )
     }
 }

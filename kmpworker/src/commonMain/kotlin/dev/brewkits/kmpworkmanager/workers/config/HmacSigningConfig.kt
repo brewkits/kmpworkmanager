@@ -45,6 +45,24 @@ data class HmacSigningConfig(
     val includeTimestamp: Boolean = true,
     val timestampHeaderName: String = "X-Timestamp"
 ) {
+    /**
+     * Redacts [secretKey].
+     *
+     * A `data class` generates a `toString()` that prints every property, so the default
+     * would put the signing key into any string this object is interpolated into. This
+     * library never logs a config — but it does not own the call site. A host writes
+     * `Logger.d("scheduling $config")`, an exception message interpolates it, or a crash
+     * reporter captures it, and the key is in a log aggregator forever.
+     *
+     * The key still reaches disk as part of the task input; that is inherent to surviving
+     * process death and is documented in the class KDoc above. This closes the *other*
+     * path, which is neither inherent nor documented.
+     */
+    override fun toString(): String =
+        "HmacSigningConfig(secretKey=***, headerName='$headerName', " +
+            "signaturePrefix=$signaturePrefix, signBody=$signBody, " +
+            "includeTimestamp=$includeTimestamp, timestampHeaderName='$timestampHeaderName')"
+
     init {
         require(secretKey.length >= 16) {
             "secretKey must be at least 16 characters, got ${secretKey.length}"
