@@ -59,12 +59,28 @@ jobs:
           echo "bump_type=${{ inputs.bump_type }}" >> "$GITHUB_OUTPUT"
           echo "Bumping $CURRENT → $NEW (${{ inputs.bump_type }})"
 
-      # ── 4. Bump version in gradle.properties ─────────────────────────────────
+      # ── 4. Bump version in gradle.properties + README ────────────────────────
+      #
+      # README carries the coordinates users copy into their build file. It was NOT
+      # updated here until v3.5.0, so every release shipped a README advertising the
+      # previous version — the one place a new user is most likely to read. Both files
+      # are bumped together and both are committed in step 6.
+      #
+      # The pattern is anchored on `implementation("` on purpose. README also contains a
+      # DELIBERATE reference to an old version — "pin dev.brewkits:kmpworkmanager:2.5.1"
+      # for apps still on Ktor 2 — and an unanchored substitution rewrites that to the
+      # newest version, telling Ktor 2 users to pin the one release they cannot use. If
+      # you widen this pattern, re-check that line first.
       - name: Bump version
         run: |
           sed -i '' "s/^VERSION_NAME=.*/VERSION_NAME=${{ steps.version.outputs.new }}/" gradle.properties
+          sed -i '' -E \
+            "s#(implementation\(\"dev\.brewkits:kmpworkmanager(-http|-testing)?:)[0-9]+\.[0-9]+\.[0-9]+#\1${{ steps.version.outputs.new }}#g" \
+            README.md
           echo "gradle.properties now contains:"
           grep VERSION_NAME gradle.properties
+          echo "README coordinates now read:"
+          grep -E "dev\.brewkits:kmpworkmanager" README.md || true
 
       # ── 5. Generate CHANGELOG with git-cliff ─────────────────────────────────
       - name: Install git-cliff
@@ -119,7 +135,7 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add gradle.properties CHANGELOG.md
+          git add gradle.properties README.md CHANGELOG.md
           git commit -m "release: ${{ steps.version.outputs.tag }}"
           git tag "${{ steps.version.outputs.tag }}"
           git push origin HEAD:main

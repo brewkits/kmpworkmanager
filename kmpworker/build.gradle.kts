@@ -23,7 +23,7 @@ kover {
     reports {
         verify {
             rule {
-                minBound(62, kotlinx.kover.gradle.plugin.dsl.CoverageUnit.LINE)
+                minBound(70, kotlinx.kover.gradle.plugin.dsl.CoverageUnit.LINE)
             }
         }
     }

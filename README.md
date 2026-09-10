@@ -20,9 +20,9 @@
 ```kotlin
 // build.gradle.kts
 commonMain.dependencies {
-    implementation("dev.brewkits:kmpworkmanager:3.4.1")          // core engine (no Ktor)
+    implementation("dev.brewkits:kmpworkmanager:3.5.0")          // core engine (no Ktor)
     // Optional — only if you use the built-in HTTP workers (Http*/ParallelHttp*).
-    implementation("dev.brewkits:kmpworkmanager-http:3.4.1")     // Ktor 3 HTTP workers
+    implementation("dev.brewkits:kmpworkmanager-http:3.5.0")     // Ktor 3 HTTP workers
 }
 ```
 
@@ -370,14 +370,14 @@ RFC 3986 UserInfo bypass and multi-`@` authority attacks are both handled. DNS r
 ## Testing
 
 ```
-1,377 tests across 7 source sets
+1,463 tests across 7 source sets
 ```
 
 | Source set | Tests | Runs on |
 |---|---:|---|
-| `kmpworker` commonTest | 465 | all platforms |
-| `kmpworker` iosTest | 549 | iOS simulator |
-| `kmpworker` androidUnitTest | 158 | JVM (Robolectric) |
+| `kmpworker` commonTest | 482 | all platforms |
+| `kmpworker` iosTest | 604 | iOS simulator |
+| `kmpworker` androidUnitTest | 172 | JVM (Robolectric) |
 | `kmpworker` androidInstrumentedTest | 76 | device / emulator |
 | `kmpworker-http` commonTest | 92 | all platforms |
 | `kmpworker-ksp` test | 29 | JVM |

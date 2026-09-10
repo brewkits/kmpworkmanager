@@ -1,6 +1,6 @@
 # Test coverage — what is measured, and what is not
 
-**Last updated:** 2026-09-09 · **Applies to:** v3.5.0
+**Last updated:** 2026-09-10 · **Applies to:** v3.5.0
 
 This document exists to answer one question honestly: *how much of this library is covered
 by automated tests, and how much of that is actually measured rather than asserted?*
@@ -11,17 +11,19 @@ by automated tests, and how much of that is actually measured rather than assert
 
 | Area | Tests | Line coverage | How it is measured |
 |---|---:|---|---|
-| `kmpworker` — JVM/Android side | 234 | **≥ 62%** (CI-enforced floor) | Kover |
-| `kmpworker-http` | 92 | **≥ 74%** (CI-enforced floor) | Kover |
-| `kmpworker` — `commonMain` | 465 | included in the Kover figures above | Kover, via the JVM/Android target |
-| `kmpworker` — `iosMain` | 549 | **not measured** | — |
+| `kmpworker` — JVM/Android side | 248 | 73.0% measured, **≥ 70%** (CI-enforced floor) | Kover |
+| `kmpworker-http` | 92 | 78.2% measured, **≥ 74%** (CI-enforced floor) | Kover |
+| `kmpworker` — `commonMain` | 482 | included in the Kover figures above | Kover, via the JVM/Android target |
+| `kmpworker` — `iosMain` | 604 | **not measured** | — |
 | `kmpworker-ksp` | 29 | not measured | — |
 | `kmpworker-testing` | 8 | not measured | — |
 
 The floors are declared in each module's `build.gradle.kts` (`kover { reports { verify { rule
 { minBound(...) } } } }`) and enforced by `koverVerify`, which runs as part of `./gradlew
-check`. They are floors, not current values — run the report to see where coverage actually
-stands today.
+check`. They are floors, not current values, and the measured figures above were taken on
+2026-09-10 — run the report to see where coverage stands today. The `kmpworker` floor moved
+from 62% to 70% in v3.5.0 after new tests took the measured figure from 69.4% to 73.0%; a
+floor left far below the real number stops being a ratchet and silently permits regressions.
 
 ```bash
 ./gradlew :kmpworker:koverHtmlReport :kmpworker-http:koverHtmlReport
@@ -43,7 +45,7 @@ all**.
 
 What can be said about it factually:
 
-- It carries **549 tests**, more than any other single source set in the project.
+- It carries **604 tests**, more than any other single source set in the project.
 - Those tests include the failure modes that matter most for a background-task library:
   `QA_PersistenceResilienceTest` (a 100-step chain killed at step 50 resumes at exactly step
   50), `AppendOnlyQueueCrcCorruptionTest`, `QueueCorruptionTest`,
