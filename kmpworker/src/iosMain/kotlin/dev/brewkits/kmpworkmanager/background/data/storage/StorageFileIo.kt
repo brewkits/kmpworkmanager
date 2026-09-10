@@ -3,6 +3,7 @@
 package dev.brewkits.kmpworkmanager.background.data.storage
 
 import dev.brewkits.kmpworkmanager.background.data.IosFileCoordinator
+import dev.brewkits.kmpworkmanager.background.data.decodeFromPathComponent
 import dev.brewkits.kmpworkmanager.utils.LogTags
 import dev.brewkits.kmpworkmanager.utils.Logger
 import kotlinx.cinterop.ObjCObjectVar
@@ -11,6 +12,8 @@ import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.ptr
 import kotlinx.cinterop.value
 import kotlinx.coroutines.runBlocking
+import platform.Foundation.NSDirectoryEnumerationSkipsHiddenFiles
+import platform.Foundation.NSDirectoryEnumerationSkipsSubdirectoryDescendants
 import platform.Foundation.NSError
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSFileManagerItemReplacementWithoutDeletingBackupItem
@@ -67,7 +70,13 @@ internal class StorageFileIo(
     private val coordinationTimeoutMs: Long
 ) {
 
-    private val fileManager = NSFileManager.defaultManager
+    /**
+     * Exposed rather than private because several moved directory scans
+     * (`cleanupStaleMetadata`, `findTaskIdsByWorkerOrTag`) use `NSFileManager` shapes that
+     * have no wrapper here yet. One owner of the handle beats each store reaching for
+     * `NSFileManager.defaultManager` on its own.
+     */
+    internal val fileManager = NSFileManager.defaultManager
 
     /**
      * Ensure directory exists, create if not.
@@ -323,5 +332,44 @@ internal class StorageFileIo(
             timeoutMs = coordinationTimeoutMs,
             block = block
         )
+    }
+
+    /**
+     * Lazily lists the `.json` file names (extension stripped) directly inside [dir].
+     *
+     * Returns a [Sequence] so callers can stream each entry without materialising the full
+     * list: on a device with 50 000 task files a `List<String>` allocates ~4 MB just for id
+     * strings, while a Sequence allocates O(1) — one `NSURL` at a time from the
+     * `NSDirectoryEnumerator`. The enumerator is depth-1 (shallow), so subdirectories are
+     * never traversed.
+     *
+     * @param decode whether to reverse `encodeAsPathComponent` on each name before returning
+     *   it — `false` when the caller must do its own suffix-stripping on the still-encoded
+     *   form first (chain definitions strip `_progress` that way).
+     *
+     * **Consumption**: the returned Sequence is single-use (backed by a stateful OS
+     * enumerator). Do not iterate it more than once.
+     */
+    fun listJsonFileIds(dir: NSURL, decode: Boolean): Sequence<String> {
+        val enumerator = fileManager.enumeratorAtURL(
+            dir,
+            includingPropertiesForKeys = null,
+            options = NSDirectoryEnumerationSkipsSubdirectoryDescendants or
+                NSDirectoryEnumerationSkipsHiddenFiles,
+            errorHandler = null
+        ) ?: return emptySequence()
+
+        return generateSequence {
+            while (true) {
+                val next = enumerator.nextObject() as? NSURL ?: return@generateSequence null
+                val name = next.lastPathComponent ?: continue
+                if (name.endsWith(".json")) {
+                    val stripped = name.removeSuffix(".json")
+                    return@generateSequence if (decode) stripped.decodeFromPathComponent() else stripped
+                }
+            }
+            @Suppress("UNREACHABLE_CODE")
+            null
+        }
     }
 }

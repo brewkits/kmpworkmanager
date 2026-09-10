@@ -2,6 +2,7 @@ package dev.brewkits.kmpworkmanager.background.data
 
 import dev.brewkits.kmpworkmanager.background.data.storage.ChainProgressStore
 import dev.brewkits.kmpworkmanager.background.data.storage.StorageFileIo
+import dev.brewkits.kmpworkmanager.background.data.storage.TaskMetadataStore
 import dev.brewkits.kmpworkmanager.background.data.storage.safeAppend
 import dev.brewkits.kmpworkmanager.background.domain.TaskPriority
 import dev.brewkits.kmpworkmanager.background.domain.TaskRequest
@@ -283,6 +284,18 @@ public class IosFileStorage(
      * `chainsDirURL` is passed as a lambda rather than a value: it is `by lazy` and creates
      * the directory on first touch, and resolving it here would force that at construction.
      */
+    /**
+     * Task-metadata persistence. Stage 2 of the SRP split. Same lambda-directory reasoning as
+     * [progressStore]: `tasksDirURL`/`periodicDirURL` are `by lazy` and create their
+     * directories on first touch.
+     */
+    private val taskMetadataStore = TaskMetadataStore(
+        io = io,
+        persistenceJson = persistenceJson,
+        tasksDir = { tasksDirURL },
+        periodicDir = { periodicDirURL }
+    )
+
     private val progressStore = ChainProgressStore(
         io = io,
         backgroundScope = backgroundScope,
@@ -1166,77 +1179,38 @@ public class IosFileStorage(
     suspend fun deleteChainProgress(chainId: String) = progressStore.deleteChainProgress(chainId)
 
     // ==================== Metadata Operations ====================
+    //
+    // Implementation lives in TaskMetadataStore (storage/TaskMetadataStore.kt). These are
+    // delegations: Stage 2 of the SRP split moved the code without moving any caller. The
+    // plan wanted NativeTaskScheduler and IosBackgroundTaskHandler switched to an injected
+    // store in the same stage; keeping the two apart is the point of staging, so the
+    // delegations retire when those call sites move, not before.
+
+    /** Save task metadata. */
+    fun saveTaskMetadata(id: String, metadata: Map<String, String>, periodic: Boolean) =
+        taskMetadataStore.saveTaskMetadata(id, metadata, periodic)
+
+    /** Load task metadata, self-healing (deleting) a corrupt file. */
+    fun loadTaskMetadata(id: String, periodic: Boolean): Map<String, String>? =
+        taskMetadataStore.loadTaskMetadata(id, periodic)
 
     /**
-     * Save task metadata
-     */
-    fun saveTaskMetadata(id: String, metadata: Map<String, String>, periodic: Boolean) {
-        val dir = if (periodic) periodicDirURL else tasksDirURL
-        val metaFile = dir.safeAppend("${id.encodeAsPathComponent()}.json")
-        val json = Json.encodeToString(metadata)
-
-        coordinated(metaFile, write = true) { safeUrl ->
-            writeStringToFile(safeUrl, json)
-        }
-
-        Logger.d(LogTags.SCHEDULER, "Saved ${if (periodic) "periodic" else "task"} metadata for $id")
-    }
-
-    /**
-     * Load task metadata with self-healing for corrupt data
-     */
-    fun loadTaskMetadata(id: String, periodic: Boolean): Map<String, String>? {
-        val dir = if (periodic) periodicDirURL else tasksDirURL
-        val metaFile = dir.safeAppend("${id.encodeAsPathComponent()}.json")
-
-        return coordinated(metaFile, write = false) { safeUrl ->
-            val json = readStringFromFile(safeUrl) ?: return@coordinated null
-
-            try {
-                persistenceJson.decodeFromString<Map<String, String>>(json)
-            } catch (e: Exception) {
-                val metadataType = if (periodic) "periodic" else "task"
-                Logger.e(LogTags.SCHEDULER, "🩹 Self-healing: Corrupt $metadataType metadata detected for $id. Deleting corrupt file...", e)
-
-                // Delete corrupt metadata file
-                deleteFile(metaFile)
-
-                Logger.w(LogTags.SCHEDULER, "Corrupt $metadataType metadata for $id has been removed. Task will need to be rescheduled.")
-                null
-            }
-        }
-    }
-
-    /**
-     * List all non-periodic task IDs that have saved metadata.
+     * List all non-periodic task IDs that have saved metadata, as raw on-disk names.
      * Used by the catch-up executor to find missed exact-alarm tasks.
      *
-     * Returns a lazy [Sequence] over task IDs so callers can stream each entry
-     * without materialising the full list in memory. On a device with 50 000 task
-     * files the old List<String> approach allocates ~4 MB just for ID strings; a
-     * Sequence allocates O(1) — one NSURL at a time from the NSDirectoryEnumerator.
-     *
-     * The enumerator is depth-1 (shallow) so subdirectories are never traversed.
-     *
-     * **Consumption**: The returned Sequence is single-use (backed by a stateful
-     * OS enumerator). Do not iterate it more than once.
+     * **Consumption**: single-use Sequence (backed by a stateful OS enumerator).
      */
-    fun listTaskIds(): Sequence<String> = listJsonFileIds(tasksDirURL, decode = false)
+    fun listTaskIds(): Sequence<String> = taskMetadataStore.listTaskIds()
 
     /**
-     * List all one-time task IDs that have saved metadata, **decoded** back to the original
-     * id (unlike [listTaskIds], which returns the raw on-disk filename for historical
-     * compatibility with its existing caller). Used by [computeIosTaskState]/`queryTasks`,
-     * which need the real id to report back to the caller, not its on-disk encoding.
+     * Like [listTaskIds] but **decoded** back to the original id. Used by
+     * [computeIosTaskState]/`queryTasks`, which report ids back to the caller.
      */
-    internal fun listOneTimeTaskIdsDecoded(): Sequence<String> = listJsonFileIds(tasksDirURL, decode = true)
+    internal fun listOneTimeTaskIdsDecoded(): Sequence<String> =
+        taskMetadataStore.listOneTimeTaskIdsDecoded()
 
-    /**
-     * List all periodic task IDs that have saved metadata, decoded. See
-     * [listOneTimeTaskIdsDecoded] for why this is a separate function from [listTaskIds]
-     * rather than a `periodic` parameter on it.
-     */
-    internal fun listPeriodicTaskIds(): Sequence<String> = listJsonFileIds(periodicDirURL, decode = true)
+    /** Periodic counterpart of [listOneTimeTaskIdsDecoded]. */
+    internal fun listPeriodicTaskIds(): Sequence<String> = taskMetadataStore.listPeriodicTaskIds()
 
     /**
      * List all chain IDs that have a saved chain **definition** on disk — a broader set than
@@ -1250,62 +1224,18 @@ public class IosFileStorage(
      * the `_progress` suffix is stripped from the still-**encoded** filename before decoding,
      * since decoding first could (in principle) produce a false match against a chain id that
      * legitimately ends in the literal text `_progress`.
+     *
+     * Stays on the façade rather than moving with the metadata group: it reads chain
+     * definitions, so it belongs to Stage 4's ChainDefinitionStore.
      */
     internal fun listChainDefinitionIds(): Sequence<String> =
-        listJsonFileIds(chainsDirURL, decode = false)
+        io.listJsonFileIds(chainsDirURL, decode = false)
             .filterNot { it.endsWith("_progress") }
             .map { it.decodeFromPathComponent() }
 
-    /**
-     * Shared implementation backing [listTaskIds]/[listPeriodicTaskIds]/[listChainDefinitionIds].
-     *
-     * Returns a lazy [Sequence] over `.json` file names (extension stripped) directly inside
-     * [dir], so callers can stream each entry without materialising the full list in memory.
-     * On a device with 50 000 task files the old `List<String>` approach allocates ~4 MB just
-     * for ID strings; a `Sequence` allocates O(1) — one `NSURL` at a time from the
-     * `NSDirectoryEnumerator`.
-     *
-     * The enumerator is depth-1 (shallow) so subdirectories are never traversed.
-     *
-     * @param decode Whether to reverse [encodeAsPathComponent] on each file name before
-     *   returning it — `false` when the caller needs to do its own suffix-stripping on the
-     *   still-encoded form first (see [listChainDefinitionIds]).
-     *
-     * **Consumption**: The returned Sequence is single-use (backed by a stateful OS
-     * enumerator). Do not iterate it more than once.
-     */
-    private fun listJsonFileIds(dir: NSURL, decode: Boolean): Sequence<String> {
-        val enumerator = fileManager.enumeratorAtURL(
-            dir,
-            includingPropertiesForKeys = null,
-            options = NSDirectoryEnumerationSkipsSubdirectoryDescendants or
-                      NSDirectoryEnumerationSkipsHiddenFiles,
-            errorHandler = null
-        ) ?: return emptySequence()
-
-        return generateSequence {
-            while (true) {
-                val next = enumerator.nextObject() as? NSURL ?: return@generateSequence null
-                val name = next.lastPathComponent ?: continue
-                if (name.endsWith(".json")) {
-                    val stripped = name.removeSuffix(".json")
-                    return@generateSequence if (decode) stripped.decodeFromPathComponent() else stripped
-                }
-            }
-            @Suppress("UNREACHABLE_CODE")
-            null
-        }
-    }
-
-    /**
-     * Delete task metadata
-     */
-    fun deleteTaskMetadata(id: String, periodic: Boolean) {
-        val dir = if (periodic) periodicDirURL else tasksDirURL
-        val metaFile = dir.safeAppend("${id.encodeAsPathComponent()}.json")
-        deleteFile(metaFile)
-        Logger.d(LogTags.SCHEDULER, "Deleted ${if (periodic) "periodic" else "task"} metadata for $id")
-    }
+    /** Delete task metadata. */
+    fun deleteTaskMetadata(id: String, periodic: Boolean) =
+        taskMetadataStore.deleteTaskMetadata(id, periodic)
 
     /**
      * Finds standalone (non-chain) task IDs whose stored metadata matches [workerClassName]
@@ -1321,58 +1251,11 @@ public class IosFileStorage(
     fun findTaskIdsByWorkerOrTag(
         workerClassName: String? = null,
         tag: String? = null
-    ): List<Pair<String, Boolean>> {
-        if (workerClassName == null && tag == null) return emptyList()
-        val matches = mutableListOf<Pair<String, Boolean>>()
+    ): List<Pair<String, Boolean>> = taskMetadataStore.findTaskIdsByWorkerOrTag(workerClassName, tag)
 
-        listOf(tasksDirURL to false, periodicDirURL to true).forEach { (dir, isPeriodic) ->
-            val path = dir.path ?: return@forEach
-            val files = fileManager.contentsOfDirectoryAtPath(path, null) as? List<*> ?: return@forEach
-
-            files.forEach fileLoop@{ fileName ->
-                val name = fileName as? String ?: return@fileLoop
-                if (!name.endsWith(".json")) return@fileLoop
-                val taskId = name.removeSuffix(".json").decodeFromPathComponent()
-                val meta = loadTaskMetadata(taskId, periodic = isPeriodic) ?: return@fileLoop
-
-                val workerMatches = workerClassName != null &&
-                    meta["workerClassName"] == workerClassName
-                val tagMatches = tag != null &&
-                    meta[DynamicTaskDispatcher.META_TAGS]
-                        ?.split(',')
-                        ?.any { it == tag } == true
-
-                if (workerMatches || tagMatches) matches += taskId to isPeriodic
-            }
-        }
-        return matches
-    }
-
-    /**
-     * Cleanup stale metadata older than specified days
-     */
-    fun cleanupStaleMetadata(olderThanDays: Int = 7) {
-        val cutoffDate = NSDate().dateByAddingTimeInterval(-olderThanDays.toDouble() * 86400)
-
-        listOf(tasksDirURL, periodicDirURL).forEach { dir ->
-            val path = dir.path ?: return@forEach
-            val files = fileManager.contentsOfDirectoryAtPath(path, null) as? List<*> ?: return@forEach
-
-            files.forEach { fileName ->
-                val filePath = "$path/$fileName"
-                memScoped {
-                    val errorPtr = alloc<ObjCObjectVar<NSError?>>()
-                    val attrs = fileManager.attributesOfItemAtPath(filePath, errorPtr.ptr)
-
-                    val modDate = attrs?.get(NSFileModificationDate) as? NSDate
-                    if (modDate != null && modDate.compare(cutoffDate) == NSOrderedAscending) {
-                        fileManager.removeItemAtPath(filePath, null)
-                        Logger.d(LogTags.SCHEDULER, "Cleaned up stale metadata: $fileName")
-                    }
-                }
-            }
-        }
-    }
+    /** Cleanup stale metadata older than [olderThanDays] days. */
+    fun cleanupStaleMetadata(olderThanDays: Int = 7) =
+        taskMetadataStore.cleanupStaleMetadata(olderThanDays)
 
     // ==================== Helper Methods ====================
 
