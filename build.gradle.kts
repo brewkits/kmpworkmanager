@@ -179,6 +179,26 @@ tasks.register<Zip>("generateFullMavenZip") {
                 }
             }
         }
+        // A module missing from the staging dir produces a green build and a bundle that is
+        // quietly short an artifact — that is exactly how kmpworker-ksp went missing when the
+        // clean was ordered after the publishes. Fail loudly instead.
+        val expectedArtifacts = listOf(
+            "kmpworkmanager",
+            "kmpworkmanager-http",
+            "kmpworker-annotations",
+            "kmpworker-ksp",
+            "kmpworker-testing",
+        )
+        val groupDir = java.io.File(stagingFile, "dev/brewkits")
+        val missing = expectedArtifacts.filterNot { java.io.File(groupDir, it).isDirectory }
+        if (missing.isNotEmpty()) {
+            throw GradleException(
+                "Maven staging is missing ${missing.size} module(s): ${missing.joinToString()}. " +
+                    "Expected every module under ${groupDir.absolutePath}. This usually means a " +
+                    "publish task ran before cleanMavenStaging deleted the directory."
+            )
+        }
+
         logger.lifecycle("Generated $checksumCount checksum files. Full Maven ZIP generated at: ${archiveFile.get().asFile.absolutePath}")
     }
 }
