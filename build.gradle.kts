@@ -105,6 +105,51 @@ subprojects {
         .configureEach { mustRunAfter(cleanMavenStaging) }
 }
 
+// Guard the bundle's completeness. This cannot live inside `generateFullMavenZip`: when the
+// staging directory is absent Gradle skips that task as NO-SOURCE, so a `doFirst` check never
+// runs and the build is green having produced no ZIP at all. A separate task with no declared
+// inputs always executes, which is the point.
+//
+// The failure it catches shipped once: the ordering constraint sat on each module's
+// `publishAllPublicationsToMavenCentralLocalRepository` aggregate, which has no actions, so it
+// did not propagate to the real publish tasks. kmpworker-ksp is JVM-only and published about a
+// second in, before `cleanMavenStaging` deleted the directory underneath it. Exit code 0, one
+// module short.
+val expectedMavenArtifacts = listOf(
+    "kmpworkmanager",
+    "kmpworkmanager-http",
+    "kmpworker-annotations",
+    "kmpworker-ksp",
+    "kmpworker-testing",
+)
+
+val verifyMavenStaging by tasks.registering {
+    group = "publishing"
+    description = "Fail unless every module is present in build/maven-central-staging."
+    val stagingDir = layout.buildDirectory.dir("maven-central-staging")
+
+    dependsOn(":kmpworker:publishAllPublicationsToMavenCentralLocalRepository")
+    dependsOn(":kmpworker-http:publishAllPublicationsToMavenCentralLocalRepository")
+    dependsOn(":kmpworker-annotations:publishAllPublicationsToMavenCentralLocalRepository")
+    dependsOn(":kmpworker-ksp:publishAllPublicationsToMavenCentralLocalRepository")
+    dependsOn(":kmpworker-testing:publishAllPublicationsToMavenCentralLocalRepository")
+
+    outputs.upToDateWhen { false }
+
+    doLast {
+        val groupDir = java.io.File(stagingDir.get().asFile, "dev/brewkits")
+        val missing = expectedMavenArtifacts.filterNot { java.io.File(groupDir, it).isDirectory }
+        if (missing.isNotEmpty()) {
+            throw GradleException(
+                "Maven staging is missing ${missing.size} of ${expectedMavenArtifacts.size} " +
+                    "module(s): ${missing.joinToString()}. Expected every module under " +
+                    "${groupDir.absolutePath}. This usually means a publish task ran before " +
+                    "cleanMavenStaging deleted the directory."
+            )
+        }
+    }
+}
+
 // Task to generate a full Maven Central distribution ZIP
 tasks.register<Zip>("generateFullMavenZip") {
     group = "publishing"
@@ -126,10 +171,12 @@ tasks.register<Zip>("generateFullMavenZip") {
     dependsOn(":kmpworker-annotations:publishAllPublicationsToMavenCentralLocalRepository")
     dependsOn(":kmpworker-ksp:publishAllPublicationsToMavenCentralLocalRepository")
     dependsOn(":kmpworker-testing:publishAllPublicationsToMavenCentralLocalRepository")
+    dependsOn(verifyMavenStaging)
     
     // Checksums are handled by each module or a global step
     doFirst {
         val stagingFile = stagingDir.get().asFile
+
         if (!stagingFile.exists()) return@doFirst
 
         var checksumCount = 0
@@ -179,26 +226,6 @@ tasks.register<Zip>("generateFullMavenZip") {
                 }
             }
         }
-        // A module missing from the staging dir produces a green build and a bundle that is
-        // quietly short an artifact — that is exactly how kmpworker-ksp went missing when the
-        // clean was ordered after the publishes. Fail loudly instead.
-        val expectedArtifacts = listOf(
-            "kmpworkmanager",
-            "kmpworkmanager-http",
-            "kmpworker-annotations",
-            "kmpworker-ksp",
-            "kmpworker-testing",
-        )
-        val groupDir = java.io.File(stagingFile, "dev/brewkits")
-        val missing = expectedArtifacts.filterNot { java.io.File(groupDir, it).isDirectory }
-        if (missing.isNotEmpty()) {
-            throw GradleException(
-                "Maven staging is missing ${missing.size} module(s): ${missing.joinToString()}. " +
-                    "Expected every module under ${groupDir.absolutePath}. This usually means a " +
-                    "publish task ran before cleanMavenStaging deleted the directory."
-            )
-        }
-
         logger.lifecycle("Generated $checksumCount checksum files. Full Maven ZIP generated at: ${archiveFile.get().asFile.absolutePath}")
     }
 }
