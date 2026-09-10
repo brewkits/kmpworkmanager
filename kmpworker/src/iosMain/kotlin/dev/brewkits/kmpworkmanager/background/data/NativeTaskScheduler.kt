@@ -635,6 +635,22 @@ public class NativeTaskScheduler(
         val taskMetadata = buildMap {
             put("workerClassName", workerClassName)
             put("inputJson", inputJson ?: "")
+            // These four mirror scheduleOneTimeTask, and their absence here was the same bug
+            // V340OneTimeTaskMetadataFieldsTest was written for — fixed there, missed on this
+            // path. A Windowed task uses a dedicated Info.plist identifier, so its retry runs
+            // through IosBackgroundTaskHandler.handleOneTimeTaskResult →
+            // reconstructConstraintsFromMetadata, which reads exactly these keys. With them
+            // absent every Windowed task's FIRST retry silently reconstructed
+            // Constraints(requiresNetwork = false, requiresCharging = false, isHeavyTask =
+            // false, maxRetries = -1) — downgrading a heavy task's re-submission from
+            // BGProcessingTaskRequest (minutes of budget) to BGAppRefreshTaskRequest (~30s
+            // hard ceiling) for every subsequent attempt, and dropping the caller's retry cap.
+            put("requiresNetwork", "${constraints.requiresNetwork}")
+            put("requiresCharging", "${constraints.requiresCharging}")
+            put("isHeavyTask", "${constraints.isHeavyTask}")
+            if (constraints.maxRetries >= 0) {
+                put(DynamicTaskDispatcher.META_MAX_RETRIES, "${constraints.maxRetries}")
+            }
             put("windowEarliest", trigger.earliest.toString())
             put("windowLatest", trigger.latest.toString())
             if (tags.isNotEmpty()) put(DynamicTaskDispatcher.META_TAGS, tags.joinToString(","))
@@ -643,6 +659,7 @@ public class NativeTaskScheduler(
             // makes `latest` mean something on iOS instead of being a logged warning.
             val effectiveDeadline = deadlineMs ?: trigger.latest
             put(DynamicTaskDispatcher.META_DEADLINE_MS, "$effectiveDeadline")
+            putStandaloneConstraintMetadata(constraints)
         }
         fileStorage.saveTaskMetadata(id, taskMetadata, periodic = false)
 
