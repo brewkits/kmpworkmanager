@@ -416,8 +416,21 @@ reports "process already running" in the same session, which is the same interop
 seen from another angle. It is the toolchain, not the app: this is the same Xcode-lldb /
 iOS-15.8 mismatch that produces an `EXC_BREAKPOINT` in `dyld` with no application frames.
 
-So on a device this old the private API is out of reach too. Use an iOS 17+ device if you
-need to drive a background launch by hand.
+So on a device this old the private API is out of reach too. Use an iOS 17+ device, where the
+whole thing works: on an iPhone 14 Pro Max running iOS 26.6.1, launched with
+`xcrun devicectl device process launch --console` and attached with
+
+```
+(lldb) device select <device-uuid>
+(lldb) device process attach -p <pid>
+(lldb) expr -l objc -O -- (void)[(id)[NSClassFromString(@"BGTaskScheduler") sharedScheduler] \
+                                  _simulateLaunchForTaskWithIdentifier:@"your-task-id"]
+```
+
+iOS invokes the registered handler immediately and the task runs to completion. Note that
+`device process attach` is asynchronous — an expression evaluated too early fails with *the
+process must be stopped because the expression might require allocating memory*. Wait for the
+process state to reach `stopped` before evaluating anything.
 
 ### What this means for you
 
