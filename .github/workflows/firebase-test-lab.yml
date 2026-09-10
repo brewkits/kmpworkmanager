@@ -19,7 +19,7 @@ name: Firebase Test Lab (real devices)
 # being provisioned, so it must be a safe no-op until someone completes the
 # 3 steps above.
 #
-# Device matrix is deliberately small (2 devices) — each physical-device
+# Device matrix is deliberately small — each physical-device
 # minute is billed once the free daily quota (30 min/day on Blaze) is used,
 # and this workflow runs on every tag push, not gated behind manual approval.
 
@@ -56,7 +56,9 @@ jobs:
       - run: chmod +x gradlew
 
       - name: Build debug APK + debug instrumentation APK
-        run: ./gradlew :composeApp:assembleDebug :composeApp:assembleDebugAndroidTest
+        run: >-
+          ./gradlew :composeApp:assembleDebug :composeApp:assembleDebugAndroidTest
+          :kmpworker:assembleDebugAndroidTest
 
       - id: auth
         name: Authenticate to Google Cloud
@@ -67,7 +69,28 @@ jobs:
       - name: Set up gcloud
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Run instrumentation tests on Firebase Test Lab
+      # The library's own instrumented tests, which are what actually ships. This ran only
+      # the demo's UI tests until v3.5.0 — the device farm was exercising the sample app and
+      # not the artifact users depend on.
+      #
+      # :kmpworker is an Android library, so its androidTest APK is self-instrumenting: the
+      # same file is passed as --app and --test. There is no separate app under test.
+      #
+      # F01L at API 27 is deliberate and is the reason this job earns its cost. minSdk is 26,
+      # and nothing else in CI runs anywhere near it — the local devices and the rest of the
+      # matrix are all API 30+. If a call needs an API level the library claims to support and
+      # does not have, this is the only place it shows up before a user finds it.
+      - name: Run library instrumentation tests on Firebase Test Lab
+        run: >-
+          gcloud firebase test android run
+          --type instrumentation
+          --app kmpworker/build/outputs/apk/androidTest/debug/kmpworker-debug-androidTest.apk
+          --test kmpworker/build/outputs/apk/androidTest/debug/kmpworker-debug-androidTest.apk
+          --device model=F01L,version=27,locale=en,orientation=portrait
+          --device model=oriole,version=33,locale=en,orientation=portrait
+          --timeout 20m
+
+      - name: Run demo UI tests on Firebase Test Lab
         run: >-
           gcloud firebase test android run
           --type instrumentation
