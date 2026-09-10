@@ -1,6 +1,7 @@
 package dev.brewkits.kmpworkmanager.background.data
 
 import dev.brewkits.kmpworkmanager.background.data.storage.ChainDefinitionStore
+import dev.brewkits.kmpworkmanager.background.data.storage.ChainQueueRepository
 import dev.brewkits.kmpworkmanager.background.data.storage.ChainProgressStore
 import dev.brewkits.kmpworkmanager.background.data.storage.StorageMaintenance
 import dev.brewkits.kmpworkmanager.background.data.storage.StorageFileIo
@@ -189,7 +190,9 @@ public class IosFileStorage(
      * pair can be forced to race deterministically. Default 0 → no delay.
      * Production code never reads or writes this field.
      */
-    internal var testEnqueueInternalDelayMs: Long = 0L
+    internal var testEnqueueInternalDelayMs: Long
+        get() = chainQueue.testEnqueueInternalDelayMs
+        set(value) { chainQueue.testEnqueueInternalDelayMs = value }
 
     /**
      * Test-only: optional delay (ms) inserted at the start of [loadChainDefinition], i.e. the
@@ -202,82 +205,12 @@ public class IosFileStorage(
         get() = chainDefinitionStore.testLoadChainDefinitionDelayMs
         set(value) { chainDefinitionStore.testLoadChainDefinitionDelayMs = value }
 
-    private val queue: AppendOnlyQueue by lazy {
-        val queueDirURL = baseDir.safeAppend("queue")
-        ensureDirectoryExists(queueDirURL)
-        AppendOnlyQueue(
-            baseDirectoryURL = queueDirURL,
-            compactionScope = backgroundScope,
-            isTestMode = isTestMode
-        )
-    }
 
-    private val tasksQueue: AppendOnlyQueue by lazy {
-        val tasksQueueDirURL = baseDir.safeAppend("tasks_queue")
-        ensureDirectoryExists(tasksQueueDirURL)
-        AppendOnlyQueue(
-            baseDirectoryURL = tasksQueueDirURL,
-            compactionScope = backgroundScope,
-            isTestMode = isTestMode
-        )
-    }
+    // Lock ordering: the queue mutexes moved to ChainQueueRepository together with the
+    // queues they protect, and the progress mutex to ChainProgressStore. See
+    // ChainQueueRepository's Lock-Ordering Invariant banner — it is now checkable by reading
+    // one file, which is the point of having moved them.
 
-    // Protects coordinated tasksQueue operations
-    private val tasksQueueMutex = Mutex()
-    private val enqueueTasksMutex = Mutex()
-    private val tasksQueueSizeCounter = AtomicInt(UNINITIALIZED_COUNTER)
-
-    // ==================== Lock-Ordering Invariant ====================
-    // This class uses three coroutine mutexes. To prevent deadlock, they must NEVER
-    // be acquired in conflicting orders across code paths. The only permitted ordering is:
-    //
-    //   queueMutex  →  enqueueMutex     (replaceChainAtomic holds queueMutex, then
-    //                                    acquires enqueueMutex around the
-    //                                    enqueueChainInternal call so the
-    //                                    check-then-act is atomic against
-    //                                    concurrent enqueueChain callers)
-    //
-    // progressMutex is COMPLETELY INDEPENDENT from queueMutex and enqueueMutex.
-    // No code path may hold both progressMutex and queueMutex simultaneously.
-    //
-    // AppendOnlyQueue has its own internal lock hierarchy (corruptionMutex → queueMutex).
-    // IosFileStorage.queueMutex wraps AppendOnlyQueue calls, giving the outer ordering:
-    //   IosFileStorage.queueMutex  →  AppendOnlyQueue.corruptionMutex  →  AppendOnlyQueue.queueMutex
-    //
-    // IMPORTANT: Any new code that acquires two of these mutexes must follow this order.
-    // Acquiring in reverse order will cause a coroutine deadlock (all involved coroutines
-    // suspend forever, no error is thrown, the BGTask is killed by iOS watchdog).
-    // ===================================================================
-
-    // Protects coordinated queue operations (dequeue, replaceChainAtomic, etc.)
-    private val queueMutex = Mutex()
-
-    /**
-     * Dedicated mutex for enqueue operations to ensure atomic check-then-act
-     * for MAX_QUEUE_SIZE enforcement.
-     *
-     * enqueueChain() has a check-then-act pattern: two concurrent callers could both
-     * read counter=999, both pass the limit check, and both enqueue — resulting in
-     * queue size > MAX_QUEUE_SIZE. This mutex prevents that race.
-     *
-     * This mutex is separate from queueMutex to avoid deadlock: replaceChainAtomic()
-     * holds queueMutex and calls enqueueChain() internally (via enqueueChainInternal()).
-     */
-    private val enqueueMutex = Mutex()
-
-    /**
-     * Queue size counter for O(1) size checks.
-     * Initialized to UNINITIALIZED_COUNTER (-1) instead of 0.
-     *
-     * **Why -1 and not 0:** If enqueueChain() is called before the init coroutine sets
-     * the real value, the limit check sees 0 and allows enqueues even when the
-     * queue already has MAX_QUEUE_SIZE-1 items (app restart with nearly-full queue).
-     *
-     * Sentinel -1 signals enqueueChain() to read the actual size from disk (O(N),
-     * one-time cost) before checking the limit. After init completes, the counter is
-     * accurate and all subsequent checks are O(1) lock-free.
-     */
-    private val queueSizeCounter = AtomicInt(UNINITIALIZED_COUNTER)
 
     /**
      * Chain-progress persistence — the debounced buffer, the emergency flush and the
@@ -338,11 +271,28 @@ public class IosFileStorage(
         deleteProgress = { id -> progressStore.deleteChainProgress(id) }
     )
 
+    /**
+     * The two append-only queues, their locks and counters, and the atomic chain REPLACE.
+     * Stage 3 of the SRP split. Constructed last: the REPLACE transaction spans definitions,
+     * progress and metadata, so all three have to exist first.
+     */
+    private val chainQueue = ChainQueueRepository(
+        io = io,
+        backgroundScope = backgroundScope,
+        isTestMode = isTestMode,
+        queueDir = { baseDir.safeAppend("queue") },
+        tasksQueueDir = { baseDir.safeAppend("tasks_queue") },
+        transactionLogFile = { baseDir.safeAppend("transactions.jsonl") },
+        maxQueueSize = MAX_QUEUE_SIZE,
+        definitions = chainDefinitionStore,
+        progress = progressStore,
+        metadata = taskMetadataStore
+    )
+
 
     companion object {
         const val MAX_QUEUE_SIZE = 1000
         const val MAX_CHAIN_SIZE_BYTES = 10_485_760L // 10MB
-        private const val UNINITIALIZED_COUNTER = -1  // Sentinel: counter not yet set from disk
 
         /**
          * Debounce window for progress flush (100ms)
@@ -466,377 +416,46 @@ public class IosFileStorage(
 
     // ==================== Queue Operations ====================
 
-    /**
-     * Enqueue a chain ID to the queue (thread-safe, atomic).
-     *
-     * Wrapped in enqueueMutex to make the check-then-act atomic.
-     * Without the mutex, two concurrent callers could both read counter=999, both pass the
-     * MAX_QUEUE_SIZE check, and both enqueue — exceeding the limit by the number of
-     * concurrent callers.
-     *
-     * Delegates to [enqueueChainInternal] which is also used by [replaceChainAtomic]
-     * (under queueMutex) to avoid deadlock — enqueueMutex and queueMutex are always
-     * acquired in the same order: queueMutex first, enqueueMutex second.
-     */
-    suspend fun enqueueChain(chainId: String) = enqueueMutex.withLock {
-        enqueueChainInternal(chainId)
-    }
+    /** Enqueue a chain ID (thread-safe, atomic against the queue-size cap). */
+    suspend fun enqueueChain(chainId: String) = chainQueue.enqueueChain(chainId)
+
+
+    /** Dequeue the next chain ID, or null when the queue is empty. */
+    suspend fun dequeueChain(): String? = chainQueue.dequeueChain()
+
+    /** Enqueue a single task ID onto the dynamic-task queue. */
+    suspend fun enqueueTask(id: String) = chainQueue.enqueueTask(id)
+
+    /** Dequeue the next dynamic task ID, or null when that queue is empty. */
+    suspend fun dequeueTask(): String? = chainQueue.dequeueTask()
 
     /**
-     * Internal enqueue without enqueueMutex — called from replaceChainAtomic (under queueMutex).
-     *
-     * **Cross-process safety:** [queueSizeCounter] is an in-process AtomicInt. If two
-     * OS processes share the same storage path (e.g. main app + Notification Service
-     * Extension), each process holds an independent counter that diverges after any
-     * enqueue/dequeue in the other process. Using the counter for the MAX_QUEUE_SIZE
-     * check would allow the limit to be exceeded by the number of concurrent processes.
-     *
-     * Fix: always read the actual size from disk for the limit check. The counter is
-     * still updated for in-process approximations (e.g. debug logging), but the
-     * authoritative check is the disk size. Enqueue is not a hot path (called once
-     * per chain schedule), so the O(disk) overhead is acceptable.
+     * True if [id] is currently sitting in the dynamic-task queue. Used by
+     * [NativeTaskScheduler.observeTaskState] to distinguish "waiting for the master
+     * dispatcher" from "already dequeued".
      */
-    private suspend fun enqueueChainInternal(chainId: String) {
-        // Always read disk size for the limit check — cross-process safe.
-        val currentSize = queue.getSize()
+    internal suspend fun isTaskInDynamicQueue(id: String): Boolean =
+        chainQueue.isTaskInDynamicQueue(id)
 
-        if (currentSize >= MAX_QUEUE_SIZE) {
-            Logger.e(LogTags.CHAIN, "Queue size limit reached ($MAX_QUEUE_SIZE). Cannot enqueue chain: $chainId")
-            throw IllegalStateException("Queue size limit exceeded")
-        }
+    /** Current dynamic-task queue depth. */
+    suspend fun getTasksQueueSize(): Int = chainQueue.getTasksQueueSize()
 
-        // Test-only hook: widens the check-then-act window so a regression test
-        // can deterministically race two enqueue paths. No-op in production.
-        if (testEnqueueInternalDelayMs > 0L) {
-            delay(testEnqueueInternalDelayMs)
-        }
+    /** Current chain queue depth — always read from disk, for cross-instance correctness. */
+    suspend fun getQueueSize(): Int = chainQueue.getQueueSize()
+    /** Aggregate constraint profile of everything in the dynamic-task queue. */
+    internal suspend fun getDynamicQueueConstraintSummary(): DynamicQueueConstraintSummary =
+        chainQueue.getDynamicQueueConstraintSummary()
 
-        queue.enqueue(chainId)
-
-        // Keep in-process counter roughly in sync for diagnostic logging.
-        // Not used for enforcement — disk read above is authoritative.
-        if (queueSizeCounter.value == UNINITIALIZED_COUNTER) {
-            queueSizeCounter.value = currentSize + 1
-        } else {
-            queueSizeCounter.incrementAndGet()
-        }
-
-        Logger.v(LogTags.CHAIN, "Enqueued chain $chainId. Queue size (disk): $currentSize → ${currentSize + 1}")
-    }
+    /** Reorder the chain queue by task priority, highest first. */
+    suspend fun sortQueueByPriority() = chainQueue.sortQueueByPriority()
 
     /**
-     * Dequeue the first chain ID from the queue (thread-safe, atomic)
-     * Updates queue size counter atomically
-     * @return Chain ID or null if queue is empty
+     * Replace a chain's definition and re-enqueue it, as one transaction: mark deleted,
+     * drop the old definition and progress, save the new definition, enqueue.
      */
-    suspend fun dequeueChain(): String? {
-        // O(1) dequeue operation (with automatic compaction at 80% threshold)
-        val chainId = queue.dequeue()
+    suspend fun replaceChainAtomic(chainId: String, newSteps: List<List<TaskRequest>>) =
+        chainQueue.replaceChainAtomic(chainId, newSteps)
 
-        if (chainId == null) {
-            Logger.v(LogTags.CHAIN, "Queue is empty")
-        } else {
-            // Decrement counter atomically (lock-free), only if already initialized
-            val currentVal = queueSizeCounter.value
-            if (currentVal != UNINITIALIZED_COUNTER && currentVal > 0) {
-                queueSizeCounter.decrementAndGet()
-            }
-            val remaining = if (queueSizeCounter.value == UNINITIALIZED_COUNTER) "unknown" else queueSizeCounter.value.toString()
-            Logger.v(LogTags.CHAIN, "Dequeued chain $chainId. Remaining: $remaining")
-        }
-
-        return chainId
-    }
-
-    /**
-     * Enqueue a task ID to the tasks queue (thread-safe, atomic).
-     */
-    suspend fun enqueueTask(id: String) = enqueueTasksMutex.withLock {
-        val currentSize = tasksQueue.getSize()
-
-        if (currentSize >= MAX_QUEUE_SIZE) {
-            Logger.e(LogTags.SCHEDULER, "Tasks queue size limit reached ($MAX_QUEUE_SIZE). Cannot enqueue task: $id")
-            throw IllegalStateException("Tasks queue size limit exceeded")
-        }
-
-        tasksQueue.enqueue(id)
-
-        if (tasksQueueSizeCounter.value == UNINITIALIZED_COUNTER) {
-            tasksQueueSizeCounter.value = currentSize + 1
-        } else {
-            tasksQueueSizeCounter.incrementAndGet()
-        }
-
-        Logger.v(LogTags.SCHEDULER, "Enqueued task $id. Tasks queue size (disk): $currentSize → ${currentSize + 1}")
-    }
-
-    /**
-     * Dequeue the first task ID from the tasks queue (thread-safe, atomic).
-     */
-    suspend fun dequeueTask(): String? {
-        val taskId = tasksQueue.dequeue()
-
-        if (taskId == null) {
-            Logger.v(LogTags.SCHEDULER, "Tasks queue is empty")
-        } else {
-            val currentVal = tasksQueueSizeCounter.value
-            if (currentVal != UNINITIALIZED_COUNTER && currentVal > 0) {
-                tasksQueueSizeCounter.decrementAndGet()
-            }
-            val remaining = if (tasksQueueSizeCounter.value == UNINITIALIZED_COUNTER) "unknown" else tasksQueueSizeCounter.value.toString()
-            Logger.v(LogTags.SCHEDULER, "Dequeued task $taskId. Remaining: $remaining")
-        }
-
-        return taskId
-    }
-
-    /**
-     * True if [id] is currently sitting in the dynamic-task queue (dequeued only right
-     * before [DynamicTaskDispatcher] executes it, and re-enqueued on retry/backoff/
-     * constraint deferral). Used by [NativeTaskScheduler.observeTaskState] to distinguish
-     * "waiting for the master dispatcher to pick it up" from "already dequeued" for a
-     * dynamic-queue task — the latter is the closest signal available to "likely executing"
-     * that doesn't require a live registry (see that method's KDoc for the full caveat).
-     *
-     * O(N) on queue size (bounded by [MAX_QUEUE_SIZE]), same cost class as
-     * [getDynamicQueueConstraintSummary] — acceptable since this is a diagnostic/observability
-     * read, not called from a hot path.
-     */
-    internal suspend fun isTaskInDynamicQueue(id: String): Boolean = tasksQueue.getAllItems().contains(id)
-
-    /**
-     * Get current tasks queue size.
-     */
-    suspend fun getTasksQueueSize(): Int {
-        val cached = tasksQueueSizeCounter.value
-        return if (cached == UNINITIALIZED_COUNTER) {
-            val actual = tasksQueue.getSize()
-            tasksQueueSizeCounter.value = actual
-            actual
-        } else {
-            cached
-        }
-    }
-
-    /**
-     * Get current queue size — always reads from disk for correctness.
-     *
-     * Multiple IosFileStorage instances sharing the same path (e.g. NativeTaskScheduler
-     * and ChainExecutor) each have an independent in-memory queueSizeCounter that can
-     * diverge after any enqueue/dequeue performed by the other instance.  Reading from
-     * disk on every call prevents stale-counter bugs at the cost of a single I/O per call,
-     * which is acceptable since getQueueSize() is called infrequently (once per BGTask).
-     */
-    suspend fun getQueueSize(): Int = queue.getSize()
-
-    /**
-     * Aggregate light/network profile of every task currently sitting in the dynamic-task
-     * queue. Lets the master dispatcher be scheduled with constraints that actually match
-     * what's pending, instead of always requesting an unconstrained `BGProcessingTask`.
-     * See docs/ios-dynamic-task-scheduling.md § 5.
-     *
-     * Always reads from disk (like [getQueueSize]) — the same multi-instance staleness
-     * concern applies, and this is called once per master-dispatcher schedule decision,
-     * not per task, so the extra I/O is acceptable.
-     *
-     * **Performance**: O(N) on queue size (bounded by [MAX_QUEUE_SIZE]) — one metadata
-     * read per pending task.
-     */
-    internal suspend fun getDynamicQueueConstraintSummary(): DynamicQueueConstraintSummary {
-        val ids = tasksQueue.getAllItems()
-        var heavyCount = 0
-        var networkCount = 0
-        var chargingCount = 0
-        var minFloorMs: Long? = null
-        var everyPendingHasFloor = ids.isNotEmpty()
-        for (id in ids) {
-            // A dynamic task ID is either one-time or periodic metadata — never both.
-            val meta = loadTaskMetadata(id, periodic = false) ?: loadTaskMetadata(id, periodic = true)
-            if (meta?.get("isHeavyTask") == "true") heavyCount++
-            if (meta?.get("requiresNetwork") == "true") networkCount++
-            if (meta?.get("requiresCharging") == "true") chargingCount++
-
-            val floorMs = meta?.get(DynamicTaskDispatcher.META_NEXT_RETRY_EARLIEST_MS)?.toLongOrNull()
-            if (floorMs == null) {
-                everyPendingHasFloor = false
-            } else {
-                minFloorMs = if (minFloorMs == null) floorMs else minOf(minFloorMs, floorMs)
-            }
-        }
-        return DynamicQueueConstraintSummary(
-            pendingCount = ids.size,
-            heavyCount = heavyCount,
-            networkRequiredCount = networkCount,
-            chargingRequiredCount = chargingCount,
-            earliestBackoffFloorMs = if (everyPendingHasFloor) minFloorMs else null
-        )
-    }
-
-    /**
-     * Sort the execution queue by task priority (highest first).
-     *
-     * Drains all chain IDs from the queue, sorts them by the maximum [TaskPriority]
-     * weight of their tasks, then re-enqueues in descending priority order.
-     * This ensures CRITICAL and HIGH priority chains execute before NORMAL/LOW ones
-     * within the same BGTask window.
-     *
-     * **Crash safety:** Chain definitions remain on disk throughout — only queue order
-     * changes. If the process is killed mid-sort, chains may be orphaned in the queue
-     * (definition files exist but queue is partially empty). The next BGTask invocation
-     * will process whichever chains were successfully re-enqueued.
-     *
-     * Should be called once at the start of each batch execution window.
-     */
-    suspend fun sortQueueByPriority() {
-        val size = queue.getSize()
-        if (size <= 1) return  // Nothing to sort
-
-        // Read all items WITHOUT dequeuing them to prevent data loss if process crashes
-        val chainIds = queue.getAllItems()
-        if (chainIds.isEmpty()) return
-
-        // Sort by max priority weight (highest first), stable (preserves FIFO for equal priorities)
-        // `loadChainDefinition` is suspend (the self-healing path needs to evict the
-        // progress buffer entry under progressMutex), so we precompute weights
-        // sequentially in a suspend-friendly loop rather than from inside a non-
-        // suspend `sortedByDescending` lambda.
-        val weights = mutableMapOf<String, Int>()
-        for (chainId in chainIds) {
-            weights[chainId] = loadChainDefinition(chainId)
-                ?.flatten()
-                ?.maxOfOrNull { it.priority.weight }
-                ?: TaskPriority.NORMAL.weight
-        }
-        val sorted = chainIds.sortedByDescending { weights[it] ?: TaskPriority.NORMAL.weight }
-
-        // Only replace if order actually changed
-        if (sorted != chainIds) {
-            queue.replaceContents(sorted)
-            if (sorted.first() != chainIds.first()) {
-                Logger.d(LogTags.CHAIN, "Queue reordered by priority: ${sorted.take(3).joinToString()} ...")
-            }
-        }
-    }
-
-    /**
-     * Replace chain atomically
-     *
-     * **Problem:** Old REPLACE implementation had TOCTOU race condition:
-     * 1. Mark deleted
-     * 2. Delete old files
-     * 3. Save new definition
-     * 4. Enqueue async ← **GAP** - another thread could enqueue duplicate
-     *
-     * **Solution:** Atomic transaction with queue mutex:
-     * - All steps under single queueMutex.withLock
-     * - Synchronous enqueue (no async gap)
-     * - Transaction log for debugging
-     *
-     * @param chainId Chain ID to replace
-     * @param newSteps New chain steps
-     * @throws Exception if transaction fails (rollback automatic via mutex)
-     */
-    suspend fun replaceChainAtomic(
-        chainId: String,
-        newSteps: List<List<TaskRequest>>
-    ) = queueMutex.withLock {
-        val txn = ChainTransaction(
-            chainId = chainId,
-            action = "REPLACE",
-            timestamp = (NSDate().timeIntervalSince1970 * 1000).toLong(),
-            succeeded = false
-        )
-
-        Logger.i(LogTags.CHAIN, "🔄 Atomic REPLACE transaction started for chain $chainId")
-
-        try {
-            // Step 1: Mark as deleted (prevent concurrent execution)
-            markChainAsDeleted(chainId)
-
-            // Step 2: Delete old files
-            deleteChainDefinition(chainId)
-            deleteChainProgress(chainId)
-
-            // Step 3: Save new definition
-            saveChainDefinition(chainId, newSteps)
-
-            // Step 4: Enqueue under enqueueMutex INSIDE queueMutex (the documented
-            // lock order: queueMutex first, enqueueMutex second — never the reverse).
-            //
-            // History: previously called `enqueueChainInternal(chainId)` directly,
-            // bypassing enqueueMutex entirely. That left a window where a concurrent
-            // [enqueueChain] caller (holding enqueueMutex but not queueMutex) and this
-            // REPLACE could both read size = MAX_QUEUE_SIZE - 1, both pass the limit
-            // check, and both enqueue — exceeding the queue cap by 1+ per concurrent
-            // caller. Cap drift causes downstream "Queue size limit exceeded" errors
-            // that surface far from this site. The fix: acquire enqueueMutex here so
-            // the check-then-act inside [enqueueChainInternal] is observed atomically.
-            enqueueMutex.withLock {
-                enqueueChainInternal(chainId)
-            }
-
-            // Step 5: Log successful transaction
-            val successTxn = txn.copy(succeeded = true)
-            logTransaction(successTxn)
-
-            Logger.i(LogTags.CHAIN, "✅ Atomic REPLACE transaction completed for chain $chainId")
-
-        } catch (e: Exception) {
-            // Log failed transaction
-            val failedTxn = txn.copy(succeeded = false, error = e.message)
-            logTransaction(failedTxn)
-
-            Logger.e(LogTags.CHAIN, "❌ Atomic REPLACE transaction failed for chain $chainId", e)
-            throw e
-        }
-    }
-
-    /**
-     * Log transaction for debugging.
-     * Append-only log for auditing chain operations.
-     */
-    private fun logTransaction(txn: ChainTransaction) {
-        try {
-            val logFile = baseDir.safeAppend("transactions.jsonl")
-            val json = Json.encodeToString(txn)
-            val line = "$json\n"
-
-            val path = logFile.path ?: return
-
-            // Create if doesn't exist (outside coordinated block for efficiency)
-            if (!fileManager.fileExistsAtPath(path)) {
-                fileManager.createFileAtPath(path, null, null)
-            }
-
-            coordinated(logFile, write = true) { safeUrl ->
-                memScoped {
-                    val errorPtr = alloc<ObjCObjectVar<NSError?>>()
-                    val fileHandle = NSFileHandle.fileHandleForWritingToURL(safeUrl, errorPtr.ptr)
-
-                    if (fileHandle == null) {
-                        val error = errorPtr.value
-                        Logger.w(LogTags.CHAIN, "Failed to open transaction log: ${error?.localizedDescription}")
-                        return@coordinated  // Non-critical, skip logging
-                    }
-
-                    try {
-                        fileHandle.seekToEndOfFile()
-                        fileHandle.writeData(line.toNSData())
-                    } finally {
-                        try {
-                            fileHandle.closeFile()
-                        } catch (e: Exception) {
-                            Logger.w(LogTags.CHAIN, "Error closing transaction log file handle", e)
-                        }
-                    }
-                }
-            }
-
-            Logger.d(LogTags.CHAIN, "Transaction logged: ${txn.action} - ${if (txn.succeeded) "SUCCESS" else "FAILED"}")
-        } catch (e: Exception) {
-            Logger.w(LogTags.CHAIN, "Failed to log transaction (non-critical)", e)
-        }
-    }
 
     // readQueueInternal() and writeQueueInternal() removed - no longer needed
 
@@ -904,38 +523,20 @@ public class IosFileStorage(
         maintenance.isMaintenanceRequired(hoursInterval)
 
     /**
-     * Returns all chain IDs currently active in the queue (not yet dequeued).
-     *
-     * Reads the live queue from disk. Used by stress tests to verify queue
-     * integrity without relying on getQueueSize() which counts physical entries
+     * All chain IDs currently in the queue (not yet dequeued). Used by stress tests to check
+     * queue integrity without going through [getQueueSize], which counts physical entries
      * including logically-deleted REPLACE residues.
      */
-    suspend fun getActiveChainIds(): List<String> = queue.getAllItems()
+    suspend fun getActiveChainIds(): List<String> = chainQueue.getActiveChainIds()
 
     /**
-     * Scans all chain IDs currently in the execution queue and returns those whose
-     * definition contains at least one task matching [workerClassName] OR whose
-     * [TaskRequest.tags] contains [tag].
-     *
-     * Either [workerClassName] or [tag] may be null — omitting both returns an empty list.
-     *
-     * **Performance:** O(N × S) where N = queue depth and S = average steps per chain.
-     * This is a fire-and-forget maintenance path, not on the hot execution path.
+     * Queued chain IDs whose definition contains a task matching [workerClassName] or
+     * carrying [tag]. Either may be null; both null returns an empty list.
      */
     suspend fun findChainIdsByWorkerOrTag(
         workerClassName: String? = null,
         tag: String? = null
-    ): List<String> {
-        if (workerClassName == null && tag == null) return emptyList()
-        val allChainIds = queue.getAllItems()
-        return allChainIds.filter { chainId ->
-            val steps = loadChainDefinition(chainId) ?: return@filter false
-            steps.flatten().any { task ->
-                (workerClassName != null && task.workerClassName == workerClassName) ||
-                (tag != null && tag in task.tags)
-            }
-        }
-    }
+    ): List<String> = chainQueue.findChainIdsByWorkerOrTag(workerClassName, tag)
 
 
 
@@ -1236,14 +837,3 @@ internal fun String.decodeFromPathComponent(): String {
     return replace("%2F", "/").replace("%25", "%")
 }
 
-/** Converts a UTF-8 string to NSData using byte array encoding (not char count). */
-@OptIn(ExperimentalForeignApi::class, kotlinx.cinterop.BetaInteropApi::class)
-private fun String.toNSData(): NSData {
-    val bytes = this.encodeToByteArray()
-    return bytes.usePinned { pinned ->
-        NSData.create(
-            bytes = pinned.addressOf(0),
-            length = bytes.size.toULong()
-        )
-    }
-}
