@@ -1,24 +1,62 @@
+@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
+
 package dev.brewkits.kmpworkmanager
 
 import dev.brewkits.kmpworkmanager.background.data.IosFileStorage
+import dev.brewkits.kmpworkmanager.background.data.IosFileStorageConfig
 import dev.brewkits.kmpworkmanager.background.data.NativeTaskScheduler
 import dev.brewkits.kmpworkmanager.background.domain.Constraints
 import dev.brewkits.kmpworkmanager.background.domain.ExistingPolicy
 import dev.brewkits.kmpworkmanager.background.domain.TaskTrigger
 import kotlinx.coroutines.test.runTest
+import platform.Foundation.NSDate
+import platform.Foundation.NSFileManager
+import platform.Foundation.NSTemporaryDirectory
+import platform.Foundation.NSURL
+import platform.Foundation.timeIntervalSince1970
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
- * `NativeTaskScheduler()`'s default constructor points at the shared, non-isolated
- * on-disk storage location (no per-test `baseDirectory`, per CLAUDE.md's iOS test
- * isolation convention — other tests in this binary, e.g. `RaceConditionTest`, leave
- * leftover entries in the same physical dynamic-queue file). Every assertion below is
- * therefore relative (before/after a known id) or id-targeted, never an absolute queue
- * size or an assumption that `dequeueTask()` returns *this test's* id first.
+ * Each test gets its own `baseDirectory`, per CLAUDE.md's iOS convention.
+ *
+ * It did not until v3.5.0: both tests used `NativeTaskScheduler()`'s default constructor,
+ * which points at the process-wide storage location that every other test in this binary also
+ * writes to. The assertions were written defensively around that — relative counts, id-targeted
+ * lookups, a drain-and-restore helper — and it still was not enough. After a day of repeated
+ * suite runs the shared dynamic queue had accumulated 29 KB of leftovers from
+ * `RaceConditionTest`, and both tests failed at their *setup* assertion rather than at anything
+ * they were written to check. They failed on unmodified code and passed immediately after
+ * deleting the directory, which is the signature of a test that reports on its neighbours
+ * instead of on the change in front of it — it came close to causing a correct optimisation to
+ * be reverted during the v3.5.0 audit (see I-27).
+ *
+ * The assertions stay relative anyway: cheap, and they document that nothing here depends on
+ * this test's id being first in the queue.
  */
+/**
+ * A scheduler backed by its own temp directory, so one test cannot see another's queue.
+ * Mirrors the setup every other iOS test uses (see `V331PathTraversalTest.setup()`).
+ */
+private fun makeIsolatedScheduler(tag: String): NativeTaskScheduler {
+    val name = "kmp_v341_${tag}_${(NSDate().timeIntervalSince1970 * 1000).toLong()}_${platform.posix.rand()}"
+    val dir = NSURL.fileURLWithPath("${NSTemporaryDirectory()}$name")
+    NSFileManager.defaultManager.createDirectoryAtURL(
+        dir,
+        withIntermediateDirectories = true,
+        attributes = null,
+        error = null
+    )
+    return NativeTaskScheduler(
+        fileStorage = IosFileStorage(
+            config = IosFileStorageConfig(isTestMode = true),
+            baseDirectory = dir
+        )
+    )
+}
+
 private suspend fun drainQueueUntilFound(fileStorage: IosFileStorage, targetId: String): Boolean {
     val displaced = mutableListOf<String>()
     var found = false
@@ -57,7 +95,7 @@ class V341KeepPolicyDynamicIdTest {
 
     @Test
     fun `KEEP on a still-queued dynamic id does not duplicate it in the dynamic queue`() = runTest {
-        val scheduler = NativeTaskScheduler()
+        val scheduler = makeIsolatedScheduler("still-queued")
         try {
             val taskId = "keep-dynamic-still-queued-${kotlin.random.Random.nextInt()}"
             val sizeBefore = scheduler.fileStorage.getTasksQueueSize()
@@ -109,7 +147,7 @@ class V341KeepPolicyDynamicIdTest {
 
     @Test
     fun `KEEP on a dynamic id no longer in the queue is still treated as stale and rescheduled`() = runTest {
-        val scheduler = NativeTaskScheduler()
+        val scheduler = makeIsolatedScheduler("dequeued")
         try {
             val taskId = "keep-dynamic-dequeued-${kotlin.random.Random.nextInt()}"
 

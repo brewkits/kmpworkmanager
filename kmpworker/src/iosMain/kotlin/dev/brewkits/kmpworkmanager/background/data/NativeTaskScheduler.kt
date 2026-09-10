@@ -58,7 +58,20 @@ import platform.UserNotifications.UNUserNotificationCenter
 )
 public class NativeTaskScheduler(
     /**
-     * Additional permitted task IDs beyond those in Info.plist.
+     * Additional task IDs this scheduler will accept beyond those declared in Info.plist.
+     *
+     * **This relaxes validation only. It does not grant a task its own BGTask.** An id listed
+     * here still goes through the dynamic-queue path, exactly like an id passed nowhere at
+     * all, because `BGTaskScheduler` refuses to register an identifier that is absent from
+     * `BGTaskSchedulerPermittedIdentifiers` — nothing this library does can change that. The
+     * interception check in `submitTaskRequest` therefore keys on the Info.plist set alone,
+     * never on this one, and widening it would submit a request under an unregistered
+     * identifier that the OS would simply never fire.
+     *
+     * The intended uses are tests, and hosts whose Info.plist this process cannot read.
+     *
+     * The name reads as though it hands out BGTask slots and it does not; it is kept as-is
+     * because renaming a public parameter breaks every caller using named arguments.
      */
     additionalPermittedTaskIds: Set<String> = emptySet(),
     /**

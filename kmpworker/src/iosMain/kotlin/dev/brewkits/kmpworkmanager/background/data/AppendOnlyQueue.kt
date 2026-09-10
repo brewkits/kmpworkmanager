@@ -345,8 +345,17 @@ internal class AppendOnlyQueue(
     }
 
     /**
-     * Get current queue size (number of unprocessed items)
-     * **Performance**: O(1) - reads head pointer and counts lines
+     * Get current queue size (number of unprocessed items).
+     *
+     * **Performance**: O(1) when the record count is cached, O(N) when it is not — the
+     * uncached path walks the queue file record by record. The count is cached with the
+     * file's size as a witness (see [totalLinesCache]), so it survives repeated calls and is
+     * recomputed after anything that changes how many records the file holds, or after another
+     * instance sharing this directory writes to it.
+     *
+     * The KDoc here used to say a flat "O(1) - reads head pointer and counts lines", which
+     * contradicted itself: counting lines *is* the O(N) part, and before v3.5.0 there was no
+     * cache at all, so every call paid it.
      */
     suspend fun getSize(): Int {
         return queueMutex.withLock {
