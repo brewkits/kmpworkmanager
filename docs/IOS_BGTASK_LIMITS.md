@@ -363,6 +363,58 @@ for the full explanation and the tracked follow-up
 
 ---
 
+## 7. `BGTaskScheduler` does not exist on the Simulator
+
+### What's actually happening
+
+The class is present and every selector responds, so nothing tells you it is off.
+Submission is what fails. Attached to the demo app running on an iOS 26.5
+simulator:
+
+```
+(lldb) expr -l objc -O -- id $r = (id)[[NSClassFromString(@"BGAppRefreshTaskRequest") alloc]
+                                        initWithIdentifier:@"demo-quick-sync"]
+(lldb) expr -l objc -O -- NSError *$e = nil;
+       (BOOL)[(id)[NSClassFromString(@"BGTaskScheduler") sharedScheduler]
+              submitTaskRequest:$r error:&$e]
+<nil>
+(lldb) expr -l objc -O -- (id)[$e localizedDescription]
+The operation couldn't be completed. (BGTaskSchedulerErrorDomain error 1.)
+```
+
+`BGTaskSchedulerErrorDomain` error 1 is `BGTaskSchedulerErrorCodeUnavailable`.
+`dasd` does not run in the simulator, so there is nothing to submit a request to.
+
+The private debugging selector does not rescue it. Both
+`_simulateLaunchForTaskWithIdentifier:` and `_simulateExpirationForTaskWithIdentifier:`
+answer `respondsToSelector:` with `YES` on the simulator, and calling the first one
+returns without error and **without invoking the registered handler** — there is no
+pending request for it to launch. The app had all 42 identifiers registered at the
+time (`iOS BGTask: Registration completed. Total registered: 42`), so registration is
+not the missing piece.
+
+### What this means for you
+
+- **You cannot test background execution on the simulator.** Not with a private API,
+  not by backgrounding the app, not by waiting. The subsystem is absent.
+- This library detects the simulator and falls back to a coroutine `delay()` so the
+  demo remains usable, and logs a WARN saying exactly that. The fallback is a
+  development convenience — it is wall-clock-free and freezes when the app is
+  backgrounded, so it proves nothing about production timing.
+- `_simulateLaunchForTaskWithIdentifier:` **does** work on a real device, but only
+  from a debugger attached to the process. Xcode's own "Simulate Background Fetch"
+  menu item is the same call.
+
+### How to design around it
+
+Verify scheduling and execution on hardware, and treat the simulator as covering the
+code paths either side of `BGTaskScheduler` rather than the scheduler itself. The
+suite follows that split: `IosScheduleToExecutionRoundTripTest` pins the join between
+what `enqueue` writes and what the dispatcher reads, which is the part that can be
+tested without the OS in the loop.
+
+---
+
 ## Summary table
 
 | Limit | Hard ceiling | Library can mitigate? | Workaround |
@@ -373,6 +425,7 @@ for the full explanation and the tracked follow-up
 | No ZIP codec | K/N stdlib gap | Yes (fail-fast default) | Use Swift host for compression, or wait for v2.6 zlib cinterop |
 | Exact alarms need user action | iOS has no "wake at time T and run code" primitive | Partial (catch-up on app open) | Use `UNUserNotification` for user-visible alarms; server-side scheduler for SLA-critical timing |
 | Master dispatcher never becomes `BGAppRefreshTask` | Always `BGProcessingTaskRequest` — 25s per-task timeout leaves no margin under App Refresh's 30s ceiling | No (not safe with current batch executor; network flag alone is fixed) | Use a dedicated static `Info.plist` ID for light tasks |
+| No `BGTaskScheduler` on the Simulator | `submitTaskRequest` returns `BGTaskSchedulerErrorCodeUnavailable` (error 1) | Partial (falls back to `delay()`, logs a WARN) | Verify background execution on hardware; the simulator covers only the code either side of the scheduler |
 
 ---
 
