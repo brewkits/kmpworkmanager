@@ -1,6 +1,8 @@
 package dev.brewkits.kmpworkmanager.background.data
 
+import dev.brewkits.kmpworkmanager.background.data.storage.ChainDefinitionStore
 import dev.brewkits.kmpworkmanager.background.data.storage.ChainProgressStore
+import dev.brewkits.kmpworkmanager.background.data.storage.StorageMaintenance
 import dev.brewkits.kmpworkmanager.background.data.storage.StorageFileIo
 import dev.brewkits.kmpworkmanager.background.data.storage.TaskMetadataStore
 import dev.brewkits.kmpworkmanager.background.data.storage.safeAppend
@@ -196,7 +198,9 @@ public class IosFileStorage(
      * BEFORE step execution begins — the window in which a cancellation used to lose the
      * chain outright. Default 0 → no delay. Production code never reads or writes this field.
      */
-    internal var testLoadChainDefinitionDelayMs: Long = 0L
+    internal var testLoadChainDefinitionDelayMs: Long
+        get() = chainDefinitionStore.testLoadChainDefinitionDelayMs
+        set(value) { chainDefinitionStore.testLoadChainDefinitionDelayMs = value }
 
     private val queue: AppendOnlyQueue by lazy {
         val queueDirURL = baseDir.safeAppend("queue")
@@ -296,6 +300,18 @@ public class IosFileStorage(
         periodicDir = { periodicDirURL }
     )
 
+    /**
+     * Disk-space guard and the periodic maintenance run. Stage 4 of the SRP split. Built
+     * before the stores that use it — `saveChainDefinition` gates on [checkDiskSpace].
+     */
+    private val maintenance = StorageMaintenance(
+        io = io,
+        baseDir = { baseDir },
+        maintenanceTimestampFile = { maintenanceTimestampURL },
+        diskSpaceBufferBytes = config.diskSpaceBufferBytes,
+        isTestMode = isTestMode
+    )
+
     private val progressStore = ChainProgressStore(
         io = io,
         backgroundScope = backgroundScope,
@@ -303,24 +319,30 @@ public class IosFileStorage(
         chainsDir = { chainsDirURL }
     )
 
+    /**
+     * Chain definitions and the REPLACE-policy deleted markers. Stage 4 of the SRP split.
+     *
+     * `deleteProgress` is a lambda rather than a direct `ChainProgressStore` dependency: the
+     * only thing chain definitions need from progress is "drop it, this definition is
+     * corrupt", and passing that one capability keeps the two stores independent of each
+     * other instead of coupling the whole of one to the whole of the other.
+     */
+    private val chainDefinitionStore = ChainDefinitionStore(
+        io = io,
+        maintenance = maintenance,
+        persistenceJson = persistenceJson,
+        chainsDir = { chainsDirURL },
+        deletedChainsDir = { deletedChainsDirURL },
+        maxChainSizeBytes = MAX_CHAIN_SIZE_BYTES,
+        deletedMarkerMaxAgeMs = config.deletedMarkerMaxAgeMs,
+        deleteProgress = { id -> progressStore.deleteChainProgress(id) }
+    )
 
-    // Disk space cache — `attributesOfFileSystemForPath` is an OS-level I/O syscall.
-    // Calling it on every file write (e.g. every saveChainDefinition) adds measurable
-    // latency on I/O-bound devices. Cache the result for DISK_SPACE_CACHE_TTL_MS and
-    // re-query only when the TTL expires.
-    // Thread-safety: reads are allowed without a lock (stale reads are safe — the
-    // consequence is one extra syscall, not a correctness error). Writes use @Volatile
-    // so the updated pair is visible to all threads without a mutex.
-    @kotlin.concurrent.Volatile
-    private var diskSpaceCacheFreeBytes: Long = -1L
-    @kotlin.concurrent.Volatile
-    private var diskSpaceCacheExpiryMs: Long = 0L
 
     companion object {
         const val MAX_QUEUE_SIZE = 1000
         const val MAX_CHAIN_SIZE_BYTES = 10_485_760L // 10MB
         private const val UNINITIALIZED_COUNTER = -1  // Sentinel: counter not yet set from disk
-        private const val DISK_SPACE_CACHE_TTL_MS = 10_000L  // 10 seconds
 
         /**
          * Debounce window for progress flush (100ms)
@@ -426,7 +448,7 @@ public class IosFileStorage(
             // both lazily seed the counter from disk on first use when it is UNINITIALIZED,
             // and dequeueTask is a no-op on the counter while UNINITIALIZED. Removing the
             // only concurrent writer makes the counter math deterministic.
-            val hoursSinceLastMaintenance = getHoursSinceLastMaintenance()
+            val hoursSinceLastMaintenance = maintenance.hoursSinceLastMaintenance()
 
             if (hoursSinceLastMaintenance >= 24) {
                 // Run immediately if maintenance hasn't run in 24+ hours
@@ -820,199 +842,55 @@ public class IosFileStorage(
 
     // ==================== Chain Definition Operations ====================
 
-    /**
-     * Save chain definition to file
-     */
-    fun saveChainDefinition(id: String, steps: List<List<TaskRequest>>) {
-        val chainFile = chainsDirURL.safeAppend("${id.encodeAsPathComponent()}.json")
-        val json = Json.encodeToString(steps)
-
-        // Use actual UTF-8 byte count, not String.length (UTF-16 char count).
-        // For CJK / emoji content, UTF-8 bytes can be 3–4× the char count — a 5M-char
-        // CJK string passes the old check but writes ~15MB to disk.
-        val sizeBytes = json.encodeToByteArray().size.toLong()
-        if (sizeBytes > MAX_CHAIN_SIZE_BYTES) {
-            Logger.e(LogTags.CHAIN, "Chain $id exceeds size limit: $sizeBytes bytes (max: $MAX_CHAIN_SIZE_BYTES)")
-            throw IllegalStateException("Chain size exceeds limit")
-        }
-
-        checkDiskSpace(sizeBytes)
-
-        coordinated(chainFile, write = true) { safeUrl ->
-            writeStringToFile(safeUrl, json)
-        }
-
-        Logger.d(LogTags.CHAIN, "Saved chain definition $id ($sizeBytes bytes)")
-    }
+    /** Save a chain definition to disk. Refuses definitions over the size limit. */
+    fun saveChainDefinition(id: String, steps: List<List<TaskRequest>>) =
+        chainDefinitionStore.saveChainDefinition(id, steps)
 
     /**
-     * Load chain definition from file with self-healing for corrupt data.
+     * Load a chain definition, self-healing (deleting) a corrupt file and its progress.
      *
-     * `suspend` because the self-healing path calls [deleteChainProgress] which is
-     * now `suspend` (must acquire `progressMutex` to evict the buffer entry).
+     * `suspend` because the self-healing path calls [deleteChainProgress], which must acquire
+     * the progress mutex to evict the buffer entry.
      */
-    suspend fun loadChainDefinition(id: String): List<List<TaskRequest>>? {
-        // Test-only hook: widens the prologue window so a regression test can cancel between
-        // dequeue and step execution. No-op in production.
-        if (testLoadChainDefinitionDelayMs > 0L) {
-            delay(testLoadChainDefinitionDelayMs)
-        }
-        val chainFile = chainsDirURL.safeAppend("${id.encodeAsPathComponent()}.json")
+    suspend fun loadChainDefinition(id: String): List<List<TaskRequest>>? =
+        chainDefinitionStore.loadChainDefinition(id)
 
-        // The coordination callback is a non-suspend block, so the suspend-only
-        // `deleteChainProgress(id)` call has to happen AFTER coordination returns.
-        // We surface "needs self-heal" via a flag captured in the return tuple.
-        var needsSelfHealProgress = false
-        // coordinatedSuspend, not coordinated: this function is `suspend` and is called from
-        // ChainExecutor on Dispatchers.Default. The blocking variant parks that thread inside
-        // dispatch_semaphore_wait for the whole coordination — the exact violation of Key
-        // Invariant #1 in CLAUDE.md, and with MAX_PARALLEL_TASKS = 4 chains loading
-        // definitions concurrently it can starve the shared Default pool outright.
-        // The block itself is non-suspend in both variants, so this is a drop-in swap.
-        val result = coordinatedSuspend(chainFile, write = false) { safeUrl ->
-            val json = readStringFromFile(safeUrl) ?: return@coordinatedSuspend null
+    /** Delete a chain definition. */
+    fun deleteChainDefinition(id: String) = chainDefinitionStore.deleteChainDefinition(id)
 
-            try {
-                persistenceJson.decodeFromString<List<List<TaskRequest>>>(json)
-            } catch (e: Exception) {
-                Logger.e(LogTags.CHAIN, "🩹 Self-healing: Corrupt chain definition detected for $id. Deleting corrupt file...", e)
-
-                // Delete corrupt chain definition (file deletion is non-suspend, safe here)
-                deleteFile(chainFile)
-                // Defer the suspend-only progress cleanup until after we exit coordination.
-                needsSelfHealProgress = true
-
-                Logger.w(LogTags.CHAIN, "Corrupt chain $id has been removed. It will need to be re-enqueued if still needed.")
-                null
-            }
-        }
-
-        if (needsSelfHealProgress) {
-            // Now that we're outside the coordination block, the suspend call is legal.
-            deleteChainProgress(id)
-        }
-        return result
-    }
-
-    /**
-     * Delete chain definition
-     */
-    fun deleteChainDefinition(id: String) {
-        val chainFile = chainsDirURL.safeAppend("${id.encodeAsPathComponent()}.json")
-        deleteFile(chainFile)
-        Logger.d(LogTags.CHAIN, "Deleted chain definition $id")
-    }
-
-    /**
-     * Check if chain definition exists
-     */
-    fun chainExists(id: String): Boolean {
-        val chainFile = chainsDirURL.safeAppend("${id.encodeAsPathComponent()}.json")
-        val path = chainFile.path ?: return false
-        return fileManager.fileExistsAtPath(path)
-    }
+    /** Check whether a chain definition exists on disk. */
+    fun chainExists(id: String): Boolean = chainDefinitionStore.chainExists(id)
 
     // ==================== Deleted Chain Markers ====================
 
     /**
-     * Mark a chain as deleted to prevent duplicate execution during REPLACE policy.
-     * The marker contains a timestamp for cleanup purposes.
-     *
+     * Mark a chain as deleted to prevent duplicate execution under the REPLACE policy.
+     * The marker carries a timestamp so the reaper can age it out.
      */
-    fun markChainAsDeleted(chainId: String) {
-        val markerFile = deletedChainsDirURL.safeAppend("${chainId.encodeAsPathComponent()}.marker")
-        val timestamp = NSDate().timeIntervalSince1970.toLong()
+    fun markChainAsDeleted(chainId: String) = chainDefinitionStore.markChainAsDeleted(chainId)
 
-        coordinated(markerFile, write = true) { safeUrl ->
-            writeStringToFile(safeUrl, timestamp.toString())
-        }
+    /** Whether a chain has been marked deleted. [ChainExecutor] skips those. */
+    fun isChainDeleted(chainId: String): Boolean = chainDefinitionStore.isChainDeleted(chainId)
 
-        Logger.d(LogTags.CHAIN, "Marked chain $chainId as deleted (REPLACE policy)")
-    }
+    /** Clear a chain's deleted marker, after skipping its execution. */
+    fun clearDeletedMarker(chainId: String) = chainDefinitionStore.clearDeletedMarker(chainId)
 
     /**
-     * Check if a chain has been marked as deleted.
-     * Used by ChainExecutor to skip execution of replaced chains.
-     *
+     * Remove deleted markers older than [IosFileStorageConfig.deletedMarkerMaxAgeMs]
+     * (default 7 days), so they cannot leak disk space.
      */
-    fun isChainDeleted(chainId: String): Boolean {
-        val markerFile = deletedChainsDirURL.safeAppend("${chainId.encodeAsPathComponent()}.marker")
-        val path = markerFile.path ?: return false
-        return fileManager.fileExistsAtPath(path)
-    }
-
-    /**
-     * Clear the deleted marker for a chain.
-     * Called after skipping execution of a deleted chain.
-     *
-     */
-    fun clearDeletedMarker(chainId: String) {
-        val markerFile = deletedChainsDirURL.safeAppend("${chainId.encodeAsPathComponent()}.marker")
-        deleteFile(markerFile)
-        Logger.d(LogTags.CHAIN, "Cleared deleted marker for chain $chainId")
-    }
-
-    /**
-     * Remove deleted markers older than [IosFileStorageConfig.deletedMarkerMaxAgeMs] (default 7 days).
-     * Prevents disk space leaks from accumulated markers.
-     */
-    fun cleanupStaleDeletedMarkers() {
-        val path = deletedChainsDirURL.path ?: return
-        val files = fileManager.contentsOfDirectoryAtPath(path, null) as? List<*> ?: return
-
-        val now = NSDate().timeIntervalSince1970.toLong() * 1000 // Convert to milliseconds
-        var cleanedCount = 0
-
-        files.forEach { fileName ->
-            if (fileName !is String) return@forEach
-            if (!fileName.endsWith(".marker")) return@forEach
-
-            val markerFile = deletedChainsDirURL.safeAppend(fileName)
-            val markerPath = markerFile.path ?: return@forEach
-
-            // Read marker via coordinated() to match the write path in
-            // markChainAsDeleted(). Without coordination, a concurrent write from the
-            // App Extension could produce a partial/stale read, yielding timestamp=0
-            // and causing the marker to be deleted prematurely (treated as 54+ years old).
-            val timestampStr = coordinated(markerFile, write = false) { safeUrl ->
-                readStringFromFile(safeUrl)
-            }
-            val timestamp = timestampStr?.toLongOrNull() ?: 0L
-
-            val ageMs = now - (timestamp * 1000) // timestamp is in seconds
-            if (ageMs > config.deletedMarkerMaxAgeMs) {
-                fileManager.removeItemAtPath(markerPath, null)
-                cleanedCount++
-                Logger.d(LogTags.CHAIN, "Cleaned up stale deleted marker: $fileName (age: ${ageMs / 86400000}days)")
-            }
-        }
-
-        if (cleanedCount > 0) {
-            Logger.i(LogTags.CHAIN, "Cleaned up $cleanedCount stale deleted markers")
-        }
-    }
+    fun cleanupStaleDeletedMarkers() = chainDefinitionStore.cleanupStaleDeletedMarkers()
 
     /**
      * Perform periodic maintenance tasks: stale marker cleanup and metadata cleanup.
      * Called from the init block with a startup delay to avoid blocking app launch.
      */
-    fun performMaintenanceTasks() {
-        try {
-            Logger.d(LogTags.CHAIN, "Starting maintenance tasks...")
-
-            // Clean up stale deleted markers (> 7 days old)
-            cleanupStaleDeletedMarkers()
-
-            // Clean up stale metadata (existing functionality)
-            cleanupStaleMetadata(olderThanDays = 7)
-
-            recordMaintenanceCompletion()
-
-            Logger.d(LogTags.CHAIN, "Maintenance tasks completed")
-        } catch (e: Exception) {
-            Logger.e(LogTags.CHAIN, "Maintenance tasks failed", e)
-        }
-    }
+    fun performMaintenanceTasks() = maintenance.runMaintenance(
+        listOf(
+            { cleanupStaleDeletedMarkers() },
+            { cleanupStaleMetadata(olderThanDays = 7) }
+        )
+    )
 
     /**
      * Returns true when maintenance is overdue based on the given hour interval.
@@ -1022,10 +900,8 @@ public class IosFileStorage(
      *
      * @param hoursInterval The interval in hours. A value of 0 always returns true.
      */
-    fun isMaintenanceRequired(hoursInterval: Int): Boolean {
-        if (hoursInterval == 0) return true
-        return getHoursSinceLastMaintenance() >= hoursInterval
-    }
+    fun isMaintenanceRequired(hoursInterval: Int): Boolean =
+        maintenance.isMaintenanceRequired(hoursInterval)
 
     /**
      * Returns all chain IDs currently active in the queue (not yet dequeued).
@@ -1061,53 +937,7 @@ public class IosFileStorage(
         }
     }
 
-    /**
-     * Get hours since last maintenance run
-     *
-     * @return Hours since last maintenance, or Int.MAX_VALUE if never run
-     */
-    private fun getHoursSinceLastMaintenance(): Int {
-        val path = maintenanceTimestampURL.path ?: return Int.MAX_VALUE
 
-        if (!fileManager.fileExistsAtPath(path)) {
-            return Int.MAX_VALUE // Never run before
-        }
-
-        return memScoped {
-            val errorPtr = alloc<ObjCObjectVar<NSError?>>()
-            val content = NSString.stringWithContentsOfFile(
-                path,
-                encoding = NSUTF8StringEncoding,
-                error = errorPtr.ptr
-            )
-
-            val lastRunTimestamp = content?.toString()?.trim()?.toLongOrNull() ?: return Int.MAX_VALUE
-            val currentTimestamp = NSDate().timeIntervalSince1970.toLong()
-            val hoursSince = (currentTimestamp - lastRunTimestamp) / 3600
-
-            hoursSince.toInt()
-        }
-    }
-
-    /**
-     * Record maintenance completion timestamp
-     */
-    private fun recordMaintenanceCompletion() {
-        val path = maintenanceTimestampURL.path ?: return
-        val timestamp = NSDate().timeIntervalSince1970.toLong()
-
-        memScoped {
-            val errorPtr = alloc<ObjCObjectVar<NSError?>>()
-            val content = timestamp.toString() as NSString
-
-            content.writeToFile(
-                path,
-                atomically = !isTestMode,
-                encoding = NSUTF8StringEncoding,
-                error = errorPtr.ptr
-            )
-        }
-    }
 
     // ==================== Chain Progress Operations ====================
     //
@@ -1213,25 +1043,13 @@ public class IosFileStorage(
     internal fun listPeriodicTaskIds(): Sequence<String> = taskMetadataStore.listPeriodicTaskIds()
 
     /**
-     * List all chain IDs that have a saved chain **definition** on disk — a broader set than
-     * [getActiveChainIds] (which only returns chains still sitting in the execution queue):
-     * a chain that has been dequeued for execution (see [ChainExecutor.executeChain]'s
-     * `dequeueChain()` call) still has its definition on disk right up until it completes, so
-     * this is the set [computeIosTaskState] needs to catch a currently-EXECUTING chain, not
-     * just a queued one.
+     * List all chain IDs that have a saved chain **definition** on disk — broader than
+     * [getActiveChainIds], which only sees chains still queued.
      *
-     * [chainsDirURL] also holds `<encodedId>_progress.json` files (a different artifact) —
-     * the `_progress` suffix is stripped from the still-**encoded** filename before decoding,
-     * since decoding first could (in principle) produce a false match against a chain id that
-     * legitimately ends in the literal text `_progress`.
-     *
-     * Stays on the façade rather than moving with the metadata group: it reads chain
-     * definitions, so it belongs to Stage 4's ChainDefinitionStore.
+     * **Consumption**: single-use Sequence (backed by a stateful OS enumerator).
      */
     internal fun listChainDefinitionIds(): Sequence<String> =
-        io.listJsonFileIds(chainsDirURL, decode = false)
-            .filterNot { it.endsWith("_progress") }
-            .map { it.decodeFromPathComponent() }
+        chainDefinitionStore.listChainDefinitionIds()
 
     /** Delete task metadata. */
     fun deleteTaskMetadata(id: String, periodic: Boolean) =
@@ -1264,62 +1082,6 @@ public class IosFileStorage(
      */
     private fun ensureDirectoryExists(url: NSURL) = io.ensureDirectoryExists(url)
 
-    /**
-     * Check if sufficient disk space is available
-     *
-     * **Safety margin:** Requires configurable buffer (default 50MB) + actual size to prevent
-     * system-wide issues and ensure smooth operation.
-     *
-     * @param requiredBytes Minimum bytes needed for the operation
-     * @throws InsufficientDiskSpaceException if space unavailable
-     */
-    private fun checkDiskSpace(requiredBytes: Long) {
-        val nowMs = (NSDate().timeIntervalSince1970 * 1000).toLong()
-
-        // Use cached free-space value if still fresh (avoids attributesOfFileSystemForPath syscall
-        // on every file write — stale reads within the TTL are intentional and safe).
-        val freeSpace: Long = if (nowMs < diskSpaceCacheExpiryMs && diskSpaceCacheFreeBytes >= 0L) {
-            Logger.v(LogTags.CHAIN, "Disk space cache hit: ${diskSpaceCacheFreeBytes / 1024 / 1024}MB free")
-            diskSpaceCacheFreeBytes
-        } else {
-            // Cache miss — query the filesystem and refresh the cache.
-            val basePath = baseDir.path ?: run {
-                Logger.w(LogTags.CHAIN, "Cannot read filesystem attributes — baseDir has no path, skipping disk space check")
-                return
-            }
-            val fresh = memScoped {
-                val errorPtr = alloc<ObjCObjectVar<NSError?>>()
-                val attributes = fileManager.attributesOfFileSystemForPath(
-                    basePath,
-                    error = errorPtr.ptr
-                ) as? Map<*, *>
-
-                if (attributes == null) {
-                    Logger.w(LogTags.CHAIN, "Cannot read filesystem attributes - skipping disk space check")
-                    return
-                }
-                (attributes[NSFileSystemFreeSize] as? NSNumber)?.longValue ?: 0L
-            }
-            // Update cache (Volatile writes are immediately visible to other threads)
-            diskSpaceCacheFreeBytes = fresh
-            diskSpaceCacheExpiryMs = nowMs + DISK_SPACE_CACHE_TTL_MS
-            Logger.d(LogTags.CHAIN, "Disk space cache refreshed: ${fresh / 1024 / 1024}MB free (TTL ${DISK_SPACE_CACHE_TTL_MS / 1000}s)")
-            fresh
-        }
-
-        val requiredWithBuffer = requiredBytes + config.diskSpaceBufferBytes
-
-        if (freeSpace < requiredWithBuffer) {
-            val freeMB = freeSpace / 1024 / 1024
-            val requiredMB = requiredWithBuffer / 1024 / 1024
-            val bufferMB = config.diskSpaceBufferBytes / 1024 / 1024
-
-            Logger.e(LogTags.CHAIN, "Insufficient disk space: ${freeMB}MB available, ${requiredMB}MB required (${bufferMB}MB buffer)")
-            throw InsufficientDiskSpaceException(requiredWithBuffer, freeSpace)
-        }
-
-        Logger.d(LogTags.CHAIN, "Disk space OK: ${freeSpace / 1024 / 1024}MB available, ${requiredWithBuffer / 1024 / 1024}MB required")
-    }
 
     /**
      * Read string from file
