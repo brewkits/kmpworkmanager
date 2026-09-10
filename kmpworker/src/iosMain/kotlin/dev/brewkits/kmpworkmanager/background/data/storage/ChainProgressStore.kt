@@ -155,7 +155,11 @@ internal class ChainProgressStore(
     // how a move turns into a regression.
     @Suppress("NestedBlockDepth", "TooGenericExceptionCaught", "InstanceOfCheckForException")
     private suspend fun flushProgressBuffer() {
-        val signal = progressMutex.withLock {
+        // No elvis on this `withLock`: the lambda either returns from the whole function (the
+        // empty-buffer branch below) or yields a non-null Pair, so the `?: return` that used
+        // to follow it was unreachable — and read as though an empty buffer arrived here as
+        // null, which it never does.
+        val (bufferSnapshot, completionSignal) = progressMutex.withLock {
             if (progressBuffer.isEmpty()) {
                 return
             }
@@ -164,16 +168,14 @@ internal class ChainProgressStore(
             val newSignal = kotlinx.coroutines.CompletableDeferred<Unit>()
             flushCompletionSignal = newSignal
 
-            val bufferSnapshot = progressBuffer.toMap()
+            val snapshot = progressBuffer.toMap()
             progressBuffer.clear()
 
-            Logger.d(LogTags.CHAIN, "Flushing ${bufferSnapshot.size} progress updates to disk")
+            Logger.d(LogTags.CHAIN, "Flushing ${snapshot.size} progress updates to disk")
 
             // Return snapshot and signal for processing outside lock
-            Pair(bufferSnapshot, newSignal)
-        } ?: return
-
-        val (bufferSnapshot, completionSignal) = signal
+            Pair(snapshot, newSignal)
+        }
 
         // Write all progress files in batch (outside mutex to allow concurrent saves)
         val remainingToFlush = bufferSnapshot.toMutableMap()

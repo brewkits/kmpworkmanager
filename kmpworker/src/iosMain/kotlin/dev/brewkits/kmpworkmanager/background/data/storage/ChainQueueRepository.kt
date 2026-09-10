@@ -121,10 +121,14 @@ internal class ChainQueueRepository(
     //                                    check-then-act is atomic against
     //                                    concurrent enqueueChain callers)
     //
-    // AppendOnlyQueue has its own internal lock hierarchy (corruptionMutex → queueMutex),
-    // and this class's queueMutex wraps AppendOnlyQueue calls, giving the outer ordering:
-    //   ChainQueueRepository.queueMutex → AppendOnlyQueue.corruptionMutex
-    //                                   → AppendOnlyQueue.queueMutex
+    // AppendOnlyQueue has one lock of its own, and this class's queueMutex wraps calls into
+    // it, giving the outer ordering:
+    //   ChainQueueRepository.queueMutex → AppendOnlyQueue.queueMutex
+    //
+    // (This used to name an AppendOnlyQueue.corruptionMutex in the middle. That lock was
+    // acquired in exactly one place in that class and protected nothing its queueMutex did
+    // not already protect, so it was removed in v3.5.0 — see the corruption branch of
+    // AppendOnlyQueue.dequeue().)
     //
     // ChainProgressStore's progressMutex is also in play, via replaceChainAtomic's call to
     // deleteChainProgress: the real ordering there is queueMutex → progressMutex.

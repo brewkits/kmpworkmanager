@@ -82,7 +82,6 @@ internal class AppendOnlyQueue(
     private var isQueueCorrupt = false
     @kotlin.concurrent.Volatile
     private var corruptionOffset: ULong = 0UL  // Byte offset of the first corrupt record
-    private val corruptionMutex = Mutex()
 
     private var fileFormat: UInt? = null
     private val formatMutex = Mutex()
@@ -250,20 +249,28 @@ internal class AppendOnlyQueue(
      * @return Item ID or null if queue is empty
      */
     suspend fun dequeue(): String? = kotlinx.coroutines.withContext(Dispatchers.Default) {
-        // Fast check without lock (CRITICAL: prevents race condition)
+        // Lock-free pre-check. It may be stale by the time we act on it, which is why the
+        // real decision is re-made under queueMutex below; this only avoids taking the lock
+        // on the overwhelmingly common non-corrupt path. `isQueueCorrupt` is @Volatile so the
+        // read is at least coherent — see its declaration.
         if (isQueueCorrupt) {
-            // Double mutex pattern to prevent race condition
-            // CRITICAL: Must acquire in order: corruptionMutex → queueMutex
-            corruptionMutex.withLock {
-                queueMutex.withLock {
-                    // Double-check inside lock (prevents TOCTOU issues)
-                    if (isQueueCorrupt) {
-                        coordinated(queueFileURL, write = true) { safeUrl ->
-                            Logger.w(LogTags.QUEUE, "Queue corruption detected during dequeue. Truncating at offset $corruptionOffset...")
-                            truncateAtCorruptionPoint(safeUrl)  // Safe: queueMutex already held
-                            isQueueCorrupt = false
-                            corruptionOffset = 0UL
-                        }
+            queueMutex.withLock {
+                // Re-check under the lock. Two dequeues racing here both see `true` outside
+                // the lock; the first recovers and clears the flag, the second finds it
+                // already false and does nothing. That is the whole of the TOCTOU handling —
+                // a second mutex around this one adds no ordering that queueMutex does not
+                // already provide, which is why the `corruptionMutex` that used to wrap this
+                // block is gone. It was acquired in exactly one place in the class, so the
+                // "CRITICAL: must acquire in order corruptionMutex → queueMutex" rule it came
+                // with described an ordering nothing else participated in — a lock whose only
+                // real effect would have been to deadlock the first future caller that took
+                // the two in the other order.
+                if (isQueueCorrupt) {
+                    coordinated(queueFileURL, write = true) { safeUrl ->
+                        Logger.w(LogTags.QUEUE, "Queue corruption detected during dequeue. Truncating at offset $corruptionOffset...")
+                        truncateAtCorruptionPoint(safeUrl)  // Safe: queueMutex already held
+                        isQueueCorrupt = false
+                        corruptionOffset = 0UL
                     }
                 }
             }
