@@ -67,7 +67,7 @@ jobs:
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
 
       - name: Set up gcloud
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@v3
 
       # The library's own instrumented tests, which are what actually ships. This ran only
       # the demo's UI tests until v3.5.0 — the device farm was exercising the sample app and
