@@ -92,11 +92,17 @@ val cleanMavenStaging by tasks.registering(Delete::class) {
 // Force each module's publish task to run AFTER the clean. Without this Gradle
 // is free to schedule the publish before the clean wipes the staging dir,
 // which would zero out the freshly-published artifacts.
+//
+// The constraint has to sit on the concrete AbstractPublishToMaven tasks, not on the
+// `publishAllPublicationsToMavenCentralLocalRepository` aggregate: that aggregate carries no
+// actions, and `mustRunAfter` on a lifecycle task does not propagate to the tasks it depends
+// on. With the constraint on the aggregate only, kmpworker-ksp (JVM-only, so it compiles in
+// about a second) published before `cleanMavenStaging` ran and was deleted from the bundle —
+// the four KMP modules merely happened to finish after the clean because their compilation is
+// slow. Nothing failed; the artifact was silently missing from the ZIP.
 subprojects {
-    afterEvaluate {
-        tasks.matching { it.name == "publishAllPublicationsToMavenCentralLocalRepository" }
-            .configureEach { mustRunAfter(cleanMavenStaging) }
-    }
+    tasks.withType<org.gradle.api.publish.maven.tasks.AbstractPublishToMaven>()
+        .configureEach { mustRunAfter(cleanMavenStaging) }
 }
 
 // Task to generate a full Maven Central distribution ZIP
