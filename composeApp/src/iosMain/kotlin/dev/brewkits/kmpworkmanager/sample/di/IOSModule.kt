@@ -11,6 +11,7 @@ import dev.brewkits.kmpworkmanager.sample.debug.DebugSource
 import dev.brewkits.kmpworkmanager.sample.debug.IosDebugSource
 import dev.brewkits.kmpworkmanager.sample.push.DefaultPushNotificationHandler
 import dev.brewkits.kmpworkmanager.sample.push.PushNotificationHandler
+import dev.brewkits.kmpworkmanager.sample.stats.TaskStatsManager
 import dev.brewkits.kmpworkmanager.utils.Logger
 import org.koin.dsl.module
 
@@ -26,7 +27,13 @@ val iosModule = module {
     // startup where `includes(kmpWorkerModule(...))` used to run.
     KmpWorkManager.initialize(
         workerFactory = IosWorkerFactory(),
-        config = KmpWorkManagerConfig(logLevel = Logger.Level.DEBUG_LEVEL)
+        config = KmpWorkManagerConfig(
+            logLevel = Logger.Level.DEBUG_LEVEL,
+            // iOS previously installed no telemetry hook at all, so the dashboard had no
+            // source of durations here even after Android got one. Same hook, same numbers
+            // on both platforms.
+            telemetryHook = TaskStatsManager.asTelemetryHook()
+        )
     )
 
     single<BackgroundTaskScheduler> { KmpWorkManager.getInstance().backgroundTaskScheduler }

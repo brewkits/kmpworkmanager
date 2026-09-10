@@ -1,8 +1,9 @@
 package dev.brewkits.kmpworkmanager.sample.stats
 
-import dev.brewkits.kmpworkmanager.background.domain.TaskCompletionEvent
-import dev.brewkits.kmpworkmanager.background.domain.TaskEventBus
+import dev.brewkits.kmpworkmanager.background.domain.TelemetryHook
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -10,8 +11,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.datetime.Clock
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.contentOrNull
 
 /**
  * Statistics about task execution
@@ -49,46 +48,100 @@ data class TaskExecution(
 object TaskStatsManager {
     private val mutex = Mutex()
 
-    @kotlin.concurrent.Volatile
-    private var collecting = false
-
     /**
-     * Subscribes the dashboard to the library's completion events.
+     * A [TelemetryHook] that feeds the dashboard, optionally chaining to [delegate] so an
+     * app can keep its own logging hook.
      *
-     * Without this, nothing ever calls [recordTaskComplete] and the dashboard shows a
-     * permanent "0 / no tasks executed yet" no matter how many tasks run — which is what
-     * it did before, and it made the demo look broken.
+     * This is the correct source for dashboard statistics, and it replaces an earlier
+     * `TaskEventBus` subscription that got two things wrong:
      *
-     * Idempotent: safe to call from every platform entry point.
+     * - **Durations were always 0.** `TaskCompletionEvent` carries no duration, so the old
+     *   code dug for an optional `outputData["duration"]` that almost no worker sets. The
+     *   dashboard showed "0ms" for every task while the library knew the real figure all
+     *   along — [TelemetryHook.TaskCompletedEvent.durationMs].
+     * - **Every task counted twice.** The bus carries both the library's own completion
+     *   event and the one this demo's workers emit for the snackbar, and after
+     *   `substringAfterLast('.')` the two are indistinguishable. The telemetry hook is
+     *   called once per execution, by the library only.
+     *
+     * Install it at initialization, not from composition: the hook has to be in place
+     * before the first task runs, and the dashboard should not miss work that happened
+     * while its screen was not on-screen.
      */
-    fun startCollecting(scope: CoroutineScope) {
-        if (collecting) return
-        collecting = true
-        scope.launch {
-            TaskEventBus.events.collect { event ->
-                if (event is TaskCompletionEvent) onCompletionEvent(event)
+    fun asTelemetryHook(delegate: TelemetryHook? = null): TelemetryHook =
+        object : TelemetryHook {
+            override fun onTaskScheduled(event: TelemetryHook.TaskScheduledEvent) {
+                delegate?.onTaskScheduled(event)
+            }
+
+            override fun onTaskStarted(event: TelemetryHook.TaskStartedEvent) {
+                delegate?.onTaskStarted(event)
+                scope.launch {
+                    recordTaskStart(
+                        taskId = executionKey(event.taskName, event.chainId, event.stepIndex),
+                        taskName = event.taskName.substringAfterLast('.')
+                    )
+                }
+            }
+
+            override fun onTaskCompleted(event: TelemetryHook.TaskCompletedEvent) {
+                delegate?.onTaskCompleted(event)
+                scope.launch {
+                    complete(
+                        key = executionKey(event.taskName, event.chainId, event.stepIndex),
+                        name = event.taskName,
+                        success = event.success,
+                        durationMs = event.durationMs
+                    )
+                }
+            }
+
+            override fun onTaskFailed(event: TelemetryHook.TaskFailedEvent) {
+                delegate?.onTaskFailed(event)
+                scope.launch {
+                    complete(
+                        key = executionKey(event.taskName, event.chainId, event.stepIndex),
+                        name = event.taskName,
+                        success = false,
+                        durationMs = event.durationMs
+                    )
+                }
+            }
+
+            override fun onChainCompleted(event: TelemetryHook.ChainCompletedEvent) {
+                delegate?.onChainCompleted(event)
+            }
+
+            override fun onChainFailed(event: TelemetryHook.ChainFailedEvent) {
+                delegate?.onChainFailed(event)
+            }
+
+            override fun onChainSkipped(event: TelemetryHook.ChainSkippedEvent) {
+                delegate?.onChainSkipped(event)
             }
         }
+
+    /**
+     * Distinguishes concurrent runs of the same worker. A parallel chain step runs the same
+     * worker class several times at once; keying on the name alone would make each start
+     * overwrite the previous one's entry, so the chain and step index come along.
+     */
+    private fun executionKey(taskName: String, chainId: String?, stepIndex: Int?): String =
+        if (chainId == null) taskName else "$taskName@$chainId#$stepIndex"
+
+    private suspend fun complete(key: String, name: String, success: Boolean, durationMs: Long) {
+        // A task can complete without this manager having seen it start — the hook is
+        // installed at init, but a task enqueued by a previous process launch resumes
+        // without a fresh start event. Synthesise the start so the completion is still
+        // counted rather than silently dropped.
+        if (!isTracking(key)) {
+            recordTaskStart(taskId = key, taskName = name.substringAfterLast('.'))
+        }
+        recordTaskComplete(taskId = key, success = success, duration = durationMs)
     }
 
-    private suspend fun onCompletionEvent(event: TaskCompletionEvent) {
-        // KNOWN LIMITATION: a single run can produce two events — the library emits one
-        // from SingleTaskExecutor/ChainExecutor, and this demo's own workers emit a
-        // friendlier one for the snackbar. Both arrive with a short name
-        // (SingleTaskExecutor already applies substringAfterLast('.')), so they cannot be
-        // told apart here and such a task counts twice. Cosmetic, demo-only; the library's
-        // own persisted records in EventStore / ExecutionHistoryStore are unaffected.
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-        // TaskCompletionEvent carries no task id or duration, so synthesise both: key the
-        // execution by worker name, and read the duration the worker reported in
-        // outputData when it provided one.
-        val taskId = event.taskName
-        val reportedDuration = (event.outputData?.get("duration") as? JsonPrimitive)
-            ?.contentOrNull?.toLongOrNull() ?: 0L
-
-        recordTaskStart(taskId = taskId, taskName = event.taskName.substringAfterLast('.'))
-        recordTaskComplete(taskId = taskId, success = event.success, duration = reportedDuration)
-    }
     private val _stats = MutableStateFlow(TaskStats())
     private val _recentExecutions = MutableStateFlow<List<TaskExecution>>(emptyList())
     private val activeExecutions = mutableMapOf<String, TaskExecution>()
@@ -125,6 +178,9 @@ object TaskStatsManager {
     /**
      * Record a task completing
      */
+    private suspend fun isTracking(taskId: String): Boolean =
+        mutex.withLock { activeExecutions.containsKey(taskId) }
+
     suspend fun recordTaskComplete(taskId: String, success: Boolean, duration: Long) {
         mutex.withLock {
             val startExecution = activeExecutions.remove(taskId)

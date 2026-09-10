@@ -14,6 +14,7 @@ import dev.brewkits.kmpworkmanager.sample.debug.AndroidDebugSource
 import dev.brewkits.kmpworkmanager.sample.debug.DebugSource
 import dev.brewkits.kmpworkmanager.sample.di.initKoin
 import dev.brewkits.kmpworkmanager.background.domain.TelemetryHook
+import dev.brewkits.kmpworkmanager.sample.stats.TaskStatsManager
 import dev.brewkits.kmpworkmanager.utils.Logger
 import dev.brewkits.kmpworkmanager.sample.background.workers.AnalyticsAndroidWorker
 import dev.brewkits.kmpworkmanager.sample.background.workers.BatchUploadAndroidWorker
@@ -83,7 +84,7 @@ class KMPWorkManagerApp : Application() {
             workerFactory = DemoWorkerFactory(),
             config = KmpWorkManagerConfig(
                 logLevel = Logger.Level.DEBUG_LEVEL,
-                telemetryHook = object : TelemetryHook {
+                telemetryHook = TaskStatsManager.asTelemetryHook(object : TelemetryHook {
                     override fun onTaskScheduled(event: TelemetryHook.TaskScheduledEvent) {
                         Logger.d("DEMO_TELEMETRY", "📅 Task scheduled: ${event.taskName} type=${event.triggerType} initialDelay=${event.initialDelayMs}ms")
                     }
@@ -105,7 +106,7 @@ class KMPWorkManagerApp : Application() {
                     override fun onChainSkipped(event: TelemetryHook.ChainSkippedEvent) {
                         Logger.d("DEMO_TELEMETRY", "⏭ Chain skipped: ${event.chainId} reason=${event.reason}")
                     }
-                }
+                })
             )
         )
 

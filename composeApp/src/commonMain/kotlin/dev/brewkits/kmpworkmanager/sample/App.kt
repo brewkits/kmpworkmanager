@@ -75,10 +75,9 @@ fun App(
     // Snackbar host state for showing toast messages
     val snackbarHostState = remember { SnackbarHostState() }
 
-    // Feed the dashboard's stats from the same event stream.
-    LaunchedEffect(Unit) {
-        TaskStatsManager.startCollecting(this)
-    }
+    // Dashboard stats are fed by TaskStatsManager.asTelemetryHook(), installed at
+    // initialization by each platform entry point — not from composition, so nothing is
+    // missed while this screen is off-screen.
 
     // Listen for task completion events and show snackbar
     LaunchedEffect(Unit) {
