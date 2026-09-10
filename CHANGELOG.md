@@ -5,6 +5,74 @@ All notable changes to KMP WorkManager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.0] - 2026-09-10
+
+### Added
+
+- Add BCV to kmpworker-annotations, extract kmpworker-testing module ([`de8fea6`](https://github.com/brewkits/kmpworkmanager/commit/de8fea673ac58d7ec84bc2ef96b5c03cb8be3f0a))
+- Exact alarms now appear in execution history ([`29fa873`](https://github.com/brewkits/kmpworkmanager/commit/29fa873e7172f26b368823b71d690ccb7f892eec))
+- Opt-in TLS certificate pinning for Android and iOS ([`6723c19`](https://github.com/brewkits/kmpworkmanager/commit/6723c19906f3b5b8da84d62d7e794fa8210d484f))
+
+### Changed
+
+- Extract the file-I/O seam the storage split actually needs ([`153ba8c`](https://github.com/brewkits/kmpworkmanager/commit/153ba8cc4a911317c6727f8d8b8198259f42c252))
+- Move chain progress out of IosFileStorage into its own store ([`ccd78f0`](https://github.com/brewkits/kmpworkmanager/commit/ccd78f0c7c4788bde5d5a772567d9b39b3ce1be1))
+- Move task metadata out of IosFileStorage into its own store ([`c181e50`](https://github.com/brewkits/kmpworkmanager/commit/c181e50671b3e417bd490e84c9b709b9e4facf49))
+- Extract StorageMaintenance and ChainDefinitionStore ([`b196046`](https://github.com/brewkits/kmpworkmanager/commit/b196046704ffa7a0979dc1a47d64a3e4ddfa1a3f))
+- Extract ChainQueueRepository — the last of the storage split ([`0340543`](https://github.com/brewkits/kmpworkmanager/commit/034054337718ebd60b5fe71666f772a78ea112ae))
+- Drop the helpers the split left dead, and record the result ([`019e014`](https://github.com/brewkits/kmpworkmanager/commit/019e014966d2f61b1bc406b0ccab8d5a24d87450))
+- Remove the redundant corruptionMutex and an unreachable elvis ([`6311972`](https://github.com/brewkits/kmpworkmanager/commit/6311972e1f91b36db6b4df5b363646ceae45ae30))
+- Extract QueueRecordCodec from AppendOnlyQueue ([`39641b3`](https://github.com/brewkits/kmpworkmanager/commit/39641b3dcf9013fd4075f660b1a5ac6cf07dac56))
+
+### Documentation
+
+- Mark kmpworker-testing as not-yet-published in README ([`71e7409`](https://github.com/brewkits/kmpworkmanager/commit/71e740922af5b35f6a7cf94227d086229da25daa))
+- Stop COVERAGE.md and README claiming coverage they do not have ([`085ff0a`](https://github.com/brewkits/kmpworkmanager/commit/085ff0a14dc81b6dcfddb951e32d26c46eded0a3))
+- Correct Windowed `latest` and KEEP, which the code no longer matched ([`7195ab4`](https://github.com/brewkits/kmpworkmanager/commit/7195ab4203ba3062fd6fedaba125371236d0f4f7))
+- Bring KNOWN_ISSUES.md back to reality, and close I-23 ([`6537a97`](https://github.com/brewkits/kmpworkmanager/commit/6537a97e402112b008c194b67e79f1da721980db))
+- Close()'s shutdown comment named a field that now lives in the store ([`9aaaa5e`](https://github.com/brewkits/kmpworkmanager/commit/9aaaa5e068ef3a53370241dab9fce93353309671))
+- Correct the counts, raise the coverage floor, and fix the release README bump ([`45a7858`](https://github.com/brewkits/kmpworkmanager/commit/45a785803b15f0f0c6b252aeb874cd12005fcfa4))
+- Record the allTests aggregation trap and refresh the counts ([`31bf658`](https://github.com/brewkits/kmpworkmanager/commit/31bf6583cd5a8c94abed30734a40d3cf1a2080c9))
+- Record verification on real hardware and a device farm ([`ecebd36`](https://github.com/brewkits/kmpworkmanager/commit/ecebd367134b40559ed31f6d45aeb1b83fa324c1))
+- Refresh test and coverage counts for v3.5.0 from the measured results ([`8b86f18`](https://github.com/brewkits/kmpworkmanager/commit/8b86f18e0a5394976908d17bc9919e283cf2312c))
+- Record that BGTaskScheduler is unavailable on the Simulator, with the measurement ([`cfe875a`](https://github.com/brewkits/kmpworkmanager/commit/cfe875a31c638997f961d46b7ed2ad09a2cd7e41))
+- The debugger cannot run code on iOS 15.8, so the private BGTask API is out of reach ([`30e5827`](https://github.com/brewkits/kmpworkmanager/commit/30e5827be83e63077f6e405abd60aa822877c726))
+- The OS-invokes-handler link is now proven on hardware, not just argued ([`bb0d3fd`](https://github.com/brewkits/kmpworkmanager/commit/bb0d3fdfb7d644314c76f7880eb80900157e0a8e))
+- Record the hardware chain run and the format-string fix it uncovered ([`12722dd`](https://github.com/brewkits/kmpworkmanager/commit/12722dd205e51f72c4233cef97ab074b03828cb6))
+
+### Fixed
+
+- Release notes body used --latest, which grabs the PREVIOUS tag's changelog ([`1b237c5`](https://github.com/brewkits/kmpworkmanager/commit/1b237c5c41c62bb9e5c25a428703be89190d56a9))
+- V3.5.0 hardening — 11 bugs across SSRF, data loss, and lifecycle ([`ec63fbd`](https://github.com/brewkits/kmpworkmanager/commit/ec63fbddc567a991927b7fccef141a927fba51a6))
+- V3.5.0 — finish Phase 2 (#8, #12, #15), backoff jitter, and the LOW batch ([`191fe1f`](https://github.com/brewkits/kmpworkmanager/commit/191fe1ff873d9a8ec5643e65957e658017b9bc6f))
+- **BREAKING** --output regenerated the whole CHANGELOG, destroying it each release ([`62dd84e`](https://github.com/brewkits/kmpworkmanager/commit/62dd84e8b937df71ff47641fcfd5a4272049393b))
+**Migration:** two consumer-visible behaviour changes in v3.5.0 — KmpHeavyWorker.FGS_MEDIA_PROCESSING is now 8192 (was 4096, which is not a valid foreground-service type and made every media-processing worker fail on Android 15), and FakeBackgroundTaskScheduler.isPending() now returns false after cancelAll(). Migration detail: docs/release-notes/v3.5.0-RELEASE-NOTES.md
+- A scheduler that cancels nothing now says so, plus repo hygiene ([`29e880b`](https://github.com/brewkits/kmpworkmanager/commit/29e880b76e69bad3242128e1a86ec0e514889e0b))
+- Restore @Volatile on the disk-space cache, dropped in the Stage 4 move ([`3f4fcc4`](https://github.com/brewkits/kmpworkmanager/commit/3f4fcc4cdf32caf130769dda0cb960c014535921))
+- Dashboard showed 0ms for every task and counted each one twice ([`f1e5cee`](https://github.com/brewkits/kmpworkmanager/commit/f1e5ceed325adedf49eb4f1adc698777333286a1))
+- Tasks and chains whose id starts with a dot were invisible to every listing ([`f6494da`](https://github.com/brewkits/kmpworkmanager/commit/f6494da476e34dae8c4de37eb307a7e480bdbe36))
+- Windowed tasks lost every constraint on their first retry ([`4fe6dba`](https://github.com/brewkits/kmpworkmanager/commit/4fe6dba515ec884aeca49aff7271b02922c2fa82))
+- Restore metadata compilation, broken by the storage extraction ([`ca466b4`](https://github.com/brewkits/kmpworkmanager/commit/ca466b47124ca011548ce577007d71a367530e05))
+- One tap disabled the whole Demo Scenarios screen on iOS ([`797b5c0`](https://github.com/brewkits/kmpworkmanager/commit/797b5c06969dfdb1eae38962da2d3edea6c174c5))
+- Bound the emergency flush's second blocking section, and close a signal leak ([`aff0b38`](https://github.com/brewkits/kmpworkmanager/commit/aff0b38b37dba6e6e97fffffe660fd917d7cfbc7))
+- Redact signing keys and refresh tokens from config toString() ([`70e01cf`](https://github.com/brewkits/kmpworkmanager/commit/70e01cf85039f783c03e91926a7f341ee7bb61fa))
+- Kmpworker-ksp was deleted from the Maven bundle before zipping ([`260571d`](https://github.com/brewkits/kmpworkmanager/commit/260571d263775595f8a46f48279068e10f2ef9d6))
+- Move the bundle completeness check out of generateFullMavenZip ([`593a9a0`](https://github.com/brewkits/kmpworkmanager/commit/593a9a0bba996bb0791534a2361add04dd94cca5))
+- Log messages were passed to NSLog as a format string ([`a6b4661`](https://github.com/brewkits/kmpworkmanager/commit/a6b4661b2b2da875a9f7e25f4099f0fe84c7c9ad))
+
+### Performance
+
+- Drop the queue's quadratic drain cost ([`6b7040c`](https://github.com/brewkits/kmpworkmanager/commit/6b7040c53e900b01d5388b049a44e4fcbd07c0aa))
+
+### Tests
+
+- V3.5.0 Phase 3 — nothing in the suite is skipped any more ([`979f574`](https://github.com/brewkits/kmpworkmanager/commit/979f57432970be489e46ed9cea54fb1b2e76bd52))
+- Cover the storage layer's performance envelope and the untested configs ([`0eb088c`](https://github.com/brewkits/kmpworkmanager/commit/0eb088c9c7b89030e4b802f7d2d659fe41012dd4))
+- Implement the empty placeholder test, and label the fake ones ([`7c2a318`](https://github.com/brewkits/kmpworkmanager/commit/7c2a3188c59238569039e5d56ee30aacfd432388))
+- Isolate V341KeepPolicyDynamicIdTest, and correct two misleading KDocs ([`647a63a`](https://github.com/brewkits/kmpworkmanager/commit/647a63aac851b7e5e4317b449d33d6d05c0f3fdc))
+- Reproduce the progress-flush deadlock that was only theorised ([`ac0fd18`](https://github.com/brewkits/kmpworkmanager/commit/ac0fd183ae62ebc1565763622383b2b51f919ebd))
+- Cover the join between scheduling a task and executing it ([`4207575`](https://github.com/brewkits/kmpworkmanager/commit/4207575c8c564e5bb70731575b5cace224a7c7b8))
+
 ## [3.4.1] - 2026-09-03
 
 Patch release: a targeted fix for issue #101, plus 6 more bugs (1 high-severity progress-loss
