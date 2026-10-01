@@ -4,11 +4,12 @@ updates:
   - package-ecosystem: "gradle"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
       time: "06:00"
       timezone: "Asia/Ho_Chi_Minh"
-    open-pull-requests-limit: 5
+    # Don't auto-rebase open PRs on every push to main: each rebase re-runs CI.
+    rebase-strategy: "disabled"
+    open-pull-requests-limit: 2
     labels:
       - "dependencies"
       - "gradle"
@@ -72,11 +73,12 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
       time: "06:00"
       timezone: "Asia/Ho_Chi_Minh"
-    open-pull-requests-limit: 3
+    # Don't auto-rebase open PRs on every push to main: each rebase re-runs CI.
+    rebase-strategy: "disabled"
+    open-pull-requests-limit: 2
     labels:
       - "dependencies"
       - "github-actions"
